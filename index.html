@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BassMastery - Espace Maja</title>
+    
+    <!-- Tailwind CSS (Дизайн) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Иконки -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Шрифты -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Настройки для ИИ (Gemini) -->
+    <script type="importmap">
+    {
+      "imports": {
+        "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0"
+      }
+    }
+    </script>
+
+    <style>
+      body {
+        font-family: 'Inter', sans-serif;
+        background-color: #0f172a; /* Slate 900 */
+        color: #e2e8f0; /* Slate 200 */
+      }
+      /* Скроллбар */
+      ::-webkit-scrollbar { width: 8px; }
+      ::-webkit-scrollbar-track { background: #1e293b; }
+      ::-webkit-scrollbar-thumb { background: #4c1d95; border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: #5b21b6; }
+      
+      .fade-in { animation: fadeIn 0.3s ease-in-out; }
+      @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+      .disabled-module { opacity: 0.6; pointer-events: none; filter: grayscale(0.8); }
+    </style>
+</head>
+<body class="pb-20 relative overflow-x-hidden min-h-screen">
+
+    <!-- Фоновая амбиенс -->
+    <div class="fixed top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
+        <div class="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-blue-900/20 blur-[100px]"></div>
+        <div class="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-violet-900/20 blur-[100px]"></div>
+    </div>
+
+    <!-- Основной контент -->
+    <div id="app" class="relative z-10 max-w-4xl mx-auto px-4 py-8 md:py-12">
+        <!-- Сюда будет рендериться все приложение через JavaScript -->
+    </div>
+
+    <!-- Модальное окно для фото (скрыто по умолчанию) -->
+    <div id="image-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 hidden">
+        <div class="bg-slate-900 rounded-2xl border border-slate-700 max-w-4xl w-full p-6 relative shadow-2xl flex flex-col max-h-[90vh]">
+            <button onclick="closeImageModal()" class="absolute top-4 right-4 p-2 bg-slate-800 text-slate-400 hover:text-white rounded-full border border-slate-700">
+                <i data-lucide="x"></i>
+            </button>
+            
+            <div class="flex justify-between items-center mb-6 pr-12">
+                <h3 id="modal-title" class="text-xl font-bold text-white">Titre</h3>
+                <label class="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg cursor-pointer transition-colors text-sm font-semibold shadow-md">
+                    <i data-lucide="upload" class="w-4 h-4"></i>
+                    <span>Ajouter photos</span>
+                    <input type="file" accept="image/*" multiple class="hidden" onchange="handleImageUpload(event)">
+                </label>
+            </div>
+
+            <div id="modal-gallery" class="grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto pr-2 pb-4">
+                <!-- Фотографии появятся здесь -->
+            </div>
+            
+            <p class="text-center text-sm text-slate-400 mt-auto border-t border-slate-800 pt-4">
+               Les photos que vous ajoutez resteront enregistrées ici.
+            </p>
+        </div>
+    </div>
+
+    <!-- Чат кнопка -->
+    <button onclick="toggleChat()" class="fixed bottom-6 right-6 p-4 bg-blue-600 text-white rounded-full shadow-2xl hover:bg-blue-500 transition-all z-40 hover:scale-110 active:scale-95 border-2 border-blue-400">
+        <i id="chat-icon" data-lucide="message-square" class="w-7 h-7"></i>
+    </button>
+
+    <!-- Окно чата -->
+    <div id="chat-window" class="fixed bottom-24 right-6 w-[90vw] md:w-96 h-[500px] bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl z-40 flex flex-col overflow-hidden hidden backdrop-blur-xl bg-opacity-95">
+        <div class="bg-slate-900 p-4 border-b border-slate-700 flex items-center gap-3">
+            <div class="p-2 bg-violet-600 rounded-lg"><i data-lucide="bot" class="text-white"></i></div>
+            <div>
+                <h3 class="font-bold text-slate-100">Coach Basse IA</h3>
+                <p class="text-xs text-green-400 flex items-center gap-1">En ligne</p>
+            </div>
+        </div>
+        <div id="chat-messages" class="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-900/90 scroll-smooth">
+            <!-- Сообщения -->
+        </div>
+        <div class="p-3 bg-slate-800 border-t border-slate-700 flex gap-2">
+            <input id="chat-input" type="text" placeholder="Posez une question..." class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm text-slate-200 focus:outline-none focus:border-violet-500">
+            <button onclick="sendMessage()" class="p-2 bg-violet-600 hover:bg-violet-500 text-white rounded-xl"><i data-lucide="send" class="w-5 h-5"></i></button>
+        </div>
+    </div>
+
+    <!-- JAVASCRIPT LOGIC -->
+    <script type="module">
+        import { GoogleGenAI } from "@google/genai";
+
+        // ==========================================
+        // 1. ДАННЫЕ КУРСА (РЕДАКТИРУЙ ЗДЕСЬ)
+        // ==========================================
+        const COURSE_DATA = [
+            {
+                id: 'mod-1',
+                title: 'MODULE 1',
+                subtitle: 'CARTE HARMONIQUE DU MANCHE (BLOCS)',
+                lessons: [
+                    {
+                        id: 'm1-l1',
+                        title: 'Leçon 1 — Technique, Chanson & 4 Blocs',
+                        description: 'Placement de main et formes géométriques.',
+                        details: [
+                            'Technique Main Droite.',
+                            'Théorie : Se rappeler du Mode Ré Dorien (D Dorian) et Sol Majeur (G Ionian).',
+                            'Géométrie : Les 4 Blocs se jouent sur tout le manche.'
+                        ],
+                        tasks: [
+                            { 
+                                id: 't1-1-1', 
+                                text: 'Se rappeler : Mode Ré Dorien (D) & Sol Majeur (G)', 
+                                details: 'Voisins (1 ton d\'écart). Ré Dorien = position de base. Sol Majeur (Ionien) = 1 ton plus bas.' 
+                            },
+                            { 
+                                id: 't1-1-2', 
+                                text: 'Mémoriser les 4 formes géométriques (Voir photos)', 
+                                details: 'Visualiser les formes sur le manche. Cliquez pour voir ou ajouter vos photos.',
+                                showImages: true,
+                                imageUrls: [] // Загрузятся из памяти
+                            },
+                            { 
+                                id: 't1-1-3', 
+                                text: 'Jouer "Do You Wanna Be My Girl?"', 
+                                details: 'Focus sur l\'extraction du son main droite. Le son doit être uniforme et stable. (ongles courts recommandés)' 
+                            }
+                        ]
+                    },
+                    {
+                        id: 'm1-l2',
+                        title: 'Leçon 2 — Algorithme de Déplacement',
+                        description: 'Navigation fluide sur le manche via la logique des blocs.',
+                        details: [
+                            'Les 4 Blocs : Mineur, Majeur, Lydien, Mixolydien',
+                            'Pas principal : UN TON (2 cases)',
+                            'Mineurs jumelés & Voisins majeurs',
+                            'Collage : Mineur → Majeur (+1/2 ton)',
+                            'Collage : Majeur → Mineur (+1 ton)'
+                        ],
+                        tasks: [
+                            { id: 't1-2-1', text: 'Pratiquer le saut de ton' },
+                            { id: 't1-2-2', text: 'Connecter Mineur vers Majeur' }
+                        ]
+                    },
+                    {
+                        id: 'm1-prac',
+                        title: 'PRATIQUE DU MODULE 1',
+                        description: 'Validation des acquis : Les 4 Blocs sur tout le manche.',
+                        isPractice: true,
+                        details: [
+                            'Objectif : Fluidité de navigation sur les 4 formes.',
+                            'Séquence : Accords → Arpèges → Aléatoire.'
+                        ],
+                        tasks: [
+                            { id: 't1-prac-1', text: 'Étape 1 : Jeu en Accords (Positions fixes)' },
+                            { id: 't1-prac-2', text: 'Étape 2 : Jeu en Arpèges (Délié)' },
+                            { id: 't1-prac-3', text: 'Étape 3 : Notes Aléatoires (Connexions)' }
+                        ]
+                    }
+                ]
+            },
+            {
+                id: 'mod-2',
+                title: 'MODULE 2',
+                subtitle: 'RYTHMIQUE ET GROOVE FONDAMENTAL',
+                lessons: [
+                    {
+                        id: 'm2-l1',
+                        title: 'Leçon 1 — Base Rythmique du Bassiste',
+                        description: 'Subdivisions, accents et solidité du temps.',
+                        details: [
+                            'Comptage : 1e&a, 2e&a',
+                            'Gestion des accents forts/faibles',
+                            'Métronome : Déplacer le clic sur 2 et 4, puis sur 1',
+                            'Groove mono-note avec variations de caractère'
+                        ],
+                        tasks: [
+                            { id: 't2-1-1', text: 'Exercice de subdivision (1e&a)' },
+                            { id: 't2-1-2', text: 'Groove sur une seule note (stabilité)' }
+                        ]
+                    },
+                    {
+                        id: 'm2-l2',
+                        title: 'Leçon 2 — Ghost Notes et Patterns',
+                        description: 'Ajouter de la percussivité et du "bavardage" rythmique.',
+                        details: [
+                            'Ghost notes isolées vs Séries',
+                            'Syncopes et contre-temps',
+                            'Contrôle absolu du métronome (zéro drift)'
+                        ],
+                        tasks: [
+                            { id: 't2-2-1', text: 'Maîtriser les ghosts en série' }
+                        ]
+                    },
+                    {
+                        id: 'm2-prac',
+                        title: 'PRATIQUE DU MODULE 2',
+                        description: 'Validation des acquis : Groove & Timing.',
+                        isPractice: true,
+                        tasks: [
+                            { id: 't2-prac-1', text: 'Groove 4 mesures stable avec ghosts' }
+                        ]
+                    }
+                ]
+            },
+            {
+                id: 'mod-3',
+                title: 'MODULE 3',
+                subtitle: 'ARCHITECTURE LINÉAIRE : HODS ET LIENS',
+                lessons: [
+                    {
+                        id: 'm3-l1',
+                        title: 'Leçon 1 — Notes de Passage (Leading Tones)',
+                        description: 'Comment relier les accords de manière fluide.',
+                        details: [
+                            'Approche Diatonique',
+                            'Utilisation des Octaves',
+                            'Arpèges et degrés stables',
+                            'Construction de lignes mélodiques'
+                        ],
+                        tasks: [
+                            { id: 't3-1-1', text: 'Créer des approches diatoniques' },
+                            { id: 't3-1-2', text: 'Intégrer les octaves dans le jeu' }
+                        ]
+                    },
+                    {
+                        id: 'm3-l2',
+                        title: 'Leçon 2 — Fills comme Ponts',
+                        description: 'Le fill n\'est pas un solo, c\'est un connecteur.',
+                        details: [
+                            'Types de Fills : Rythmique, Mélodique, Chromatique',
+                            'Le "Drive-in" en fin de mesure',
+                            'Continuité du groove pendant le fill'
+                        ],
+                        tasks: [
+                            { id: 't3-2-1', text: 'Travailler le fill rythmique' }
+                        ]
+                    },
+                    {
+                        id: 'm3-prac',
+                        title: 'PRATIQUE DU MODULE 3',
+                        description: 'Validation des acquis : Transitions & Fills.',
+                        isPractice: true,
+                        tasks: [
+                            { id: 't3-prac-1', text: 'Transitions Am-D-G-C + 3 types de fills' }
+                        ]
+                    }
+                ]
+            },
+            {
+                id: 'mod-4',
+                title: 'MODULE 4',
+                subtitle: 'STYLES ET VARIATIONS DE GROOVE',
+                lessons: [
+                    {
+                        id: 'm4-l1',
+                        title: 'Leçon 1 — Rock et Blues',
+                        description: 'Les fondations de la musique moderne.',
+                        details: [
+                            'Rock : Croches (8ths), Octaves, Attaque dense',
+                            'Blues : Shuffle (triolets), Chromatisme, Grille I-IV-V'
+                        ],
+                        tasks: [
+                            { id: 't4-1-1', text: 'Enregistrer un groove Rock (au médiator ou doigts)' },
+                            { id: 't4-1-2', text: 'Enregistrer une grille Blues Shuffle' }
+                        ]
+                    },
+                    {
+                        id: 'm4-l2',
+                        title: 'Leçon 2 — Pop / Soul',
+                        description: 'L\'art de faire danser et soutenir la chanson.',
+                        details: [
+                            'Syncopes légères et aérées',
+                            'Groove Flow : Évolution tous les 2-4 mesures',
+                            'Dynamique : Contraste Couplet vs Refrain'
+                        ],
+                        tasks: [
+                            { id: 't4-2-1', text: 'Créer une ligne avec contraste dynamique' }
+                        ]
+                    },
+                    {
+                        id: 'm4-l3',
+                        title: 'Leçon 3 — Funk (Niveau Final)',
+                        description: 'Précision rythmique extrême.',
+                        details: [
+                            'Doubles-croches (16ths)',
+                            'Séries de Ghost notes',
+                            'Syncopes complexes (Niveau 2-3)',
+                            'Discipline du Groove et "Air" (silences)'
+                        ],
+                        tasks: [
+                            { id: 't4-3-1', text: 'Exercice de double-croches' }
+                        ]
+                    },
+                    {
+                        id: 'm4-prac',
+                        title: 'PRATIQUE DU MODULE 4',
+                        description: 'Validation des acquis : Polyvalence Stylistique.',
+                        isPractice: true,
+                        tasks: [
+                            { id: 't4-prac-1', text: 'Jouer une harmonie en Rock → Blues → Pop → Funk' }
+                        ]
+                    }
+                ]
+            },
+            {
+                id: 'mod-5',
+                title: 'MODULE 5',
+                subtitle: 'FINALE : COMPOSITION DE VOTRE LIGNE DE BASSE',
+                lessons: [
+                    {
+                        id: 'm5-l1',
+                        title: 'Leçon 1 — Architecture de la ligne de basse',
+                        description: 'Comprendre les rôles fondamentaux et les stratégies de construction.',
+                        details: [
+                            'Rôles : Rythme → Harmonie → Remplissage → Soutien',
+                            'Stratégies : Ostinato, Harmonique, Mélodique',
+                            'Interaction : Unisson, Doublage, Contraste',
+                            'Adaptation : Guitare vs Batterie'
+                        ],
+                        tasks: [
+                            { id: 't5-1-1', text: 'Analyser les rôles rythmiques' },
+                            { id: 't5-1-2', text: 'Comprendre les changements de position' },
+                            { id: 't5-1-3', text: 'Étudier les interactions d\'ensemble' }
+                        ]
+                    },
+                    {
+                        id: 'm5-l2',
+                        title: 'Leçon 2 — Création de 4 Variantes',
+                        description: 'Appliquer 4 approches différentes sur une même progression (ex: Am – F – C – G).',
+                        tasks: [
+                            { id: 't5-2-1', text: 'Variante 1 : Ostinato + Fills (Stabilité + Ornements)' },
+                            { id: 't5-2-2', text: 'Variante 2 : Ostinato + Grosse Caisse (Style Prog-Rock)' },
+                            { id: 't5-2-3', text: 'Variante 3 : Jeu avec la Guitare (Unisson/Riff)' },
+                            { id: 't5-2-4', text: 'Variante 4 : Fusion Totale (Guitare + Grosse Caisse)' }
+                        ]
+                    },
+                    {
+                        id: 'm5-prac',
+                        title: 'PRATIQUE FINALE',
+                        description: 'Démontrer la maîtrise des 4 styles dans une performance continue.',
+                        isPractice: true,
+                        details: [
+                            'Jouer 4 variantes distinctes de la même progression',
+                            '16–24 mesures par style (ou 8 minimum)',
+                            'Démontrer : Groove stable, contrôle rythmique, transitions fluides',
+                            'Dynamique et musicalité obligatoires'
+                        ],
+                        tasks: [
+                            { id: 'ex-1', text: 'Variante Ostinato + Fills' },
+                            { id: 'ex-2', text: 'Variante Lock Grosse Caisse' },
+                            { id: 'ex-3', text: 'Variante Unisson Guitare' },
+                            { id: 'ex-4', text: 'Variante Combo (Fusion)' },
+                            { id: 'ex-5', text: 'Performance complète' }
+                        ]
+                    }
+                ]
+            }
+        ];
+
+        // ==========================================
+        // 2. STATE MANAGEMENT (Variable Storage)
+        // ==========================================
+        let completedTasks = new Set(JSON.parse(localStorage.getItem('maja_bass_progress_v2') || '[]'));
+        let expandedLessons = new Set(['m1-l1']);
+        let expandedTaskDetails = new Set();
+        let userUploadedImages = JSON.parse(localStorage.getItem('maja_bass_user_images') || '{}');
+        let currentImageTaskId = null;
+        let chatHistory = [{ role: 'model', text: "Bonjour Maja ! Je suis ton assistant basse. Prêt à travailler ?" }];
+
+        // ==========================================
+        // 3. RENDER LOGIC
+        // ==========================================
+        function renderApp() {
+            const app = document.getElementById('app');
+            const allTasks = COURSE_DATA.flatMap(m => m.lessons.flatMap(l => l.tasks));
+            const progress = (allTasks.filter(t => completedTasks.has(t.id)).length / allTasks.length) * 100;
+
+            let html = `
+                <!-- HEADER -->
+                <header class="mb-10 text-center md:text-left border-b border-slate-800 pb-6">
+                    <div class="flex items-center justify-center md:justify-start gap-3 mb-2">
+                        <div class="p-2 bg-gradient-to-br from-violet-600 to-blue-600 rounded-lg shadow-lg">
+                            <i data-lucide="music-2" class="text-white w-7 h-7"></i>
+                        </div>
+                        <h2 class="text-xl font-bold tracking-wider text-slate-400 uppercase">BassMastery</h2>
+                    </div>
+                    <h1 class="text-4xl md:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-slate-100 via-violet-200 to-blue-200 mb-2">
+                        Espace Maja
+                    </h1>
+                    <p class="text-slate-400 max-w-lg">Programme complet : Blocs Harmoniques, Groove & Architecture.</p>
+                </header>
+
+                <!-- PROGRESS BAR -->
+                <div class="mb-12">
+                    <div class="w-full bg-slate-800 rounded-full h-4 mb-2 border border-slate-700">
+                        <div class="bg-gradient-to-r from-blue-600 via-violet-600 to-violet-500 h-4 rounded-full transition-all duration-700 ease-out shadow-[0_0_10px_rgba(139,92,246,0.5)]" style="width: ${progress}%"></div>
+                    </div>
+                    <div class="text-right text-xs text-violet-300 font-mono">${Math.round(progress)}% Complété</div>
+                </div>
+
+                <!-- MODULES -->
+                <div class="space-y-12">
+            `;
+
+            COURSE_DATA.forEach(module => {
+                const isModuleLocked = module.id !== 'mod-1';
+                html += `
+                    <div class="relative ${isModuleLocked ? 'disabled-module' : ''}">
+                        <div class="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 mb-6 border-l-4 border-violet-500 pl-4">
+                            <h2 class="text-sm font-bold text-violet-400 uppercase tracking-widest">${module.title}</h2>
+                            <h3 class="text-2xl md:text-3xl font-bold text-white">${module.subtitle}</h3>
+                            ${isModuleLocked ? '<i data-lucide="lock" class="w-5 h-5 text-slate-600"></i>' : ''}
+                        </div>
+                        <div class="space-y-4">
+                `;
+
+                module.lessons.forEach(lesson => {
+                    const isPractice = lesson.isPractice;
+                    const isExpanded = expandedLessons.has(lesson.id);
+                    
+                    html += `
+                        <div class="group relative bg-slate-900 border rounded-2xl overflow-hidden transition-all duration-300 ${isPractice ? 'border-emerald-500/50 hover:border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.1)]' : 'border-slate-800 hover:border-slate-600'}">
+                            <!-- Lesson Header -->
+                            <div onclick="window.toggleLesson('${lesson.id}', '${module.id}')" class="p-6 flex items-center justify-between cursor-pointer transition-colors ${isPractice ? 'bg-emerald-900/10 hover:bg-emerald-900/20' : 'bg-slate-800/30 hover:bg-slate-800/50'}">
+                                <div class="flex-1">
+                                    <h4 class="text-lg md:text-xl font-bold mb-1 flex items-center gap-2 ${isPractice ? 'text-emerald-300' : 'text-slate-200'}">
+                                        ${isPractice ? '<i data-lucide="target" class="w-5 h-5 text-emerald-400"></i>' : ''}
+                                        ${lesson.title}
+                                    </h4>
+                                    <p class="text-slate-400 text-sm md:text-base pr-4">${lesson.description}</p>
+                                </div>
+                                <div class="text-slate-500">
+                                    <i data-lucide="${isExpanded ? 'chevron-up' : 'chevron-down'}" class="w-6 h-6"></i>
+                                </div>
+                            </div>
+
+                            <!-- Expanded Content -->
+                            ${isExpanded ? `
+                                <div class="p-6 pt-0 border-t ${isPractice ? 'border-emerald-500/20' : 'border-slate-800/50'} bg-slate-900/50 fade-in">
+                                    ${lesson.details ? `
+                                        <div class="mb-6 mt-6 bg-slate-800/40 p-5 rounded-xl border border-slate-700/50">
+                                            <h5 class="text-violet-400 font-semibold mb-3 text-xs uppercase tracking-wide flex items-center gap-2"><i data-lucide="book-open" class="w-4 h-4"></i> Points Clés</h5>
+                                            <ul class="space-y-2">
+                                                ${lesson.details.map(d => `<li class="flex items-start gap-2 text-slate-300 text-sm"><span class="mt-1.5 w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0"></span>${d}</li>`).join('')}
+                                            </ul>
+                                        </div>
+                                    ` : ''}
+
+                                    <div class="space-y-3 mt-6">
+                                        <h5 class="text-slate-500 font-semibold text-xs uppercase tracking-wide mb-2">Objectifs Pratiques</h5>
+                                        ${lesson.tasks.map(task => {
+                                            const isChecked = completedTasks.has(task.id);
+                                            const isTaskExpanded = expandedTaskDetails.has(task.id);
+                                            const hasUserImages = userUploadedImages[task.id] && userUploadedImages[task.id].length > 0;
+                                            
+                                            return `
+                                            <div class="flex flex-col p-3 rounded-lg border transition-all duration-200 ${isChecked ? 'bg-violet-900/20 border-violet-500/50 text-violet-200' : 'bg-slate-800/50 border-slate-700 text-slate-300'}">
+                                                <div class="flex items-center">
+                                                    <div onclick="window.toggleTask('${task.id}')" class="mr-4 cursor-pointer hover:scale-110 transition-transform ${isChecked ? 'text-green-400' : 'text-slate-500'}">
+                                                        <i data-lucide="${isChecked ? 'check-circle-2' : 'circle'}" class="w-6 h-6"></i>
+                                                    </div>
+                                                    <div class="flex-1 flex flex-col md:flex-row md:items-center justify-between gap-2 cursor-pointer" onclick="window.toggleTaskDetails('${task.id}')">
+                                                        <div class="flex items-center gap-2">
+                                                            <span class="font-medium select-none">${task.text}</span>
+                                                            ${task.details ? `<i data-lucide="info" class="w-4 h-4 transition-transform ${isTaskExpanded ? 'rotate-180 text-violet-400' : 'text-slate-600'}"></i>` : ''}
+                                                        </div>
+                                                        ${task.showImages ? `
+                                                            <button onclick="window.openImageModal(event, '${task.id}', '${task.text.replace(/'/g, "\\'")}')" class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold uppercase tracking-wider transition-colors shadow-lg">
+                                                                <i data-lucide="image" class="w-3 h-3"></i> ${hasUserImages ? 'Voir photos' : 'Ajouter photos'}
+                                                            </button>
+                                                        ` : ''}
+                                                    </div>
+                                                </div>
+                                                ${isTaskExpanded && task.details ? `<div class="mt-2 ml-10 p-3 bg-slate-900/50 rounded-lg text-sm text-slate-400 border-l-2 border-violet-500/30 fade-in">${task.details}</div>` : ''}
+                                            </div>
+                                            `
+                                        }).join('')}
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                });
+                html += `</div></div>`;
+            });
+            html += `</div>`;
+            
+            app.innerHTML = html;
+            lucide.createIcons();
+        }
+
+        // ==========================================
+        // 4. EVENT HANDLERS (Interactivity)
+        // ==========================================
+        window.toggleTask = (id) => {
+            if (completedTasks.has(id)) completedTasks.delete(id);
+            else completedTasks.add(id);
+            localStorage.setItem('maja_bass_progress_v2', JSON.stringify([...completedTasks]));
+            renderApp();
+        };
+
+        window.toggleLesson = (lessonId, moduleId) => {
+            if (moduleId !== 'mod-1') return; // Lock check
+            if (expandedLessons.has(lessonId)) expandedLessons.delete(lessonId);
+            else expandedLessons.add(lessonId);
+            renderApp();
+        };
+
+        window.toggleTaskDetails = (id) => {
+            if (expandedTaskDetails.has(id)) expandedTaskDetails.delete(id);
+            else expandedTaskDetails.add(id);
+            renderApp();
+        };
+
+        // --- IMAGES ---
+        window.openImageModal = (e, taskId, title) => {
+            e.stopPropagation();
+            currentImageTaskId = taskId;
+            document.getElementById('modal-title').innerText = title;
+            document.getElementById('image-modal').classList.remove('hidden');
+            renderGallery();
+        };
+
+        window.closeImageModal = () => {
+            document.getElementById('image-modal').classList.add('hidden');
+            currentImageTaskId = null;
+        };
+
+        window.renderGallery = () => {
+            const gallery = document.getElementById('modal-gallery');
+            const images = userUploadedImages[currentImageTaskId] || [];
+            
+            if (images.length === 0) {
+                gallery.innerHTML = `
+                    <div class="col-span-full flex flex-col items-center justify-center h-48 text-slate-500 border-2 border-dashed border-slate-700 rounded-xl">
+                        <i data-lucide="image" class="w-12 h-12 mb-2 opacity-50"></i>
+                        <p class="italic">Aucune photo pour l'instant.</p>
+                    </div>`;
+            } else {
+                gallery.innerHTML = images.map((img, idx) => `
+                    <div class="relative group rounded-xl overflow-hidden border border-slate-800">
+                        <img src="${img}" class="w-full h-auto object-cover" />
+                        <div class="absolute bottom-0 left-0 w-full bg-black/60 p-2 text-center text-xs text-slate-300">Photo ${idx + 1}</div>
+                    </div>
+                `).join('');
+            }
+            lucide.createIcons();
+        };
+
+        window.handleImageUpload = (e) => {
+            const files = Array.from(e.target.files);
+            files.forEach(file => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    if (!userUploadedImages[currentImageTaskId]) userUploadedImages[currentImageTaskId] = [];
+                    userUploadedImages[currentImageTaskId].push(reader.result);
+                    localStorage.setItem('maja_bass_user_images', JSON.stringify(userUploadedImages));
+                    renderGallery();
+                    renderApp(); // Update button text
+                };
+                reader.readAsDataURL(file);
+            });
+        };
+
+        // --- CHAT ---
+        window.toggleChat = () => {
+            const win = document.getElementById('chat-window');
+            win.classList.toggle('hidden');
+            if (!win.classList.contains('hidden')) renderChat();
+        };
+
+        window.renderChat = () => {
+            const container = document.getElementById('chat-messages');
+            container.innerHTML = chatHistory.map(msg => `
+                <div class="flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}">
+                    <div class="max-w-[80%] p-3 rounded-2xl text-sm leading-relaxed ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-br-none' : 'bg-slate-700 text-slate-200 rounded-bl-none border border-slate-600'}">
+                        ${msg.text}
+                    </div>
+                </div>
+            `).join('');
+            container.scrollTop = container.scrollHeight;
+        };
+
+        window.sendMessage = async () => {
+            const input = document.getElementById('chat-input');
+            const text = input.value.trim();
+            if (!text) return;
+            
+            chatHistory.push({ role: 'user', text });
+            input.value = '';
+            renderChat();
+
+            // Gemini Call
+            try {
+                const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+                const model = ai.getGenerativeModel({ model: 'gemini-2.5-flash' });
+                const result = await model.generateContent({
+                     contents: [{ role: 'user', parts: [{ text: "Context: Bass teacher app for Maja. " + text }] }]
+                });
+                const response = result.response.text();
+                chatHistory.push({ role: 'model', text: response });
+            } catch (err) {
+                console.error(err);
+                chatHistory.push({ role: 'model', text: "Erreur de connexion." });
+            }
+            renderChat();
+        };
+        
+        // Initial Render
+        renderApp();
+
+    </script>
+</body>
+</html>
