@@ -54,22 +54,22 @@
     </div>
 
     <!-- Модальное окно для фото (скрыто по умолчанию) -->
-    <div id="image-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 hidden">
-        <div class="bg-slate-900 rounded-2xl border border-slate-700 max-w-4xl w-full p-6 relative shadow-2xl flex flex-col max-h-[90vh]">
-            <button onclick="closeImageModal()" class="absolute top-4 right-4 p-2 bg-slate-800 text-slate-400 hover:text-white rounded-full border border-slate-700">
+    <div id="image-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-2 sm:p-4 hidden">
+        <div class="modal-content bg-slate-900 rounded-2xl border border-slate-700 w-full max-w-lg sm:max-w-3xl md:max-w-4xl p-4 sm:p-6 relative shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+            <button onclick="closeImageModal()" class="absolute top-3 right-3 sm:top-4 sm:right-4 p-2 bg-slate-800 text-slate-400 hover:text-white rounded-full border border-slate-700">
                 <i data-lucide="x"></i>
             </button>
             
-            <div class="flex justify-between items-center mb-6 pr-12">
-                <h3 id="modal-title" class="text-xl font-bold text-white">Titre</h3>
-                <label class="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg cursor-pointer transition-colors text-sm font-semibold shadow-md">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4 sm:mb-6 pr-0 sm:pr-12">
+                <h3 id="modal-title" class="text-xl font-bold text-white flex-1">Titre</h3>
+                <label class="self-start sm:self-auto flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg cursor-pointer transition-colors text-sm font-semibold shadow-md">
                     <i data-lucide="upload" class="w-4 h-4"></i>
                     <span>Ajouter photos</span>
                     <input type="file" accept="image/*" multiple class="hidden" onchange="handleImageUpload(event)">
                 </label>
             </div>
 
-            <div id="modal-gallery" class="grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto pr-2 pb-4">
+            <div id="modal-gallery" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 overflow-y-auto pr-1 sm:pr-2 pb-4">
                 <!-- Фотографии появятся здесь -->
             </div>
             
@@ -557,7 +557,9 @@
             e.stopPropagation();
             currentImageTaskId = taskId;
             document.getElementById('modal-title').innerText = title;
-            document.getElementById('image-modal').classList.remove('hidden');
+            const modal = document.getElementById('image-modal');
+            modal.classList.remove('hidden');
+            modal.querySelector('.modal-content').scrollTop = 0;
             renderGallery();
         };
 
@@ -572,15 +574,15 @@
             
             if (images.length === 0) {
                 gallery.innerHTML = `
-                    <div class="col-span-full flex flex-col items-center justify-center h-48 text-slate-500 border-2 border-dashed border-slate-700 rounded-xl">
+                    <div class="col-span-full flex flex-col items-center justify-center h-40 sm:h-48 text-slate-500 border-2 border-dashed border-slate-700 rounded-xl">
                         <i data-lucide="image" class="w-12 h-12 mb-2 opacity-50"></i>
                         <p class="italic">Aucune photo pour l'instant.</p>
                     </div>`;
             } else {
                 gallery.innerHTML = images.map((img, idx) => `
-                    <div class="relative group rounded-xl overflow-hidden border border-slate-800">
-                        <img src="${img}" class="w-full h-auto object-cover" />
-                        <div class="absolute bottom-0 left-0 w-full bg-black/60 p-2 text-center text-xs text-slate-300">Photo ${idx + 1}</div>
+                    <div class="relative group rounded-xl overflow-hidden border border-slate-800 bg-slate-900/30">
+                        <img src="${img}" class="w-full h-40 sm:h-48 md:h-56 object-cover" />
+                        <div class="absolute bottom-0 left-0 w-full bg-black/60 px-2 py-1 text-center text-xs text-slate-200">Photo ${idx + 1}</div>
                     </div>
                 `).join('');
             }
