@@ -366,17 +366,30 @@
         let completedTasks = new Set(JSON.parse(localStorage.getItem('maja_bass_progress_v2') || '[]'));
         let expandedLessons = new Set(['m1-l1']);
         let expandedTaskDetails = new Set();
-        let userUploadedImages = JSON.parse(localStorage.getItem('maja_bass_user_images') || '{}');
+        // Default photos for task t1-1-2
+        const DEFAULT_PHOTOS = [
+            '/maja/images/photo1.jpeg',
+            '/maja/images/photo2.jpeg',
+            '/maja/images/photo3.jpeg',
+            '/maja/images/photo4.jpeg'
+        ];
         
-        // Initialize default photos for task t1-1-2 if not exists
+        let userUploadedImages = {};
+        try {
+            const stored = localStorage.getItem('maja_bass_user_images');
+            userUploadedImages = stored ? JSON.parse(stored) : {};
+        } catch (e) {
+            console.warn('localStorage not available, using defaults');
+        }
+        
+        // Always ensure default photos are available for t1-1-2
         if (!userUploadedImages['t1-1-2'] || userUploadedImages['t1-1-2'].length === 0) {
-            userUploadedImages['t1-1-2'] = [
-                './images/photo1.jpeg',
-                './images/photo2.jpeg',
-                './images/photo3.jpeg',
-                './images/photo4.jpeg'
-            ];
-            localStorage.setItem('maja_bass_user_images', JSON.stringify(userUploadedImages));
+            userUploadedImages['t1-1-2'] = [...DEFAULT_PHOTOS];
+            try {
+                localStorage.setItem('maja_bass_user_images', JSON.stringify(userUploadedImages));
+            } catch (e) {
+                // localStorage may not be available in incognito
+            }
         }
         
         let currentImageTaskId = null;
