@@ -367,6 +367,18 @@
         let expandedLessons = new Set(['m1-l1']);
         let expandedTaskDetails = new Set();
         let userUploadedImages = JSON.parse(localStorage.getItem('maja_bass_user_images') || '{}');
+        
+        // Initialize default photos for task t1-1-2 if not exists
+        if (!userUploadedImages['t1-1-2'] || userUploadedImages['t1-1-2'].length === 0) {
+            userUploadedImages['t1-1-2'] = [
+                './images/photo1.jpeg',
+                './images/photo2.jpeg',
+                './images/photo3.jpeg',
+                './images/photo4.jpeg'
+            ];
+            localStorage.setItem('maja_bass_user_images', JSON.stringify(userUploadedImages));
+        }
+        
         let currentImageTaskId = null;
         let imageCarouselIndex = {};
         let videoDropdownTaskId = null;
