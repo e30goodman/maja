@@ -128,7 +128,11 @@
                             { 
                                 id: 't1-1-1', 
                                 text: 'Se rappeler : Mode Ré Dorien (D) & Sol Majeur (G)', 
-                                details: 'Voisins (1 ton d\'écart). Ré Dorien = position de base. Sol Majeur (Ionien) = 1 ton plus bas.' 
+                                details: 'Voisins (1 ton d\'écart). Ré Dorien = position de base. Sol Majeur (Ionien) = 1 ton plus bas.',
+                                videoLinks: [
+                                    { label: 'Video 1', url: 'https://youtube.com/shorts/K4TBjjz3RpQ' },
+                                    { label: 'Video 2', url: 'https://youtube.com/shorts/brMNABXqQtg' }
+                                ]
                             },
                             { 
                                 id: 't1-1-2', 
@@ -384,6 +388,7 @@
         let expandedTaskDetails = new Set();
         let userUploadedImages = JSON.parse(localStorage.getItem('maja_bass_user_images') || '{}');
         let currentImageTaskId = null;
+        let videoDropdownTaskId = null;
         let chatHistory = [{ role: 'model', text: "Bonjour Maja ! Je suis ton assistant basse. Prêt à travailler ?" }];
 
         // ==========================================
@@ -485,8 +490,24 @@
                                                         </div>
                                                         ${task.showImages ? `
                                                             <button onclick="window.openImageModal(event, '${task.id}', '${task.text.replace(/'/g, "\\'")}')" class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold uppercase tracking-wider transition-colors shadow-lg">
-                                                                <i data-lucide="image" class="w-3 h-3"></i> ${hasUserImages ? 'Voir photos' : 'Ajouter photos'}
+                                                                <i data-lucide="image" class="w-3 h-3"></i> ${hasUserImages ? 'Photos' : 'Ajouter photos'}
                                                             </button>
+                                                        ` : ''}
+                                                        ${task.videoLinks ? `
+                                                            <div class="relative">
+                                                                <button onclick="window.toggleVideoDropdown(event, '${task.id}')" class="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white rounded text-xs font-bold uppercase tracking-wider transition-colors shadow-lg">
+                                                                    <i data-lucide="play" class="w-3 h-3"></i> Video
+                                                                </button>
+                                                                ${videoDropdownTaskId === task.id ? `
+                                                                    <div class="absolute right-0 mt-2 w-44 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden">
+                                                                        ${task.videoLinks.map((video, idx) => `
+                                                                            <button onclick="window.openVideoLink(event, '${video.url}')" class="w-full text-left px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 transition-colors">
+                                                                                ${video.label || `Video ${idx + 1}`}
+                                                                            </button>
+                                                                        `).join('')}
+                                                                    </div>
+                                                                ` : ''}
+                                                            </div>
                                                         ` : ''}
                                                     </div>
                                                 </div>
@@ -579,6 +600,19 @@
                 };
                 reader.readAsDataURL(file);
             });
+        };
+
+        window.toggleVideoDropdown = (event, taskId) => {
+            event.stopPropagation();
+            videoDropdownTaskId = videoDropdownTaskId === taskId ? null : taskId;
+            renderApp();
+        };
+
+        window.openVideoLink = (event, url) => {
+            event.stopPropagation();
+            window.open(url, '_blank');
+            videoDropdownTaskId = null;
+            renderApp();
         };
 
         // --- CHAT ---
