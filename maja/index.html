@@ -67,7 +67,7 @@
             
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4 sm:mb-6 pr-0 sm:pr-12">
                 <h3 id="modal-title" class="text-xl font-bold text-white flex-1">Titre</h3>
-                <label class="self-start sm:self-auto flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg cursor-pointer transition-colors text-sm font-semibold shadow-md">
+                <label id="upload-label" class="self-start sm:self-auto flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg cursor-pointer transition-colors text-sm font-semibold shadow-md">
                     <i data-lucide="upload" class="w-4 h-4"></i>
                     <span>Ajouter photos</span>
                     <input type="file" accept="image/*" multiple class="hidden" onchange="handleImageUpload(event)">
@@ -134,14 +134,27 @@
                         description: 'Navigation fluide sur le manche via la logique des blocs.',
                         details: [
                             'Les 4 Blocs : Mineur, Majeur, Lydien, Mixolydien',
-                            'Pas principal : UN TON (2 cases)',
-                            'Mineurs jumelés & Voisins majeurs',
-                            'Collage : Mineur → Majeur (+1/2 ton)',
-                            'Collage : Majeur → Mineur (+1 ton)'
+                            'Mineurs : toujours par paires. Lydien & Mixolydien : également par paires. Majeur : isolé entre les paires mineures.',
+                            'Mouvement vers le haut depuis deux blocs mineurs : +1/2 ton',
+                            'Mouvement vers le bas depuis les blocs mineurs : +1 ton'
                         ],
+                        showScheme: true,
+                        schemeUrl: '/maja/images/scheme_blocks.jpg',
                         tasks: [
-                            { id: 't1-2-1', text: 'Pratiquer le saut de ton' },
-                            { id: 't1-2-2', text: 'Connecter Mineur vers Majeur' }
+                            { 
+                                id: 't1-2-1', 
+                                text: 'Jouer une séquence de blocs sur tout le manche',
+                                videoLinks: [
+                                    { label: 'Video', url: 'https://www.youtube.com/shorts/5E38RDFRczU' }
+                                ]
+                            },
+                            { 
+                                id: 't1-2-2', 
+                                text: 'Connecter les blocs',
+                                videoLinks: [
+                                    { label: 'Video', url: 'https://youtube.com/shorts/HzII4AOrzj8' }
+                                ]
+                            }
                         ]
                     },
                     {
@@ -392,6 +405,19 @@
             }
         }
         
+        // Add scheme for lesson m1-l2
+        const lesson = COURSE_DATA.flatMap(m => m.lessons).find(l => l.id === 'm1-l2');
+        if (lesson && lesson.showScheme && lesson.schemeUrl) {
+            if (!userUploadedImages['scheme-m1-l2'] || userUploadedImages['scheme-m1-l2'].length === 0) {
+                userUploadedImages['scheme-m1-l2'] = [lesson.schemeUrl];
+                try {
+                    localStorage.setItem('maja_bass_user_images', JSON.stringify(userUploadedImages));
+                } catch (e) {
+                    // localStorage may not be available in incognito
+                }
+            }
+        }
+        
         let currentImageTaskId = null;
         let imageCarouselIndex = {};
         let videoDropdownTaskId = null;
@@ -468,7 +494,14 @@
                                 <div class="p-6 pt-0 border-t ${isPractice ? 'border-emerald-500/20' : 'border-slate-800/50'} bg-slate-900/50 fade-in">
                                     ${lesson.details ? `
                                         <div class="mb-6 mt-6 bg-slate-800/40 p-5 rounded-xl border border-slate-700/50">
-                                            <h5 class="text-violet-400 font-semibold mb-3 text-xs uppercase tracking-wide flex items-center gap-2"><i data-lucide="book-open" class="w-4 h-4"></i> Points Clés</h5>
+                                            <div class="flex items-center justify-between mb-3">
+                                                <h5 class="text-violet-400 font-semibold text-xs uppercase tracking-wide flex items-center gap-2"><i data-lucide="book-open" class="w-4 h-4"></i> Points Clés</h5>
+                                                ${lesson.showScheme ? `
+                                                    <button onclick="window.openImageModal(event, 'scheme-${lesson.id}', '${lesson.title.replace(/'/g, "\\'")}')" class="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold uppercase tracking-wider transition-colors shadow-lg">
+                                                        <i data-lucide="eye" class="w-3 h-3"></i> Voir
+                                                    </button>
+                                                ` : ''}
+                                            </div>
                                             <ul class="space-y-2">
                                                 ${lesson.details.map(d => `<li class="flex items-start gap-2 text-slate-300 text-sm"><span class="mt-1.5 w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0"></span>${d}</li>`).join('')}
                                             </ul>
@@ -500,20 +533,26 @@
                                                                 </button>
                                                             ` : ''}
                                                             ${task.videoLinks ? `
-                                                                <div class="relative">
-                                                                    <button onclick="window.toggleVideoDropdown(event, '${task.id}')" class="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white rounded text-xs font-bold uppercase tracking-wider transition-colors shadow-lg w-auto">
+                                                                ${task.videoLinks.length === 1 ? `
+                                                                    <button onclick="window.openVideoLink(event, '${task.videoLinks[0].url}')" class="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white rounded text-xs font-bold uppercase tracking-wider transition-colors shadow-lg w-auto">
                                                                         <i data-lucide="play" class="w-3 h-3"></i> Video
                                                                     </button>
-                                                                    ${videoDropdownTaskId === task.id ? `
-                                                                        <div class="absolute right-0 mt-2 w-44 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden">
-                                                                            ${task.videoLinks.map((video, idx) => `
-                                                                                <button onclick="window.openVideoLink(event, '${video.url}')" class="w-full text-left px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 transition-colors">
-                                                                                    ${video.label || `Video ${idx + 1}`}
-                                                                                </button>
-                                                                            `).join('')}
-                                                                        </div>
-                                                                    ` : ''}
-                                                                </div>
+                                                                ` : `
+                                                                    <div class="relative">
+                                                                        <button onclick="window.toggleVideoDropdown(event, '${task.id}')" class="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white rounded text-xs font-bold uppercase tracking-wider transition-colors shadow-lg w-auto">
+                                                                            <i data-lucide="play" class="w-3 h-3"></i> Video
+                                                                        </button>
+                                                                        ${videoDropdownTaskId === task.id ? `
+                                                                            <div class="absolute right-0 mt-2 w-44 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden">
+                                                                                ${task.videoLinks.map((video, idx) => `
+                                                                                    <button onclick="window.openVideoLink(event, '${video.url}')" class="w-full text-left px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 transition-colors">
+                                                                                        ${video.label || `Video ${idx + 1}`}
+                                                                                    </button>
+                                                                                `).join('')}
+                                                                            </div>
+                                                                        ` : ''}
+                                                                    </div>
+                                                                `}
                                                             ` : ''}
                                                         </div>
                                                     </div>
@@ -568,6 +607,13 @@
             const modal = document.getElementById('image-modal');
             modal.classList.remove('hidden');
             modal.querySelector('.modal-content').scrollTop = 0;
+            // Hide upload button for schemes
+            const uploadLabel = document.getElementById('upload-label');
+            if (taskId.startsWith('scheme-')) {
+                uploadLabel.style.display = 'none';
+            } else {
+                uploadLabel.style.display = 'flex';
+            }
             renderGallery();
         };
 
