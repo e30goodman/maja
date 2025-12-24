@@ -173,6 +173,22 @@
                         ]
                     },
                     {
+                        id: 'm1-l2-prac',
+                        title: 'PRATIQUE DE LA LEÇON 2',
+                        description: 'Validation des acquis : Les 4 Blocs sur tout le manche.',
+                        isPractice: true,
+                        parentLessonId: 'm1-l2',
+                        details: [
+                            'Objectif : Fluidité de navigation sur les 4 formes.',
+                            'Séquence : Accords → Arpèges → Aléatoire.'
+                        ],
+                        tasks: [
+                            { id: 't1-prac-1', text: 'Étape 1 : Jeu en Accords (Positions fixes)' },
+                            { id: 't1-prac-2', text: 'Étape 2 : Jeu en Arpèges (Délié)' },
+                            { id: 't1-prac-3', text: 'Étape 3 : Notes Aléatoires (Connexions)' }
+                        ]
+                    },
+                    {
                         id: 'm1-l3',
                         title: 'Leçon 3 — Modes et Sensations',
                         description: 'Exploration des modes Dorien, Phrygien et Lydien.',
@@ -244,21 +260,6 @@
                         ],
                         tasks: []
                     },
-                    {
-                        id: 'm1-prac',
-                        title: 'PRATIQUE DU MODULE 1',
-                        description: 'Validation des acquis : Les 4 Blocs sur tout le manche.',
-                        isPractice: true,
-                        details: [
-                            'Objectif : Fluidité de navigation sur les 4 formes.',
-                            'Séquence : Accords → Arpèges → Aléatoire.'
-                        ],
-                        tasks: [
-                            { id: 't1-prac-1', text: 'Étape 1 : Jeu en Accords (Positions fixes)' },
-                            { id: 't1-prac-2', text: 'Étape 2 : Jeu en Arpèges (Délié)' },
-                            { id: 't1-prac-3', text: 'Étape 3 : Notes Aléatoires (Connexions)' }
-                        ]
-                    }
                 ]
             },
             {
@@ -558,6 +559,11 @@
                 `;
 
                 module.lessons.forEach(lesson => {
+                    // Skip lessons with parentLessonId if parent is not expanded
+                    if (lesson.parentLessonId && !expandedLessons.has(lesson.parentLessonId)) {
+                        return;
+                    }
+                    
                     const isPractice = lesson.isPractice;
                     const isExpanded = expandedLessons.has(lesson.id);
                     
