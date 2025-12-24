@@ -84,6 +84,21 @@
         </div>
     </div>
 
+    <!-- MODAL POUR LES MODES -->
+    <div id="mode-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-2 sm:p-4 hidden">
+        <div class="modal-content bg-slate-900 rounded-2xl border border-slate-700 w-full max-w-2xl p-4 sm:p-6 relative shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+            <button onclick="closeModeModal()" class="absolute top-3 right-3 sm:top-4 sm:right-4 p-2 bg-slate-800 text-slate-400 hover:text-white rounded-full border border-slate-700">
+                <i data-lucide="x"></i>
+            </button>
+            
+            <h3 id="mode-modal-title" class="text-2xl font-bold text-white mb-6 pr-12">Mode</h3>
+
+            <div id="mode-modal-content" class="flex-1 overflow-y-auto pr-1 sm:pr-2 pb-4">
+                <!-- Contenu du mode apparaîtra ici -->
+            </div>
+        </div>
+    </div>
+
     <!-- JAVASCRIPT LOGIC -->
     <script type="module">
         // ==========================================
@@ -156,6 +171,78 @@
                                 ]
                             }
                         ]
+                    },
+                    {
+                        id: 'm1-l3',
+                        title: 'Leçon 3 — Modes et Sensations',
+                        description: 'Exploration des modes Dorien, Phrygien et Lydien.',
+                        details: [
+                            'Trois modes avec leurs caractéristiques émotionnelles.',
+                            'Exemples musicaux pour chaque mode.'
+                        ],
+                        showModes: true,
+                        modes: [
+                            {
+                                id: 'dorien',
+                                name: 'Dorien',
+                                sensations: [
+                                    'force calme',
+                                    'stabilité intérieure',
+                                    'honnête',
+                                    'acceptation',
+                                    'mouvement',
+                                    'contrôle',
+                                    'humain',
+                                    'légèrement austère'
+                                ],
+                                examples: [
+                                    { title: 'Inner City Blues', artist: 'Molly Johnson', url: 'https://www.youtube.com/watch?v=6nykTgEajkk' },
+                                    { title: 'So What', artist: 'Miles Davis', url: 'https://www.youtube.com/watch?v=zqNTltOGh5c' },
+                                    { title: 'Chameleon', artist: 'Herbie Hancock', url: 'https://www.youtube.com/watch?v=WYRrIBqKsJ4' },
+                                    { title: 'Use Me', artist: 'Bill Withers', url: 'https://www.youtube.com/watch?v=NuYDKzky4z0' },
+                                    { title: 'Get Lucky', artist: 'Daft Punk', url: 'https://www.youtube.com/watch?v=5NV6Rdv1a3I' }
+                                ]
+                            },
+                            {
+                                id: 'phrygien',
+                                name: 'Phrygien',
+                                sensations: [
+                                    'tension',
+                                    'ancienneté',
+                                    'rituel',
+                                    'fatalité',
+                                    'obscurité sans hystérie',
+                                    'mystique mais terrestre',
+                                    'non aérien',
+                                    'danger'
+                                ],
+                                examples: [
+                                    { title: 'Set the Controls for the Heart of the Sun', artist: 'Pink Floyd', url: 'https://www.youtube.com/watch?v=JcfgJrHo9XA' },
+                                    { title: 'La Fiesta', artist: 'Chick Corea', url: 'https://www.youtube.com/watch?v=9ohA-I7gTyQ' },
+                                    { title: 'Ginseng Woman', artist: 'Eric Gale', url: 'https://www.youtube.com/watch?v=w9iENJZjsfw' },
+                                    { title: 'New Person, Same Old Mistakes', artist: 'Tame Impala', url: 'https://www.youtube.com/watch?v=tEXYfT_G0W0' }
+                                ]
+                            },
+                            {
+                                id: 'lydien',
+                                name: 'Lydien',
+                                sensations: [
+                                    'espoir',
+                                    'mystère',
+                                    'mystique',
+                                    '« avec une question »',
+                                    'cinématographique',
+                                    'immatériel',
+                                    'prospectif'
+                                ],
+                                examples: [
+                                    { title: 'The Simpsons Main Title Theme', artist: '', url: 'https://www.youtube.com/watch?v=Fttst9dG6Ko' },
+                                    { title: 'Head Over Heels', artist: 'Tears For Fears', url: 'https://www.youtube.com/watch?v=CsHiG-43Fzg' },
+                                    { title: 'Dreams', artist: 'Fleetwood Mac', url: 'https://www.youtube.com/watch?v=Y3ywicffOj4' }
+                                ]
+                            }
+                        ],
+                        tasks: []
                     },
                     {
                         id: 'm1-prac',
@@ -421,6 +508,7 @@
         let currentImageTaskId = null;
         let imageCarouselIndex = {};
         let videoDropdownTaskId = null;
+        let currentMode = null;
 
         // ==========================================
         // 3. RENDER LOGIC
@@ -508,6 +596,21 @@
                                         </div>
                                     ` : ''}
 
+                                    ${lesson.showModes && lesson.modes ? `
+                                        <div class="mb-6 mt-6 bg-slate-800/40 p-5 rounded-xl border border-slate-700/50">
+                                            <h5 class="text-violet-400 font-semibold text-xs uppercase tracking-wide mb-4 flex items-center gap-2"><i data-lucide="music" class="w-4 h-4"></i> Modes</h5>
+                                            <div class="flex flex-wrap gap-3">
+                                                ${lesson.modes.map(mode => `
+                                                    <button onclick="window.openModeModal(event, '${lesson.id}', '${mode.id}')" class="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-500 hover:to-blue-500 text-white rounded-lg text-sm font-semibold transition-all shadow-lg hover:scale-105">
+                                                        <i data-lucide="music-2" class="w-4 h-4"></i>
+                                                        ${mode.name}
+                                                    </button>
+                                                `).join('')}
+                                            </div>
+                                        </div>
+                                    ` : ''}
+
+                                    ${lesson.tasks && lesson.tasks.length > 0 ? `
                                     <div class="space-y-3 mt-6">
                                         <h5 class="text-slate-500 font-semibold text-xs uppercase tracking-wide mb-2">Objectifs Pratiques</h5>
                                         ${lesson.tasks.map(task => {
@@ -562,6 +665,7 @@
                                             `
                                         }).join('')}
                                     </div>
+                                    ` : ''}
                                 </div>
                             ` : ''}
                         </div>
@@ -717,6 +821,71 @@
             window.open(url, '_blank');
             videoDropdownTaskId = null;
             renderApp();
+        };
+
+        // --- MODES ---
+        window.openModeModal = (e, lessonId, modeId) => {
+            e.stopPropagation();
+            const lesson = COURSE_DATA.flatMap(m => m.lessons).find(l => l.id === lessonId);
+            if (!lesson || !lesson.modes) return;
+            const mode = lesson.modes.find(m => m.id === modeId);
+            if (!mode) return;
+            
+            currentMode = mode;
+            document.getElementById('mode-modal-title').innerText = mode.name;
+            const modal = document.getElementById('mode-modal');
+            modal.classList.remove('hidden');
+            modal.querySelector('.modal-content').scrollTop = 0;
+            renderModeContent();
+        };
+
+        window.closeModeModal = () => {
+            document.getElementById('mode-modal').classList.add('hidden');
+            currentMode = null;
+        };
+
+        window.renderModeContent = () => {
+            if (!currentMode) return;
+            const content = document.getElementById('mode-modal-content');
+            
+            content.innerHTML = `
+                <div class="space-y-6">
+                    <div>
+                        <h4 class="text-lg font-semibold text-violet-400 mb-3 flex items-center gap-2">
+                            <i data-lucide="heart" class="w-5 h-5"></i>
+                            Sensations clés
+                        </h4>
+                        <div class="flex flex-wrap gap-2">
+                            ${currentMode.sensations.map(sensation => `
+                                <span class="px-3 py-1.5 bg-slate-800/60 border border-slate-700 rounded-lg text-sm text-slate-300">
+                                    ${sensation}
+                                </span>
+                            `).join('')}
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <h4 class="text-lg font-semibold text-violet-400 mb-3 flex items-center gap-2">
+                            <i data-lucide="music-2" class="w-5 h-5"></i>
+                            Exemples
+                        </h4>
+                        <div class="space-y-2">
+                            ${currentMode.examples.map(example => `
+                                <button onclick="window.open('${example.url}', '_blank')" class="w-full text-left p-3 bg-slate-800/60 hover:bg-slate-800 border border-slate-700 hover:border-violet-500/50 rounded-lg transition-all group">
+                                    <div class="flex items-center justify-between">
+                                        <div>
+                                            <div class="font-medium text-slate-200 group-hover:text-violet-300 transition-colors">${example.title}</div>
+                                            ${example.artist ? `<div class="text-sm text-slate-400 mt-1">${example.artist}</div>` : ''}
+                                        </div>
+                                        <i data-lucide="external-link" class="w-4 h-4 text-slate-500 group-hover:text-violet-400 transition-colors"></i>
+                                    </div>
+                                </button>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+            lucide.createIcons();
         };
 
         // Initial Render
