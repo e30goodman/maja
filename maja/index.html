@@ -51,7 +51,7 @@
     <!-- Основной контент -->
     <div class="relative z-10 max-w-4xl mx-auto px-4 py-8 md:py-12 space-y-6">
         <div id="app">
-            <!-- Сюда будет рендериться все приложение через JavaScript -->
+        <!-- Сюда будет рендериться все приложение через JavaScript -->
         </div>
         <div class="text-center text-sm text-slate-300 bg-slate-900/70 border border-slate-700 rounded-2xl px-4 py-3 shadow-lg">
             Pour toute question, n'hésitez pas à écrire à Artem sur WhatsApp.
@@ -89,8 +89,8 @@
         <div class="modal-content bg-slate-900 rounded-2xl border border-slate-700 w-full max-w-2xl p-4 sm:p-6 relative shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
             <button onclick="closeModeModal()" class="absolute top-3 right-3 sm:top-4 sm:right-4 p-2 bg-slate-800 text-slate-400 hover:text-white rounded-full border border-slate-700">
                 <i data-lucide="x"></i>
-            </button>
-            
+    </button>
+
             <h3 id="mode-modal-title" class="text-2xl font-bold text-white mb-6 pr-12">Mode</h3>
 
             <div id="mode-modal-content" class="flex-1 overflow-y-auto pr-1 sm:pr-2 pb-4">
@@ -282,7 +282,7 @@
                             },
                             { 
                                 id: 't1-3-prac-0', 
-                                text: 'Écouter les exemples audio et identifier le vibe commun et l\'ambiance de chaque mode. Mémoriser.',
+                                text: 'Écouter les exemples audio et identifier le vibe commun et l\'ambiance de chaque mode.',
                                 details: 'Parcourir les exemples fournis pour chaque mode (Dorien, Phrygien, Lydien) et noter les similitudes, l\'atmosphère.'
                             },
                             { 
@@ -633,11 +633,11 @@
                                                             ${task.details ? `<i data-lucide="info" class="w-4 h-4 transition-transform ${isTaskExpanded ? 'rotate-180 text-violet-400' : 'text-slate-600'}"></i>` : ''}
                                                         </div>
                                                         <div class="flex gap-2 flex-wrap">
-                                                            ${task.showImages ? `
+                                                        ${task.showImages ? `
                                                                 <button onclick="window.openImageModal(event, '${task.id}', '${task.text.replace(/'/g, "\\'")}')" class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold uppercase tracking-wider transition-colors shadow-lg w-auto">
                                                                     <i data-lucide="image" class="w-3 h-3"></i> ${hasUserImages ? 'Photos' : 'Ajouter photos'}
-                                                                </button>
-                                                            ` : ''}
+                                                            </button>
+                                                        ` : ''}
                                                             ${task.videoLinks ? `
                                                                 ${task.videoLinks.length === 1 ? `
                                                                     <button onclick="window.openVideoLink(event, '${task.videoLinks[0].url}')" class="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white rounded text-xs font-bold uppercase tracking-wider transition-colors shadow-lg w-auto">
@@ -890,7 +890,7 @@
             `;
             lucide.createIcons();
         };
-
+        
         // Initial Render
         renderApp();
 
