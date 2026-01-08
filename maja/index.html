@@ -305,7 +305,99 @@
                             'Théorie : Étude des 4 modes restants (Ionien, Mixolydien, Éolien, Locrien).',
                             'Objectif : Rendre le manche totalement "transparent" en connectant tous les blocs.'
                         ],
+                        showModes: true,
+                        modes: [
+                            {
+                                id: 'ionien',
+                                name: 'Ionien (Majeur naturel)',
+                                sensations: [
+                                    'lumineux', 'joie', 'stabilité', 'résolution', 'triomphe', 'innocence', 'clarté', 'solaire'
+                                ],
+                                examples: [
+                                    { title: 'Happy', artist: 'Pharrell Williams', url: 'https://www.youtube.com' },
+                                    { title: 'Let It Be', artist: 'The Beatles', url: 'https://www.youtube.com' },
+                                    { title: 'Don\'t Stop Me Now', artist: 'Queen', url: 'https://www.youtube.com' },
+                                    { title: 'Clair de Lune', artist: 'Claude Debussy', url: 'https://www.youtube.com' }
+                                ]
+                            },
+                            {
+                                id: 'mixolydien',
+                                name: 'Mixolydien',
+                                sensations: [
+                                    'cool', 'détente', 'voyage', 'bluesy', 'rock', 'liberté', 'optimisme', 'ancré', 'transition'
+                                ],
+                                examples: [
+                                    { title: 'Sweet Home Alabama', artist: 'Lynyrd Skynyrd', url: 'https://www.youtube.com' },
+                                    { title: 'Royals', artist: 'Lorde', url: 'https://www.youtube.com' },
+                                    { title: 'Norwegian Wood (This Bird Has Flown)', artist: 'The Beatles', url: 'https://www.youtube.com' },
+                                    { title: 'Clocks', artist: 'Coldplay', url: 'https://www.youtube.com' }
+                                ]
+                            },
+                            {
+                                id: 'eolien',
+                                name: 'Éolien (Mineur naturel)',
+                                sensations: [
+                                    'mélancolie', 'tristesse', 'émotion', 'sérieux', 'sentimental', 'moderne', 'profondeur', 'intime'
+                                ],
+                                examples: [
+                                    { title: 'Losing My Religion', artist: 'R.E.M.', url: 'https://www.youtube.com' },
+                                    { title: 'Hello', artist: 'Adele', url: 'https://www.youtube.com' },
+                                    { title: 'All Along the Watchtower', artist: 'Jimi Hendrix', url: 'https://www.youtube.com' },
+                                    { title: 'Sweet Dreams (Are Made of This)', artist: 'Eurythmics', url: 'https://www.youtube.com' }
+                                ]
+                            },
+                            {
+                                id: 'locrien',
+                                name: 'Locrien',
+                                sensations: [
+                                    'instabilité', 'malaise', 'étrange', 'dissonance', 'chaos', 'tension extrême', 'obscurité', 'désorientant'
+                                ],
+                                examples: [
+                                    { title: 'Army of Me', artist: 'Björk', url: 'https://www.youtube.com' },
+                                    { title: 'Juicebox', artist: 'The Strokes', url: 'https://www.youtube.com' },
+                                    { title: 'Painkiller (Intro)', artist: 'Judas Priest', url: 'https://www.youtube.com' },
+                                    { title: 'Spinning in Daffodils', artist: 'Them Crooked Vultures', url: 'https://www.youtube.com' }
+                                ]
+                            }
+                        ],
                         tasks: []
+                    },
+                    {
+                        id: 'm1-l4-prac',
+                        title: 'PRATIQUE DE LA LEÇON 4',
+                        description: 'Validation des acquis : Visualisation des blocs et analyse des modes.',
+                        isPractice: true,
+                        parentLessonId: 'm1-l4',
+                        details: [
+                            'Objectif : Visualiser les positions des blocs et mémoriser le vibe des modes.',
+                            'Analyse : Analyser les exemples sur l\'unité de l\'ambiance et du mood.',
+                            'Analyse technique : Trouver la note fondamentale, le bloc correspondant au mode et deux voisins.'
+                        ],
+                        tasks: [
+                            { 
+                                id: 't1-4-prac-1', 
+                                text: 'Vidéo avec mission : visualisation des positions des blocs et mémorisation du vibe des modes',
+                                details: 'Détails dans la vidéo jointe.',
+                                videoLinks: [
+                                    { label: 'Video', url: 'https://youtu.be/F_m3IEVoccQ' }
+                                ]
+                            },
+                            { 
+                                id: 't1-4-prac-0', 
+                                text: 'Écouter les exemples audio et identifier le vibe commun et l\'ambiance de chaque mode.',
+                                details: 'Parcourir les exemples fournis pour chaque mode (Ionien, Mixolydien, Éolien, Locrien) et noter les similitudes, l\'atmosphère.'
+                            },
+                            { 
+                                id: 't1-4-prac-2', 
+                                text: 'Pour chaque exemple musical : trouver la note fondamentale, le bloc correspondant au mode et deux blocs voisins',
+                                details: 'Analyser les exemples fournis pour chaque mode (Ionien, Mixolydien, Éolien, Locrien).'
+                            },
+                            { 
+                                id: 't1-4-prac-3', 
+                                text: 'Enregistrer une petite vidéo d\'une séquence sur un des modes',
+                                details: 'Choisir un mode (Ionien, Mixolydien, Éolien ou Locrien) et enregistrer une vidéo de la séquence jouée.'
+                            }
+                        ]
                     },
                 ]
             },
@@ -464,7 +556,7 @@
         // 2. STATE MANAGEMENT (Variable Storage)
         // ==========================================
         let completedTasks = new Set(JSON.parse(localStorage.getItem('maja_bass_progress_v2') || '[]'));
-        let expandedLessons = new Set(['m1-l3']);
+        let expandedLessons = new Set(['m1-l4']);
         let expandedTaskDetails = new Set();
         // Default photos for task t1-1-2
         const DEFAULT_PHOTOS = [
