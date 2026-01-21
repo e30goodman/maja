@@ -403,33 +403,26 @@
                                 id: 't1-4-prac-4', 
                                 text: 'Analyser les exemples et trouver la note fondamentale et une paire de blocs voisins',
                                 details: 'Pour chaque exemple musical fourni, identifier la note fondamentale et une paire de blocs voisins correspondant au mode.'
-                            }
-                        ]
-                    },
+                    }
                 ]
             },
             {
-                id: 'mod-2',
-                title: 'MODULE 2',
-                subtitle: 'RYTHME ET INTELLIGENCE TEMPORELLE',
-                lessons: [
-                    {
-                        id: 'm2-l5',
+                        id: 'm1-l5',
                         title: 'Leçon 5 — Le Groove : De la Théorie à la Pratique',
                         description: 'Étude de l\'application musicale des blocs et création de fills.',
                         details: [
                             'Étude : Apprentissage d\'un groove simple comme base rythmique.',
                             'Transition : Passer de la visualisation théorique (blocs) à l\'application réelle dans un contexte musical.',
-                            'Vocabulaire : Création et intégration de "fills" (remplissages) en utilisant les structures de blocs.'
+                            'Vocabulaire : Création et intégration de \"fills\" (remplissages) en utilisant les structures de blocs.'
                         ],
                         tasks: []
                     },
                     {
-                        id: 'm2-l5-prac',
+                        id: 'm1-l5-prac',
                         title: 'PRATIQUE DE LA LEÇON 5',
                         description: 'Validation des acquis : Rythme, improvisation ciblée et navigation.',
                         isPractice: true,
-                        parentLessonId: 'm2-l5',
+                        parentLessonId: 'm1-l5',
                         showMetronome: true,
                         metronomeUrl: 'https://play.google.com/store/apps/details?id=com.soundbrenner.pulse&hl=en',
                         details: [
@@ -443,7 +436,7 @@
                                 text: 'Enregistrer une vidéo (Mission Groove + Fills)',
                                 details: 'Jouer la séquence de groove apprise en intégrant des fills à la fin de chaque phrase à partir des blocs. IMPORTANT : la vidéo doit être enregistrée avec un MÉTRONOME.',
                                 videoLinks: [
-                                    { label: 'Video 1', url: 'https://www.youtube.com' }
+                                    { label: 'Video 1', url: 'https://youtube.com/shorts/MCgZvoipnEk?feature=share' }
                                 ]
                             },
                             {
@@ -456,17 +449,23 @@
                                 text: 'Enregistrer une vidéo (Points d’ancrage – Tritons)',
                                 details: 'Démontrer la capacité à se repérer instantanément sur le manche en utilisant les tritons comme points d\'ancrage pour changer de bloc.',
                                 videoLinks: [
-                                    { label: 'Video 2', url: 'https://www.youtube.com' }
+                                    { label: 'Video 2', url: 'https://youtube.com/shorts/sGiWMbTSTuM?feature=share' }
                                 ]
                             },
                             {
                                 id: 't2-5-prac-4',
                                 text: 'Objectif de fluidité',
-                                details: 'Pratiquer la connexion entre les blocs jusqu\'à ce que le manche devienne totalement "transparent".'
+                                details: 'Pratiquer la connexion entre les blocs jusqu\'à ce que le manche devienne totalement \"transparent\".'
                             }
                         ]
-                    }
+                    },
                 ]
+            },
+            {
+                id: 'mod-2',
+                title: 'MODULE 2',
+                subtitle: 'RYTHME ET INTELLIGENCE TEMPORELLE',
+                lessons: []
             },
             {
                 id: 'mod-3',
@@ -605,7 +604,7 @@
         // 2. STATE MANAGEMENT (Variable Storage)
         // ==========================================
         let completedTasks = new Set(JSON.parse(localStorage.getItem('maja_bass_progress_v2') || '[]'));
-        let expandedLessons = new Set(['m1-l4']);
+        let expandedLessons = new Set(['m1-l5']);
         let expandedTaskDetails = new Set();
         // Default photos for task t1-1-2
         const DEFAULT_PHOTOS = [
@@ -703,14 +702,15 @@
                     }
                     
                     const isPractice = lesson.isPractice;
+                    const isCurrent = lesson.id === 'm1-l5';
                     const isExpanded = expandedLessons.has(lesson.id);
                     
                     html += `
-                        <div class="group relative bg-slate-900 border rounded-2xl overflow-hidden transition-all duration-300 ${isPractice ? 'border-emerald-500/50 hover:border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.1)]' : 'border-slate-800 hover:border-slate-600'}">
+                        <div class="group relative bg-slate-900 border rounded-2xl overflow-hidden transition-all duration-300 ${(isPractice || isCurrent) ? 'border-emerald-500/50 hover:border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.1)]' : 'border-slate-800 hover:border-slate-600'}">
                             <!-- Lesson Header -->
-                            <div onclick="window.toggleLesson('${lesson.id}', '${module.id}')" class="p-6 flex items-center justify-between cursor-pointer transition-colors ${isPractice ? 'bg-emerald-900/10 hover:bg-emerald-900/20' : 'bg-slate-800/30 hover:bg-slate-800/50'}">
+                            <div onclick="window.toggleLesson('${lesson.id}', '${module.id}')" class="p-6 flex items-center justify-between cursor-pointer transition-colors ${(isPractice || isCurrent) ? 'bg-emerald-900/10 hover:bg-emerald-900/20' : 'bg-slate-800/30 hover:bg-slate-800/50'}">
                                 <div class="flex-1">
-                                    <h4 class="text-lg md:text-xl font-bold mb-1 flex items-center gap-2 ${isPractice ? 'text-emerald-300' : 'text-slate-200'}">
+                                    <h4 class="text-lg md:text-xl font-bold mb-1 flex items-center gap-2 ${(isPractice || isCurrent) ? 'text-emerald-300' : 'text-slate-200'}">
                                         ${isPractice ? '<i data-lucide="target" class="w-5 h-5 text-emerald-400"></i>' : ''}
                                         ${lesson.title}
                                     </h4>
@@ -901,7 +901,7 @@
                         <div class="hidden flex-col items-center justify-center text-slate-500 p-8">
                             <i data-lucide="image-off" class="w-16 h-16 mb-4 opacity-50"></i>
                             <p class="text-sm">Image non chargée</p>
-                        </div>
+                    </div>
                         <div class="absolute inset-y-0 left-0 flex items-center">
                             <button onclick="window.changeImageSlide(-1)" class="p-3 bg-black/50 hover:bg-black/70 text-white rounded-r-lg transition-colors">
                                 <i data-lucide="chevron-left" class="w-6 h-6"></i>
