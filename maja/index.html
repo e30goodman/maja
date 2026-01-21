@@ -465,7 +465,20 @@
                 id: 'mod-2',
                 title: 'MODULE 2',
                 subtitle: 'RYTHME ET INTELLIGENCE TEMPORELLE',
-                lessons: []
+                lessons: [
+                    {
+                        id: 'm2-l5',
+                        title: 'Leçon 5 — Rythmique & Konnakol',
+                        description: 'Introduction au système Konnakol (Ta-Ka, Ta-Ki-Ta).',
+                        hidden: true,
+                        details: [
+                            'Théorie : Introduction au système Konnakol (Ta-Ka, Ta-Ki-Ta).',
+                            'Objectif : Maîtriser les divisions du temps pour ne jamais "flotter" pendant un solo.',
+                            'Pratique : Exercices de débit rythmique sur une note et sur les gammes.'
+                        ],
+                        tasks: []
+                    }
+                ]
             },
             {
                 id: 'mod-3',
@@ -696,6 +709,10 @@
                 `;
 
                 module.lessons.forEach(lesson => {
+                    // Skip hidden lessons
+                    if (lesson.hidden) {
+                        return;
+                    }
                     // Skip lessons with parentLessonId if parent is not expanded
                     if (lesson.parentLessonId && !expandedLessons.has(lesson.parentLessonId)) {
                         return;
