@@ -415,14 +415,56 @@
                 lessons: [
                     {
                         id: 'm2-l5',
-                        title: 'Leçon 5 — Rythmique & Konnakol',
-                        description: 'Introduction au système Konnakol (Ta-Ka, Ta-Ki-Ta).',
+                        title: 'Leçon 5 — Le Groove : De la Théorie à la Pratique',
+                        description: 'Étude de l\'application musicale des blocs et création de fills.',
                         details: [
-                            'Théorie : Introduction au système Konnakol (Ta-Ka, Ta-Ki-Ta).',
-                            'Objectif : Maîtriser les divisions du temps pour ne jamais "flotter" pendant un solo.',
-                            'Pratique : Exercices de débit rythmique sur une note et sur les gammes.'
+                            'Étude : Apprentissage d\'un groove simple comme base rythmique.',
+                            'Transition : Passer de la visualisation théorique (blocs) à l\'application réelle dans un contexte musical.',
+                            'Vocabulaire : Création et intégration de "fills" (remplissages) en utilisant les structures de blocs.'
                         ],
                         tasks: []
+                    },
+                    {
+                        id: 'm2-l5-prac',
+                        title: 'PRATIQUE DE LA LEÇON 5',
+                        description: 'Validation des acquis : Rythme, improvisation ciblée et navigation.',
+                        isPractice: true,
+                        parentLessonId: 'm2-l5',
+                        showMetronome: true,
+                        metronomeUrl: 'https://play.google.com/store/apps/details?id=com.soundbrenner.pulse&hl=en',
+                        details: [
+                            'Objectif : Jouer le groove sur tout le manche en y intégrant des fills personnels.',
+                            'Rigueur : Utilisation obligatoire du MÉTRONOME pour stabiliser le temps.',
+                            'Mémorisation : Consolider l\'utilisation des points d\'ancrage (tritons) pour une liberté totale.'
+                        ],
+                        tasks: [
+                            {
+                                id: 't2-5-prac-1',
+                                text: 'Enregistrer une vidéo (Mission Groove + Fills)',
+                                details: 'Jouer la séquence de groove apprise en intégrant des fills à la fin de chaque phrase à partir des blocs. IMPORTANT : la vidéo doit être enregistrée avec un MÉTRONOME.',
+                                videoLinks: [
+                                    { label: 'Video 1', url: 'https://www.youtube.com' }
+                                ]
+                            },
+                            {
+                                id: 't2-5-prac-2',
+                                text: 'Développer sa bibliothèque personnelle',
+                                details: 'Parmi tous les blocs pratiqués, sélectionner et travailler spécifiquement les fills préférés afin de construire votre propre vocabulaire musical.'
+                            },
+                            {
+                                id: 't2-5-prac-3',
+                                text: 'Enregistrer une vidéo (Points d’ancrage – Tritons)',
+                                details: 'Démontrer la capacité à se repérer instantanément sur le manche en utilisant les tritons comme points d\'ancrage pour changer de bloc.',
+                                videoLinks: [
+                                    { label: 'Video 2', url: 'https://www.youtube.com' }
+                                ]
+                            },
+                            {
+                                id: 't2-5-prac-4',
+                                text: 'Objectif de fluidité',
+                                details: 'Pratiquer la connexion entre les blocs jusqu\'à ce que le manche devienne totalement "transparent".'
+                            }
+                        ]
                     }
                 ]
             },
