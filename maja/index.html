@@ -852,8 +852,8 @@
                                                         ` : ''}
                                                             ${task.videoLinks ? `
                                                                 ${task.videoLinks.length === 1 ? `
-                                                                    <button onclick="window.openVideoLink(event, '${task.videoLinks[0].url}')" class="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white rounded text-xs font-bold uppercase tracking-wider transition-colors shadow-lg w-auto">
-                                                                        <i data-lucide="play" class="w-3 h-3"></i> ${task.videoLinks[0].label || 'Video'}
+                                                                    <button onclick="window.openVideoLink(event, '${task.videoLinks[0].url}')" class="flex items-center gap-1.5 px-3 py-1.5 ${task.videoLinks[0].label === 'Audio' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-violet-600 hover:bg-violet-500'} text-white rounded text-xs font-bold uppercase tracking-wider transition-colors shadow-lg w-auto">
+                                                                        <i data-lucide="${task.videoLinks[0].label === 'Audio' ? 'music' : 'play'}" class="w-3 h-3"></i> ${task.videoLinks[0].label || 'Video'}
                                                                     </button>
                                                                 ` : `
                                                                     <div class="relative">
