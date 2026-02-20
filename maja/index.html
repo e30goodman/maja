@@ -516,6 +516,52 @@
                             }
                         ]
                     },
+                    {
+                        id: 'm1-l7',
+                        title: 'Leçon 7 — Changement de Modes et Dynamique sur le Manche',
+                        description: 'Passage d\'une position statique à la navigation fluide en alternant les modes (Mixolydien et Dorien).',
+                        details: [
+                            'Le rôle de la fondamentale : Le mode est toujours défini par la note grave (la note fondamentale / Root note) jouée dans l\'accord ou le backing track (dans notre cas, le Mi / E).',
+                            'Structure diatonique : L\'ensemble des notes de la gamme diatonique détermine la disposition et la séquence des notes sur le manche. Comprendre cette structure est essentiel pour sortir d\'une seule position.',
+                            'Rappel des blocs : Nous continuons d\'utiliser les petits patterns à 2 cordes (blocs) pour les modes Mixolydien et Dorien développés lors de la session précédente, mais nous allons les étendre.'
+                        ],
+                        tasks: []
+                    },
+                    {
+                        id: 'm1-l7-prac',
+                        title: 'PRATIQUE DE LA LEÇON 7',
+                        description: 'Validation des acquis : Changement de modes en temps réel et création de mouvements sur le manche.',
+                        isPractice: true,
+                        parentLessonId: 'm1-l7',
+                        details: [
+                            'Objectif : Improviser sur le backing track (alternance E Mixolydien / E Dorien) en utilisant plusieurs positions sur le manche, au lieu de rester dans une seule zone.',
+                            'Dynamique : Créer un mouvement musical ascendant et descendant. Votre mélodie doit voyager le long du manche pour apporter de la dynamique au solo.',
+                            'Fluidité : Connecter les blocs à 2 cordes d\'une position à l\'autre tout en respectant le changement de mode dicté par l\'harmonie.'
+                        ],
+                        tasks: [
+                            {
+                                id: 't1-7-prac-1',
+                                text: 'Regarder la vidéo d\'explication (Navigation et Tonalité Diatonique)',
+                                details: 'Vidéo explicative sur la navigation et la tonalité diatonique.',
+                                videoLinks: [
+                                    { label: 'Video', url: '#' }
+                                ]
+                            },
+                            {
+                                id: 't1-7-prac-2',
+                                text: 'Pratiquer avec le Backing Track (E Mixo / E Dorian - Changements de positions)',
+                                details: 'Improviser sur le backing track en alternant E Mixolydien et E Dorien avec des changements de positions.',
+                                videoLinks: [
+                                    { label: 'Audio', url: '#' }
+                                ]
+                            },
+                            {
+                                id: 't1-7-prac-3',
+                                text: 'Tâche principale : Enregistrer ou jouer un solo avec des mouvements ascendants/descendants clairs',
+                                details: 'Jouer un solo qui montre clairement des mouvements ascendants et descendants sur le manche, en respectant les changements de modes.'
+                            }
+                        ]
+                    },
                 ]
             },
             {
@@ -664,7 +710,7 @@
         // 2. STATE MANAGEMENT (Variable Storage)
         // ==========================================
         let completedTasks = new Set(JSON.parse(localStorage.getItem('maja_bass_progress_v2') || '[]'));
-        let expandedLessons = new Set(['m1-l6']);
+        let expandedLessons = new Set(['m1-l7']);
         let expandedTaskDetails = new Set();
         // Default photos for task t1-1-2
         const DEFAULT_PHOTOS = [
@@ -766,7 +812,7 @@
                     }
                     
                     const isPractice = lesson.isPractice;
-                    const isCurrent = lesson.id === 'm1-l6';
+                    const isCurrent = lesson.id === 'm1-l7';
                     const isExpanded = expandedLessons.has(lesson.id);
                     
                     html += `
