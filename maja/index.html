@@ -566,28 +566,78 @@
                             }
                         ]
                     },
+                    {
+                        id: 'm1-l8',
+                        title: 'Leçon 8 — L\'Architecture du Groove : Pentatonique & Palm Mute',
+                        description: 'Transition vers le jeu rythmique : technique de main droite et points communs des gammes majeures.',
+                        details: [
+                            'Technique Main Droite (Mute & Pluck) :',
+                            'Position du Mute : Près du chevalet (Bridge) = moins étouffé. Vers le manche (Neck) = plus étouffé.',
+                            'Le doigt (Index) : Gardez l\'index droit (pas de crochet). L\'attaque vient du dessus (comme le fingerstyle standard), et non par en dessous, pour éviter le bruit de "claquement" de la corde contre la frette.',
+                            'Théorie : Les Notes Communes :',
+                            'La Pentatonique Majeure est constituée des notes communes aux 3 modes majeurs (Ionien, Lydien, Mixolydien).',
+                            'Formule : 1 - 2 - 3 - 5 - 6.'
+                        ],
+                        tasks: []
+                    },
+                    {
+                        id: 'm1-l8-prac',
+                        title: 'PRATIQUE DE LA LEÇON 8',
+                        description: 'Validation des acquis : Son, Mémoire musculaire et Navigation.',
+                        isPractice: true,
+                        parentLessonId: 'm1-l8',
+                        details: [],
+                        tasks: [
+                            {
+                                id: 't1-8-prac-1',
+                                text: 'Regarder la vidéo d\'explication',
+                                videoLinks: [
+                                    { label: 'Video', url: '#' }
+                                ]
+                            },
+                            {
+                                id: 't1-8-prac-2',
+                                text: 'Pratiquer avec le Backing Track (No Bass)',
+                                videoLinks: [
+                                    { label: 'Audio', url: '#' }
+                                ]
+                            },
+                            {
+                                id: 't1-8-prac-3',
+                                text: 'Tâche additionnelle : Faire une petite vidéo de votre progrès'
+                            }
+                        ]
+                    },
+                    {
+                        id: 'm1-l9',
+                        title: '[GRISÉ / VERROUILLÉ] Leçon 9 — Géométrie Pentatonique Avancée',
+                        description: '(Ce contenu sera disponible prochainement) Architecture sur 2 cordes (les petits blocs). Jeu pentatonique depuis différentes positions majeures (Superposition).',
+                        locked: true,
+                        tasks: []
+                    },
                 ]
             },
             {
                 id: 'mod-2',
                 title: 'MODULE 2',
-                subtitle: 'RYTHME ET INTELLIGENCE TEMPORELLE',
+                subtitle: 'LE TEMPS & LE RYTHME',
                 lessons: [
                     {
-                        id: 'm2-l5',
-                        title: 'Leçon 5 — Rythmique & Konnakol',
-                        description: 'Introduction au système Konnakol (Ta-Ka, Ta-Ki-Ta).',
-                        hidden: true,
+                        id: 'm2-locked',
+                        title: '[GRISÉ / VERROUILLÉ] MODULE 2 — LE TEMPS & LE RYTHME',
+                        description: '(Ce module sera disponible après la validation du Module 1)',
+                        locked: true,
                         details: [
-                            'Théorie : Introduction au système Konnakol (Ta-Ka, Ta-Ki-Ta).',
-                            'Objectif : Maîtriser les divisions du temps pour ne jamais "flotter" pendant un solo.',
-                            'Pratique : Exercices de débit rythmique sur une note et sur les gammes.'
+                            'Konnakol.',
+                            'Pulsation & Métronome.',
+                            'Création de lignes de basse.'
                         ],
                         tasks: []
                     }
                 ]
             },
             {
+                hidden: true,
                 id: 'mod-3',
                 title: 'MODULE 3',
                 subtitle: 'DE LA MÉLODIE AU SON VIVANT',
@@ -606,6 +656,7 @@
                 ]
             },
             {
+                hidden: true,
                 id: 'mod-4',
                 title: 'MODULE 4',
                 subtitle: 'ARCHITECTURE HARMONIQUE PRO',
@@ -635,6 +686,7 @@
                 ]
             },
             {
+                hidden: true,
                 id: 'mod-5',
                 title: 'MODULE 5',
                 subtitle: 'CONCEPTS DE SOLO AVANCÉS',
@@ -672,6 +724,7 @@
                 ]
             },
             {
+                hidden: true,
                 id: 'mod-6',
                 title: 'MODULE 6',
                 subtitle: 'FINALE — STORYTELLING ET PERFORMANCE',
@@ -714,7 +767,7 @@
         // 2. STATE MANAGEMENT (Variable Storage)
         // ==========================================
         let completedTasks = new Set(JSON.parse(localStorage.getItem('maja_bass_progress_v2') || '[]'));
-        let expandedLessons = new Set(['m1-l7']);
+        let expandedLessons = new Set(['m1-l8']);
         let expandedTaskDetails = new Set();
         // Default photos for task t1-1-2
         const DEFAULT_PHOTOS = [
@@ -788,13 +841,14 @@
             `;
 
             COURSE_DATA.forEach(module => {
+                if (module.hidden) return;
                 const isModuleLocked = module.id !== 'mod-1';
-                if (isModuleLocked) return;
                 html += `
-                    <div class="relative">
+                    <div class="relative ${isModuleLocked ? 'disabled-module' : ''}">
                         <div class="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 mb-6 border-l-4 border-violet-500 pl-4">
                             <h2 class="text-sm font-bold text-violet-400 uppercase tracking-widest">${module.title}</h2>
                             <h3 class="text-2xl md:text-3xl font-bold text-white">${module.subtitle}</h3>
+                            ${isModuleLocked ? '<i data-lucide="lock" class="w-5 h-5 text-slate-600"></i>' : ''}
                         </div>
                         <div class="space-y-4">
                 `;
@@ -810,22 +864,24 @@
                     }
                     
                     const isPractice = lesson.isPractice;
-                    const isCurrent = lesson.id === 'm1-l7';
+                    const isCurrent = lesson.id === 'm1-l8';
+                    const isLessonLocked = !!lesson.locked;
                     const isExpanded = expandedLessons.has(lesson.id);
                     
                     html += `
-                        <div class="group relative bg-slate-900 border rounded-2xl overflow-hidden transition-all duration-300 ${(isPractice || isCurrent) ? 'border-emerald-500/50 hover:border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.1)]' : 'border-slate-800 hover:border-slate-600'}">
+                        <div class="group relative bg-slate-900 border rounded-2xl overflow-hidden transition-all duration-300 ${isLessonLocked ? 'opacity-60 pointer-events-none filter grayscale border-slate-700' : ((isPractice || isCurrent) ? 'border-emerald-500/50 hover:border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.1)]' : 'border-slate-800 hover:border-slate-600')}">
                             <!-- Lesson Header -->
-                            <div onclick="window.toggleLesson('${lesson.id}', '${module.id}')" class="p-6 flex items-center justify-between cursor-pointer transition-colors ${(isPractice || isCurrent) ? 'bg-emerald-900/10 hover:bg-emerald-900/20' : 'bg-slate-800/30 hover:bg-slate-800/50'}">
+                            <div onclick="window.toggleLesson('${lesson.id}', '${module.id}')" class="p-6 flex items-center justify-between cursor-pointer transition-colors ${isLessonLocked ? 'bg-slate-800/20' : ((isPractice || isCurrent) ? 'bg-emerald-900/10 hover:bg-emerald-900/20' : 'bg-slate-800/30 hover:bg-slate-800/50')}">
                                 <div class="flex-1">
-                                    <h4 class="text-lg md:text-xl font-bold mb-1 flex items-center gap-2 ${(isPractice || isCurrent) ? 'text-emerald-300' : 'text-slate-200'}">
+                                    <h4 class="text-lg md:text-xl font-bold mb-1 flex items-center gap-2 ${isLessonLocked ? 'text-slate-300' : ((isPractice || isCurrent) ? 'text-emerald-300' : 'text-slate-200')}">
                                         ${isPractice ? '<i data-lucide="target" class="w-5 h-5 text-emerald-400"></i>' : ''}
                                         ${lesson.title}
+                                        ${isLessonLocked ? '<i data-lucide="lock" class="w-4 h-4 text-slate-500"></i>' : ''}
                                     </h4>
                                     <p class="text-slate-400 text-sm md:text-base pr-4">${lesson.description}</p>
                                 </div>
                                 <div class="text-slate-500">
-                                    <i data-lucide="${isExpanded ? 'chevron-up' : 'chevron-down'}" class="w-6 h-6"></i>
+                                    <i data-lucide="${isLessonLocked ? 'lock' : (isExpanded ? 'chevron-up' : 'chevron-down')}" class="w-6 h-6"></i>
                                 </div>
                             </div>
 
