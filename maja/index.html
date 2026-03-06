@@ -586,20 +586,25 @@
                         description: 'Validation des acquis : Son, Mémoire musculaire et Navigation.',
                         isPractice: true,
                         parentLessonId: 'm1-l8',
-                        details: [],
+                        showScheme: true,
+                        schemeUrl: 'https://drive.google.com/file/d/1JthrTgbHF30tlp5z1qF5hNBwo6srRY9j/view?usp=sharing',
+                        details: [
+                            'Objectif : Apprendre les blocs pentatoniques et les pratiquer avec la nouvelle technique de main droite.',
+                            'Rappel : Se souvenir du groove sur accords.'
+                        ],
                         tasks: [
                             {
                                 id: 't1-8-prac-1',
                                 text: 'Regarder la vidéo d\'explication',
                                 videoLinks: [
-                                    { label: 'Video', url: '#' }
+                                    { label: 'Video', url: 'https://youtu.be/mGwUU-aWJUg' }
                                 ]
                             },
                             {
                                 id: 't1-8-prac-2',
                                 text: 'Pratiquer avec le Backing Track (No Bass)',
                                 videoLinks: [
-                                    { label: 'Audio', url: '#' }
+                                    { label: 'Audio', url: 'https://drive.google.com/file/d/1V9NcoaxQYwaxI0wL4Vlyjkt8mXSnL_O_/view?usp=sharing' }
                                 ]
                             },
                             {
@@ -795,18 +800,19 @@
             }
         }
         
-        // Add scheme for lesson m1-l2
-        const lesson = COURSE_DATA.flatMap(m => m.lessons).find(l => l.id === 'm1-l2');
-        if (lesson && lesson.showScheme && lesson.schemeUrl) {
-            if (!userUploadedImages['scheme-m1-l2'] || userUploadedImages['scheme-m1-l2'].length === 0) {
-                userUploadedImages['scheme-m1-l2'] = [lesson.schemeUrl];
+        // Ensure built-in scheme links are visible in "Voir" modal
+        COURSE_DATA.flatMap(m => m.lessons).forEach(lesson => {
+            if (!lesson.showScheme || !lesson.schemeUrl) return;
+            const key = `scheme-${lesson.id}`;
+            if (!userUploadedImages[key] || userUploadedImages[key].length === 0) {
+                userUploadedImages[key] = [lesson.schemeUrl];
                 try {
                     localStorage.setItem('maja_bass_user_images', JSON.stringify(userUploadedImages));
                 } catch (e) {
                     // localStorage may not be available in incognito
                 }
             }
-        }
+        });
         
         let currentImageTaskId = null;
         let imageCarouselIndex = {};
