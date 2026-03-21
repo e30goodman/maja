@@ -1,0 +1,262 @@
+====================================================================
+MAJA — RÉSUMÉ DES LEÇONS (Internal Notes)
+Programme : Blocs Harmoniques, Groove & Soloing
+====================================================================
+
+MODULE 1 : CARTE HARMONIQUE DU MANCHE (BLOCS)
+====================================================================
+
+----------------------------------------------------------------------
+LEÇON 1 — Technique, Chanson & 4 Blocs
+----------------------------------------------------------------------
+Thème : Placement de main et formes géométriques.
+
+Points clés :
+  - Technique Main Droite
+  - Théorie : Mode Ré Dorien (D Dorian) et Sol Majeur (G Ionian)
+  - Géométrie : Les 4 Blocs se jouent sur tout le manche
+
+Tâches :
+  1. Se rappeler : Mode Ré Dorien (D) & Sol Majeur (G)
+     → Voisins (1 ton d'écart). Ré Dorien = position de base.
+       Sol Majeur (Ionien) = 1 ton plus bas.
+  2. Mémoriser les 4 formes géométriques (photos)
+  3. Jouer "Do You Wanna Be My Girl?"
+     → Focus extraction du son main droite, son uniforme et stable.
+
+Vidéos :
+  - https://youtube.com/shorts/K4TBjjz3RpQ
+  - https://youtube.com/shorts/brMNABXqQtg
+
+
+----------------------------------------------------------------------
+LEÇON 2 — Algorithme de Déplacement
+----------------------------------------------------------------------
+Thème : Navigation fluide sur le manche via la logique des blocs.
+
+Points clés :
+  - Les 4 Blocs : Mineur, Majeur, Lydien, Mixolydien
+  - Mineurs : toujours par paires
+  - Lydien & Mixolydien : également par paires
+  - Majeur : isolé entre les paires mineures
+  - Mouvement vers le haut depuis deux blocs mineurs : +1/2 ton
+  - Mouvement vers le bas depuis les blocs mineurs : +1 ton
+
+Tâches :
+  1. Jouer une séquence de blocs sur tout le manche
+  2. Connecter les blocs
+
+Pratique :
+  - Objectif : Fluidité de navigation sur les 4 formes
+  - Séquence : Accords → Arpèges → Aléatoire
+  - Étape 1 : Jeu en Accords (Positions fixes)
+  - Étape 2 : Jeu en Arpèges (Délié)
+  - Étape 3 : Notes Aléatoires (Connexions)
+
+Vidéos :
+  - https://www.youtube.com/shorts/5E38RDFRczU
+  - https://youtube.com/shorts/HzII4AOrzj8
+
+
+----------------------------------------------------------------------
+LEÇON 3 — Modes et Sensations
+----------------------------------------------------------------------
+Thème : Exploration des modes Dorien, Phrygien et Lydien.
+
+DORIEN :
+  Sensations : force calme, stabilité intérieure, honnête, acceptation,
+               mouvement, contrôle, humain, légèrement austère
+  Exemples :
+    - Inner City Blues — Molly Johnson
+    - So What — Miles Davis
+    - Chameleon — Herbie Hancock
+    - Use Me — Bill Withers
+    - Get Lucky — Daft Punk
+
+PHRYGIEN :
+  Sensations : tension, ancienneté, rituel, fatalité,
+               obscurité sans hystérie, mystique mais terrestre,
+               non aérien, danger
+  Exemples :
+    - Set the Controls for the Heart of the Sun — Pink Floyd
+    - La Fiesta — Chick Corea
+    - Ginseng Woman — Eric Gale
+    - New Person, Same Old Mistakes — Tame Impala
+
+LYDIEN :
+  Sensations : espoir, mystère, mystique, « avec une question »,
+               cinématographique, immatériel, prospectif
+  Exemples :
+    - The Simpsons Main Title Theme
+    - Head Over Heels — Tears For Fears
+    - Dreams — Fleetwood Mac
+
+Pratique :
+  1. Jouer une séquence à chacun des trois modes
+  2. Écouter les exemples et identifier le vibe commun
+  3. Trouver la note fondamentale, le bloc du mode et deux voisins
+  4. Enregistrer une petite vidéo d'une séquence
+
+Vidéo :
+  - https://www.youtube.com/shorts/MCgZvoipnEk
+
+
+----------------------------------------------------------------------
+LEÇON 4 — La Palette Modale Complète
+----------------------------------------------------------------------
+Thème : 4 modes restants (Ionien, Mixolydien, Éolien, Locrien).
+Objectif : Rendre le manche totalement "transparent".
+
+IONIEN (Majeur naturel) :
+  Sensations : lumineux, joie, stabilité, résolution, triomphe,
+               innocence, clarté, solaire
+  Exemples :
+    - Let It Be — The Beatles
+    - Here Comes the Sun — The Beatles
+    - Ode to Joy — Beethoven
+    - Imagine — John Lennon
+
+MIXOLYDIEN :
+  Sensations : cool, détente, voyage, bluesy, rock, liberté,
+               optimisme, ancré, transition
+  Exemples :
+    - Sweet Home Alabama — Lynyrd Skynyrd
+    - Norwegian Wood — The Beatles
+    - Dreams — Fleetwood Mac
+    - Sweet Child O' Mine — Guns N' Roses
+
+ÉOLIEN (Mineur naturel) :
+  Sensations : mélancolie, tristesse, émotion, sérieux, sentimental,
+               moderne, profondeur, intime
+  Exemples :
+    - Losing My Religion — R.E.M.
+    - Hello — Adele
+    - All Along the Watchtower — Jimi Hendrix
+    - Sweet Dreams — Eurythmics
+
+LOCRIEN :
+  Sensations : instabilité, malaise, étrange, dissonance, chaos,
+               tension extrême, obscurité, désorientant
+  Exemples :
+    - Army of Me — Björk
+    - Juicebox — The Strokes
+    - Painkiller (Intro) — Judas Priest
+    - Spinning in Daffodils — Them Crooked Vultures
+
+Pratique (avec métronome) :
+  1. Vidéo avec mission : visualisation des positions des blocs
+  2. Enregistrer vidéo séquence par blocs (avec métronome)
+  3. Écouter les exemples, identifier le vibe
+  4. Regarder les blocs pour chaque mode
+  5. Analyser : trouver fondamentale + paire de blocs voisins
+
+Vidéo :
+  - https://youtu.be/F_m3IEVoccQ
+
+
+----------------------------------------------------------------------
+LEÇON 5 — Le Groove : De la Théorie à la Pratique
+----------------------------------------------------------------------
+Thème : Application musicale des blocs et création de fills.
+
+Points clés :
+  - Apprentissage d'un groove simple comme base rythmique
+  - Transition : visualisation théorique → application réelle
+  - Création et intégration de "fills" via les structures de blocs
+
+Pratique (avec métronome) :
+  1. Vidéo (Mission Groove + Fills)
+  2. Développer sa bibliothèque personnelle de fills
+  3. Tâche additionnelle : Points d'ancrage — Tritons
+  4. Tâche optionnelle : Mémoriser tritons + construire bloc avec
+     triton et deux blocs voisins
+
+Points clés pratique :
+  - Jouer le groove sur tout le manche + fills personnels
+  - Utilisation obligatoire du MÉTRONOME
+  - Consolider les points d'ancrage (tritons)
+
+Vidéos :
+  - https://youtube.com/shorts/sGiWMbTSTuM
+  - https://youtube.com/shorts/nX-HX9UTR4Q
+
+
+----------------------------------------------------------------------
+LEÇON 6 — L'Improvisation Mélodique : Cibles et Harmonie
+----------------------------------------------------------------------
+Thème : Passage du jeu de gammes à la création de phrases
+        mélodiques conscientes (Target Notes).
+
+Points clés :
+  - Philosophie : la contrainte définit le son. Le choix de la méthode
+    (ex : jouer sur 2 cordes au lieu de gammes) détermine la texture
+    et le caractère « vocal » du solo.
+  - Navigation : Cibler consciemment les degrés de résolution
+    (Target Notes : 4 à 9) pour structurer le phrasé.
+  - Indépendance : S'accompagner soi-même en alternant accords
+    (basse + aigue du bloc) et phrases courtes. Développe le sens
+    de la composition.
+
+Pratique :
+  1. Pratiquer avec le Backing Track (E Mixolydian)
+     🎯 Question : Quel mode supplémentaire apparaît dans ce minus ?
+  2. Vidéo (Target Notes & Phrasé)
+  3. Tâche additionnelle : Ornementation / Fancy Endings
+  4. Tâche optionnelle : S'accompagner soi-même (Accords & Mélodie)
+     → Alterner accompagnateur (accords simulés) et soliste
+
+Points clés pratique :
+  - Improviser en atterrissant sur les notes cibles
+  - Ornementations (slides, hammer-ons) pour "Fancy Endings"
+  - Visualiser les formes d'accords simplifiées (blocs)
+
+Vidéos :
+  - https://youtube.com/shorts/pbE5rXx0l2U
+  - https://youtube.com/shorts/qJ-rdizy1J8
+  - https://youtube.com/shorts/3WER9_NAq6c
+Audio :
+  - https://drive.google.com/file/d/1gaNeNNTZf0zRCqA-Rf3ywBp2KqcpyOqX
+
+
+----------------------------------------------------------------------
+LEÇON 7 — Changement de Modes et Dynamique sur le Manche
+----------------------------------------------------------------------
+Thème : Passage d'une position statique à la navigation fluide
+        en alternant les modes (Mixolydien et Dorien).
+
+Points clés :
+  - Le rôle de la fondamentale : Le mode est toujours défini par la
+    note grave (Root note) jouée dans l'accord ou le backing track
+    (dans notre cas, le Mi / E).
+  - Le mode détermine la position : C'est le mode diatonique choisi
+    (Ionien, Dorien, Phrygien, etc.) qui dicte l'emplacement exact
+    de nos blocs sur le manche.
+
+Pratique :
+  1. Vidéo d'explication (Navigation à travers les modes parallèles)
+  2. Backing Track (E Mixo / E Dorian — changements de positions)
+     Rappel : les changements d'accords dans le minus indiquent
+     le moment exact de la transition entre les modes.
+  3. Tâche additionnelle : Faire une petite vidéo de votre progrès
+  4. Tâche additionnelle : Essayer de jouer de petites mélodies
+     par blocs avec les changements de modes
+
+Points clés pratique :
+  - Alterner les blocs (E Mixolydien et E Dorien) en utilisant comme
+    repères les blocs majeurs appariés (Mixo/Lydien) + bloc Ionien
+  - Mouvement sur l'ensemble du manche dans des directions aléatoires
+  - 💡 Astuce (Repères visuels) :
+    Grands blocs (4 cordes) : Mémoriser blocs majeurs (paire
+    Mixo/Lydien + Ionien) pour déduire les blocs mineurs.
+    Petits blocs (2 cordes) : Position du triton comme repère
+    principal + ses positions à l'octave.
+
+Vidéo :
+  - https://www.youtube.com/watch?v=hbFz5FqjvWQ
+Audio :
+  - https://drive.google.com/file/d/1fWyUGtoom8H663tfl3x2cG3_b4DS0e73
+
+
+====================================================================
+FIN DU RÉSUMÉ — 7 leçons complétées
+====================================================================

@@ -1,0 +1,1269 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BassMastery - Espace Maja</title>
+    
+    <!-- Tailwind CSS (Дизайн) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Иконки -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Шрифты -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Настройки для ИИ (Gemini) -->
+    <script type="importmap">
+    {
+      "imports": {
+        "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0"
+      }
+    }
+    </script>
+
+    <style>
+      body {
+        font-family: 'Inter', sans-serif;
+        background-color: #0f172a; /* Slate 900 */
+        color: #e2e8f0; /* Slate 200 */
+      }
+      /* Скроллбар */
+      ::-webkit-scrollbar { width: 8px; }
+      ::-webkit-scrollbar-track { background: #1e293b; }
+      ::-webkit-scrollbar-thumb { background: #4c1d95; border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: #5b21b6; }
+      
+      .fade-in { animation: fadeIn 0.3s ease-in-out; }
+      @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+      .disabled-module { opacity: 0.6; pointer-events: none; filter: grayscale(0.8); }
+    </style>
+</head>
+<body class="pb-20 relative overflow-x-hidden min-h-screen">
+
+    <!-- Фоновая амбиенс -->
+    <div class="fixed top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
+        <div class="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-blue-900/20 blur-[100px]"></div>
+        <div class="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-violet-900/20 blur-[100px]"></div>
+    </div>
+
+    <!-- Основной контент -->
+    <div class="relative z-10 max-w-4xl mx-auto px-4 py-8 md:py-12 space-y-6">
+        <div id="app">
+        <!-- Сюда будет рендериться все приложение через JavaScript -->
+        </div>
+        <div class="text-center text-sm text-slate-300 bg-slate-900/70 border border-slate-700 rounded-2xl px-4 py-3 shadow-lg">
+            Pour toute question, n'hésitez pas à écrire à Artem sur WhatsApp.
+        </div>
+    </div>
+
+    <!-- Модальное окно для фото (скрыто по умолчанию) -->
+    <div id="image-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-2 sm:p-4 hidden">
+        <div class="modal-content bg-slate-900 rounded-2xl border border-slate-700 w-full max-w-lg sm:max-w-3xl md:max-w-4xl p-4 sm:p-6 relative shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+            <button onclick="closeImageModal()" class="absolute top-3 right-3 sm:top-4 sm:right-4 p-2 bg-slate-800 text-slate-400 hover:text-white rounded-full border border-slate-700">
+                <i data-lucide="x"></i>
+            </button>
+            
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4 sm:mb-6 pr-0 sm:pr-12">
+                <h3 id="modal-title" class="text-xl font-bold text-white flex-1">Titre</h3>
+                <label id="upload-label" class="self-start sm:self-auto flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg cursor-pointer transition-colors text-sm font-semibold shadow-md">
+                    <i data-lucide="upload" class="w-4 h-4"></i>
+                    <span>Ajouter photos</span>
+                    <input type="file" accept="image/*" multiple class="hidden" onchange="handleImageUpload(event)">
+                </label>
+            </div>
+
+            <div id="modal-gallery" class="flex-1 flex flex-col gap-4 overflow-y-auto pr-1 sm:pr-2 pb-4">
+                <!-- Фотографии появятся здесь -->
+            </div>
+            
+            <p class="text-center text-sm text-slate-400 mt-auto border-t border-slate-800 pt-4">
+               Les photos que vous ajoutez resteront enregistrées ici.
+            </p>
+        </div>
+    </div>
+
+    <!-- MODAL POUR LES MODES -->
+    <div id="mode-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-2 sm:p-4 hidden">
+        <div class="modal-content bg-slate-900 rounded-2xl border border-slate-700 w-full max-w-2xl p-4 sm:p-6 relative shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+            <button onclick="closeModeModal()" class="absolute top-3 right-3 sm:top-4 sm:right-4 p-2 bg-slate-800 text-slate-400 hover:text-white rounded-full border border-slate-700">
+                <i data-lucide="x"></i>
+    </button>
+
+            <h3 id="mode-modal-title" class="text-2xl font-bold text-white mb-6 pr-12">Mode</h3>
+
+            <div id="mode-modal-content" class="flex-1 overflow-y-auto pr-1 sm:pr-2 pb-4">
+                <!-- Contenu du mode apparaîtra ici -->
+            </div>
+        </div>
+    </div>
+
+    <!-- JAVASCRIPT LOGIC -->
+    <script type="module">
+        // ==========================================
+        // 1. ДАННЫЕ КУРСА (РЕДАКТИРУЙ ЗДЕСЬ)
+        // ==========================================
+        const COURSE_DATA = [
+            {
+                id: 'mod-1',
+                title: 'MODULE 1',
+                subtitle: 'CARTE HARMONIQUE DU MANCHE (BLOCS)',
+                lessons: [
+                    {
+                        id: 'm1-l1',
+                        title: 'Leçon 1 — Technique, Chanson & 4 Blocs',
+                        description: 'Placement de main et formes géométriques.',
+                        details: [
+                            'Technique Main Droite.',
+                            'Théorie : Se rappeler du Mode Ré Dorien (D Dorian) et Sol Majeur (G Ionian).',
+                            'Géométrie : Les 4 Blocs se jouent sur tout le manche.'
+                        ],
+                        tasks: [
+                            { 
+                                id: 't1-1-1', 
+                                text: 'Se rappeler : Mode Ré Dorien (D) & Sol Majeur (G)', 
+                                details: 'Voisins (1 ton d\'écart). Ré Dorien = position de base. Sol Majeur (Ionien) = 1 ton plus bas.',
+                                videoLinks: [
+                                    { label: 'Video 1', url: 'https://youtube.com/shorts/K4TBjjz3RpQ' },
+                                    { label: 'Video 2', url: 'https://youtube.com/shorts/brMNABXqQtg' }
+                                ]
+                            },
+                            { 
+                                id: 't1-1-2', 
+                                text: 'Mémoriser les 4 formes géométriques (Voir photos)', 
+                                details: 'Visualiser les formes sur le manche. Cliquez pour voir ou ajouter vos photos.',
+                                showImages: true,
+                                imageUrls: [] // Загрузятся из памяти
+                            },
+                            { 
+                                id: 't1-1-3', 
+                                text: 'Jouer "Do You Wanna Be My Girl?"', 
+                                details: 'Focus sur l\'extraction du son main droite. Le son doit être uniforme et stable. (ongles courts recommandés)' 
+                            }
+                        ]
+                    },
+                    {
+                        id: 'm1-l2',
+                        title: 'Leçon 2 — Algorithme de Déplacement',
+                        description: 'Navigation fluide sur le manche via la logique des blocs.',
+                        details: [
+                            'Les 4 Blocs : Mineur, Majeur, Lydien, Mixolydien',
+                            'Mineurs : toujours par paires. Lydien & Mixolydien : également par paires. Majeur : isolé entre les paires mineures.',
+                            'Mouvement vers le haut depuis deux blocs mineurs : +1/2 ton',
+                            'Mouvement vers le bas depuis les blocs mineurs : +1 ton'
+                        ],
+                        showScheme: true,
+                        schemeUrl: '/maja/images/scheme_blocks.jpg',
+                        tasks: [
+                            { 
+                                id: 't1-2-1', 
+                                text: 'Jouer une séquence de blocs sur tout le manche',
+                                videoLinks: [
+                                    { label: 'Video', url: 'https://www.youtube.com/shorts/5E38RDFRczU' }
+                                ]
+                            },
+                            { 
+                                id: 't1-2-2', 
+                                text: 'Connecter les blocs',
+                                videoLinks: [
+                                    { label: 'Video', url: 'https://youtube.com/shorts/HzII4AOrzj8' }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        id: 'm1-l2-prac',
+                        title: 'PRATIQUE DE LA LEÇON 2',
+                        description: 'Validation des acquis : Les 4 Blocs sur tout le manche.',
+                        isPractice: true,
+                        parentLessonId: 'm1-l2',
+                        details: [
+                            'Objectif : Fluidité de navigation sur les 4 formes.',
+                            'Séquence : Accords → Arpèges → Aléatoire.'
+                        ],
+                        tasks: [
+                            { id: 't1-prac-1', text: 'Étape 1 : Jeu en Accords (Positions fixes)' },
+                            { id: 't1-prac-2', text: 'Étape 2 : Jeu en Arpèges (Délié)' },
+                            { id: 't1-prac-3', text: 'Étape 3 : Notes Aléatoires (Connexions)' }
+                        ]
+                    },
+                    {
+                        id: 'm1-l3',
+                        title: 'Leçon 3 — Modes et Sensations',
+                        description: 'Exploration des modes Dorien, Phrygien et Lydien.',
+                        details: [
+                            'Trois modes avec leurs caractéristiques émotionnelles.',
+                            'Exemples musicaux pour chaque mode.'
+                        ],
+                        showModes: true,
+                        modes: [
+                            {
+                                id: 'dorien',
+                                name: 'Dorien',
+                                sensations: [
+                                    'force calme',
+                                    'stabilité intérieure',
+                                    'honnête',
+                                    'acceptation',
+                                    'mouvement',
+                                    'contrôle',
+                                    'humain',
+                                    'légèrement austère'
+                                ],
+                                examples: [
+                                    { title: 'Inner City Blues', artist: 'Molly Johnson', url: 'https://www.youtube.com/watch?v=6nykTgEajkk' },
+                                    { title: 'So What', artist: 'Miles Davis', url: 'https://www.youtube.com/watch?v=zqNTltOGh5c' },
+                                    { title: 'Chameleon', artist: 'Herbie Hancock', url: 'https://www.youtube.com/watch?v=WYRrIBqKsJ4' },
+                                    { title: 'Use Me', artist: 'Bill Withers', url: 'https://www.youtube.com/watch?v=NuYDKzky4z0' },
+                                    { title: 'Get Lucky', artist: 'Daft Punk', url: 'https://www.youtube.com/watch?v=5NV6Rdv1a3I' }
+                                ]
+                            },
+                            {
+                                id: 'phrygien',
+                                name: 'Phrygien',
+                                sensations: [
+                                    'tension',
+                                    'ancienneté',
+                                    'rituel',
+                                    'fatalité',
+                                    'obscurité sans hystérie',
+                                    'mystique mais terrestre',
+                                    'non aérien',
+                                    'danger'
+                                ],
+                                examples: [
+                                    { title: 'Set the Controls for the Heart of the Sun', artist: 'Pink Floyd', url: 'https://www.youtube.com/watch?v=JcfgJrHo9XA' },
+                                    { title: 'La Fiesta', artist: 'Chick Corea', url: 'https://www.youtube.com/watch?v=9ohA-I7gTyQ' },
+                                    { title: 'Ginseng Woman', artist: 'Eric Gale', url: 'https://www.youtube.com/watch?v=w9iENJZjsfw' },
+                                    { title: 'New Person, Same Old Mistakes', artist: 'Tame Impala', url: 'https://www.youtube.com/watch?v=tEXYfT_G0W0' }
+                                ]
+                            },
+                            {
+                                id: 'lydien',
+                                name: 'Lydien',
+                                sensations: [
+                                    'espoir',
+                                    'mystère',
+                                    'mystique',
+                                    '« avec une question »',
+                                    'cinématographique',
+                                    'immatériel',
+                                    'prospectif'
+                                ],
+                                examples: [
+                                    { title: 'The Simpsons Main Title Theme', artist: '', url: 'https://www.youtube.com/watch?v=Fttst9dG6Ko' },
+                                    { title: 'Head Over Heels', artist: 'Tears For Fears', url: 'https://www.youtube.com/watch?v=CsHiG-43Fzg' },
+                                    { title: 'Dreams', artist: 'Fleetwood Mac', url: 'https://www.youtube.com/watch?v=Y3ywicffOj4' }
+                                ]
+                            }
+                        ],
+                        tasks: []
+                    },
+                    {
+                        id: 'm1-l3-prac',
+                        title: 'PRATIQUE DE LA LEÇON 3',
+                        description: 'Validation des acquis : Séquences et analyse des modes.',
+                        isPractice: true,
+                        parentLessonId: 'm1-l3',
+                        details: [
+                            'Objectif : Jouer une séquence à chacun des trois modes.',
+                            'Analyse : Analyser les exemples sur l\'unité de l\'ambiance et du mood.',
+                            'Analyse technique : Trouver la note fondamentale, le bloc correspondant au mode et deux voisins.'
+                        ],
+                        tasks: [
+                            { 
+                                id: 't1-3-prac-1', 
+                                text: 'Jouer une séquence à chacun des trois modes',
+                                details: 'Détails dans la vidéo jointe.',
+                                videoLinks: [
+                                    { label: 'Video', url: 'https://www.youtube.com/shorts/MCgZvoipnEk?feature=share' }
+                                ]
+                            },
+                            { 
+                                id: 't1-3-prac-0', 
+                                text: 'Écouter les exemples audio et identifier le vibe commun et l\'ambiance de chaque mode.',
+                                details: 'Parcourir les exemples fournis pour chaque mode (Dorien, Phrygien, Lydien) et noter les similitudes, l\'atmosphère.'
+                            },
+                            { 
+                                id: 't1-3-prac-2', 
+                                text: 'Pour chaque exemple musical : trouver la note fondamentale, le bloc correspondant au mode et deux blocs voisins',
+                                details: 'Analyser les exemples fournis pour chaque mode (Dorien, Phrygien, Lydien).'
+                            },
+                            { 
+                                id: 't1-3-prac-3', 
+                                text: 'Enregistrer une petite vidéo d\'une séquence sur un des modes',
+                                details: 'Choisir un mode (Dorien, Phrygien ou Lydien) et enregistrer une vidéo de la séquence jouée.'
+                    }
+                ]
+            },
+            {
+                        id: 'm1-l4',
+                        title: 'Leçon 4 — La Palette Modale Complète',
+                        description: 'Étude des 4 modes restants (Ionien, Mixolydien, Éolien, Locrien).',
+                        details: [
+                            'Étude : Blocs correspondant aux modes.',
+                            'Objectif : Rendre le manche totalement "transparent" en connectant tous les blocs.'
+                        ],
+                        showModes: true,
+                        modes: [
+                            {
+                                id: 'ionien',
+                                name: 'Ionien (Majeur naturel)',
+                                sensations: [
+                                    'lumineux', 'joie', 'stabilité', 'résolution', 'triomphe', 'innocence', 'clarté', 'solaire'
+                                ],
+                                examples: [
+                                    { title: 'Let It Be', artist: 'The Beatles', url: 'https://www.youtube.com/watch?v=QDYfEBY9NM4' },
+                                    { title: 'Here Comes the Sun', artist: 'The Beatles', url: 'https://www.youtube.com/watch?v=KQetemT1sWc' },
+                                    { title: 'Ode to Joy', artist: 'Ludwig van Beethoven', url: 'https://www.youtube.com/watch?v=-kcOpyM9cBg' },
+                                    { title: 'Imagine', artist: 'John Lennon', url: 'https://www.youtube.com/watch?v=YkgkThdzX-8' }
+                                ]
+                            },
+                            {
+                                id: 'mixolydien',
+                                name: 'Mixolydien',
+                                sensations: [
+                                    'cool', 'détente', 'voyage', 'bluesy', 'rock', 'liberté', 'optimisme', 'ancré', 'transition'
+                                ],
+                                examples: [
+                                    { title: 'Sweet Home Alabama', artist: 'Lynyrd Skynyrd', url: 'https://www.youtube.com/watch?v=ye5BuYf8q4o' },
+                                    { title: 'Norwegian Wood (This Bird Has Flown)', artist: 'The Beatles', url: 'https://www.youtube.com/watch?v=Y_V6y1ZCg_8' },
+                                    { title: 'Dreams', artist: 'Fleetwood Mac', url: 'https://www.youtube.com/watch?v=mrZRURcb1cM' },
+                                    { title: 'Sweet Child O\' Mine', artist: 'Guns N\' Roses', url: 'https://www.youtube.com/watch?v=1w7OgIMMRc4' }
+                                ]
+                            },
+                            {
+                                id: 'eolien',
+                                name: 'Éolien (Mineur naturel)',
+                                sensations: [
+                                    'mélancolie', 'tristesse', 'émotion', 'sérieux', 'sentimental', 'moderne', 'profondeur', 'intime'
+                                ],
+                                examples: [
+                                    { title: 'Losing My Religion', artist: 'R.E.M.', url: 'https://www.youtube.com/watch?v=xwtdhWltSIg' },
+                                    { title: 'Hello', artist: 'Adele', url: 'https://www.youtube.com/watch?v=YQHsXMglC9A' },
+                                    { title: 'All Along the Watchtower', artist: 'Jimi Hendrix', url: 'https://www.youtube.com/watch?v=TLV4_xaYynY' },
+                                    { title: 'Sweet Dreams (Are Made of This)', artist: 'Eurythmics', url: 'https://www.youtube.com/watch?v=qeMFqkcPYcg' }
+                                ]
+                            },
+                            {
+                                id: 'locrien',
+                                name: 'Locrien',
+                                sensations: [
+                                    'instabilité', 'malaise', 'étrange', 'dissonance', 'chaos', 'tension extrême', 'obscurité', 'désorientant'
+                                ],
+                                examples: [
+                                    { title: 'Army of Me', artist: 'Björk', url: 'https://www.youtube.com/watch?v=jPeheoBa2_Y' },
+                                    { title: 'Juicebox', artist: 'The Strokes', url: 'https://www.youtube.com/watch?v=GoltwBHXCx8' },
+                                    { title: 'Painkiller (Intro)', artist: 'Judas Priest', url: 'https://www.youtube.com/watch?v=nM__lPTWThU' },
+                                    { title: 'Spinning in Daffodils', artist: 'Them Crooked Vultures', url: 'https://www.youtube.com/watch?v=R8ZqTJ4ovl8' }
+                                ]
+                            }
+                        ],
+                        tasks: []
+                    },
+                    {
+                        id: 'm1-l4-prac',
+                        title: 'PRATIQUE DE LA LEÇON 4',
+                        description: 'Validation des acquis : Visualisation des blocs et analyse des modes.',
+                        isPractice: true,
+                        parentLessonId: 'm1-l4',
+                        showMetronome: true,
+                        metronomeUrl: 'https://play.google.com/store/apps/details?id=com.soundbrenner.pulse&hl=en',
+                        details: [
+                            'Objectif : Exécuter la mission selon le lien.',
+                            'Analyse : Analyser les exemples sur l\'unité de l\'ambiance et du mood.',
+                            'Analyse technique : Analyser les exemples et trouver la note fondamentale et une paire de blocs voisins.'
+                        ],
+                        tasks: [
+                            { 
+                                id: 't1-4-prac-1', 
+                                text: 'Vidéo avec mission : visualisation des positions des blocs et mémorisation du vibe des modes',
+                                details: 'Détails dans la vidéo jointe.',
+                                videoLinks: [
+                                    { label: 'Video', url: 'https://youtu.be/F_m3IEVoccQ' }
+                                ]
+                            },
+                            { 
+                                id: 't1-4-prac-3', 
+                                text: 'Enregistrer une vidéo où vous jouez la séquence par blocs du vidéo. Important : avec métronome',
+                                details: 'Jouer la séquence montrée dans la vidéo en suivant les blocs, en utilisant le métronome pour maintenir le tempo.'
+                            },
+                            { 
+                                id: 't1-4-prac-0', 
+                                text: 'Écouter les exemples audio et identifier le vibe commun et l\'ambiance de chaque mode.',
+                                details: 'Parcourir les exemples fournis pour chaque mode (Ionien, Mixolydien, Éolien, Locrien) et noter les similitudes, l\'atmosphère.'
+                            },
+                            { 
+                                id: 't1-4-prac-2', 
+                                text: 'Regarder les blocs pour chaque mode',
+                                details: 'Visualiser et comprendre les positions des blocs pour chaque mode (Ionien, Mixolydien, Éolien, Locrien).'
+                            },
+                            { 
+                                id: 't1-4-prac-4', 
+                                text: 'Analyser les exemples et trouver la note fondamentale et une paire de blocs voisins',
+                                details: 'Pour chaque exemple musical fourni, identifier la note fondamentale et une paire de blocs voisins correspondant au mode.'
+                    }
+                ]
+            },
+            {
+                        id: 'm1-l5',
+                        title: 'Leçon 5 — Le Groove : De la Théorie à la Pratique',
+                        description: 'Étude de l\'application musicale des blocs et création de fills.',
+                        details: [
+                            'Étude : Apprentissage d\'un groove simple comme base rythmique.',
+                            'Transition : Passer de la visualisation théorique (blocs) à l\'application réelle dans un contexte musical.',
+                            'Vocabulaire : Création et intégration de \"fills\" (remplissages) en utilisant les structures de blocs.'
+                        ],
+                        tasks: []
+                    },
+                    {
+                        id: 'm1-l5-prac',
+                        title: 'PRATIQUE DE LA LEÇON 5',
+                        description: 'Validation des acquis : Rythme, improvisation ciblée et navigation.',
+                        isPractice: true,
+                        parentLessonId: 'm1-l5',
+                        showMetronome: true,
+                        metronomeUrl: 'https://play.google.com/store/apps/details?id=com.soundbrenner.pulse&hl=en',
+                        details: [
+                            'Objectif : Jouer le groove sur tout le manche en y intégrant des fills personnels.',
+                            'Rigueur : Utilisation obligatoire du MÉTRONOME pour stabiliser le temps.',
+                            'Mémorisation : Consolider l\'utilisation des points d\'ancrage (tritons) pour une liberté totale.'
+                        ],
+                        tasks: [
+                            {
+                                id: 't2-5-prac-1',
+                                text: 'Regarder une vidéo (Mission Groove + Fills)',
+                                details: 'Jouer la séquence de groove apprise en intégrant des fills à la fin de chaque riff à partir des blocs. IMPORTANT : la vidéo doit être enregistrée avec un MÉTRONOME.',
+                                videoLinks: [
+                                    { label: 'Video 1', url: 'https://youtube.com/shorts/sGiWMbTSTuM?feature=share' }
+                                ]
+                            },
+                            {
+                                id: 't2-5-prac-2',
+                                text: 'Développer sa bibliothèque personnelle',
+                                details: 'Parmi tous les blocs pratiqués, sélectionner et travailler spécifiquement les fills préférés afin de construire votre propre vocabulaire musical.'
+                            },
+                            {
+                                id: 't2-5-prac-3',
+                                text: 'Tâche additionnelle : Regarder une vidéo (Points d’ancrage – Tritons)',
+                                details: 'Vidéo additionnelle. Démontrer la capacité à se repérer instantanément sur le manche en utilisant les tritons comme points d\'ancrage pour changer de bloc.',
+                                videoLinks: [
+                                    { label: 'Video 2', url: 'https://youtube.com/shorts/nX-HX9UTR4Q?feature=share' }
+                                ]
+                            },
+                            {
+                                id: 't2-5-prac-4',
+                                text: 'Tâche optionnelle : Objectif de fluidité',
+                                details: 'Objectif : mémoriser la position des tritons sur le manche et construire un bloc qui inclut le triton et deux blocs voisins.'
+                            }
+                        ]
+                    },
+                    {
+                        id: 'm1-l6',
+                        title: 'Leçon 6 — L\'Improvisation Mélodique : Cibles et Harmonie',
+                        description: 'Passage du jeu de gammes à la création de phrases mélodiques conscientes (Target Notes).',
+                        details: [
+                            'Philosophie : la contrainte définit le son. Le choix de la méthode (par exemple jouer sur 2 cordes au lieu de gammes) détermine la texture et le caractère « vocal » du solo.',
+                            'Navigation : Cibler consciemment les degrés de résolution (Target Notes : 4 à 9) pour structurer le phrasé.',
+                            'Indépendance : S\'accompagner soi-même en alternant accords (basse + aigue du bloc) et phrases courtes. Cette approche développe le sens de la composition.'
+                        ],
+                        tasks: []
+                    },
+                    {
+                        id: 'm1-l6-prac',
+                        title: 'PRATIQUE DE LA LEÇON 6',
+                        description: 'Validation des acquis : Précision mélodique, ornementation et vision harmonique.',
+                        isPractice: true,
+                        parentLessonId: 'm1-l6',
+                        details: [
+                            'Objectif : Improviser sur le backing track en atterrissant obligatoirement sur les notes cibles.',
+                            'Technique : Utilisation des ornementations (slides, hammer-ons) pour dynamiser les fins de phrases ("Fancy Endings").',
+                            'Vision : Visualiser les formes d\'accords simplifiées (blocs) tout en jouant la mélodie.'
+                        ],
+                        tasks: [
+                            {
+                                id: 't1-6-prac-0',
+                                text: 'Pratiquer avec le Backing Track (E Mixolydian)',
+                                details: 'Improviser sur le backing track en atterrissant sur les notes cibles. 🎯 Question : Quel mode supplémentaire apparaît dans ce minus ?',
+                                videoLinks: [
+                                    { label: 'Audio', url: 'https://drive.google.com/file/d/1gaNeNNTZf0zRCqA-Rf3ywBp2KqcpyOqX/view?usp=drive_link' }
+                                ]
+                            },
+                            {
+                                id: 't1-6-prac-1',
+                                text: 'Regarder une vidéo (Target Notes & Phrasé)',
+                                details: 'Vidéo principale sur les notes cibles et le phrasé.',
+                                videoLinks: [
+                                    { label: 'Video', url: 'https://youtube.com/shorts/pbE5rXx0l2U?feature=share' }
+                                ]
+                            },
+                            {
+                                id: 't1-6-prac-3',
+                                text: 'Tâche additionnelle : Regarder une vidéo (Ornementation / Fancy Endings)',
+                                details: 'Vidéo additionnelle sur les ornementations et les fins de phrases.',
+                                videoLinks: [
+                                    { label: 'Video', url: 'https://youtube.com/shorts/qJ-rdizy1J8?feature=share' }
+                                ]
+                            },
+                            {
+                                id: 't1-6-prac-4',
+                                text: 'Tâche optionnelle : S\'accompagner soi-même (Accords & Mélodie)',
+                                details: 'Structure : Alterner le rôle d\'accompagnateur (accords simulés) et de soliste pour épurer le jeu et éviter la surcharge de notes.',
+                                videoLinks: [
+                                    { label: 'Video', url: 'https://youtube.com/shorts/3WER9_NAq6c?si=AP5DXpFonIun_1f3' }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        id: 'm1-l7',
+                        title: 'Leçon 7 — Changement de Modes et Dynamique sur le Manche',
+                        description: 'Passage d\'une position statique à la navigation fluide en alternant les modes (Mixolydien et Dorien).',
+                        details: [
+                            'Le rôle de la fondamentale : Le mode est toujours défini par la note grave (la note fondamentale / Root note) jouée dans l\'accord ou le backing track (dans notre cas, le Mi / E).',
+                            'Le mode détermine la position : C\'est le mode diatonique choisi (Ionien, Dorien, Phrygien, etc.) qui dicte l\'emplacement exact de nos blocs sur le manche.'
+                        ],
+                        tasks: []
+                    },
+                    {
+                        id: 'm1-l7-prac',
+                        title: 'PRATIQUE DE LA LEÇON 7',
+                        description: 'Validation des acquis : Changement de modes en temps réel et création de mouvements sur le manche.',
+                        isPractice: true,
+                        parentLessonId: 'm1-l7',
+                        details: [
+                            'Objectif : Alterner les blocs (E Mixolydien et E Dorien) en utilisant comme repères les blocs majeurs appariés (Mixolydien et Lydien) ainsi que le bloc Ionien (1er degré).',
+                            'Dynamique : Créer un mouvement sur l\'ensemble du manche dans des directions aléatoires. Déplacez-vous de bloc en bloc tout en anticipant et en visualisant le prochain changement de mode.',
+                            '💡 Astuce (Repères visuels) : Pour les grands blocs (4 cordes) : Mémorisez l\'emplacement des blocs majeurs (la paire Mixo/Lydien et l\'Ionien) pour déduire facilement la position des blocs mineurs. Pour les petits blocs (2 cordes) : Gardez en tête la position du triton comme point de repère principal, ainsi que ses positions à l\'octave (plus grave ou plus aiguë).'
+                        ],
+                        tasks: [
+                            {
+                                id: 't1-7-prac-1',
+                                text: 'Regarder la vidéo d\'explication (Navigation à travers les modes parallèles)',
+                                details: 'Vidéo explicative sur la navigation à travers les modes parallèles.',
+                                videoLinks: [
+                                    { label: 'Video', url: 'https://www.youtube.com/watch?v=hbFz5FqjvWQ' }
+                                ]
+                            },
+                            {
+                                id: 't1-7-prac-2',
+                                text: 'Pratiquer avec le Backing Track (E Mixo / E Dorian - Changements de positions)',
+                                details: 'Improviser sur le backing track en alternant E Mixolydien et E Dorien. Rappel : les changements d\'accords dans le minus indiquent le moment exact de la transition entre les modes.',
+                                videoLinks: [
+                                    { label: 'Audio', url: 'https://drive.google.com/file/d/1fWyUGtoom8H663tfl3x2cG3_b4DS0e73/view?usp=drive_link' }
+                                ]
+                            },
+                            {
+                                id: 't1-7-prac-3',
+                                text: 'Tâche additionnelle : Faire une petite vidéo de votre progrès',
+                                details: 'Enregistrer une courte vidéo montrant votre jeu actuel sur le backing track avec les changements de modes.'
+                            },
+                            {
+                                id: 't1-7-prac-4',
+                                text: 'Tâche additionnelle : Essayer de jouer de petites mélodies par blocs avec les changements de modes',
+                                details: 'Improviser de courtes phrases mélodiques en naviguant entre les blocs tout en suivant les changements de modes dans le backing track.'
+                            }
+                        ]
+                    },
+                    {
+                        id: 'm1-l8',
+                        title: 'Leçon 8 — L\'Architecture du Groove : Pentatonique & Palm Mute',
+                        description: 'Transition vers le jeu rythmique : technique de main droite et points communs des gammes majeures.',
+                        details: [
+                            'Technique Main Droite (Mute & Pluck) :',
+                            'Position du Mute : Près du chevalet (Bridge) = moins étouffé. Vers le manche (Neck) = plus étouffé.',
+                            'Le doigt (Index) : Gardez l\'index droit (pas de crochet). L\'attaque vient du dessus (comme le fingerstyle standard), et non par en dessous, pour éviter le bruit de "claquement" de la corde contre la frette.',
+                            'Théorie : Les Notes Communes :',
+                            'La Pentatonique Majeure est constituée des notes communes aux 3 modes majeurs (Ionien, Lydien, Mixolydien).',
+                            'Formule : 1 - 2 - 3 - 5 - 6.'
+                        ],
+                        tasks: []
+                    },
+                    {
+                        id: 'm1-l8-prac',
+                        title: 'PRATIQUE DE LA LEÇON 8',
+                        description: 'Validation des acquis : Son, Mémoire musculaire et Navigation.',
+                        isPractice: true,
+                        parentLessonId: 'm1-l8',
+                        showScheme: true,
+                        schemeUrl: '/maja/images/pentatonic.png',
+                        details: [
+                            'Objectif : Apprendre les blocs pentatoniques et les pratiquer avec la nouvelle technique de main droite.',
+                            'Rappel : Se souvenir du groove sur accords.'
+                        ],
+                        tasks: [
+                            {
+                                id: 't1-8-prac-1',
+                                text: 'Regarder la vidéo d\'explication',
+                                videoLinks: [
+                                    { label: 'Video', url: 'https://youtu.be/mGwUU-aWJUg' }
+                                ]
+                            },
+                            {
+                                id: 't1-8-prac-2',
+                                text: 'Pratiquer avec le Backing Track (No Bass)',
+                                videoLinks: [
+                                    { label: 'Audio', url: 'https://drive.google.com/file/d/1V9NcoaxQYwaxI0wL4Vlyjkt8mXSnL_O_/view?usp=sharing' }
+                                ]
+                            },
+                            {
+                                id: 't1-8-prac-3',
+                                text: 'Tâche additionnelle : Faire une petite vidéo de votre progrès'
+                            }
+                        ]
+                    },
+                    {
+                        id: 'm1-l9',
+                        title: 'Leçon 9 — Géométrie Pentatonique Avancée',
+                        description: 'Architecture sur 2 cordes (les petits blocs). Jeu pentatonique depuis différentes positions majeures (Superposition).',
+                        showScheme: true,
+                        schemeUrl: '/maja/images/Screenshot_42.png',
+                        details: [
+                            'Petits blocs : travailler la géométrie sur deux cordes comme base mobile.',
+                            'Superposition — Liberté de l\'improvisateur : Lorsqu\'un accord majeur n\'a ni 4ème ni 7ème degré imposé, c\'est l\'improvisateur qui définit la couleur modale en choisissant les positions de la gamme pentatonique à superposer.',
+                            'Positions par mode :',
+                            'Ionien : jouez la pentatonique sur les 1er, 4ème et 5ème degrés.',
+                            'Lydien : jouez la pentatonique sur les 1er, 2ème et 5ème degrés.',
+                            'Mixolydien : jouez la pentatonique sur les 1er, 7ème et 4ème degrés.',
+                            'Variation de couleur : Chacune de ces trois positions, au sein d\'un même mode, apporte une « couleur » ou une texture harmonique différente, en mettant l\'accent sur des extensions spécifiques de l\'accord de base.'
+                        ],
+                        tasks: []
+                    },
+                    {
+                        id: 'm1-l9-prac',
+                        title: 'PRATIQUE DE LA LEÇON 9',
+                        description: 'Trois étapes : rappel des patterns, arpèges, séquence finale au métronome.',
+                        isPractice: true,
+                        parentLessonId: 'm1-l9',
+                        showMetronome: true,
+                        metronomeUrl: 'https://play.google.com/store/apps/details?id=com.soundbrenner.pulse&hl=en',
+                        details: [
+                            'Tempo conseillé pour la séquence finale : 55–60 BPM.'
+                        ],
+                        tasks: [
+                            {
+                                id: 't1-9-prac-1',
+                                text: 'Préparatoire : Revoyons les mini-blocs et les patterns pentatoniques sur trois cordes',
+                                details: 'Vidéo de rappel : mini-blocs et patterns pentatoniques en trois cordes.',
+                                videoLinks: [
+                                    { label: 'Video', url: 'https://www.youtube.com/watch?v=UNd106-IuLQ' }
+                                ]
+                            },
+                            {
+                                id: 't1-9-prac-2',
+                                text: 'Arpèges selon les patterns à trois cordes (focus sur la pose des doigts)',
+                                details: 'Travailler les arpèges en suivant les formes à trois cordes, en soignant la position des doigts.',
+                                videoLinks: [
+                                    { label: 'Video', url: 'https://www.youtube.com/shorts/zCPzwCeq-qo' }
+                                ]
+                            },
+                            {
+                                id: 't1-9-prac-3',
+                                text: 'Séquence finale : jouer la séquence au métronome (55–60 BPM)',
+                                details: 'Exemple de référence pour la séquence. Important : jouer votre version au métronome entre 55 et 60 BPM.',
+                                videoLinks: [
+                                    { label: 'Video', url: 'https://www.youtube.com/shorts/VM5KtDUQtm4' }
+                                ]
+                            }
+                        ]
+                    },
+                ]
+            },
+            {
+                id: 'mod-2',
+                title: 'MODULE 2',
+                subtitle: 'LE TEMPS & LE RYTHME',
+                lessons: [
+                    {
+                        id: 'm2-locked',
+                        title: '[GRISÉ / VERROUILLÉ] MODULE 2 — LE TEMPS & LE RYTHME',
+                        description: '(Ce module sera disponible après la validation du Module 1)',
+                        locked: true,
+                        details: [
+                            'Konnakol.',
+                            'Pulsation & Métronome.',
+                            'Création de lignes de basse.'
+                        ],
+                        tasks: []
+                    }
+                ]
+            },
+            {
+                hidden: true,
+                id: 'mod-3',
+                title: 'MODULE 3',
+                subtitle: 'DE LA MÉLODIE AU SON VIVANT',
+                lessons: [
+                    {
+                        id: 'm3-l7',
+                        title: 'Leçon 7 — L\'Art de l\'Articulation (Mélismes)',
+                        description: 'Technique : Legato, Hammer-on, Pull-off, Slide, Vibrato.',
+                        details: [
+                            'Technique : Legato, Hammer-on, Pull-off, Slide, Vibrato.',
+                            'Objectif : Éviter le son "sec" et donner de la vie aux mélodies de la leçon précédente.',
+                            'Pratique : Ornementation des mélodies simples.'
+                        ],
+                        tasks: []
+                    }
+                ]
+            },
+            {
+                hidden: true,
+                id: 'mod-4',
+                title: 'MODULE 4',
+                subtitle: 'ARCHITECTURE HARMONIQUE PRO',
+                lessons: [
+                    {
+                        id: 'm4-l8',
+                        title: 'Leçon 8 — Triades et Renversements',
+                        description: 'Pensée verticale (accords). Les triades sur tout le manche.',
+                        details: [
+                            'Théorie : Pensée verticale (accords). Les triades sur tout le manche.',
+                            'Objectif : Voir le "squelette" harmonique sous ses doigts.',
+                            'Pratique : Séquences de triades brisées.'
+                        ],
+                        tasks: []
+                    },
+                    {
+                        id: 'm4-l9',
+                        title: 'Leçon 9 — Septièmes, Sus et Tétrades',
+                        description: 'Accords à 4 sons et accords Sus (Sus2, Sus4).',
+                        details: [
+                            'Théorie : Accords à 4 sons et accords Sus (Sus2, Sus4).',
+                            'Objectif : Enrichir la couleur du solo avec des extensions modernes.',
+                            'Pratique : Arpèges de septièmes avec renversements.'
+                        ],
+                        tasks: []
+                    }
+                ]
+            },
+            {
+                hidden: true,
+                id: 'mod-5',
+                title: 'MODULE 5',
+                subtitle: 'CONCEPTS DE SOLO AVANCÉS',
+                lessons: [
+                    {
+                        id: 'm5-l10',
+                        title: 'Leçon 10 — Intervalles et Harmonie Quartale',
+                        description: 'Sortir du mouvement conjoint (gammes). Jeu par quartes.',
+                        details: [
+                            'Théorie : Sortir du mouvement conjoint (gammes). Jeu par quartes.',
+                            'Objectif : Créer des sauts mélodiques intéressants et modernes.'
+                        ],
+                        tasks: []
+                    },
+                    {
+                        id: 'm5-l11',
+                        title: 'Leçon 11 — Substitutions de Pentatoniques',
+                        description: 'Jouer des pentatoniques à partir de différents degrés du mode.',
+                        details: [
+                            'Théorie : Jouer des pentatoniques à partir de différents degrés du mode.',
+                            'Objectif : Créer des tensions et des couleurs sophistiquées (ex: Pentalydienne).'
+                        ],
+                        tasks: []
+                    },
+                    {
+                        id: 'm5-l12',
+                        title: 'Leçon 12 — Contrainte Créative : Solo sur 2 cordes',
+                        description: 'Forcer la pensée horizontale et briser les réflexes de "boîtes" (blocks).',
+                        details: [
+                            'Objectif : Forcer la pensée horizontale et briser les réflexes de "boîtes" (blocks).',
+                            'Pratique : Improvisation limitée à un couloir étroit du manche.'
+                        ],
+                        tasks: []
+                    }
+                ]
+            },
+            {
+                hidden: true,
+                id: 'mod-6',
+                title: 'MODULE 6',
+                subtitle: 'FINALE — STORYTELLING ET PERFORMANCE',
+                lessons: [
+                    {
+                        id: 'm6-l13',
+                        title: 'Leçon 13 — Architecture du Solo (Dramaturgie)',
+                        description: 'Construction d\'un discours (Introduction, Développement, Climax, Conclusion).',
+                        details: [
+                            'Théorie : Construction d\'un discours (Introduction, Développement, Climax, Conclusion).',
+                            'Objectif : Gérer l\'espace (le silence), la dynamique et le registre (Grave vs Aigu).'
+                        ],
+                        tasks: []
+                    },
+                    {
+                        id: 'm6-l14',
+                        title: 'Leçon 14 — Préparation de la Performance Finale',
+                        description: 'Analyse de la grille de la composition choisie et choix des concepts à appliquer.',
+                        details: [
+                            'Pratique : Analyse de la grille de la composition choisie et choix des concepts à appliquer.'
+                        ],
+                        tasks: []
+                    },
+                    {
+                        id: 'm6-exam',
+                        title: 'EXAMEN FINAL : PERFORMANCE SOLO',
+                        description: 'Jouer un solo complet sur une composition.',
+                        isPractice: true,
+                        details: [
+                            'Défi : Jouer un solo complet sur une composition.',
+                            'Critères : Justesse des modes, précision du Konnakol, utilisation des mélismes et clarté de la structure.'
+                        ],
+                        tasks: []
+                    }
+                ]
+            }
+        ];
+
+        // ==========================================
+        // 2. STATE MANAGEMENT (Variable Storage)
+        // ==========================================
+        let completedTasks = new Set(JSON.parse(localStorage.getItem('maja_bass_progress_v2') || '[]'));
+        let expandedLessons = new Set(['m1-l9']);
+        let expandedTaskDetails = new Set();
+        // Default photos for task t1-1-2
+        const DEFAULT_PHOTOS = [
+            'images/photo1.jpeg',
+            'images/photo2.jpeg',
+            'images/photo3.jpeg',
+            'images/photo4.jpeg'
+        ];
+        
+        let userUploadedImages = {};
+        try {
+            const stored = localStorage.getItem('maja_bass_user_images');
+            userUploadedImages = stored ? JSON.parse(stored) : {};
+        } catch (e) {
+            console.warn('localStorage not available, using defaults');
+        }
+        
+        // Always ensure default photos are available for t1-1-2
+        if (!userUploadedImages['t1-1-2'] || userUploadedImages['t1-1-2'].length === 0) {
+            userUploadedImages['t1-1-2'] = [...DEFAULT_PHOTOS];
+            try {
+                localStorage.setItem('maja_bass_user_images', JSON.stringify(userUploadedImages));
+            } catch (e) {
+                // localStorage may not be available in incognito
+            }
+        }
+        
+        // Ensure built-in scheme links are visible in "Voir" modal
+        COURSE_DATA.flatMap(m => m.lessons).forEach(lesson => {
+            if (!lesson.showScheme || !lesson.schemeUrl) return;
+            const key = `scheme-${lesson.id}`;
+            if (
+                !userUploadedImages[key] ||
+                userUploadedImages[key].length === 0 ||
+                userUploadedImages[key][0] !== lesson.schemeUrl
+            ) {
+                userUploadedImages[key] = [lesson.schemeUrl];
+                try {
+                    localStorage.setItem('maja_bass_user_images', JSON.stringify(userUploadedImages));
+                } catch (e) {
+                    // localStorage may not be available in incognito
+                }
+            }
+        });
+        
+        let currentImageTaskId = null;
+        let imageCarouselIndex = {};
+        let videoDropdownTaskId = null;
+        let currentMode = null;
+
+        // ==========================================
+        // 3. RENDER LOGIC
+        // ==========================================
+        function renderApp() {
+            const app = document.getElementById('app');
+            const allTasks = COURSE_DATA.flatMap(m => m.lessons.flatMap(l => l.tasks));
+            const progress = (allTasks.filter(t => completedTasks.has(t.id)).length / allTasks.length) * 100;
+
+            let html = `
+                <!-- HEADER -->
+                <header class="mb-10 text-center md:text-left border-b border-slate-800 pb-6">
+                    <div class="flex items-center justify-center md:justify-start gap-3 mb-2">
+                        <div class="p-2 bg-gradient-to-br from-violet-600 to-blue-600 rounded-lg shadow-lg">
+                            <i data-lucide="music-2" class="text-white w-7 h-7"></i>
+                        </div>
+                        <h2 class="text-xl font-bold tracking-wider text-slate-400 uppercase">BassMastery</h2>
+                    </div>
+                    <h1 class="text-4xl md:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-slate-100 via-violet-200 to-blue-200 mb-2">
+                        Espace Maja
+                    </h1>
+                    <p class="text-slate-400 max-w-lg">Programme complet : Blocs Harmoniques, Groove & Soloing.</p>
+                </header>
+
+                <!-- MODULES -->
+                <div class="space-y-12">
+            `;
+
+            COURSE_DATA.forEach(module => {
+                if (module.hidden) return;
+                const isModuleLocked = module.id !== 'mod-1';
+                html += `
+                    <div class="relative ${isModuleLocked ? 'disabled-module' : ''}">
+                        <div class="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 mb-6 border-l-4 border-violet-500 pl-4">
+                            <h2 class="text-sm font-bold text-violet-400 uppercase tracking-widest">${module.title}</h2>
+                            <h3 class="text-2xl md:text-3xl font-bold text-white">${module.subtitle}</h3>
+                            ${isModuleLocked ? '<i data-lucide="lock" class="w-5 h-5 text-slate-600"></i>' : ''}
+                        </div>
+                        <div class="space-y-4">
+                `;
+
+                module.lessons.forEach(lesson => {
+                    // Skip hidden lessons
+                    if (lesson.hidden) {
+                        return;
+                    }
+                    // Skip lessons with parentLessonId if parent is not expanded
+                    if (lesson.parentLessonId && !expandedLessons.has(lesson.parentLessonId)) {
+                        return;
+                    }
+                    
+                    const isPractice = lesson.isPractice;
+                    const isCurrent = lesson.id === 'm1-l9';
+                    const isLessonLocked = !!lesson.locked;
+                    const isExpanded = expandedLessons.has(lesson.id);
+                    
+                    html += `
+                        <div class="group relative bg-slate-900 border rounded-2xl overflow-hidden transition-all duration-300 ${isLessonLocked ? 'opacity-60 pointer-events-none filter grayscale border-slate-700' : ((isPractice || isCurrent) ? 'border-emerald-500/50 hover:border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.1)]' : 'border-slate-800 hover:border-slate-600')}">
+                            <!-- Lesson Header -->
+                            <div onclick="window.toggleLesson('${lesson.id}', '${module.id}')" class="p-6 flex items-center justify-between cursor-pointer transition-colors ${isLessonLocked ? 'bg-slate-800/20' : ((isPractice || isCurrent) ? 'bg-emerald-900/10 hover:bg-emerald-900/20' : 'bg-slate-800/30 hover:bg-slate-800/50')}">
+                                <div class="flex-1">
+                                    <h4 class="text-lg md:text-xl font-bold mb-1 flex items-center gap-2 ${isLessonLocked ? 'text-slate-300' : ((isPractice || isCurrent) ? 'text-emerald-300' : 'text-slate-200')}">
+                                        ${isPractice ? '<i data-lucide="target" class="w-5 h-5 text-emerald-400"></i>' : ''}
+                                        ${lesson.title}
+                                        ${isLessonLocked ? '<i data-lucide="lock" class="w-4 h-4 text-slate-500"></i>' : ''}
+                                    </h4>
+                                    <p class="text-slate-400 text-sm md:text-base pr-4">${lesson.description}</p>
+                                </div>
+                                <div class="text-slate-500">
+                                    <i data-lucide="${isLessonLocked ? 'lock' : (isExpanded ? 'chevron-up' : 'chevron-down')}" class="w-6 h-6"></i>
+                                </div>
+                            </div>
+
+                            <!-- Expanded Content -->
+                            ${isExpanded ? `
+                                <div class="p-6 pt-0 border-t ${isPractice ? 'border-emerald-500/20' : 'border-slate-800/50'} bg-slate-900/50 fade-in">
+                                    ${lesson.details ? `
+                                        <div class="mb-6 mt-6 bg-slate-800/40 p-5 rounded-xl border border-slate-700/50">
+                                            <div class="flex items-center justify-between mb-3">
+                                                <h5 class="text-violet-400 font-semibold text-xs uppercase tracking-wide flex items-center gap-2"><i data-lucide="book-open" class="w-4 h-4"></i> Points Clés</h5>
+                                                <div class="flex items-center gap-2">
+                                                    ${lesson.showScheme ? `
+                                                        <button onclick="window.openImageModal(event, 'scheme-${lesson.id}', '${lesson.title.replace(/'/g, "\\'")}')" class="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold uppercase tracking-wider transition-colors shadow-lg">
+                                                            <i data-lucide="eye" class="w-3 h-3"></i> Voir
+                                                        </button>
+                                                    ` : ''}
+                                                    ${lesson.showMetronome ? `
+                                                        <a href="${lesson.metronomeUrl}" target="_blank" class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold uppercase tracking-wider transition-colors shadow-lg">
+                                                            <i data-lucide="music" class="w-3 h-3"></i> Métronome
+                                                        </a>
+                                                    ` : ''}
+                                                </div>
+                                            </div>
+                                            <ul class="space-y-2">
+                                                ${lesson.details.map(d => `<li class="flex items-start gap-2 text-slate-300 text-sm"><span class="mt-1.5 w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0"></span>${d}</li>`).join('')}
+                                            </ul>
+                                        </div>
+                                    ` : ''}
+
+                                    ${lesson.showModes && lesson.modes ? `
+                                        <div class="mb-6 mt-6 bg-slate-800/40 p-5 rounded-xl border border-slate-700/50">
+                                            <h5 class="text-violet-400 font-semibold text-xs uppercase tracking-wide mb-4 flex items-center gap-2"><i data-lucide="music" class="w-4 h-4"></i> Modes</h5>
+                                            <div class="flex flex-wrap gap-3">
+                                                ${lesson.modes.map(mode => `
+                                                    <button onclick="window.openModeModal(event, '${lesson.id}', '${mode.id}')" class="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-500 hover:to-blue-500 text-white rounded-lg text-sm font-semibold transition-all shadow-lg hover:scale-105">
+                                                        <i data-lucide="music-2" class="w-4 h-4"></i>
+                                                        ${mode.name}
+                                                    </button>
+                                                `).join('')}
+                                            </div>
+                                        </div>
+                                    ` : ''}
+
+                                    ${lesson.tasks && lesson.tasks.length > 0 ? `
+                                    <div class="space-y-3 mt-6">
+                                        <h5 class="text-slate-500 font-semibold text-xs uppercase tracking-wide mb-2">Objectifs Pratiques</h5>
+                                        ${lesson.tasks.map(task => {
+                                            const isChecked = completedTasks.has(task.id);
+                                            const isTaskExpanded = expandedTaskDetails.has(task.id);
+                                            const hasUserImages = userUploadedImages[task.id] && userUploadedImages[task.id].length > 0;
+                                            
+                                            return `
+                                            <div class="flex flex-col p-3 rounded-lg border transition-all duration-200 ${isChecked ? 'bg-violet-900/20 border-violet-500/50 text-violet-200' : 'bg-slate-800/50 border-slate-700 text-slate-300'}">
+                                                <div class="flex items-center">
+                                                    <div onclick="window.toggleTask('${task.id}')" class="mr-4 cursor-pointer hover:scale-110 transition-transform ${isChecked ? 'text-green-400' : 'text-slate-500'}">
+                                                        <i data-lucide="${isChecked ? 'check-circle-2' : 'circle'}" class="w-6 h-6"></i>
+                                                    </div>
+                                                    <div class="flex flex-col gap-2 md:flex-row md:items-center justify-between w-full">
+                                                        <div class="flex items-center gap-2 cursor-pointer" onclick="window.toggleTaskDetails('${task.id}')">
+                                                            <span class="font-medium select-none">${task.text}</span>
+                                                            ${task.details ? `<i data-lucide="info" class="w-4 h-4 transition-transform ${isTaskExpanded ? 'rotate-180 text-violet-400' : 'text-slate-600'}"></i>` : ''}
+                                                        </div>
+                                                        <div class="flex gap-2 flex-wrap">
+                                                        ${task.showImages ? `
+                                                                <button onclick="window.openImageModal(event, '${task.id}', '${task.text.replace(/'/g, "\\'")}')" class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold uppercase tracking-wider transition-colors shadow-lg w-auto">
+                                                                    <i data-lucide="image" class="w-3 h-3"></i> ${hasUserImages ? 'Photos' : 'Ajouter photos'}
+                                                            </button>
+                                                        ` : ''}
+                                                            ${task.videoLinks ? `
+                                                                ${task.videoLinks.length === 1 ? `
+                                                                    <button onclick="window.openVideoLink(event, '${task.videoLinks[0].url}')" class="flex items-center gap-1.5 px-3 py-1.5 ${task.videoLinks[0].label === 'Audio' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-violet-600 hover:bg-violet-500'} text-white rounded text-xs font-bold uppercase tracking-wider transition-colors shadow-lg w-auto">
+                                                                        <i data-lucide="${task.videoLinks[0].label === 'Audio' ? 'music' : 'play'}" class="w-3 h-3"></i> ${task.videoLinks[0].label || 'Video'}
+                                                                    </button>
+                                                                ` : `
+                                                                    <div class="relative">
+                                                                        <button onclick="window.toggleVideoDropdown(event, '${task.id}')" class="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white rounded text-xs font-bold uppercase tracking-wider transition-colors shadow-lg w-auto">
+                                                                            <i data-lucide="play" class="w-3 h-3"></i> Video
+                                                                        </button>
+                                                                        ${videoDropdownTaskId === task.id ? `
+                                                                            <div class="absolute right-0 mt-2 w-44 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden">
+                                                                                ${task.videoLinks.map((video, idx) => `
+                                                                                    <button onclick="window.openVideoLink(event, '${video.url}')" class="w-full text-left px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 transition-colors">
+                                                                                        ${video.label || `Video ${idx + 1}`}
+                                                                                    </button>
+                                                                                `).join('')}
+                                                                            </div>
+                                                                        ` : ''}
+                                                                    </div>
+                                                                `}
+                                                            ` : ''}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                ${isTaskExpanded && task.details ? `<div class="mt-2 ml-10 p-3 bg-slate-900/50 rounded-lg text-sm text-slate-400 border-l-2 border-violet-500/30 fade-in">${task.details}</div>` : ''}
+                                            </div>
+                                            `
+                                        }).join('')}
+                                    </div>
+                                    ` : ''}
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                });
+                html += `</div></div>`;
+            });
+            html += `</div>`;
+            
+            app.innerHTML = html;
+            lucide.createIcons();
+        }
+
+        // ==========================================
+        // 4. EVENT HANDLERS (Interactivity)
+        // ==========================================
+        window.toggleTask = (id) => {
+            if (completedTasks.has(id)) completedTasks.delete(id);
+            else completedTasks.add(id);
+            localStorage.setItem('maja_bass_progress_v2', JSON.stringify([...completedTasks]));
+            renderApp();
+        };
+
+        window.toggleLesson = (lessonId, moduleId) => {
+            if (moduleId !== 'mod-1') return; // Lock check
+            if (expandedLessons.has(lessonId)) expandedLessons.delete(lessonId);
+            else expandedLessons.add(lessonId);
+            renderApp();
+        };
+
+        window.toggleTaskDetails = (id) => {
+            if (expandedTaskDetails.has(id)) expandedTaskDetails.delete(id);
+            else expandedTaskDetails.add(id);
+            renderApp();
+        };
+
+        // --- IMAGES ---
+        window.openImageModal = (e, taskId, title) => {
+            e.stopPropagation();
+            currentImageTaskId = taskId;
+            if (imageCarouselIndex[currentImageTaskId] === undefined) imageCarouselIndex[currentImageTaskId] = 0;
+            document.getElementById('modal-title').innerText = title;
+            const modal = document.getElementById('image-modal');
+            modal.classList.remove('hidden');
+            modal.querySelector('.modal-content').scrollTop = 0;
+            // Hide upload button for schemes
+            const uploadLabel = document.getElementById('upload-label');
+            if (taskId.startsWith('scheme-')) {
+                uploadLabel.style.display = 'none';
+            } else {
+                uploadLabel.style.display = 'flex';
+            }
+            renderGallery();
+        };
+
+        window.closeImageModal = () => {
+            document.getElementById('image-modal').classList.add('hidden');
+            currentImageTaskId = null;
+        };
+
+        window.renderGallery = () => {
+            const gallery = document.getElementById('modal-gallery');
+            const images = userUploadedImages[currentImageTaskId] || [];
+            
+            if (images.length === 0) {
+                gallery.innerHTML = `
+                    <div class="flex flex-col items-center justify-center h-40 sm:h-48 text-slate-500 border-2 border-dashed border-slate-700 rounded-xl">
+                        <i data-lucide="image" class="w-12 h-12 mb-2 opacity-50"></i>
+                        <p class="italic">Aucune photo pour l'instant.</p>
+                    </div>`;
+            } else {
+                const total = images.length;
+                let activeIndex = imageCarouselIndex[currentImageTaskId] || 0;
+                if (activeIndex >= total) activeIndex = total - 1;
+                if (activeIndex < 0) activeIndex = 0;
+                imageCarouselIndex[currentImageTaskId] = activeIndex;
+                const activeImage = images[activeIndex];
+                
+                gallery.innerHTML = `
+                    <div class="relative rounded-2xl overflow-hidden border border-slate-800 bg-black flex items-center justify-center" style="min-height: 300px; max-height: 70vh; aspect-ratio: 4/3;">
+                        <img src="${activeImage}" class="max-w-full max-h-full w-auto h-auto object-contain" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+                        <div class="hidden flex-col items-center justify-center text-slate-500 p-8">
+                            <i data-lucide="image-off" class="w-16 h-16 mb-4 opacity-50"></i>
+                            <p class="text-sm">Image non chargée</p>
+                    </div>
+                        <div class="absolute inset-y-0 left-0 flex items-center">
+                            <button onclick="window.changeImageSlide(-1)" class="p-3 bg-black/50 hover:bg-black/70 text-white rounded-r-lg transition-colors">
+                                <i data-lucide="chevron-left" class="w-6 h-6"></i>
+                            </button>
+                        </div>
+                        <div class="absolute inset-y-0 right-0 flex items-center">
+                            <button onclick="window.changeImageSlide(1)" class="p-3 bg-black/50 hover:bg-black/70 text-white rounded-l-lg transition-colors">
+                                <i data-lucide="chevron-right" class="w-6 h-6"></i>
+                            </button>
+                        </div>
+                        <div class="absolute bottom-0 left-0 w-full bg-black/70 px-3 py-2 text-center text-sm text-slate-100">
+                            Photo ${activeIndex + 1} / ${total}
+                        </div>
+                    </div>
+                    <div class="flex justify-center gap-2">
+                        ${images.map((_, idx) => `
+                            <button onclick="window.setImageSlide(${idx})" class="w-3 h-3 rounded-full ${idx === activeIndex ? 'bg-violet-400' : 'bg-slate-600'}"></button>
+                        `).join('')}
+                    </div>
+                `;
+            }
+            lucide.createIcons();
+        };
+
+        window.handleImageUpload = (e) => {
+            const files = Array.from(e.target.files);
+            files.forEach(file => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    if (!userUploadedImages[currentImageTaskId]) userUploadedImages[currentImageTaskId] = [];
+                    userUploadedImages[currentImageTaskId].push(reader.result);
+                    imageCarouselIndex[currentImageTaskId] = userUploadedImages[currentImageTaskId].length - 1;
+                    localStorage.setItem('maja_bass_user_images', JSON.stringify(userUploadedImages));
+                    renderGallery();
+                    renderApp(); // Update button text
+                };
+                reader.readAsDataURL(file);
+            });
+        };
+
+        window.changeImageSlide = (direction) => {
+            if (!currentImageTaskId) return;
+            const images = userUploadedImages[currentImageTaskId] || [];
+            if (!images.length) return;
+            const total = images.length;
+            const currentIndex = imageCarouselIndex[currentImageTaskId] || 0;
+            const nextIndex = (currentIndex + direction + total) % total;
+            imageCarouselIndex[currentImageTaskId] = nextIndex;
+            renderGallery();
+        };
+
+        window.setImageSlide = (index) => {
+            if (!currentImageTaskId) return;
+            const images = userUploadedImages[currentImageTaskId] || [];
+            if (!images.length) return;
+            imageCarouselIndex[currentImageTaskId] = Math.max(0, Math.min(index, images.length - 1));
+            renderGallery();
+        };
+
+        window.toggleVideoDropdown = (event, taskId) => {
+            event.stopPropagation();
+            videoDropdownTaskId = videoDropdownTaskId === taskId ? null : taskId;
+            renderApp();
+        };
+
+        window.openVideoLink = (event, url) => {
+            event.stopPropagation();
+            window.open(url, '_blank');
+            videoDropdownTaskId = null;
+            renderApp();
+        };
+
+        // --- MODES ---
+        window.openModeModal = (e, lessonId, modeId) => {
+            e.stopPropagation();
+            const lesson = COURSE_DATA.flatMap(m => m.lessons).find(l => l.id === lessonId);
+            if (!lesson || !lesson.modes) return;
+            const mode = lesson.modes.find(m => m.id === modeId);
+            if (!mode) return;
+            
+            currentMode = mode;
+            document.getElementById('mode-modal-title').innerText = mode.name;
+            const modal = document.getElementById('mode-modal');
+            modal.classList.remove('hidden');
+            modal.querySelector('.modal-content').scrollTop = 0;
+            renderModeContent();
+        };
+
+        window.closeModeModal = () => {
+            document.getElementById('mode-modal').classList.add('hidden');
+            currentMode = null;
+        };
+
+        window.renderModeContent = () => {
+            if (!currentMode) return;
+            const content = document.getElementById('mode-modal-content');
+            
+            content.innerHTML = `
+                <div class="space-y-6">
+                    <div>
+                        <h4 class="text-lg font-semibold text-violet-400 mb-3 flex items-center gap-2">
+                            <i data-lucide="heart" class="w-5 h-5"></i>
+                            Sensations clés
+                        </h4>
+                        <div class="flex flex-wrap gap-2">
+                            ${currentMode.sensations.map(sensation => `
+                                <span class="px-3 py-1.5 bg-slate-800/60 border border-slate-700 rounded-lg text-sm text-slate-300">
+                                    ${sensation}
+                                </span>
+                            `).join('')}
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <h4 class="text-lg font-semibold text-violet-400 mb-3 flex items-center gap-2">
+                            <i data-lucide="music-2" class="w-5 h-5"></i>
+                            Exemples
+                        </h4>
+                        <div class="space-y-2">
+                            ${currentMode.examples.map(example => `
+                                <button onclick="window.open('${example.url}', '_blank')" class="w-full text-left p-3 bg-slate-800/60 hover:bg-slate-800 border border-slate-700 hover:border-violet-500/50 rounded-lg transition-all group">
+                                    <div class="flex items-center justify-between">
+                                        <div>
+                                            <div class="font-medium text-slate-200 group-hover:text-violet-300 transition-colors">${example.title}</div>
+                                            ${example.artist ? `<div class="text-sm text-slate-400 mt-1">${example.artist}</div>` : ''}
+                                        </div>
+                                        <i data-lucide="external-link" class="w-4 h-4 text-slate-500 group-hover:text-violet-400 transition-colors"></i>
+                                    </div>
+                                </button>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+            lucide.createIcons();
+        };
+        
+        // Initial Render
+        renderApp();
+
+    </script>
+</body>
+</html>
