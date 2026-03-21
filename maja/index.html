@@ -615,10 +615,51 @@
                     },
                     {
                         id: 'm1-l9',
-                        title: '[GRISÉ / VERROUILLÉ] Leçon 9 — Géométrie Pentatonique Avancée',
-                        description: '(Ce contenu sera disponible prochainement) Architecture sur 2 cordes (les petits blocs). Jeu pentatonique depuis différentes positions majeures (Superposition).',
-                        locked: true,
+                        title: 'Leçon 9 — Géométrie Pentatonique Avancée',
+                        description: 'Architecture sur 2 cordes (les petits blocs). Jeu pentatonique depuis différentes positions majeures (Superposition).',
+                        details: [
+                            'Petits blocs : travailler la géométrie sur deux cordes comme base mobile.',
+                            'Superposition : jouer la pentatonique depuis différentes positions majeures sur le manche.'
+                        ],
                         tasks: []
+                    },
+                    {
+                        id: 'm1-l9-prac',
+                        title: 'PRATIQUE DE LA LEÇON 9',
+                        description: 'Trois étapes : rappel des patterns, arpèges, séquence finale au métronome.',
+                        isPractice: true,
+                        parentLessonId: 'm1-l9',
+                        showMetronome: true,
+                        metronomeUrl: 'https://play.google.com/store/apps/details?id=com.soundbrenner.pulse&hl=en',
+                        details: [
+                            'Tempo conseillé pour la séquence finale : 55–60 BPM.'
+                        ],
+                        tasks: [
+                            {
+                                id: 't1-9-prac-1',
+                                text: 'Préparatoire : Revoyons les mini-blocs et les patterns pentatoniques sur trois cordes',
+                                details: 'Vidéo de rappel : mini-blocs et patterns pentatoniques en trois cordes.',
+                                videoLinks: [
+                                    { label: 'Video', url: 'https://www.youtube.com/watch?v=UNd106-IuLQ' }
+                                ]
+                            },
+                            {
+                                id: 't1-9-prac-2',
+                                text: 'Arpèges selon les patterns à trois cordes (focus sur la pose des doigts)',
+                                details: 'Travailler les arpèges en suivant les formes à trois cordes, en soignant la position des doigts.',
+                                videoLinks: [
+                                    { label: 'Video', url: 'https://www.youtube.com/shorts/zCPzwCeq-qo' }
+                                ]
+                            },
+                            {
+                                id: 't1-9-prac-3',
+                                text: 'Séquence finale : jouer la séquence au métronome (55–60 BPM)',
+                                details: 'Exemple de référence pour la séquence. Important : jouer votre version au métronome entre 55 et 60 BPM.',
+                                videoLinks: [
+                                    { label: 'Video', url: 'https://www.youtube.com/shorts/VM5KtDUQtm4' }
+                                ]
+                            }
+                        ]
                     },
                 ]
             },
@@ -772,7 +813,7 @@
         // 2. STATE MANAGEMENT (Variable Storage)
         // ==========================================
         let completedTasks = new Set(JSON.parse(localStorage.getItem('maja_bass_progress_v2') || '[]'));
-        let expandedLessons = new Set(['m1-l8']);
+        let expandedLessons = new Set(['m1-l9']);
         let expandedTaskDetails = new Set();
         // Default photos for task t1-1-2
         const DEFAULT_PHOTOS = [
@@ -874,7 +915,7 @@
                     }
                     
                     const isPractice = lesson.isPractice;
-                    const isCurrent = lesson.id === 'm1-l8';
+                    const isCurrent = lesson.id === 'm1-l9';
                     const isLessonLocked = !!lesson.locked;
                     const isExpanded = expandedLessons.has(lesson.id);
                     
