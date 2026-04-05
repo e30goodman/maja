@@ -673,12 +673,14 @@
             {
                 id: 'mod-2',
                 title: 'MODULE 2',
-                subtitle: 'LE TEMPS & LE RYTHME',
+                subtitle: 'LE TEMPS ET LE RYTHME',
                 lessons: [
                     {
                         id: 'm2-l10',
                         title: 'Leçon 10 — Le Métronome et les Bases du Konnakol',
                         description: 'Module 2 : Le Temps et le Rythme. Initiation au Konnakol (pyramides de 1 à 9) et techniques avancées de travail au métronome pour développer votre timing interne.',
+                        showScheme: true,
+                        schemeUrl: '/maja/images/konnakol-basic-patterns.jpg',
                         details: [
                             'Bases du Konnakol : Utiliser les syllabes du Konnakol pour intérioriser les différentes pulsations. Ces syllabes sont faciles à prononcer, même à des tempos très rapides.',
                             'Routine de réduction du clic : L\'objectif est d\'améliorer votre timing interne en espaçant les repères sonores.',
@@ -699,16 +701,16 @@
                         ],
                         tasks: [
                             {
-                                id: 't2-10-1',
+                                id: 't2-10-prac-1',
                                 text: 'Pratique vocale : Travailler la pyramide de Konnakol (subdivisions de 1 à 9) en vous référant à la photo du cours.',
-                                coursePhotoUrl: 'images/photo_konnakol_pyramid.jpg'
+                                photoUrl: '/maja/images/konnakol-basic-patterns.jpg'
                             },
                             {
-                                id: 't2-10-2',
+                                id: 't2-10-prac-2',
                                 text: 'Métronome réducteur : Appliquer la routine détaillée plus haut. Passer de 100 BPM (plusieurs clics) à 50 BPM en espaçant les clics jusqu\'à n\'avoir qu\'un seul repère sur plusieurs mesures.'
                             },
                             {
-                                id: 't2-10-3',
+                                id: 't2-10-prac-3',
                                 text: 'Routine quotidienne : Intégrer ces concepts de Konnakol et de timing interne dans vos sessions d\'entraînement libres.'
                             }
                         ]
@@ -846,7 +848,7 @@
         // 2. STATE MANAGEMENT (Variable Storage)
         // ==========================================
         let completedTasks = new Set(JSON.parse(localStorage.getItem('maja_bass_progress_v2') || '[]'));
-        let expandedLessons = new Set(['m1-l9', 'm2-l10']);
+        let expandedLessons = new Set(['m2-l10']);
         let expandedTaskDetails = new Set();
         // Default photos for task t1-1-2
         const DEFAULT_PHOTOS = [
@@ -891,24 +893,21 @@
                 }
             }
         });
-
-        COURSE_DATA.flatMap(m => m.lessons).forEach(lesson => {
-            (lesson.tasks || []).forEach(task => {
-                if (!task.coursePhotoUrl) return;
-                const key = `task-photo-${task.id}`;
-                if (
-                    !userUploadedImages[key] ||
-                    userUploadedImages[key].length === 0 ||
-                    userUploadedImages[key][0] !== task.coursePhotoUrl
-                ) {
-                    userUploadedImages[key] = [task.coursePhotoUrl];
-                    try {
-                        localStorage.setItem('maja_bass_user_images', JSON.stringify(userUploadedImages));
-                    } catch (e) {
-                        // localStorage may not be available in incognito
-                    }
+        COURSE_DATA.flatMap(m => m.lessons).flatMap(l => l.tasks || []).forEach(task => {
+            if (!task.photoUrl) return;
+            const key = `${task.id}-photo`;
+            if (
+                !userUploadedImages[key] ||
+                userUploadedImages[key].length === 0 ||
+                userUploadedImages[key][0] !== task.photoUrl
+            ) {
+                userUploadedImages[key] = [task.photoUrl];
+                try {
+                    localStorage.setItem('maja_bass_user_images', JSON.stringify(userUploadedImages));
+                } catch (e) {
+                    // localStorage may not be available in incognito
                 }
-            });
+            }
         });
         
         let currentImageTaskId = null;
@@ -967,7 +966,7 @@
                     }
                     
                     const isPractice = lesson.isPractice;
-                    const isCurrent = lesson.id === 'm1-l9' || lesson.id === 'm2-l10';
+                    const isCurrent = lesson.id === 'm2-l10';
                     const isLessonLocked = !!lesson.locked;
                     const isExpanded = expandedLessons.has(lesson.id);
                     
@@ -1053,9 +1052,9 @@
                                                                     <i data-lucide="image" class="w-3 h-3"></i> ${hasUserImages ? 'Photos' : 'Ajouter photos'}
                                                             </button>
                                                         ` : ''}
-                                                            ${task.coursePhotoUrl ? `
-                                                                <button onclick="window.openImageModal(event, 'task-photo-${task.id}', '${task.text.replace(/'/g, "\\'")}')" class="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white rounded text-xs font-bold uppercase tracking-wider transition-colors shadow-lg w-auto">
-                                                                    <span class="text-sm leading-none" aria-hidden="true">📷</span> PHOTO
+                                                            ${task.photoUrl ? `
+                                                                <button onclick="window.openImageModal(event, '${task.id}-photo', '${task.text.replace(/'/g, "\\'")}')" class="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white rounded text-xs font-bold uppercase tracking-wider transition-colors shadow-lg w-auto">
+                                                                    <i data-lucide="image" class="w-3 h-3"></i> Photo
                                                                 </button>
                                                             ` : ''}
                                                             ${task.videoLinks ? `
@@ -1134,9 +1133,9 @@
             const modal = document.getElementById('image-modal');
             modal.classList.remove('hidden');
             modal.querySelector('.modal-content').scrollTop = 0;
-            // Hide upload button for schemes
+            // Hide upload button for schemes and built-in course photos
             const uploadLabel = document.getElementById('upload-label');
-            if (taskId.startsWith('scheme-') || taskId.startsWith('task-photo-')) {
+            if (taskId.startsWith('scheme-') || taskId.endsWith('-photo')) {
                 uploadLabel.style.display = 'none';
             } else {
                 uploadLabel.style.display = 'flex';
