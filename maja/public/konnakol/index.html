@@ -126,70 +126,70 @@
             text-decoration: underline;
         }
 
-        /* Телефон: «боковой» вид — компактные колонки, прокрутка влево-вправо */
+        /* Телефон: «боковой» вид — читаемый размер, без лишней громоздкости */
         @media (max-width: 600px) {
             body {
-                padding: 6px;
+                padding: 8px;
                 align-items: stretch;
             }
             .app-container {
-                padding: 10px 8px;
-                border-radius: 14px;
+                padding: 12px 10px;
+                border-radius: 16px;
                 max-width: none;
             }
-            .back-link { margin-bottom: 10px; font-size: 0.78rem; }
-            h2 { font-size: 0.95rem; margin-bottom: 10px; line-height: 1.2; }
+            .back-link { margin-bottom: 12px; font-size: 0.82rem; }
+            h2 { font-size: 1.05rem; margin-bottom: 12px; line-height: 1.25; }
             .settings-grid {
                 grid-template-columns: 1fr;
-                gap: 8px;
-                margin-bottom: 10px;
+                gap: 10px;
+                margin-bottom: 12px;
             }
-            .settings-grid label { margin-bottom: 4px; font-size: 0.72rem; }
+            .settings-grid label { margin-bottom: 5px; font-size: 0.78rem; }
             .settings-grid select,
             .control-group select {
-                padding: 6px 8px;
-                font-size: 0.8rem;
-                border-radius: 8px;
+                padding: 8px 10px;
+                font-size: 0.85rem;
+                border-radius: 9px;
             }
             .control-group { margin-bottom: 0; }
-            .control-group label { font-size: 0.72rem; margin-bottom: 4px; }
-            .bpm-display { font-size: 1rem; }
-            .control-group input[type="range"] { height: 1rem; }
-            label.rand-cycle { font-size: 0.7rem; gap: 6px; }
+            .control-group label { font-size: 0.78rem; margin-bottom: 5px; }
+            .bpm-display { font-size: 1.12rem; }
+            .control-group input[type="range"] { height: 1.15rem; }
+            label.rand-cycle { font-size: 0.74rem; gap: 8px; }
             .bars-container {
                 flex-direction: row;
                 flex-wrap: nowrap;
                 align-items: flex-start;
-                gap: 5px;
-                margin: 10px 0;
+                gap: 7px;
+                margin: 14px 0;
                 overflow-x: auto;
                 overflow-y: visible;
                 scroll-snap-type: x mandatory;
                 -webkit-overflow-scrolling: touch;
-                scroll-padding-inline: 8px;
-                padding: 2px 2px 8px;
-                margin-inline: -2px;
+                scroll-padding-inline: 10px;
+                padding: 3px 3px 10px;
+                margin-inline: -3px;
             }
             .bar {
                 flex: 0 0 auto;
                 scroll-snap-align: center;
                 min-width: 0;
-                width: 58px;
-                max-width: 58px;
-                padding: 5px 4px 6px;
-                border-radius: 10px;
+                width: 74px;
+                max-width: 74px;
+                padding: 7px 6px 8px;
+                border-radius: 12px;
             }
             .bar-title {
                 text-align: center;
-                margin-bottom: 4px;
-                font-size: 0.52rem;
-                letter-spacing: 0.04em;
-                line-height: 1.1;
+                margin-bottom: 6px;
+                font-size: 0.6rem;
+                letter-spacing: 0.05em;
+                line-height: 1.15;
             }
             .rhythm-grid {
                 flex-direction: column;
                 flex-wrap: nowrap;
-                gap: 2px;
+                gap: 4px;
                 justify-content: flex-start;
                 align-items: stretch;
             }
@@ -200,38 +200,38 @@
                 flex-direction: row;
                 align-items: center;
                 justify-content: space-between;
-                gap: 2px;
-                padding: 2px 3px;
-                border-radius: 4px;
+                gap: 4px;
+                padding: 4px 5px;
+                border-radius: 6px;
                 border-width: 1px;
                 box-sizing: border-box;
             }
             .cell small {
-                font-size: 0.52rem;
+                font-size: 0.6rem;
                 margin-bottom: 0;
                 flex: 1;
                 min-width: 0;
                 text-align: left;
-                line-height: 1.05;
+                line-height: 1.12;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 font-weight: 600;
             }
             .cell input {
-                width: 13px;
-                height: 13px;
+                width: 16px;
+                height: 16px;
                 flex-shrink: 0;
                 margin: 0;
             }
             .cell.playing {
                 transform: none;
-                box-shadow: 0 0 6px rgba(155, 135, 255, 0.55);
+                box-shadow: 0 0 10px rgba(155, 135, 255, 0.5);
             }
             .btn {
-                padding: 9px 10px;
-                font-size: 0.8rem;
-                margin-bottom: 6px;
-                border-radius: 10px;
+                padding: 11px 12px;
+                font-size: 0.88rem;
+                margin-bottom: 8px;
+                border-radius: 11px;
             }
         }
     </style>
