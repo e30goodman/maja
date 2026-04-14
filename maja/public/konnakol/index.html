@@ -96,8 +96,6 @@
         .btn-play:hover { filter: brightness(1.06); }
         .btn-stop { background: linear-gradient(180deg, #f06b82 0%, var(--danger) 100%); color: var(--text); display: none; }
         .btn-stop:hover { filter: brightness(1.06); }
-        .bpm-display { font-size: 1.2rem; font-weight: bold; color: var(--primary); }
-
         .randomizer-block { display: flex; flex-direction: column; gap: 10px; }
         label.rand-cycle {
             display: flex;
@@ -156,7 +154,6 @@
             }
             .control-group { margin-bottom: 0; }
             .control-group label { font-size: 0.82rem; margin-bottom: 6px; }
-            .bpm-display { font-size: 1.25rem; }
             .control-group input[type="range"] { height: 1.35rem; }
             label.rand-cycle { font-size: 0.8rem; gap: 10px; }
             .bars-container {
@@ -281,8 +278,8 @@
     </div>
 
     <div class="control-group">
-        <label>Tempo: <span class="bpm-display" id="bpmVal">100</span> subdiv/min <small class="hint-muted">(interval between syllables)</small></label>
-        <input type="range" id="bpm" min="20" max="480" value="100" oninput="updateBpm()">
+        <label>Tempo <small class="hint-muted">(interval between syllables)</small></label>
+        <input type="range" id="bpm" min="20" max="480" value="100">
     </div>
 
     <label class="rand-cycle" style="margin: 12px 0 4px;">
@@ -388,10 +385,6 @@
         currentStep = 0;
         lastFocusedBarIndex = -1;
         rebuildRandomNotesSelect();
-    }
-
-    function updateBpm() {
-        document.getElementById('bpmVal').innerText = document.getElementById('bpm').value;
     }
 
     function parseRandomSelect() {
