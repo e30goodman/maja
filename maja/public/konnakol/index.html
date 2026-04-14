@@ -285,6 +285,11 @@
         <input type="range" id="bpm" min="20" max="480" value="100" oninput="updateBpm()">
     </div>
 
+    <label class="rand-cycle" style="margin: 12px 0 4px;">
+        <input type="checkbox" id="autoScrollToBar">
+        Auto-scroll to the current bar while playing
+    </label>
+
     <div id="barsContainer" class="bars-container"></div>
 
     <button class="btn btn-rand" onclick="randomize()">🎲 RANDOMIZE PATTERN</button>
@@ -455,6 +460,8 @@
     }
 
     function focusBarForStep(step) {
+        const autoCb = document.getElementById('autoScrollToBar');
+        if (!autoCb || !autoCb.checked) return;
         const p = parseInt(document.getElementById('pulsation').value, 10);
         const barIndex = Math.floor(step / p);
         if (barIndex === lastFocusedBarIndex) return;
