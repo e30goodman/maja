@@ -125,6 +125,88 @@
             color: var(--primary);
             text-decoration: underline;
         }
+
+        /* Телефон: «боковой» вид — такты колонками, прокрутка влево-вправо */
+        @media (max-width: 600px) {
+            body {
+                padding: 10px;
+                align-items: stretch;
+            }
+            .app-container {
+                padding: 14px 12px;
+                border-radius: 18px;
+                max-width: none;
+            }
+            h2 { font-size: 1.05rem; margin-bottom: 16px; }
+            .settings-grid {
+                grid-template-columns: 1fr;
+                gap: 12px;
+                margin-bottom: 16px;
+            }
+            .bars-container {
+                flex-direction: row;
+                flex-wrap: nowrap;
+                align-items: flex-start;
+                gap: 10px;
+                margin: 16px 0;
+                overflow-x: auto;
+                overflow-y: visible;
+                scroll-snap-type: x mandatory;
+                -webkit-overflow-scrolling: touch;
+                scroll-padding-inline: 12px;
+                padding: 4px 4px 12px;
+                margin-inline: -4px;
+            }
+            .bar {
+                flex: 0 0 auto;
+                scroll-snap-align: center;
+                min-width: 0;
+                padding: 10px 10px 12px;
+                max-width: 88px;
+            }
+            .bar-title {
+                text-align: center;
+                margin-bottom: 8px;
+                font-size: 0.65rem;
+            }
+            .rhythm-grid {
+                flex-direction: column;
+                flex-wrap: nowrap;
+                gap: 5px;
+                justify-content: flex-start;
+                align-items: stretch;
+            }
+            .cell {
+                width: 100%;
+                max-width: none;
+                min-height: 0;
+                flex-direction: row;
+                align-items: center;
+                justify-content: space-between;
+                padding: 5px 6px;
+                border-radius: 6px;
+                box-sizing: border-box;
+            }
+            .cell small {
+                font-size: 0.6rem;
+                margin-bottom: 0;
+                flex: 1;
+                text-align: left;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .cell input {
+                width: 16px;
+                height: 16px;
+                flex-shrink: 0;
+            }
+            .cell.playing {
+                transform: none;
+                box-shadow: 0 0 10px rgba(155, 135, 255, 0.45);
+            }
+            .btn { padding: 12px; font-size: 0.9rem; }
+        }
     </style>
 </head>
 <body>
@@ -186,6 +268,7 @@
     let nextNoteTime = 0.0;
     let timerID = null;
     let currentStep = 0;
+    let lastFocusedBarIndex = -1;
     
     const syllables = {
         4: ["Ta", "Ka", "Di", "Mi"],
@@ -249,6 +332,8 @@
         for (let b = 0; b < bCount; b++) {
             const barDiv = document.createElement('div');
             barDiv.className = 'bar';
+            barDiv.id = `bar-${b}`;
+            barDiv.dataset.barIndex = String(b);
             barDiv.innerHTML = `<div class="bar-title">Bar ${b + 1}</div>`;
             
             const grid = document.createElement('div');
@@ -267,6 +352,7 @@
             container.appendChild(barDiv);
         }
         currentStep = 0;
+        lastFocusedBarIndex = -1;
         rebuildRandomNotesSelect();
     }
 
@@ -339,10 +425,24 @@
         timerID = setTimeout(scheduler, 25);
     }
 
+    function focusBarForStep(step) {
+        const p = parseInt(document.getElementById('pulsation').value, 10);
+        const barIndex = Math.floor(step / p);
+        if (barIndex === lastFocusedBarIndex) return;
+        lastFocusedBarIndex = barIndex;
+        const barEl = document.getElementById(`bar-${barIndex}`);
+        if (!barEl) return;
+        const sideLayout = window.matchMedia('(max-width: 600px)').matches;
+        barEl.scrollIntoView({
+            behavior: 'smooth',
+            block: 'nearest',
+            inline: sideLayout ? 'center' : 'nearest'
+        });
+    }
+
     function scheduleNote(step, time) {
         const p = parseInt(document.getElementById('pulsation').value);
         const isChecked = document.getElementById(`check-${step}`).checked;
-        const isFirstInBar = (step % p === 0);
 
         playSharpClick(time, isChecked);
 
@@ -351,7 +451,7 @@
             if (el) {
                 document.querySelectorAll('.cell').forEach(c => c.classList.remove('playing'));
                 el.classList.add('playing');
-                if (isFirstInBar) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                focusBarForStep(step);
             }
         }, (time - audioCtx.currentTime) * 1000);
     }
@@ -372,6 +472,7 @@
         if (!audioCtx) audioCtx = new AudioContext();
         if (audioCtx.state === 'suspended') audioCtx.resume();
         currentStep = 0;
+        lastFocusedBarIndex = -1;
         nextNoteTime = audioCtx.currentTime + 0.05;
         scheduler();
         document.getElementById('playBtn').style.display = 'none';
@@ -380,6 +481,7 @@
 
     function stop() {
         clearTimeout(timerID);
+        lastFocusedBarIndex = -1;
         document.getElementById('playBtn').style.display = 'block';
         document.getElementById('stopBtn').style.display = 'none';
         document.querySelectorAll('.cell').forEach(c => c.classList.remove('playing'));
