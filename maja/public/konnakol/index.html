@@ -4,41 +4,78 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Konnakol Multi-Bar Trainer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
+        /* Палитра как на Espace Maja (Tailwind slate + violet + blue) */
         :root {
-            --bg-deep: #0f0618;
-            --bg-mid: #1a0f28;
-            --bg-high: #251538;
-            --panel: #1e142e;
-            --panel-elevated: #2a1f3d;
-            --border: #4a3d63;
-            --text: #ece8f4;
-            --text-muted: #a99bc8;
-            --text-dim: #7d6f9a;
-            --primary: #9b87ff;
-            --primary-dim: #6b5aae;
-            --accent: #3dd68c;
-            --danger: #e8556d;
+            --slate-900: #0f172a;
+            --slate-800: #1e293b;
+            --slate-700: #334155;
+            --slate-600: #475569;
+            --slate-500: #64748b;
+            --slate-400: #94a3b8;
+            --slate-200: #e2e8f0;
+            --violet-400: #a78bfa;
+            --violet-500: #8b5cf6;
+            --violet-600: #7c3aed;
+            --blue-600: #2563eb;
+            --blue-500: #3b82f6;
+            --emerald-500: #10b981;
+            --emerald-400: #34d399;
+            --rose-500: #f43f5e;
+            --panel: #0f172a;
+            --border: #334155;
+            --text: #e2e8f0;
+            --text-muted: #94a3b8;
+            --text-dim: #64748b;
+            --primary: #8b5cf6;
+            --primary-dim: #7c3aed;
+            --accent: #10b981;
         }
         html { min-height: 100%; color-scheme: dark; }
         body {
-            font-family: 'Segoe UI', system-ui, sans-serif;
+            font-family: 'Inter', system-ui, sans-serif;
             margin: 0;
             min-height: 100vh;
-            background: linear-gradient(165deg, var(--bg-deep) 0%, var(--bg-mid) 40%, var(--bg-high) 100%);
+            background-color: var(--slate-900);
             color: var(--text);
             display: flex;
             justify-content: center;
             align-items: flex-start;
             padding: 20px;
             box-sizing: border-box;
+            position: relative;
+        }
+        body::before,
+        body::after {
+            content: '';
+            position: fixed;
+            pointer-events: none;
+            z-index: 0;
+            width: 50%;
+            height: 50%;
+            border-radius: 50%;
+            filter: blur(100px);
+            opacity: 0.2;
+        }
+        body::before {
+            top: -10%;
+            left: -10%;
+            background: rgb(30 58 138);
+        }
+        body::after {
+            bottom: -10%;
+            right: -10%;
+            background: rgb(76 29 149);
         }
         .app-container {
+            position: relative;
+            z-index: 1;
             background: var(--panel);
-            border: 1px solid var(--border);
+            border: 1px solid var(--slate-700);
             padding: 30px;
-            border-radius: 24px;
-            box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(155, 135, 255, 0.06) inset;
+            border-radius: 1rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(139, 92, 246, 0.08) inset;
             width: 100%;
             max-width: 600px;
         }
@@ -50,20 +87,29 @@
         select, input[type="range"] {
             width: 100%;
             padding: 10px 12px;
-            border-radius: 10px;
-            border: 1px solid var(--border);
-            background: var(--panel-elevated);
+            border-radius: 0.75rem;
+            border: 1px solid var(--slate-700);
+            background: var(--slate-800);
             color: var(--text);
         }
         select { cursor: pointer; }
-        input[type="range"] { padding: 0; height: 1.25rem; accent-color: var(--primary); }
+        select:focus, input[type="range"]:focus {
+            outline: none;
+            border-color: var(--violet-500);
+        }
+        input[type="range"] { padding: 0; height: 1.25rem; accent-color: var(--violet-600); }
+
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: var(--slate-800); }
+        ::-webkit-scrollbar-thumb { background: #4c1d95; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #5b21b6; }
 
         .bars-container { display: flex; flex-direction: column; gap: 20px; margin: 25px 0; }
         .bar {
-            background: rgba(0, 0, 0, 0.2);
-            border: 1px solid var(--border);
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid var(--slate-700);
             padding: 15px;
-            border-radius: 15px;
+            border-radius: 1rem;
         }
         .bar-title { font-size: 0.75rem; font-weight: bold; color: var(--text-dim); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
 
@@ -72,29 +118,42 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            background: var(--panel-elevated);
+            background: var(--slate-800);
             padding: 8px;
-            border-radius: 8px;
+            border-radius: 0.5rem;
             width: 42px;
             transition: 0.1s;
             border: 2px solid transparent;
         }
-        .cell small { font-size: 0.65rem; margin-bottom: 5px; font-weight: bold; color: var(--text-muted); }
+        .cell small { font-size: 0.65rem; margin-bottom: 5px; font-weight: 600; color: var(--text-muted); }
         .cell.playing {
-            background: var(--primary-dim);
+            background: rgba(124, 58, 237, 0.25);
             color: var(--text);
-            border-color: var(--primary);
-            box-shadow: 0 0 12px rgba(155, 135, 255, 0.35);
+            border-color: var(--violet-500);
+            box-shadow: 0 0 14px rgba(139, 92, 246, 0.45);
             transform: translateY(-2px);
         }
-        .cell input { cursor: pointer; width: 18px; height: 18px; accent-color: var(--primary); }
+        .cell input { cursor: pointer; width: 18px; height: 18px; accent-color: var(--violet-600); }
 
-        .btn { width: 100%; padding: 15px; border: none; border-radius: 12px; font-weight: bold; cursor: pointer; margin-bottom: 10px; font-size: 1rem; transition: 0.2s; }
-        .btn-rand { background: linear-gradient(180deg, #7d6ae0 0%, var(--primary-dim) 100%); color: var(--text); }
+        .btn { width: 100%; padding: 15px; border: none; border-radius: 0.75rem; font-weight: 700; cursor: pointer; margin-bottom: 10px; font-size: 1rem; transition: 0.2s; }
+        .btn-rand {
+            background: linear-gradient(135deg, var(--violet-600) 0%, var(--blue-600) 100%);
+            color: #fff;
+            box-shadow: 0 4px 14px rgba(124, 58, 237, 0.35);
+        }
         .btn-rand:hover { filter: brightness(1.08); }
-        .btn-play { background: linear-gradient(180deg, #4ae89a 0%, var(--accent) 100%); color: #0a1620; }
+        .btn-play {
+            background: linear-gradient(135deg, var(--emerald-400) 0%, var(--emerald-500) 100%);
+            color: #022c22;
+            box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
+        }
         .btn-play:hover { filter: brightness(1.06); }
-        .btn-stop { background: linear-gradient(180deg, #f06b82 0%, var(--danger) 100%); color: var(--text); display: none; }
+        .btn-stop {
+            background: linear-gradient(135deg, #fb7185 0%, var(--rose-500) 100%);
+            color: #fff;
+            display: none;
+            box-shadow: 0 4px 14px rgba(244, 63, 94, 0.25);
+        }
         .btn-stop:hover { filter: brightness(1.06); }
         .randomizer-block { display: flex; flex-direction: column; gap: 10px; }
         label.rand-cycle {
@@ -107,7 +166,7 @@
             color: var(--text-muted);
             cursor: pointer;
         }
-        label.rand-cycle input { width: auto; height: auto; margin: 0; accent-color: var(--primary); flex-shrink: 0; }
+        label.rand-cycle input { width: auto; height: auto; margin: 0; accent-color: var(--violet-600); flex-shrink: 0; }
 
         .back-link {
             display: block;
@@ -120,7 +179,7 @@
             text-decoration: none;
         }
         .back-link a:hover {
-            color: var(--primary);
+            color: var(--violet-400);
             text-decoration: underline;
         }
 
@@ -224,7 +283,7 @@
             }
             .cell.playing {
                 transform: scale(1.03);
-                box-shadow: 0 0 16px rgba(155, 135, 255, 0.55);
+                box-shadow: 0 0 16px rgba(139, 92, 246, 0.5);
             }
             .btn {
                 padding: 14px 14px;
