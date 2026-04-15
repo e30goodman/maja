@@ -820,28 +820,58 @@
     }
 
     function applyRandomPatternToBar(barIndex, spec, p) {
+        applyRandomPatternToBarWithPulsation(barIndex, spec, p, p);
+    }
+
+    function setBarTitle(barIndex, pulsationValue) {
+        const barEl = document.getElementById(`bar-${barIndex}`);
+        if (!barEl) return;
+        const title = barEl.querySelector('.bar-title');
+        if (!title) return;
+        title.textContent = pulsationValue ? `Bar ${barIndex + 1} · P${pulsationValue}` : `Bar ${barIndex + 1}`;
+    }
+
+    function applyRandomPatternToBarWithPulsation(barIndex, spec, p, virtualP) {
+        const vp = Math.min(7, Math.max(3, parseInt(virtualP, 10) || p));
+        setBarTitle(barIndex, vp === p ? null : vp);
+
         if (spec.mode === 'random') {
             for (let i = 0; i < p; i++) {
-                document.getElementById(`check-${barIndex * p + i}`).checked = Math.random() > 0.6;
+                const mapped = Math.floor((i * vp) / p);
+                const densityBias = vp > 4 ? 0.56 : 0.62;
+                document.getElementById(`check-${barIndex * p + i}`).checked = Math.random() > densityBias && mapped >= 0;
             }
             return;
         }
 
-        const n = Math.min(Math.max(0, spec.n), p);
-        const localIdx = Array.from({ length: p }, (_, i) => i);
+        const scaledN = Math.round((Math.min(Math.max(0, spec.n), p) * vp) / p);
+        const n = Math.min(Math.max(0, scaledN), vp);
+        const localIdx = Array.from({ length: vp }, (_, i) => i);
         shuffleInPlace(localIdx);
-        const chosen = new Set(localIdx.slice(0, n));
+        const chosenVirtual = new Set(localIdx.slice(0, n));
+        const chosenActual = new Set();
         for (let i = 0; i < p; i++) {
-            document.getElementById(`check-${barIndex * p + i}`).checked = chosen.has(i);
+            const mapped = Math.floor((i * vp) / p);
+            if (chosenVirtual.has(mapped)) chosenActual.add(i);
         }
+        for (let i = 0; i < p; i++) {
+            document.getElementById(`check-${barIndex * p + i}`).checked = chosenActual.has(i);
+        }
+    }
+
+    function getRandomPulsationValue() {
+        const values = Object.keys(syllables).map(v => parseInt(v, 10)).filter(v => !isNaN(v));
+        return values[Math.floor(Math.random() * values.length)] || 4;
     }
 
     function applyRandomPattern() {
         const spec = parseRandomSelect();
         const p = parseInt(document.getElementById('pulsation').value);
         const bCount = parseInt(document.getElementById('barsCount').value);
+        const randomPulsationEachBar = document.getElementById('randomPulsationOnRandomize')?.checked;
         for (let b = 0; b < bCount; b++) {
-            applyRandomPatternToBar(b, spec, p);
+            const vp = randomPulsationEachBar ? getRandomPulsationValue() : p;
+            applyRandomPatternToBarWithPulsation(b, spec, p, vp);
         }
     }
 
@@ -919,7 +949,9 @@
                 if (playbackRandomizerEnabled && spec.eachCycle && bCount > 1 && step % p === 0) {
                     const currentBar = Math.floor(step / p);
                     const prevBar = (currentBar - 1 + bCount) % bCount;
-                    applyRandomPatternToBar(prevBar, spec, p);
+                    const randomPulsationEachBar = document.getElementById('randomPulsationOnRandomize')?.checked;
+                    const vp = randomPulsationEachBar ? getRandomPulsationValue() : p;
+                    applyRandomPatternToBarWithPulsation(prevBar, spec, p, vp);
                     saveSessionState();
                 }
             }
