@@ -878,6 +878,18 @@
             if (el) {
                 document.querySelectorAll('.cell').forEach(c => c.classList.remove('playing'));
                 el.classList.add('playing');
+
+                // Update the previous bar only after the frame has actually moved
+                // to the next bar's first syllable in the UI.
+                const p = parseInt(document.getElementById('pulsation').value, 10);
+                const bCount = parseInt(document.getElementById('barsCount').value, 10);
+                const spec = parseRandomSelect();
+                if (spec.eachCycle && bCount > 1 && step % p === 0) {
+                    const currentBar = Math.floor(step / p);
+                    const prevBar = (currentBar - 1 + bCount) % bCount;
+                    applyRandomPatternToBar(prevBar, spec, p);
+                    saveSessionState();
+                }
             }
         }, (time - audioCtx.currentTime) * 1000);
     }
@@ -887,16 +899,7 @@
         const p = parseInt(document.getElementById('pulsation').value);
         const totalSteps = p * parseInt(document.getElementById('barsCount').value);
         nextNoteTime += 60.0 / bpm;
-        const prev = currentStep;
         currentStep = (currentStep + 1) % totalSteps;
-        if (parseRandomSelect().eachCycle) {
-            const prevBar = Math.floor(prev / p);
-            const currentBar = Math.floor(currentStep / p);
-            if (currentBar !== prevBar) {
-                applyRandomPatternToBar(prevBar, parseRandomSelect(), p);
-                saveSessionState();
-            }
-        }
     }
 
     function start() {
