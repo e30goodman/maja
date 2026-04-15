@@ -1169,9 +1169,8 @@
         }
         const container = document.getElementById('barsContainer');
         renderBars(container);
-        const newStep = findGlobalStepIndex(meta.barIndex, meta.localIndex);
-        currentStep = newStep;
-        applyPlayingStep(newStep);
+        const highlightStep = findGlobalStepIndex(meta.barIndex, meta.localIndex);
+        applyPlayingStep(highlightStep);
         requestAnimationFrame(() => enforceBarsFit(container, bCount));
         saveSessionState();
     }
