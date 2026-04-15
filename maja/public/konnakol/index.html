@@ -338,8 +338,12 @@
     </div>
 
     <div class="control-group">
-        <label>Tempo <small class="hint-muted">(interval between syllables)</small></label>
-        <input type="range" id="bpm" min="20" max="480" value="100">
+        <label>
+            Tempo
+            <small class="hint-muted">(interval between syllables, default: 100 BPM)</small>
+        </label>
+        <input type="range" id="bpm" min="20" max="480" value="100" oninput="updateTempoLabel()">
+        <small id="bpmValue" class="hint-muted">Current: 100 BPM</small>
     </div>
 
     <label class="rand-cycle" style="margin: 12px 0 4px;">
@@ -371,6 +375,13 @@
 
     function notesCountLabel(n) {
         return n + (n === 1 ? ' note' : ' notes');
+    }
+
+    function updateTempoLabel() {
+        const bpm = parseInt(document.getElementById('bpm').value, 10);
+        const label = document.getElementById('bpmValue');
+        if (!label || isNaN(bpm)) return;
+        label.textContent = `Current: ${bpm} BPM`;
     }
 
     function rebuildRandomNotesSelect() {
@@ -587,6 +598,7 @@
     }
 
     initApp();
+    updateTempoLabel();
 </script>
 </body>
 </html>
