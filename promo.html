@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BassMastery - Promo Vitrine</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+            background-color: #0f172a;
+            color: #e2e8f0;
+        }
+        .glass {
+            background: rgba(15, 23, 42, 0.75);
+            border: 1px solid rgba(100, 116, 139, 0.4);
+            backdrop-filter: blur(10px);
+        }
+        .locked-card {
+            position: relative;
+            overflow: hidden;
+        }
+        .locked-card::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to bottom, rgba(15, 23, 42, 0.2), rgba(15, 23, 42, 0.88));
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <div class="max-w-6xl mx-auto px-4 py-10">
+        <header class="mb-10">
+            <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <p class="text-xs uppercase tracking-[0.2em] text-violet-300">BassMastery Promo</p>
+                <a href="./index.html" class="text-sm px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 transition-colors">
+                    Перейти к основной версии
+                </a>
+            </div>
+            <h1 class="text-4xl md:text-5xl font-extrabold leading-tight mb-3 bg-gradient-to-r from-slate-100 via-violet-200 to-blue-200 text-transparent bg-clip-text">
+                Витрина курса для маркетинга
+            </h1>
+            <p class="text-slate-300 max-w-3xl">
+                Открытый демо-доступ: видно структуру, модули и эмоциональную карту. 
+                Полные блоки, алгоритмы навигации и видео-разборы находятся в «Сейфе» и открываются после авторизации.
+            </p>
+        </header>
+
+        <section class="grid md:grid-cols-2 gap-4 mb-8">
+            <div class="glass rounded-2xl p-5">
+                <p class="text-slate-400 text-sm mb-1">Что доступно сразу</p>
+                <h2 class="text-xl font-bold mb-2">Демо-урок: Техника и 4 блока</h2>
+                <ul class="text-sm text-slate-200 space-y-2">
+                    <li>• Позиция правой руки и контроль звука</li>
+                    <li>• Логика геометрии 4 блоков (обзор)</li>
+                    <li>• Практика: базовый грув на одном паттерне</li>
+                </ul>
+            </div>
+            <div class="glass rounded-2xl p-5 border-violet-500/50">
+                <p class="text-slate-400 text-sm mb-1">Что закрыто в сейфе</p>
+                <h2 class="text-xl font-bold mb-2">Премиум-контент</h2>
+                <ul class="text-sm text-slate-200 space-y-2">
+                    <li>• Полные геометрические схемы блоков</li>
+                    <li>• Алгоритмы перемещения (+1 тон / +1/2 тона)</li>
+                    <li>• Konnakol и авторские видео-разборы</li>
+                </ul>
+            </div>
+        </section>
+
+        <section class="mb-8 glass rounded-2xl p-6">
+            <h2 class="text-2xl font-bold mb-4">Эмоциональная карта модов (открыто)</h2>
+            <div class="grid md:grid-cols-2 gap-3 text-sm">
+                <div class="rounded-xl bg-slate-900/60 border border-slate-700 p-3"><strong>Dorian:</strong> спокойная сила, устойчивость, движение.</div>
+                <div class="rounded-xl bg-slate-900/60 border border-slate-700 p-3"><strong>Phrygian:</strong> напряжение, ритуальность, темная энергия.</div>
+                <div class="rounded-xl bg-slate-900/60 border border-slate-700 p-3"><strong>Lydian:</strong> надежда, мистичность, кинематографичность.</div>
+                <div class="rounded-xl bg-slate-900/60 border border-slate-700 p-3"><strong>Locrian:</strong> дезориентирующий хаос, крайняя нестабильность.</div>
+            </div>
+        </section>
+
+        <section class="grid lg:grid-cols-3 gap-4 mb-8">
+            <article class="glass rounded-2xl p-5">
+                <p class="text-xs text-violet-300 uppercase tracking-wide mb-2">Модуль 1</p>
+                <h3 class="text-lg font-bold mb-2">Открытый демо-блок</h3>
+                <p class="text-sm text-slate-300 mb-3">Lecon 1: Technique, Chanson & 4 Blocs</p>
+                <p class="text-sm text-slate-400">Доступен полностью в демо для знакомства с качеством методики.</p>
+            </article>
+
+            <article class="glass rounded-2xl p-5 locked-card">
+                <div class="relative z-10">
+                    <p class="text-xs text-slate-400 uppercase tracking-wide mb-2">Модуль 2+</p>
+                    <h3 class="text-lg font-bold mb-2">Ритм и Konnakol</h3>
+                    <p class="text-sm text-slate-300 mb-3">Алгоритмы ритмики, продвинутые паттерны и внутренний тайминг.</p>
+                    <p class="text-sm font-semibold text-amber-300">Закрыто: доступ после авторизации.</p>
+                </div>
+            </article>
+
+            <article class="glass rounded-2xl p-5 locked-card">
+                <div class="relative z-10">
+                    <p class="text-xs text-slate-400 uppercase tracking-wide mb-2">Сейф</p>
+                    <h3 class="text-lg font-bold mb-2">Алгоритм навигации</h3>
+                    <p class="text-sm text-slate-300 mb-3">Переходы по блочной геометрии и закрытые разборы.</p>
+                    <p class="text-sm font-semibold text-amber-300">Продолжение следует...</p>
+                </div>
+            </article>
+        </section>
+
+        <section class="glass rounded-2xl p-6 text-center">
+            <h2 class="text-2xl font-bold mb-2">Хочешь полный доступ к «Сейфу»?</h2>
+            <p class="text-slate-300 mb-5">Оставь заявку: откроем все модули, схемы и видео-практику.</p>
+            <a href="./index.html" class="inline-block px-5 py-3 rounded-xl bg-violet-600 hover:bg-violet-500 transition-colors font-semibold">
+                Получить полный доступ
+            </a>
+        </section>
+    </div>
+</body>
+</html>
