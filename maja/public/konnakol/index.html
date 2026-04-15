@@ -482,8 +482,12 @@
                         <select id="randNotesPerBar" onchange="saveSessionState()"></select>
                     </div>
                     <label class="rand-cycle">
-                        <input type="checkbox" id="randomEachCycle" onchange="saveSessionState()" checked>
-                        New pattern each full cycle (while playing)
+                        <input type="checkbox" id="randomPatternAfterEachBar" onchange="saveSessionState()" checked>
+                        Random pattern after each bar (while playing)
+                    </label>
+                    <label class="rand-cycle">
+                        <input type="checkbox" id="randomPulsationAfterEachBar" onchange="saveSessionState()">
+                        Random pulsation after each bar (while playing)
                     </label>
                     <label class="rand-cycle">
                         <input type="checkbox" id="uniformSound" onchange="saveSessionState()">
@@ -528,9 +532,7 @@
     let barStates = [];
     let stepMeta = [];
     let pulsationMenuBarIndex = null;
-    let currentCycleId = 0;
-    let lastMutationCycleId = -1;
-    let lastProcessedTransitionKey = '';
+    let lastProcessedBarTransitionKey = '';
     let allowPlaybackPulsationMutation = false;
     let wakeLock = null;
     const BASE_PULSATION_FOR_BPM = 4;
@@ -558,7 +560,8 @@
             pulsation: String(p),
             barsCount: String(bCount),
             randNotesPerBar: document.getElementById('randNotesPerBar').value || 'random',
-            randomEachCycle: document.getElementById('randomEachCycle').checked,
+            randomPatternAfterEachBar: document.getElementById('randomPatternAfterEachBar').checked,
+            randomPulsationAfterEachBar: document.getElementById('randomPulsationAfterEachBar').checked,
             uniformSound: document.getElementById('uniformSound').checked,
             bpm: String(document.getElementById('bpm').value || '100'),
             barScaleByCount: getBarScaleMapForSave(),
@@ -628,7 +631,8 @@
         const barsCountEl = document.getElementById('barsCount');
         const bpmEl = document.getElementById('bpm');
         const barScaleEl = document.getElementById('barScale');
-        const randomEachCycleEl = document.getElementById('randomEachCycle');
+        const randomPatternAfterEachBarEl = document.getElementById('randomPatternAfterEachBar');
+        const randomPulsationAfterEachBarEl = document.getElementById('randomPulsationAfterEachBar');
         const uniformSoundEl = document.getElementById('uniformSound');
 
         if (state.pulsation && syllables[state.pulsation]) {
@@ -650,7 +654,20 @@
             initialScale = normalizeBarScaleValue(state.barScale);
         }
         barScaleEl.value = initialScale;
-        randomEachCycleEl.checked = Boolean(state.randomEachCycle);
+        if (randomPatternAfterEachBarEl) {
+            if (state.randomPatternAfterEachBar !== undefined) {
+                randomPatternAfterEachBarEl.checked = Boolean(state.randomPatternAfterEachBar);
+            } else if (state.randomEachCycle !== undefined) {
+                randomPatternAfterEachBarEl.checked = Boolean(state.randomEachCycle);
+            } else {
+                randomPatternAfterEachBarEl.checked = true;
+            }
+        }
+        if (randomPulsationAfterEachBarEl) {
+            randomPulsationAfterEachBarEl.checked = state.randomPulsationAfterEachBar === undefined
+                ? false
+                : Boolean(state.randomPulsationAfterEachBar);
+        }
         uniformSoundEl.checked = Boolean(state.uniformSound);
     }
 
@@ -703,17 +720,17 @@
     function rebuildRandomNotesSelect() {
         const p = parseInt(document.getElementById('pulsation').value);
         const sel = document.getElementById('randNotesPerBar');
-        const cycleCb = document.getElementById('randomEachCycle');
+        const patternBarCb = document.getElementById('randomPatternAfterEachBar');
         const prevRaw = sel.value;
         let nextVal = prevRaw;
         if (!prevRaw) {
             nextVal = p === 4 ? '2' : 'random';
         }
         if (prevRaw === 'cycle_random') {
-            cycleCb.checked = true;
+            if (patternBarCb) patternBarCb.checked = true;
             nextVal = 'random';
         } else if (/^cycle_\d+$/.test(prevRaw)) {
-            cycleCb.checked = true;
+            if (patternBarCb) patternBarCb.checked = true;
             nextVal = prevRaw.slice(6);
         }
         sel.innerHTML = '';
@@ -774,9 +791,7 @@
         renderBars(container);
         currentStep = 0;
         lastFocusedBarIndex = -1;
-        currentCycleId = 0;
-        lastMutationCycleId = -1;
-        lastProcessedTransitionKey = '';
+        lastProcessedBarTransitionKey = '';
         rebuildRandomNotesSelect();
         requestAnimationFrame(() => enforceBarsFit(container, bCount));
     }
@@ -1112,24 +1127,64 @@
         return { mode: 'random' };
     }
 
-    function getCycleUpdateFlags() {
+    function getPlaybackRandomizerFlags() {
         return {
-            randomPatternEachCycle: Boolean(document.getElementById('randomEachCycle')?.checked)
+            randomPatternAfterEachBar: Boolean(document.getElementById('randomPatternAfterEachBar')?.checked),
+            randomPulsationAfterEachBar: Boolean(document.getElementById('randomPulsationAfterEachBar')?.checked)
         };
     }
 
-    function getCycleMutationTargetBarIndex(cycleId, bCount) {
-        if (bCount <= 0) return 0;
-        return (bCount - 1 + ((cycleId - 1) % bCount)) % bCount;
+    function getRandomPulsationValueDifferentFrom(excludeP) {
+        const values = Object.keys(syllables).map(v => parseInt(v, 10)).filter(v => !isNaN(v));
+        const pool = values.filter(v => v !== excludeP);
+        const pickFrom = pool.length ? pool : values;
+        return pickFrom[Math.floor(Math.random() * pickFrom.length)] || 4;
+    }
+
+    function maybeRandomizePulsationForBar(barIndex, sliderBaseP, enabled) {
+        if (!enabled || !barStates[barIndex]) return;
+        const nextP = getRandomPulsationValueDifferentFrom(barStates[barIndex].pulsation);
+        applyBarPulsation(barIndex, nextP, sliderBaseP);
+    }
+
+    function maybeRandomizePatternForBar(barIndex, spec, enabled) {
+        if (!enabled || !barStates[barIndex]) return;
+        applyBarPattern(barIndex, spec);
+    }
+
+    function findGlobalStepIndex(barIndex, localIndex) {
+        for (let i = 0; i < stepMeta.length; i++) {
+            if (stepMeta[i].barIndex === barIndex && stepMeta[i].localIndex === localIndex) return i;
+        }
+        return 0;
+    }
+
+    function onBarTransitionOrchestrate({ meta, spec, flags, prevBar, sliderP, bCount }) {
+        allowPlaybackPulsationMutation = true;
+        try {
+            maybeRandomizePulsationForBar(prevBar, sliderP, flags.randomPulsationAfterEachBar);
+            maybeRandomizePatternForBar(prevBar, spec, flags.randomPatternAfterEachBar);
+        } finally {
+            allowPlaybackPulsationMutation = false;
+        }
+        const container = document.getElementById('barsContainer');
+        renderBars(container);
+        const newStep = findGlobalStepIndex(meta.barIndex, meta.localIndex);
+        currentStep = newStep;
+        applyPlayingStep(newStep);
+        requestAnimationFrame(() => enforceBarsFit(container, bCount));
+        saveSessionState();
     }
 
     function applyBarPulsation(barIndex, nextP, fallbackP) {
-        if (!barStates[barIndex]) return;
+        if (!barStates[barIndex]) return false;
         const safeP = Math.min(8, Math.max(3, parseInt(nextP, 10) || fallbackP || barStates[barIndex].pulsation));
         const oldP = barStates[barIndex].pulsation;
         assertPlaybackPulsationMutationAllowed(barIndex, oldP, safeP);
+        if (oldP === safeP) return false;
+        const oldChecks = barStates[barIndex].checks.slice();
         barStates[barIndex].pulsation = safeP;
-        barStates[barIndex].checks = Array.from({ length: safeP }, () => false);
+        barStates[barIndex].checks = mapChecksToNewPulsation(oldChecks, oldP, safeP);
         return true;
     }
 
@@ -1175,7 +1230,7 @@
         randomize();
         const isPlaying = document.getElementById('stopBtn').style.display === 'block';
         // #region agent log
-        fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'cycle-debug-3',hypothesisId:'H5',location:'maja/public/konnakol/index.html:randomizeAndPlay',message:'Randomize-and-play entry state',data:{isPlaying,randomEachCycle:Boolean(document.getElementById('randomEachCycle')?.checked),barsCount:barStates.length},timestamp:Date.now()})}).catch(()=>{});
+        fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'cycle-debug-3',hypothesisId:'H5',location:'maja/public/konnakol/index.html:randomizeAndPlay',message:'Randomize-and-play entry state',data:{isPlaying,randomPatternAfterEachBar:Boolean(document.getElementById('randomPatternAfterEachBar')?.checked),randomPulsationAfterEachBar:Boolean(document.getElementById('randomPulsationAfterEachBar')?.checked),barsCount:barStates.length},timestamp:Date.now()})}).catch(()=>{});
         // #endregion
         if (!isPlaying) {
             start(true);
@@ -1217,69 +1272,47 @@
         const meta = stepMeta[step];
         if (!meta || !barStates[meta.barIndex]) return;
         const isChecked = Boolean(barStates[meta.barIndex].checks[meta.localIndex]);
-        const transitionKey = `${meta.barIndex}:${meta.localIndex}:${step}:${Math.round(time * 1000)}`;
+        const barEntryDedupKey = `${meta.barIndex}:${meta.localIndex}:${step}:${Math.round(time * 1000)}`;
 
         playSharpClick(time, isChecked);
 
         setTimeout(() => {
             const bCount = barStates.length;
             const spec = parsePatternSpec();
-            const cycleFlags = getCycleUpdateFlags();
-            const isCycleBoundary = meta.barIndex === 0 && meta.localIndex === 0;
-            const transitionAlreadyProcessed = isCycleBoundary && lastProcessedTransitionKey === transitionKey;
+            const flags = getPlaybackRandomizerFlags();
 
-            if (isCycleBoundary && transitionAlreadyProcessed) {
-                applyPlayingStep(step);
-                return;
-            }
-            if (isCycleBoundary) {
-                lastProcessedTransitionKey = transitionKey;
-                currentCycleId += 1;
-            }
-
-            const shouldMutateThisCycle = playbackRandomizerEnabled
-                && bCount >= 1
-                && isCycleBoundary
-                && cycleFlags.randomPatternEachCycle
-                && currentCycleId > lastMutationCycleId;
-
-            if (isCycleBoundary) {
-                // #region agent log
-                fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'cycle-debug-3',hypothesisId:'H7',location:'maja/public/konnakol/index.html:scheduleNote.guard',message:shouldMutateThisCycle?'Guard passed for cycle-boundary random update':'Guard blocked cycle-boundary random update',data:{step,currentBar:meta.barIndex,localIndex:meta.localIndex,playbackRandomizerEnabled,randomPatternEachCycle:cycleFlags.randomPatternEachCycle,bCount,guardPass:shouldMutateThisCycle,currentCycleId,lastMutationCycleId,transitionKey},timestamp:Date.now()})}).catch(()=>{});
-                // #endregion
-            }
-
-            if (!shouldMutateThisCycle) {
+            if (meta.localIndex !== 0) {
                 applyPlayingStep(step);
                 return;
             }
 
-            const targetBar = getCycleMutationTargetBarIndex(currentCycleId, bCount);
-            const currentP = parseInt(document.getElementById('pulsation').value, 10);
-            const shouldRandomizePatternThisTransition = cycleFlags.randomPatternEachCycle;
-            // #region agent log
-            fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'cycle-debug-1',hypothesisId:'H3',location:'maja/public/konnakol/index.html:scheduleNote',message:'Cycle boundary update detected',data:{step,currentBar:meta.barIndex,targetBar,currentP,playbackRandomizerEnabled,shouldRandomizePatternThisTransition,currentCycleId},timestamp:Date.now()})}).catch(()=>{});
-            // #endregion
+            if (lastProcessedBarTransitionKey === barEntryDedupKey) {
+                applyPlayingStep(step);
+                return;
+            }
+            lastProcessedBarTransitionKey = barEntryDedupKey;
+
+            applyPlayingStep(step);
+
+            const needsMutation = playbackRandomizerEnabled && bCount >= 1
+                && (flags.randomPatternAfterEachBar || flags.randomPulsationAfterEachBar);
+
+            if (!needsMutation) {
+                return;
+            }
+
+            const prevBar = (meta.barIndex - 1 + bCount) % bCount;
+            const sliderP = parseInt(document.getElementById('pulsation').value, 10);
 
             requestAnimationFrame(() => {
-                allowPlaybackPulsationMutation = true;
-                try {
-                    applyBarPulsation(targetBar, currentP, currentP);
-                    if (shouldRandomizePatternThisTransition) {
-                        applyBarPattern(targetBar, spec);
-                    }
-                    lastMutationCycleId = currentCycleId;
-                } finally {
-                    allowPlaybackPulsationMutation = false;
-                }
-                // #region agent log
-                fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'cycle-debug-1',hypothesisId:'H4',location:'maja/public/konnakol/index.html:scheduleNote.raf',message:'Post-cycle update/render completed',data:{step,currentBar:meta.barIndex,targetBar,currentCycleId,lastMutationCycleId,barPulsations:barStates.map(b=>b.pulsation)},timestamp:Date.now()})}).catch(()=>{});
-                // #endregion
-                const container = document.getElementById('barsContainer');
-                renderBars(container);
-                applyPlayingStep(step);
-                requestAnimationFrame(() => enforceBarsFit(container, bCount));
-                saveSessionState();
+                onBarTransitionOrchestrate({
+                    meta,
+                    spec,
+                    flags,
+                    prevBar,
+                    sliderP,
+                    bCount
+                });
             });
         }, (time - audioCtx.currentTime) * 1000);
     }
@@ -1305,16 +1338,14 @@
     function start(enableRandomizer = false) {
         if (!audioCtx) audioCtx = new AudioContext();
         if (audioCtx.state === 'suspended') audioCtx.resume();
-        const cycleFlags = getCycleUpdateFlags();
-        playbackRandomizerEnabled = Boolean(enableRandomizer || cycleFlags.randomPatternEachCycle);
-        currentCycleId = 0;
-        lastMutationCycleId = -1;
-        lastProcessedTransitionKey = '';
+        const flags = getPlaybackRandomizerFlags();
+        playbackRandomizerEnabled = Boolean(enableRandomizer || flags.randomPatternAfterEachBar || flags.randomPulsationAfterEachBar);
+        lastProcessedBarTransitionKey = '';
         currentStep = 0;
         lastFocusedBarIndex = -1;
         nextNoteTime = audioCtx.currentTime + 0.05;
         // #region agent log
-        fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'cycle-debug-3',hypothesisId:'H6',location:'maja/public/konnakol/index.html:start',message:'Playback started with mode flags',data:{enableRandomizer,playbackRandomizerEnabled,randomEachCycle:Boolean(document.getElementById('randomEachCycle')?.checked),barsCount:barStates.length},timestamp:Date.now()})}).catch(()=>{});
+        fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'cycle-debug-3',hypothesisId:'H6',location:'maja/public/konnakol/index.html:start',message:'Playback started with mode flags',data:{enableRandomizer,playbackRandomizerEnabled,randomPatternAfterEachBar:Boolean(document.getElementById('randomPatternAfterEachBar')?.checked),randomPulsationAfterEachBar:Boolean(document.getElementById('randomPulsationAfterEachBar')?.checked),barsCount:barStates.length},timestamp:Date.now()})}).catch(()=>{});
         // #endregion
         scheduler();
         document.getElementById('playBtn').style.display = 'none';
@@ -1325,9 +1356,7 @@
     function stop() {
         clearTimeout(timerID);
         playbackRandomizerEnabled = false;
-        currentCycleId = 0;
-        lastMutationCycleId = -1;
-        lastProcessedTransitionKey = '';
+        lastProcessedBarTransitionKey = '';
         lastFocusedBarIndex = -1;
         document.getElementById('playBtn').style.display = 'block';
         document.getElementById('stopBtn').style.display = 'none';
