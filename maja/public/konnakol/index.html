@@ -459,6 +459,9 @@
                         <option value="5">5 (Ta-Ka-Ta-Ki-Ta)</option>
                         <option value="6">6 (Ta-Ka-Dhi-Mi-Ta-Ka)</option>
                         <option value="7">7 (Ta-Ka-Dhi-Mi-Ta-Ki-Ta)</option>
+                        <option value="8">8 (Ta Ka Dhi Mi Ta Ka Dju Na)</option>
+                        <option value="9">9 (Ta Ka Ta Ki Ta Ta Ka Dhi Mi)</option>
+                        <option value="10">10 (Ta Ka Ta Ki Ta Ta Ka Dhi Mi Ka)</option>
                     </select>
                 </div>
                 <div>
@@ -538,7 +541,10 @@
         4: ["Ta", "Ka", "Dhi", "Mi"],
         5: ["Ta", "Ka", "Ta", "Ki", "Ta"],
         6: ["Ta", "Ka", "Dhi", "Mi", "Ta", "Ka"],
-        7: ["Ta", "Ka", "Dhi", "Mi", "Ta", "Ki", "Ta"]
+        7: ["Ta", "Ka", "Dhi", "Mi", "Ta", "Ki", "Ta"],
+        8: ["Ta", "Ka", "Dhi", "Mi", "Ta", "Ka", "Dju", "Na"],
+        9: ["Ta", "Ka", "Ta", "Ki", "Ta", "Ta", "Ka", "Dhi", "Mi"],
+        10: ["Ta", "Ka", "Ta", "Ki", "Ta", "Ta", "Ka", "Dhi", "Mi", "Ka"]
     };
 
     function notesCountLabel(n) {
@@ -874,7 +880,7 @@
 
     function setBarPulsationManual(barIndex, newP) {
         if (!barStates[barIndex]) return;
-        const safeP = Math.min(7, Math.max(3, parseInt(newP, 10) || 4));
+        const safeP = Math.min(10, Math.max(3, parseInt(newP, 10) || 4));
         const oldP = barStates[barIndex].pulsation;
         if (oldP === safeP) return;
         const oldChecks = barStates[barIndex].checks.slice();
@@ -887,7 +893,7 @@
         if (navigator.vibrate) navigator.vibrate(10);
     }
 
-    const PULSATION_OPTIONS = [3, 4, 5, 6, 7];
+    const PULSATION_OPTIONS = [3, 4, 5, 6, 7, 8, 9, 10];
 
     function getBaseBpmFromSlider() {
         const v = parseFloat(document.getElementById('bpm').value);
@@ -904,7 +910,7 @@
         const cur = document.getElementById('pulsationDragPanelCurrent');
         const list = document.getElementById('pulsationDragPanelList');
         if (!panel || !title || !cur || !list) return;
-        const safeP = Math.min(7, Math.max(3, previewP));
+        const safeP = Math.min(10, Math.max(3, previewP));
         panel.hidden = false;
         panel.setAttribute('aria-hidden', 'false');
         title.textContent = `Bar ${barIndex + 1}`;
@@ -960,7 +966,7 @@
         const dy = event.clientY - pulsationDrag.startY;
         const axis = Math.abs(dx) > Math.abs(dy) ? dx : -dy;
         const steps = Math.round(axis / 24);
-        const nextP = Math.min(7, Math.max(3, pulsationDrag.baseP + steps));
+        const nextP = Math.min(10, Math.max(3, pulsationDrag.baseP + steps));
         refreshPulsationDragPanel(nextP, pulsationDrag.barIndex);
         if (nextP !== pulsationDrag.lastP) {
             pulsationDrag.lastP = nextP;
@@ -1104,7 +1110,7 @@
 
     function applyRandomPatternToBarWithPulsation(barIndex, spec, currentP, nextP) {
         if (!barStates[barIndex]) return;
-        const safeP = Math.min(7, Math.max(3, parseInt(nextP, 10) || currentP));
+        const safeP = Math.min(10, Math.max(3, parseInt(nextP, 10) || currentP));
         barStates[barIndex].pulsation = safeP;
         barStates[barIndex].checks = Array.from({ length: safeP }, () => false);
 
