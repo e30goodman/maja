@@ -776,6 +776,13 @@
         saveSessionState();
     }
 
+    function getEffectiveBpmForBar(barIndex, baseBpm) {
+        if (!playbackRandomizerEnabled || !barStates[barIndex]) return baseBpm;
+        // Per-bar internal tempo: baseBpm * (barPulsation / 4)
+        const barPulsation = barStates[barIndex].pulsation;
+        return baseBpm * (barPulsation / 4);
+    }
+
     function getBarsLayoutMeta(bCount) {
         const mobileSingleColumn = window.matchMedia('(max-width: 860px)').matches;
         const twoColumns = bCount >= 6 && !mobileSingleColumn;
@@ -993,10 +1000,12 @@
     }
 
     function nextNote() {
-        const bpm = parseFloat(document.getElementById('bpm').value);
+        const baseBpm = parseFloat(document.getElementById('bpm').value);
         const totalSteps = stepMeta.length;
         if (!totalSteps) return;
-        nextNoteTime += 60.0 / bpm;
+        const meta = stepMeta[currentStep];
+        const effectiveBpm = meta ? getEffectiveBpmForBar(meta.barIndex, baseBpm) : baseBpm;
+        nextNoteTime += 60.0 / effectiveBpm;
         currentStep = (currentStep + 1) % totalSteps;
     }
 
