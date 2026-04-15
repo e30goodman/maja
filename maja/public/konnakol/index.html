@@ -439,6 +439,8 @@
     let currentStep = 0;
     let lastFocusedBarIndex = -1;
     let playbackRandomizerEnabled = false;
+    let barStates = [];
+    let stepMeta = [];
     const STORAGE_KEY = 'konnakolSessionStateV1';
     
     const syllables = {
@@ -456,12 +458,8 @@
     function getCurrentSessionState() {
         const p = parseInt(document.getElementById('pulsation').value, 10);
         const bCount = parseInt(document.getElementById('barsCount').value, 10);
-        const totalSteps = p * bCount;
-        const checks = [];
-        for (let i = 0; i < totalSteps; i++) {
-            const el = document.getElementById(`check-${i}`);
-            checks.push(Boolean(el && el.checked));
-        }
+        const barPulsations = barStates.map(b => b.pulsation);
+        const checks = barStates.flatMap(b => b.checks);
         return {
             pulsation: String(p),
             barsCount: String(bCount),
@@ -471,6 +469,7 @@
             randomPulsationOnRandomize: document.getElementById('randomPulsationOnRandomize').checked,
             bpm: String(document.getElementById('bpm').value || '100'),
             barScaleByCount: getBarScaleMapForSave(),
+            barPulsations,
             checks
         };
     }
@@ -564,17 +563,6 @@
         randomPulsationOnRandomizeEl.checked = Boolean(state.randomPulsationOnRandomize);
     }
 
-    function restoreChecksFromState(state) {
-        if (!state || !Array.isArray(state.checks)) return;
-        const p = parseInt(document.getElementById('pulsation').value, 10);
-        const bCount = parseInt(document.getElementById('barsCount').value, 10);
-        const totalSteps = p * bCount;
-        if (state.checks.length !== totalSteps) return;
-        for (let i = 0; i < totalSteps; i++) {
-            const el = document.getElementById(`check-${i}`);
-            if (el) el.checked = Boolean(state.checks[i]);
-        }
-    }
 
     function updateTempoLabel() {
         const bpm = parseInt(document.getElementById('bpm').value, 10);
@@ -691,33 +679,101 @@
         container.style.setProperty('--bars-count', String(bCount));
         container.classList.toggle('many-bars', bCount >= 6);
         applyAdaptiveBarHeights(container, bCount);
-
-        for (let b = 0; b < bCount; b++) {
-            const barDiv = document.createElement('div');
-            barDiv.className = 'bar';
-            barDiv.id = `bar-${b}`;
-            barDiv.dataset.barIndex = String(b);
-            barDiv.innerHTML = `<div class="bar-title">Bar ${b + 1}</div>`;
-            
-            const grid = document.createElement('div');
-            grid.className = 'rhythm-grid';
-            
-            syllables[p].forEach((s, i) => {
-                const stepIdx = (b * p) + i;
-                const cell = document.createElement('div');
-                cell.className = 'cell';
-                cell.id = `step-${stepIdx}`;
-                cell.innerHTML = `<small>${s}</small><input type="checkbox" id="check-${stepIdx}" onchange="saveSessionState()">`;
-                grid.appendChild(cell);
-            });
-            
-            barDiv.appendChild(grid);
-            container.appendChild(barDiv);
-        }
+        initializeBarStates(p, bCount);
+        renderBars(container);
         currentStep = 0;
         lastFocusedBarIndex = -1;
         rebuildRandomNotesSelect();
         requestAnimationFrame(() => enforceBarsFit(container, bCount));
+    }
+
+    function initializeBarStates(defaultPulsation, bCount) {
+        const state = loadSessionState();
+        const defaultBar = () => ({ pulsation: defaultPulsation, checks: Array.from({ length: defaultPulsation }, () => false) });
+        barStates = Array.from({ length: bCount }, () => defaultBar());
+
+        if (!state) {
+            recalcStepMeta();
+            return;
+        }
+
+        const hasBarPulsations = Array.isArray(state.barPulsations) && state.barPulsations.length === bCount;
+        if (hasBarPulsations) {
+            for (let i = 0; i < bCount; i++) {
+                const p = parseInt(state.barPulsations[i], 10);
+                const safeP = syllables[p] ? p : defaultPulsation;
+                barStates[i] = { pulsation: safeP, checks: Array.from({ length: safeP }, () => false) };
+            }
+        }
+
+        const totalExpected = barStates.reduce((sum, b) => sum + b.pulsation, 0);
+        if (Array.isArray(state.checks) && state.checks.length === totalExpected) {
+            let idx = 0;
+            for (let b = 0; b < bCount; b++) {
+                for (let i = 0; i < barStates[b].pulsation; i++) {
+                    barStates[b].checks[i] = Boolean(state.checks[idx++]);
+                }
+            }
+        } else if (Array.isArray(state.checks) && !hasBarPulsations) {
+            const oldExpected = defaultPulsation * bCount;
+            if (state.checks.length === oldExpected) {
+                let idx = 0;
+                for (let b = 0; b < bCount; b++) {
+                    for (let i = 0; i < defaultPulsation; i++) {
+                        barStates[b].checks[i] = Boolean(state.checks[idx++]);
+                    }
+                }
+            }
+        }
+
+        recalcStepMeta();
+    }
+
+    function recalcStepMeta() {
+        stepMeta = [];
+        for (let b = 0; b < barStates.length; b++) {
+            const p = barStates[b].pulsation;
+            for (let i = 0; i < p; i++) {
+                stepMeta.push({ barIndex: b, localIndex: i });
+            }
+        }
+    }
+
+    function renderBars(container) {
+        recalcStepMeta();
+        container.innerHTML = '';
+        let globalStep = 0;
+        for (let b = 0; b < barStates.length; b++) {
+            const barDiv = document.createElement('div');
+            barDiv.className = 'bar';
+            barDiv.id = `bar-${b}`;
+            barDiv.dataset.barIndex = String(b);
+            barDiv.innerHTML = `<div class="bar-title">Bar ${b + 1} · P${barStates[b].pulsation}</div>`;
+
+            const grid = document.createElement('div');
+            grid.className = 'rhythm-grid';
+
+            const p = barStates[b].pulsation;
+            syllables[p].forEach((s, i) => {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                cell.id = `step-${globalStep}`;
+                const isChecked = barStates[b].checks[i] ? 'checked' : '';
+                cell.innerHTML = `<small>${s}</small><input type="checkbox" id="check-${globalStep}" ${isChecked} onchange="onBarCheckChanged(${globalStep}, ${b}, ${i})">`;
+                grid.appendChild(cell);
+                globalStep += 1;
+            });
+
+            barDiv.appendChild(grid);
+            container.appendChild(barDiv);
+        }
+    }
+
+    function onBarCheckChanged(stepIdx, barIndex, localIndex) {
+        const el = document.getElementById(`check-${stepIdx}`);
+        if (!el || !barStates[barIndex]) return;
+        barStates[barIndex].checks[localIndex] = el.checked;
+        saveSessionState();
     }
 
     function getBarsLayoutMeta(bCount) {
@@ -819,43 +875,27 @@
         return { eachCycle, mode: 'random' };
     }
 
-    function applyRandomPatternToBar(barIndex, spec, p) {
-        applyRandomPatternToBarWithPulsation(barIndex, spec, p, p);
-    }
-
-    function setBarTitle(barIndex, pulsationValue) {
-        const barEl = document.getElementById(`bar-${barIndex}`);
-        if (!barEl) return;
-        const title = barEl.querySelector('.bar-title');
-        if (!title) return;
-        title.textContent = pulsationValue ? `Bar ${barIndex + 1} · P${pulsationValue}` : `Bar ${barIndex + 1}`;
-    }
-
-    function applyRandomPatternToBarWithPulsation(barIndex, spec, p, virtualP) {
-        const vp = Math.min(7, Math.max(3, parseInt(virtualP, 10) || p));
-        setBarTitle(barIndex, vp === p ? null : vp);
+    function applyRandomPatternToBarWithPulsation(barIndex, spec, currentP, nextP) {
+        if (!barStates[barIndex]) return;
+        const safeP = Math.min(7, Math.max(3, parseInt(nextP, 10) || currentP));
+        barStates[barIndex].pulsation = safeP;
+        barStates[barIndex].checks = Array.from({ length: safeP }, () => false);
 
         if (spec.mode === 'random') {
-            for (let i = 0; i < p; i++) {
-                const mapped = Math.floor((i * vp) / p);
-                const densityBias = vp > 4 ? 0.56 : 0.62;
-                document.getElementById(`check-${barIndex * p + i}`).checked = Math.random() > densityBias && mapped >= 0;
+            for (let i = 0; i < safeP; i++) {
+                const densityBias = safeP > 4 ? 0.56 : 0.62;
+                barStates[barIndex].checks[i] = Math.random() > densityBias;
             }
             return;
         }
 
-        const scaledN = Math.round((Math.min(Math.max(0, spec.n), p) * vp) / p);
-        const n = Math.min(Math.max(0, scaledN), vp);
-        const localIdx = Array.from({ length: vp }, (_, i) => i);
+        const scaledN = Math.round((Math.min(Math.max(0, spec.n), currentP) * safeP) / currentP);
+        const n = Math.min(Math.max(0, scaledN), safeP);
+        const localIdx = Array.from({ length: safeP }, (_, i) => i);
         shuffleInPlace(localIdx);
-        const chosenVirtual = new Set(localIdx.slice(0, n));
-        const chosenActual = new Set();
-        for (let i = 0; i < p; i++) {
-            const mapped = Math.floor((i * vp) / p);
-            if (chosenVirtual.has(mapped)) chosenActual.add(i);
-        }
-        for (let i = 0; i < p; i++) {
-            document.getElementById(`check-${barIndex * p + i}`).checked = chosenActual.has(i);
+        const chosen = new Set(localIdx.slice(0, n));
+        for (let i = 0; i < safeP; i++) {
+            barStates[barIndex].checks[i] = chosen.has(i);
         }
     }
 
@@ -867,26 +907,17 @@
     function applyRandomPattern() {
         const spec = parseRandomSelect();
         const p = parseInt(document.getElementById('pulsation').value);
-        const bCount = parseInt(document.getElementById('barsCount').value);
         const randomPulsationEachBar = document.getElementById('randomPulsationOnRandomize')?.checked;
-        for (let b = 0; b < bCount; b++) {
+        for (let b = 0; b < barStates.length; b++) {
             const vp = randomPulsationEachBar ? getRandomPulsationValue() : p;
             applyRandomPatternToBarWithPulsation(b, spec, p, vp);
         }
-    }
-
-    function maybeApplyRandomPulsationOnRandomize() {
-        const cb = document.getElementById('randomPulsationOnRandomize');
-        if (!cb || !cb.checked) return;
-        const pulsationEl = document.getElementById('pulsation');
-        const options = Object.keys(syllables);
-        const randomIdx = Math.floor(Math.random() * options.length);
-        pulsationEl.value = options[randomIdx];
-        initApp();
+        const container = document.getElementById('barsContainer');
+        renderBars(container);
+        requestAnimationFrame(() => enforceBarsFit(container, barStates.length));
     }
 
     function randomize() {
-        maybeApplyRandomPulsationOnRandomize();
         applyRandomPattern();
         saveSessionState();
     }
@@ -931,7 +962,9 @@
     }
 
     function scheduleNote(step, time) {
-        const isChecked = document.getElementById(`check-${step}`).checked;
+        const meta = stepMeta[step];
+        if (!meta || !barStates[meta.barIndex]) return;
+        const isChecked = Boolean(barStates[meta.barIndex].checks[meta.localIndex]);
 
         playSharpClick(time, isChecked);
 
@@ -943,15 +976,16 @@
 
                 // Update the previous bar only after the frame has actually moved
                 // to the next bar's first syllable in the UI.
-                const p = parseInt(document.getElementById('pulsation').value, 10);
-                const bCount = parseInt(document.getElementById('barsCount').value, 10);
+                const bCount = barStates.length;
                 const spec = parseRandomSelect();
-                if (playbackRandomizerEnabled && spec.eachCycle && bCount > 1 && step % p === 0) {
-                    const currentBar = Math.floor(step / p);
+                if (playbackRandomizerEnabled && spec.eachCycle && bCount > 1 && meta.localIndex === 0) {
+                    const currentBar = meta.barIndex;
                     const prevBar = (currentBar - 1 + bCount) % bCount;
-                    const randomPulsationEachBar = document.getElementById('randomPulsationOnRandomize')?.checked;
-                    const vp = randomPulsationEachBar ? getRandomPulsationValue() : p;
-                    applyRandomPatternToBarWithPulsation(prevBar, spec, p, vp);
+                    const currentP = parseInt(document.getElementById('pulsation').value, 10);
+                    applyRandomPatternToBarWithPulsation(prevBar, spec, currentP, barStates[prevBar].pulsation);
+                    const container = document.getElementById('barsContainer');
+                    renderBars(container);
+                    requestAnimationFrame(() => enforceBarsFit(container, bCount));
                     saveSessionState();
                 }
             }
@@ -960,8 +994,8 @@
 
     function nextNote() {
         const bpm = parseFloat(document.getElementById('bpm').value);
-        const p = parseInt(document.getElementById('pulsation').value);
-        const totalSteps = p * parseInt(document.getElementById('barsCount').value);
+        const totalSteps = stepMeta.length;
+        if (!totalSteps) return;
         nextNoteTime += 60.0 / bpm;
         currentStep = (currentStep + 1) % totalSteps;
     }
@@ -992,7 +1026,6 @@
     updateBarScaleLabel();
     initApp();
     restoreSelectState(savedState);
-    restoreChecksFromState(savedState);
     updateTempoLabel();
     saveSessionState();
 
