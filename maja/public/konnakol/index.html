@@ -353,6 +353,10 @@
                 <input type="checkbox" id="randomEachCycle" onchange="saveSessionState()">
                 New pattern each full cycle (while playing)
             </label>
+            <label class="rand-cycle">
+                <input type="checkbox" id="uniformSound" onchange="saveSessionState()">
+                Uniform sound (no checkbox audio cue)
+            </label>
         </div>
     </div>
 
@@ -406,6 +410,7 @@
             barsCount: String(bCount),
             randNotesPerBar: document.getElementById('randNotesPerBar').value || 'random',
             randomEachCycle: document.getElementById('randomEachCycle').checked,
+            uniformSound: document.getElementById('uniformSound').checked,
             bpm: String(document.getElementById('bpm').value || '100'),
             checks
         };
@@ -435,6 +440,7 @@
         const barsCountEl = document.getElementById('barsCount');
         const bpmEl = document.getElementById('bpm');
         const randomEachCycleEl = document.getElementById('randomEachCycle');
+        const uniformSoundEl = document.getElementById('uniformSound');
 
         if (state.pulsation && syllables[state.pulsation]) {
             pulsationEl.value = String(state.pulsation);
@@ -448,6 +454,7 @@
             if (!isNaN(bpm)) bpmEl.value = String(Math.max(20, Math.min(480, bpm)));
         }
         randomEachCycleEl.checked = Boolean(state.randomEachCycle);
+        uniformSoundEl.checked = Boolean(state.uniformSound);
     }
 
     function restoreChecksFromState(state) {
@@ -605,11 +612,12 @@
         if (!audioCtx) audioCtx = new AudioContext();
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
+        const uniform = document.getElementById('uniformSound').checked;
 
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(isChecked ? 920 : 800, time);
+        osc.frequency.setValueAtTime(uniform ? 860 : (isChecked ? 920 : 800), time);
 
-        const peak = isChecked ? 0.34 : 0.28;
+        const peak = uniform ? 0.31 : (isChecked ? 0.34 : 0.28);
         gain.gain.setValueAtTime(0, time);
         gain.gain.linearRampToValueAtTime(peak, time + 0.002);
         gain.gain.exponentialRampToValueAtTime(0.001, time + 0.04);
