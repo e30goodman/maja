@@ -469,7 +469,7 @@
             <div class="settings-grid">
                 <div>
                     <label>Pulsation:</label>
-                    <select id="pulsation" onchange="initApp(); saveSessionState()">
+                    <select id="pulsation" onchange="onGlobalPulsationSelectChange()">
                         <option value="3">3 (Ta-Ki-Ta)</option>
                         <option value="4" selected>4 (Ta-Ka-Dhi-Mi)</option>
                         <option value="5">5 (Ta-Ka-Ta-Ki-Ta)</option>
@@ -915,7 +915,18 @@
         return a;
     }
 
-    function initApp() {
+    function onGlobalPulsationSelectChange() {
+        endPulsationDrag();
+        stop('settings');
+        const rp = document.getElementById('randomPatternAfterEachBar');
+        const rpu = document.getElementById('randomPulsationAfterEachBar');
+        if (rp) rp.checked = false;
+        if (rpu) rpu.checked = false;
+        initApp({ ignorePerBarPulsationsFromSession: true });
+        saveSessionState();
+    }
+
+    function initApp(options = {}) {
         const p = parseInt(document.getElementById('pulsation').value);
         const bCount = parseInt(document.getElementById('barsCount').value);
         const container = document.getElementById('barsContainer');
@@ -927,7 +938,7 @@
         container.style.setProperty('--bars-count', String(bCount));
         container.classList.toggle('many-bars', bCount >= 6);
         applyAdaptiveBarHeights(container, bCount);
-        initializeBarStates(p, bCount);
+        initializeBarStates(p, bCount, options);
         renderBars(container);
         currentStep = 0;
         lastFocusedBarIndex = -1;
@@ -946,7 +957,7 @@
         requestAnimationFrame(() => enforceBarsFit(container, bCount));
     }
 
-    function initializeBarStates(defaultPulsation, bCount) {
+    function initializeBarStates(defaultPulsation, bCount, options = {}) {
         const state = loadSessionState();
         const defaultBar = () => ({ pulsation: defaultPulsation, checks: Array.from({ length: defaultPulsation }, () => false) });
         barStates = Array.from({ length: bCount }, () => defaultBar());
@@ -956,7 +967,9 @@
             return;
         }
 
-        const hasBarPulsations = Array.isArray(state.barPulsations) && state.barPulsations.length === bCount;
+        const hasBarPulsations = !options.ignorePerBarPulsationsFromSession
+            && Array.isArray(state.barPulsations)
+            && state.barPulsations.length === bCount;
         if (hasBarPulsations) {
             for (let i = 0; i < bCount; i++) {
                 const p = parseInt(state.barPulsations[i], 10);
@@ -1560,6 +1573,8 @@
             pendingPlaybackStopError = null;
         } else if (how === 'manual') {
             setPlaybackStopStatusLine('Остановлено вручную.', false);
+        } else if (how === 'settings') {
+            clearPlaybackStopStatusLine();
         } else {
             setPlaybackStopStatusLine('Воспроизведение остановлено.', false);
         }
