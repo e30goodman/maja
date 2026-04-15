@@ -15,11 +15,16 @@ interface Note {
 
 const SCHEDULE_AHEAD_TIME = 0.1; // seconds
 
-/** Ведущий слог цикла (первая доля Ta) без акцента и не под «игрой» — один бледно-голубой акцент. */
-const LEAD_IDLE_BLUE: { color: string; borderColor: string; backgroundColor: string } = {
-  color: '#9ec5e0',
-  borderColor: 'rgba(147, 197, 240, 0.5)',
-  backgroundColor: 'rgba(100, 160, 210, 0.1)',
+/** Неактивный слог: почти чёрный фон, едва заметная рамка и приглушённый текст (не «кричит» при счёте). */
+const CELL_IDLE = 'bg-[#090a0c] text-[#4e525c] border-[#101218] hover:border-[rgba(148,122,39,0.22)]';
+
+/**
+ * Ведущая «Ta» без акцента: на чуть-чуть светлее неактивных — лёгкий холодный оттенок, без яркого голубого.
+ */
+const LEAD_IDLE_SUBTLE: { color: string; borderColor: string; backgroundColor: string } = {
+  color: '#5a616c',
+  borderColor: 'rgba(130, 142, 158, 0.16)',
+  backgroundColor: 'rgba(255, 255, 255, 0.035)',
 };
 
 function getLeadIdleStyle(
@@ -29,9 +34,9 @@ function getLeadIdleStyle(
 ): React.CSSProperties | undefined {
   if (!note.isFirstOfSubdivision || isActive || hasAccent) return undefined;
   return {
-    color: LEAD_IDLE_BLUE.color,
-    borderColor: LEAD_IDLE_BLUE.borderColor,
-    backgroundColor: LEAD_IDLE_BLUE.backgroundColor,
+    color: LEAD_IDLE_SUBTLE.color,
+    borderColor: LEAD_IDLE_SUBTLE.borderColor,
+    backgroundColor: LEAD_IDLE_SUBTLE.backgroundColor,
   };
 }
 
@@ -348,7 +353,7 @@ export default function App() {
                       ? 'bg-[#D4AF37] text-[#0C0D10] shadow-[0_0_15px_#D4AF37] border-transparent'
                       : accents[note.id]
                         ? 'bg-[#252830] text-[#E0E0E0] border-[#947A27]'
-                        : 'bg-[#0C0D10] text-[#888B94] border-[#252830] hover:border-[#947A27]/50'
+                        : CELL_IDLE
                   }`}
                 >
                   {note.syllable}
@@ -375,7 +380,7 @@ export default function App() {
                       ? 'bg-[#D4AF37] text-[#0C0D10] shadow-[0_0_15px_#D4AF37] border-transparent'
                       : accents[note.id]
                         ? 'bg-[#252830] text-[#E0E0E0] border-[#947A27]'
-                        : 'bg-[#0C0D10] text-[#888B94] border-[#252830] hover:border-[#947A27]/50'
+                        : CELL_IDLE
                   }`}
                 >
                   {note.syllable}
@@ -402,7 +407,7 @@ export default function App() {
                       ? 'bg-[#D4AF37] text-[#0C0D10] shadow-[0_0_15px_#D4AF37] border-transparent'
                       : accents[note.id]
                         ? 'bg-[#252830] text-[#E0E0E0] border-[#947A27]'
-                        : 'bg-[#0C0D10] text-[#888B94] border-[#252830] hover:border-[#947A27]/50'
+                        : CELL_IDLE
                   }`}
                 >
                   {note.syllable}
