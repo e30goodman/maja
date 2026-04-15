@@ -261,13 +261,6 @@
             font-weight: 600;
             color: var(--text-muted);
         }
-        .cell.playing {
-            background: rgba(124, 58, 237, 0.25);
-            color: var(--text);
-            border-color: var(--violet-500);
-            box-shadow: 0 0 14px rgba(139, 92, 246, 0.45);
-            transform: translateY(-2px);
-        }
         .cell input { cursor: pointer; width: 18px; height: 18px; accent-color: var(--violet-600); }
 
         .btn { width: 100%; padding: 15px; border: none; border-radius: 0.75rem; font-weight: 700; cursor: pointer; margin-bottom: 10px; font-size: 1rem; transition: 0.2s; }
@@ -421,10 +414,6 @@
                 height: calc(24px * var(--bar-scale));
                 flex-shrink: 0;
                 margin: 0;
-            }
-            .cell.playing {
-                transform: scale(1.03);
-                box-shadow: 0 0 16px rgba(139, 92, 246, 0.5);
             }
             .btn {
                 padding: 14px 14px;
@@ -645,11 +634,9 @@
         const el = container.querySelector(`.cell[data-bar-index="${barIndex}"][data-local-index="${localIndex}"]`);
         if (!el) {
             throw new PlaybackInvariantViolation(
-                `Playback highlight: cell not found (Bar ${barIndex + 1}, beat ${localIndex + 1}). Stopping.`
+                `Playback cell missing in DOM (Bar ${barIndex + 1}, beat ${localIndex + 1}). Stopping.`
             );
         }
-        container.querySelectorAll('.cell.playing').forEach(c => c.classList.remove('playing'));
-        el.classList.add('playing');
         emitInternalPlaybackStep(barIndex, localIndex);
         return true;
     }
@@ -1523,11 +1510,9 @@
         cycleBoundaryMutations = 0;
         playbackReadyForBarBoundaryRandomPulsation = false;
         lastFocusedBarIndex = -1;
-        lastReadoutKey = '';
-        resetNowPlayingReadoutIdle();
+        resetInternalPlaybackIndicators();
         document.getElementById('playBtn').style.display = 'block';
         document.getElementById('stopBtn').style.display = 'none';
-        document.querySelectorAll('.cell').forEach(c => c.classList.remove('playing'));
         releaseWakeLock();
     }
 
