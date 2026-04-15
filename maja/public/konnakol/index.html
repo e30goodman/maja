@@ -493,6 +493,10 @@
                         <input type="checkbox" id="randomPulsationOnRandomize" onchange="saveSessionState()">
                         Random pulsation on randomize (one-shot)
                     </label>
+                    <label class="rand-cycle">
+                        <input type="checkbox" id="randomPulsationEachCycle" onchange="saveSessionState()">
+                        New random pulsation each bar cycle (while playing)
+                    </label>
                 </div>
             </div>
         </div>
@@ -561,6 +565,7 @@
             randomEachCycle: document.getElementById('randomEachCycle').checked,
             uniformSound: document.getElementById('uniformSound').checked,
             randomPulsationOnRandomize: document.getElementById('randomPulsationOnRandomize').checked,
+            randomPulsationEachCycle: document.getElementById('randomPulsationEachCycle').checked,
             bpm: String(document.getElementById('bpm').value || '100'),
             barScaleByCount: getBarScaleMapForSave(),
             barPulsations,
@@ -632,6 +637,7 @@
         const randomEachCycleEl = document.getElementById('randomEachCycle');
         const uniformSoundEl = document.getElementById('uniformSound');
         const randomPulsationOnRandomizeEl = document.getElementById('randomPulsationOnRandomize');
+        const randomPulsationEachCycleEl = document.getElementById('randomPulsationEachCycle');
 
         if (state.pulsation && syllables[state.pulsation]) {
             pulsationEl.value = String(state.pulsation);
@@ -657,6 +663,9 @@
         randomPulsationOnRandomizeEl.checked = state.randomPulsationOnRandomize === undefined
             ? false
             : Boolean(state.randomPulsationOnRandomize);
+        randomPulsationEachCycleEl.checked = state.randomPulsationEachCycle === undefined
+            ? false
+            : Boolean(state.randomPulsationEachCycle);
     }
 
 
@@ -1214,7 +1223,9 @@
                     const currentBar = meta.barIndex;
                     const prevBar = (currentBar - 1 + bCount) % bCount;
                     const currentP = parseInt(document.getElementById('pulsation').value, 10);
-                    applyRandomPatternToBarWithPulsation(prevBar, spec, currentP, barStates[prevBar].pulsation);
+                    const randomPulsationEachCycle = document.getElementById('randomPulsationEachCycle')?.checked;
+                    const nextP = randomPulsationEachCycle ? getRandomPulsationValue() : barStates[prevBar].pulsation;
+                    applyRandomPatternToBarWithPulsation(prevBar, spec, currentP, nextP);
                     const container = document.getElementById('barsContainer');
                     renderBars(container);
                     requestAnimationFrame(() => enforceBarsFit(container, bCount));
