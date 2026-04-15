@@ -903,7 +903,9 @@
 
     function setBarPulsationManual(barIndex, newP) {
         if (!barStates[barIndex]) return;
-        const safeP = Math.min(8, Math.max(3, parseInt(newP, 10) || 4));
+        const n = parseInt(String(newP), 10);
+        if (!Number.isFinite(n)) return;
+        const safeP = Math.min(8, Math.max(3, n));
         const oldP = barStates[barIndex].pulsation;
         if (oldP === safeP) return;
         const oldChecks = barStates[barIndex].checks.slice();
@@ -948,7 +950,7 @@
         title.textContent = `Bar ${barIndex + 1}`;
         list.innerHTML = PULSATION_OPTIONS.map(p => {
             const active = p === safeP ? 'active' : '';
-            return `<li class="${active}" data-p="${p}" onclick="selectPulsationFromMenu(${p})"><span class="p-label">P${p}</span></li>`;
+            return `<li class="${active}" data-p="${p}" role="button"><span class="p-label">P${p}</span></li>`;
         }).join('');
         positionPulsationDragPanel(barIndex);
     }
@@ -1403,6 +1405,27 @@
         fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'pre-fix-1',hypothesisId:'H4',location:'maja/public/konnakol/index.html:resizeHandler',message:'Resize triggered recalculation',data:{bCount,innerHeight:window.innerHeight,innerWidth:window.innerWidth},timestamp:Date.now()})}).catch(()=>{});
         // #endregion
     });
+    const pulsationDragPanelListEl = document.getElementById('pulsationDragPanelList');
+    if (pulsationDragPanelListEl) {
+        pulsationDragPanelListEl.addEventListener('click', (event) => {
+            const row = event.target.closest ? event.target.closest('li[data-p]') : null;
+            if (!row || !pulsationDragPanelListEl.contains(row)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const p = parseInt(row.getAttribute('data-p'), 10);
+            if (!Number.isFinite(p) || p < 3 || p > 8) return;
+            selectPulsationFromMenu(p);
+        });
+    }
+    const pulsationDragPanelRoot = document.getElementById('pulsationDragPanel');
+    if (pulsationDragPanelRoot) {
+        pulsationDragPanelRoot.addEventListener('mousedown', (event) => {
+            event.stopPropagation();
+        });
+        pulsationDragPanelRoot.addEventListener('click', (event) => {
+            event.stopPropagation();
+        });
+    }
     document.addEventListener('click', (event) => {
         const panel = document.getElementById('pulsationDragPanel');
         if (!panel || panel.hidden) return;
