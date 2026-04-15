@@ -399,6 +399,10 @@
                         <input type="checkbox" id="uniformSound" onchange="saveSessionState()">
                         Uniform sound (no checkbox audio cue)
                     </label>
+                    <label class="rand-cycle">
+                        <input type="checkbox" id="randomPulsationOnRandomize" onchange="saveSessionState()">
+                        Random pulsation on randomize (one-shot)
+                    </label>
                 </div>
             </div>
         </div>
@@ -464,6 +468,7 @@
             randNotesPerBar: document.getElementById('randNotesPerBar').value || 'random',
             randomEachCycle: document.getElementById('randomEachCycle').checked,
             uniformSound: document.getElementById('uniformSound').checked,
+            randomPulsationOnRandomize: document.getElementById('randomPulsationOnRandomize').checked,
             bpm: String(document.getElementById('bpm').value || '100'),
             barScaleByCount: getBarScaleMapForSave(),
             checks
@@ -533,6 +538,7 @@
         const barScaleEl = document.getElementById('barScale');
         const randomEachCycleEl = document.getElementById('randomEachCycle');
         const uniformSoundEl = document.getElementById('uniformSound');
+        const randomPulsationOnRandomizeEl = document.getElementById('randomPulsationOnRandomize');
 
         if (state.pulsation && syllables[state.pulsation]) {
             pulsationEl.value = String(state.pulsation);
@@ -555,6 +561,7 @@
         barScaleEl.value = initialScale;
         randomEachCycleEl.checked = Boolean(state.randomEachCycle);
         uniformSoundEl.checked = Boolean(state.uniformSound);
+        randomPulsationOnRandomizeEl.checked = Boolean(state.randomPulsationOnRandomize);
     }
 
     function restoreChecksFromState(state) {
@@ -838,7 +845,18 @@
         }
     }
 
+    function maybeApplyRandomPulsationOnRandomize() {
+        const cb = document.getElementById('randomPulsationOnRandomize');
+        if (!cb || !cb.checked) return;
+        const pulsationEl = document.getElementById('pulsation');
+        const options = Object.keys(syllables);
+        const randomIdx = Math.floor(Math.random() * options.length);
+        pulsationEl.value = options[randomIdx];
+        initApp();
+    }
+
     function randomize() {
+        maybeApplyRandomPulsationOnRandomize();
         applyRandomPattern();
         saveSessionState();
     }
