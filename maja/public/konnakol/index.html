@@ -428,9 +428,46 @@
             randomEachCycle: document.getElementById('randomEachCycle').checked,
             uniformSound: document.getElementById('uniformSound').checked,
             bpm: String(document.getElementById('bpm').value || '100'),
-            barScale: String(document.getElementById('barScale').value || '100'),
+            barScaleByCount: getBarScaleMapForSave(),
             checks
         };
+    }
+
+    function normalizeBarScaleValue(v) {
+        const n = parseInt(v, 10);
+        if (isNaN(n)) return '100';
+        return String(Math.max(55, Math.min(100, n)));
+    }
+
+    function defaultBarScaleMap() {
+        return {
+            1: '100',
+            2: '100',
+            3: '100',
+            4: '100',
+            5: '100',
+            6: '100',
+            7: '100',
+            8: '100'
+        };
+    }
+
+    function getBarScaleMapForSave() {
+        const state = loadSessionState();
+        const map = defaultBarScaleMap();
+        if (state && state.barScaleByCount && typeof state.barScaleByCount === 'object') {
+            for (let i = 1; i <= 8; i++) {
+                if (state.barScaleByCount[i] !== undefined) {
+                    map[i] = normalizeBarScaleValue(state.barScaleByCount[i]);
+                }
+            }
+        } else if (state && state.barScale !== undefined) {
+            // Backward compatibility with old single-scale format
+            for (let i = 1; i <= 8; i++) map[i] = normalizeBarScaleValue(state.barScale);
+        }
+        const currentBars = parseInt(document.getElementById('barsCount').value, 10);
+        map[currentBars] = normalizeBarScaleValue(document.getElementById('barScale').value);
+        return map;
     }
 
     function saveSessionState() {
@@ -471,10 +508,14 @@
             const bpm = parseInt(state.bpm, 10);
             if (!isNaN(bpm)) bpmEl.value = String(Math.max(20, Math.min(480, bpm)));
         }
-        if (state.barScale) {
-            const scale = parseInt(state.barScale, 10);
-            if (!isNaN(scale)) barScaleEl.value = String(Math.max(55, Math.min(100, scale)));
+        let initialScale = '100';
+        if (state.barScaleByCount && typeof state.barScaleByCount === 'object') {
+            const currentBars = parseInt(barsCountEl.value, 10);
+            initialScale = normalizeBarScaleValue(state.barScaleByCount[currentBars]);
+        } else if (state.barScale) {
+            initialScale = normalizeBarScaleValue(state.barScale);
         }
+        barScaleEl.value = initialScale;
         randomEachCycleEl.checked = Boolean(state.randomEachCycle);
         uniformSoundEl.checked = Boolean(state.uniformSound);
     }
@@ -517,6 +558,23 @@
         label.textContent = `Current: ${scale}%`;
         applyBarScale();
         saveSessionState();
+    }
+
+    function setBarScaleForCurrentBarsFromState() {
+        const state = loadSessionState();
+        const barsCount = parseInt(document.getElementById('barsCount').value, 10);
+        const scaleInput = document.getElementById('barScale');
+        if (!scaleInput) return;
+
+        let scale = '100';
+        if (state && state.barScaleByCount && typeof state.barScaleByCount === 'object') {
+            scale = normalizeBarScaleValue(state.barScaleByCount[barsCount]);
+        } else if (state && state.barScale !== undefined) {
+            scale = normalizeBarScaleValue(state.barScale);
+        }
+
+        scaleInput.value = scale;
+        updateBarScaleLabel();
     }
 
     function rebuildRandomNotesSelect() {
@@ -578,6 +636,7 @@
         const p = parseInt(document.getElementById('pulsation').value);
         const bCount = parseInt(document.getElementById('barsCount').value);
         const container = document.getElementById('barsContainer');
+        setBarScaleForCurrentBarsFromState();
         // #region agent log
         fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'pre-fix-1',hypothesisId:'H1',location:'maja/public/konnakol/index.html:initApp',message:'Init app sizing context',data:{p,bCount,innerHeight:window.innerHeight,innerWidth:window.innerWidth,devicePixelRatio:window.devicePixelRatio},timestamp:Date.now()})}).catch(()=>{});
         // #endregion
