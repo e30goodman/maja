@@ -359,17 +359,8 @@
     </div>
     <h2>Rhythm Dictation & Metronome</h2>
 
-    <div class="control-group">
-        <label>
-            Tempo
-            <small class="hint-muted">(interval between syllables, default: 100 BPM)</small>
-        </label>
-        <input type="range" id="bpm" min="20" max="480" value="100" oninput="updateTempoLabel()">
-        <small id="bpmValue" class="hint-muted">Current: 100 BPM</small>
-    </div>
-
     <details class="settings-fold">
-        <summary>Other settings</summary>
+        <summary>Settings</summary>
         <div class="settings-fold-content">
             <div class="settings-grid">
                 <div>
@@ -410,16 +401,25 @@
                     </label>
                 </div>
             </div>
-
-            <div class="control-group scale-control">
-                <label>
-                    Bar scaler
-                </label>
-                <input type="range" id="barScale" min="55" max="100" value="100" oninput="updateBarScaleLabel()">
-                <small id="barScaleValue" class="hint-muted">Current: 100%</small>
-            </div>
         </div>
     </details>
+
+    <div class="control-group">
+        <label>
+            Tempo
+            <small class="hint-muted">(interval between syllables, default: 100 BPM)</small>
+        </label>
+        <input type="range" id="bpm" min="20" max="480" value="100" oninput="updateTempoLabel()">
+        <small id="bpmValue" class="hint-muted">Current: 100 BPM</small>
+    </div>
+
+    <div class="control-group scale-control">
+        <label>
+            Bar scaler
+        </label>
+        <input type="range" id="barScale" min="55" max="100" value="100" oninput="updateBarScaleLabel()">
+        <small id="barScaleValue" class="hint-muted">Current: 100%</small>
+    </div>
 
     <div id="barsContainer" class="bars-container"></div>
 
