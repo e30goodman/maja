@@ -1,5 +1,20 @@
 Ключевые факты о репозитории «Maja html» / BassMastery — Espace Maja
 (краткая памятка для агента и разработчика; обновлять при больших изменениях)
+Последняя проверка MCP claude-mem из агента Cursor: search → fetch failed (воркер агента не достучался до процесса MCP/worker). Сводка ниже — основной «снимок» проекта для чатов; полнота памяти claude-mem зависит от хуков + worker :37777.
+
+=== Проект — сводка в одном месте (для памяти агента) ===
+- Название продукта в UI: BassMastery — Espace Maja; язык интерфейса курса: французский.
+- Назначение: веб-курс бас-гитары (модули, уроки, практики), прогресс чеклистов, модалки фото и режимов (modes), опционально чат с Gemini (ключ из env при сборке).
+- Публичный деплой: GitHub Pages из ветки main; URL вида https://<user>.github.io/maja/ (base путь /maja/).
+- Исходники сайта, которые реально собираются: только каталог maja/ (Vite). Корень репо (App.tsx, корневой index.html) — старый/параллельный шаблон, не путать с продом.
+- Главный файл приложения: maja/index.html — массив COURSE_DATA в <script type="module">, renderApp(), разблокировка модулей (mod-1, mod-2 и т.д. по логике), модалки image-modal и mode-modal.
+- localStorage: maja_bass_progress_v2 (JSON-массив id выполненных задач); maja_bass_user_images (JSON объект: ключ = id задачи или scheme-<lessonId> и т.д., значение = массив URL/data URL изображений).
+- Статика: maja/public/ → в dist без изменений. Изображения курса: maja/public/images/*. Смежное приложение Konnakol: maja/public/konnakol/index.html, с главной ссылка href="konnakol/" (относительно base /maja/).
+- Сборка локально: cd maja && npm ci && npm run build; dev: npm run dev (порт 3000, host 0.0.0.0). Переменные: GEMINI_API_KEY в .env у корня загрузки env для Vite (см. vite.config define).
+- CI: .github/workflows/deploy.yml — npm ci/build в maja/, артефакт maja/dist, секрет GEMINI_API_KEY.
+- Внизу страницы курса: блок WhatsApp (текст про Artem); кнопка перехода на Konnakol без длинного пояснения «к уроку 10».
+- Отдельный текстовый дамп контента курса без ссылок: contenu_site_maja_sans_liens.txt (вспомогательный).
+- Репозиторий Git: origin https://github.com/e30goodman/maja.git
 
 === Назначение ===
 - Сайт курса бас-гитары для Maja: интерфейс на французском, модули/уроки/практики, прогресс в localStorage.
