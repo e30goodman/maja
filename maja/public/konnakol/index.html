@@ -549,7 +549,7 @@
 
     <button class="btn btn-rand" onclick="randomizeAndPlay()">🎲 RANDOMIZE PATTERN</button>
     <button id="playBtn" class="btn btn-play" onclick="start(false)">▶ PLAY</button>
-    <button id="stopBtn" class="btn btn-stop" onclick="stop({})">■ STOP</button>
+    <button id="stopBtn" class="btn btn-stop" onclick="stop()">■ STOP</button>
 </div>
 
 <script>
@@ -1140,7 +1140,7 @@
     function togglePulsationMenu(event, barIndex) {
         event.preventDefault();
         event.stopPropagation();
-        if (document.getElementById('stopBtn').style.display === 'block') stop({});
+        if (document.getElementById('stopBtn').style.display === 'block') stop();
         if (pulsationMenuBarIndex === barIndex) {
             endPulsationDrag();
             return;
