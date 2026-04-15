@@ -5,8 +5,9 @@ import {defineConfig, loadEnv} from 'vite';
 
 export default defineConfig(({mode, command}) => {
   const env = loadEnv(mode, '.', '');
-  // Maja production lives under /maja/ (see maja/vite.config.ts). Dev server uses /.
-  const base = command === 'serve' ? '/' : '/maja/konnakol/adi-talam/';
+  // Production: relative URLs so assets resolve under both /maja/konnakol/adi-talam/ (GitHub Pages)
+  // and /konnakol/adi-talam/ (local `maja` dev, base /). Dev server for this package uses /.
+  const base = command === 'serve' ? '/' : './';
   return {
     base,
     plugins: [react(), tailwindcss()],

@@ -19,9 +19,9 @@ View your app in AI Studio: https://ai.studio/apps/8e8bab62-92b2-4c73-af02-6d5f3
 3. Run the app:
    `npm run dev`
 
-## Deploy into Maja (`/maja/konnakol/adi-talam/`)
+## Deploy into Maja (`konnakol/adi-talam/`)
 
-Production `base` is `/maja/konnakol/adi-talam/` (same prefix as the main Maja app). For `npm run dev`, `base` is `/`. After changes to this app:
+Production build uses **relative** `base: './'` so JS/CSS load correctly whether the site is served at `/maja/konnakol/...` or `/konnakol/...`. For `npm run dev` in this folder, `base` is `/`. After changes to this app:
 
 1. `npm run build`
 2. Copy everything from `dist/` into [`../maja/public/konnakol/adi-talam/`](../maja/public/konnakol/adi-talam/) (replace `index.html` and `assets/`).
