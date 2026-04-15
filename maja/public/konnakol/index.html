@@ -117,6 +117,7 @@
             border: 1px solid var(--slate-700);
             padding: clamp(10px, calc(19px - (var(--bars-count) * 1px)), 15px);
             border-radius: 1rem;
+            min-height: clamp(88px, calc(126px - (var(--bars-count) * 4px)), 116px);
         }
         .bar-title { font-size: 0.75rem; font-weight: bold; color: var(--text-dim); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
 
@@ -130,10 +131,12 @@
             display: flex;
             flex-direction: column;
             align-items: center;
+            justify-content: center;
             background: var(--slate-800);
             padding: clamp(6px, calc(10px - (var(--bars-count) * 0.45px)), 8px);
             border-radius: 0.5rem;
             width: clamp(32px, calc(48px - (var(--bars-count) * 1.45px)), 42px);
+            min-height: clamp(52px, calc(76px - (var(--bars-count) * 2.3px)), 70px);
             transition: 0.1s;
             border: 2px solid transparent;
         }
@@ -278,7 +281,7 @@
                 justify-content: center;
                 gap: 8px;
                 padding: 12px 4px 14px;
-                min-height: 88px;
+                min-height: clamp(68px, calc(102px - (var(--bars-count) * 3.6px)), 88px);
                 border-radius: 12px;
                 border-width: 2px;
                 box-sizing: border-box;
