@@ -537,6 +537,9 @@
     let stepMeta = [];
     let pulsationMenuBarIndex = null;
     let pendingCycleRandomizeQueue = [];
+    let currentCycleId = 0;
+    let lastMutationCycleId = -1;
+    let lastProcessedTransitionKey = '';
     let allowPlaybackPulsationMutation = false;
     let wakeLock = null;
     const BASE_PULSATION_FOR_BPM = 4;
@@ -791,6 +794,9 @@
         currentStep = 0;
         lastFocusedBarIndex = -1;
         pendingCycleRandomizeQueue = [];
+        currentCycleId = 0;
+        lastMutationCycleId = -1;
+        lastProcessedTransitionKey = '';
         rebuildRandomNotesSelect();
         requestAnimationFrame(() => enforceBarsFit(container, bCount));
     }
@@ -1133,6 +1139,11 @@
         };
     }
 
+    function getCycleMutationTargetBarIndex(cycleId, bCount) {
+        if (bCount <= 0) return 0;
+        return (bCount - 1 + ((cycleId - 1) % bCount)) % bCount;
+    }
+
     function applyBarPulsation(barIndex, nextP, fallbackP) {
         if (!barStates[barIndex]) return;
         const safeP = Math.min(8, Math.max(3, parseInt(nextP, 10) || fallbackP || barStates[barIndex].pulsation));
@@ -1255,60 +1266,71 @@
         const meta = stepMeta[step];
         if (!meta || !barStates[meta.barIndex]) return;
         const isChecked = Boolean(barStates[meta.barIndex].checks[meta.localIndex]);
+        const transitionKey = `${meta.barIndex}:${meta.localIndex}:${step}:${Math.round(time * 1000)}`;
 
         playSharpClick(time, isChecked);
 
         setTimeout(() => {
-            if (applyPlayingStep(step)) {
+            const bCount = barStates.length;
+            const spec = parsePatternSpec();
+            const cycleFlags = getCycleUpdateFlags();
+            const isCycleBoundary = meta.barIndex === 0 && meta.localIndex === 0;
+            const transitionAlreadyProcessed = isCycleBoundary && lastProcessedTransitionKey === transitionKey;
 
-                // Update the previous bar only after the frame has actually moved
-                // to the next bar's first syllable in the UI.
-                const bCount = barStates.length;
-                const spec = parsePatternSpec();
-                const cycleFlags = getCycleUpdateFlags();
-                const guardPass = playbackRandomizerEnabled && bCount > 1 && meta.localIndex === 0 && (cycleFlags.randomPatternEachCycle || cycleFlags.randomPulsationEachCycle);
-                if (meta.localIndex === 0) {
-                    // #region agent log
-                    fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'cycle-debug-3',hypothesisId:'H7',location:'maja/public/konnakol/index.html:scheduleNote.guard',message:guardPass?'Guard passed for bar-transition random update':'Guard blocked bar-transition random update',data:{step,currentBar:meta.barIndex,localIndex:meta.localIndex,playbackRandomizerEnabled,randomPatternEachCycle:cycleFlags.randomPatternEachCycle,bCount,guardPass,randomPulsationEachCycle:cycleFlags.randomPulsationEachCycle,queueSize:pendingCycleRandomizeQueue.length},timestamp:Date.now()})}).catch(()=>{});
-                    // #endregion
-                }
-                if (guardPass) {
-                    const currentBar = meta.barIndex;
-                    const prevBar = (currentBar - 1 + bCount) % bCount;
-                    const currentP = parseInt(document.getElementById('pulsation').value, 10);
-                    const shouldRandomizePulsationThisTransition = cycleFlags.randomPulsationEachCycle;
-                    const shouldRandomizePatternThisTransition = cycleFlags.randomPatternEachCycle;
-                    // #region agent log
-                    fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'cycle-debug-1',hypothesisId:'H3',location:'maja/public/konnakol/index.html:scheduleNote',message:'Bar transition detected at first syllable',data:{step,currentBar,prevBar,currentP,queueSize:pendingCycleRandomizeQueue.length,playbackRandomizerEnabled,shouldRandomizePatternThisTransition,shouldRandomizePulsationThisTransition},timestamp:Date.now()})}).catch(()=>{});
-                    // #endregion
-                    // Apply random update only after the frame transition is visually committed.
-                    requestAnimationFrame(() => {
-                        allowPlaybackPulsationMutation = true;
-                        try {
-                            let updatedBarByPulsation = null;
-                            if (shouldRandomizePulsationThisTransition) {
-                                // Strict rule: in random pulsation cycle mode, update after the NEXT bar is played.
-                                updatedBarByPulsation = applyOldestQueuedCyclePulsationRandomize();
-                                enqueueCyclePulsationRandomize(prevBar, currentP);
-                            }
-                            if (shouldRandomizePatternThisTransition) {
-                                const patternTargetBar = updatedBarByPulsation !== null ? updatedBarByPulsation : prevBar;
-                                applyBarPattern(patternTargetBar, spec);
-                            }
-                        } finally {
-                            allowPlaybackPulsationMutation = false;
-                        }
-                        // #region agent log
-                        fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'cycle-debug-1',hypothesisId:'H4',location:'maja/public/konnakol/index.html:scheduleNote.raf',message:'Post-transition update/render completed',data:{step,currentBar,prevBar,queueSize:pendingCycleRandomizeQueue.length,barPulsations:barStates.map(b=>b.pulsation)},timestamp:Date.now()})}).catch(()=>{});
-                        // #endregion
-                        const container = document.getElementById('barsContainer');
-                        renderBars(container);
-                        applyPlayingStep(step);
-                        requestAnimationFrame(() => enforceBarsFit(container, bCount));
-                        saveSessionState();
-                    });
-                }
+            if (isCycleBoundary && transitionAlreadyProcessed) return;
+            if (isCycleBoundary) {
+                lastProcessedTransitionKey = transitionKey;
+                currentCycleId += 1;
             }
+
+            const shouldMutateThisCycle = playbackRandomizerEnabled
+                && bCount > 1
+                && isCycleBoundary
+                && (cycleFlags.randomPatternEachCycle || cycleFlags.randomPulsationEachCycle)
+                && currentCycleId > lastMutationCycleId;
+
+            if (isCycleBoundary) {
+                // #region agent log
+                fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'cycle-debug-3',hypothesisId:'H7',location:'maja/public/konnakol/index.html:scheduleNote.guard',message:shouldMutateThisCycle?'Guard passed for cycle-boundary random update':'Guard blocked cycle-boundary random update',data:{step,currentBar:meta.barIndex,localIndex:meta.localIndex,playbackRandomizerEnabled,randomPatternEachCycle:cycleFlags.randomPatternEachCycle,bCount,guardPass:shouldMutateThisCycle,randomPulsationEachCycle:cycleFlags.randomPulsationEachCycle,currentCycleId,lastMutationCycleId,transitionKey,queueSize:pendingCycleRandomizeQueue.length},timestamp:Date.now()})}).catch(()=>{});
+                // #endregion
+            }
+
+            if (!shouldMutateThisCycle) {
+                applyPlayingStep(step);
+                return;
+            }
+
+            const targetBar = getCycleMutationTargetBarIndex(currentCycleId, bCount);
+            const currentP = parseInt(document.getElementById('pulsation').value, 10);
+            const shouldRandomizePulsationThisTransition = cycleFlags.randomPulsationEachCycle;
+            const shouldRandomizePatternThisTransition = cycleFlags.randomPatternEachCycle;
+            // #region agent log
+            fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'cycle-debug-1',hypothesisId:'H3',location:'maja/public/konnakol/index.html:scheduleNote',message:'Cycle boundary update detected',data:{step,currentBar:meta.barIndex,targetBar,currentP,queueSize:pendingCycleRandomizeQueue.length,playbackRandomizerEnabled,shouldRandomizePatternThisTransition,shouldRandomizePulsationThisTransition,currentCycleId},timestamp:Date.now()})}).catch(()=>{});
+            // #endregion
+
+            requestAnimationFrame(() => {
+                allowPlaybackPulsationMutation = true;
+                try {
+                    if (shouldRandomizePulsationThisTransition) {
+                        const nextP = getRandomPulsationValue();
+                        applyBarPulsation(targetBar, nextP, currentP);
+                    }
+                    if (shouldRandomizePatternThisTransition) {
+                        applyBarPattern(targetBar, spec);
+                    }
+                    lastMutationCycleId = currentCycleId;
+                } finally {
+                    allowPlaybackPulsationMutation = false;
+                }
+                // #region agent log
+                fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'cycle-debug-1',hypothesisId:'H4',location:'maja/public/konnakol/index.html:scheduleNote.raf',message:'Post-cycle update/render completed',data:{step,currentBar:meta.barIndex,targetBar,currentCycleId,lastMutationCycleId,queueSize:pendingCycleRandomizeQueue.length,barPulsations:barStates.map(b=>b.pulsation)},timestamp:Date.now()})}).catch(()=>{});
+                // #endregion
+                const container = document.getElementById('barsContainer');
+                renderBars(container);
+                applyPlayingStep(step);
+                requestAnimationFrame(() => enforceBarsFit(container, bCount));
+                saveSessionState();
+            });
         }, (time - audioCtx.currentTime) * 1000);
     }
 
@@ -1336,6 +1358,9 @@
         const cycleFlags = getCycleUpdateFlags();
         playbackRandomizerEnabled = Boolean(enableRandomizer || cycleFlags.randomPatternEachCycle || cycleFlags.randomPulsationEachCycle);
         pendingCycleRandomizeQueue = [];
+        currentCycleId = 0;
+        lastMutationCycleId = -1;
+        lastProcessedTransitionKey = '';
         currentStep = 0;
         lastFocusedBarIndex = -1;
         nextNoteTime = audioCtx.currentTime + 0.05;
@@ -1352,6 +1377,9 @@
         clearTimeout(timerID);
         playbackRandomizerEnabled = false;
         pendingCycleRandomizeQueue = [];
+        currentCycleId = 0;
+        lastMutationCycleId = -1;
+        lastProcessedTransitionKey = '';
         lastFocusedBarIndex = -1;
         document.getElementById('playBtn').style.display = 'block';
         document.getElementById('stopBtn').style.display = 'none';
