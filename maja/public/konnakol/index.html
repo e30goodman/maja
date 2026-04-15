@@ -532,6 +532,7 @@
     let barStates = [];
     let stepMeta = [];
     let pulsationMenuBarIndex = null;
+    let wakeLock = null;
     const BASE_PULSATION_FOR_BPM = 4;
     const STORAGE_KEY = 'konnakolSessionStateV1';
     
@@ -984,6 +985,29 @@
         return baseBpm * (barPulsation / BASE_PULSATION_FOR_BPM);
     }
 
+    async function requestWakeLock() {
+        try {
+            if (!('wakeLock' in navigator)) return;
+            if (wakeLock) return;
+            wakeLock = await navigator.wakeLock.request('screen');
+            wakeLock.addEventListener('release', () => {
+                wakeLock = null;
+            });
+        } catch (e) {
+            // Ignore unsupported/restricted wake lock failures
+        }
+    }
+
+    async function releaseWakeLock() {
+        try {
+            if (!wakeLock) return;
+            await wakeLock.release();
+            wakeLock = null;
+        } catch (e) {
+            // Ignore release failures
+        }
+    }
+
     function getBarsLayoutMeta(bCount) {
         const mobileSingleColumn = window.matchMedia('(max-width: 860px)').matches;
         const twoColumns = bCount >= 6 && !mobileSingleColumn;
@@ -1220,6 +1244,7 @@
         scheduler();
         document.getElementById('playBtn').style.display = 'none';
         document.getElementById('stopBtn').style.display = 'block';
+        requestWakeLock();
     }
 
     function stop() {
@@ -1229,6 +1254,7 @@
         document.getElementById('playBtn').style.display = 'block';
         document.getElementById('stopBtn').style.display = 'none';
         document.querySelectorAll('.cell').forEach(c => c.classList.remove('playing'));
+        releaseWakeLock();
     }
 
     const savedState = loadSessionState();
@@ -1256,6 +1282,12 @@
         if (target && target.closest && target.closest('#pulsationDragPanel')) return;
         if (target && target.closest && target.closest('.pulsation-handle')) return;
         endPulsationDrag();
+    });
+    document.addEventListener('visibilitychange', () => {
+        const isPlaying = document.getElementById('stopBtn').style.display === 'block';
+        if (document.visibilityState === 'visible' && isPlaying) {
+            requestWakeLock();
+        }
     });
 </script>
 </body>
