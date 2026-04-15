@@ -3,10 +3,12 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig, loadEnv} from 'vite';
 
-export default defineConfig(({mode}) => {
+export default defineConfig(({mode, command}) => {
   const env = loadEnv(mode, '.', '');
+  // Maja production lives under /maja/ (see maja/vite.config.ts). Dev server uses /.
+  const base = command === 'serve' ? '/' : '/maja/konnakol/adi-talam/';
   return {
-    base: '/konnakol/adi-talam/',
+    base,
     plugins: [react(), tailwindcss()],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
