@@ -305,7 +305,7 @@
     <div class="settings-grid">
         <div>
             <label>Pulsation:</label>
-            <select id="pulsation" onchange="initApp()">
+            <select id="pulsation" onchange="initApp(); saveSessionState()">
                 <option value="3">3 (Ta-Ki-Ta)</option>
                 <option value="4">4 (Ta-Ka-Di-Mi)</option>
                 <option value="5">5 (Ta-Ka-Ta-Ki-Ta)</option>
@@ -315,7 +315,7 @@
         </div>
         <div>
             <label>Number of Bars:</label>
-            <select id="barsCount" onchange="initApp()">
+            <select id="barsCount" onchange="initApp(); saveSessionState()">
                 <option value="2">2 Bars</option>
                 <option value="3">3 Bars</option>
                 <option value="4" selected>4 Bars</option>
@@ -328,10 +328,10 @@
         <div class="randomizer-block">
             <div>
                 <label for="randNotesPerBar">Random pattern</label>
-                <select id="randNotesPerBar"></select>
+                <select id="randNotesPerBar" onchange="saveSessionState()"></select>
             </div>
             <label class="rand-cycle">
-                <input type="checkbox" id="randomEachCycle">
+                <input type="checkbox" id="randomEachCycle" onchange="saveSessionState()">
                 New pattern each full cycle (while playing)
             </label>
         </div>
@@ -347,7 +347,7 @@
     </div>
 
     <label class="rand-cycle" style="margin: 12px 0 4px;">
-        <input type="checkbox" id="autoScrollToBar">
+        <input type="checkbox" id="autoScrollToBar" onchange="saveSessionState()">
         Auto-scroll to the current bar while playing
     </label>
 
@@ -364,6 +364,7 @@
     let timerID = null;
     let currentStep = 0;
     let lastFocusedBarIndex = -1;
+    const STORAGE_KEY = 'konnakolSessionStateV1';
     
     const syllables = {
         3: ["Ta", "Ki", "Ta"],
@@ -377,11 +378,85 @@
         return n + (n === 1 ? ' note' : ' notes');
     }
 
+    function getCurrentSessionState() {
+        const p = parseInt(document.getElementById('pulsation').value, 10);
+        const bCount = parseInt(document.getElementById('barsCount').value, 10);
+        const totalSteps = p * bCount;
+        const checks = [];
+        for (let i = 0; i < totalSteps; i++) {
+            const el = document.getElementById(`check-${i}`);
+            checks.push(Boolean(el && el.checked));
+        }
+        return {
+            pulsation: String(p),
+            barsCount: String(bCount),
+            randNotesPerBar: document.getElementById('randNotesPerBar').value || 'random',
+            randomEachCycle: document.getElementById('randomEachCycle').checked,
+            autoScrollToBar: document.getElementById('autoScrollToBar').checked,
+            bpm: String(document.getElementById('bpm').value || '100'),
+            checks
+        };
+    }
+
+    function saveSessionState() {
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(getCurrentSessionState()));
+        } catch (e) {
+            // Ignore storage errors (private mode/quota)
+        }
+    }
+
+    function loadSessionState() {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (!raw) return null;
+            return JSON.parse(raw);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function applySessionStateToControls(state) {
+        if (!state) return;
+        const pulsationEl = document.getElementById('pulsation');
+        const barsCountEl = document.getElementById('barsCount');
+        const bpmEl = document.getElementById('bpm');
+        const randomEachCycleEl = document.getElementById('randomEachCycle');
+        const autoScrollToBarEl = document.getElementById('autoScrollToBar');
+
+        if (state.pulsation && syllables[state.pulsation]) {
+            pulsationEl.value = String(state.pulsation);
+        }
+        if (state.barsCount) {
+            const b = parseInt(state.barsCount, 10);
+            if (!isNaN(b) && b >= 2 && b <= 8) barsCountEl.value = String(b);
+        }
+        if (state.bpm) {
+            const bpm = parseInt(state.bpm, 10);
+            if (!isNaN(bpm)) bpmEl.value = String(Math.max(20, Math.min(480, bpm)));
+        }
+        randomEachCycleEl.checked = Boolean(state.randomEachCycle);
+        autoScrollToBarEl.checked = Boolean(state.autoScrollToBar);
+    }
+
+    function restoreChecksFromState(state) {
+        if (!state || !Array.isArray(state.checks)) return;
+        const p = parseInt(document.getElementById('pulsation').value, 10);
+        const bCount = parseInt(document.getElementById('barsCount').value, 10);
+        const totalSteps = p * bCount;
+        if (state.checks.length !== totalSteps) return;
+        for (let i = 0; i < totalSteps; i++) {
+            const el = document.getElementById(`check-${i}`);
+            if (el) el.checked = Boolean(state.checks[i]);
+        }
+    }
+
     function updateTempoLabel() {
         const bpm = parseInt(document.getElementById('bpm').value, 10);
         const label = document.getElementById('bpmValue');
         if (!label || isNaN(bpm)) return;
         label.textContent = `Current: ${bpm} BPM`;
+        saveSessionState();
     }
 
     function rebuildRandomNotesSelect() {
@@ -416,6 +491,19 @@
         }
     }
 
+    function restoreSelectState(state) {
+        if (!state) return;
+        const sel = document.getElementById('randNotesPerBar');
+        if (!sel) return;
+        if (state.randNotesPerBar === 'random') {
+            sel.value = 'random';
+            return;
+        }
+        const p = parseInt(document.getElementById('pulsation').value, 10);
+        const n = parseInt(state.randNotesPerBar, 10);
+        sel.value = !isNaN(n) && n >= 0 && n <= p ? String(n) : 'random';
+    }
+
     function shuffleInPlace(a) {
         for (let i = a.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
@@ -447,7 +535,7 @@
                 const cell = document.createElement('div');
                 cell.className = 'cell';
                 cell.id = `step-${stepIdx}`;
-                cell.innerHTML = `<small>${s}</small><input type="checkbox" id="check-${stepIdx}">`;
+                cell.innerHTML = `<small>${s}</small><input type="checkbox" id="check-${stepIdx}" onchange="saveSessionState()">`;
                 grid.appendChild(cell);
             });
             
@@ -497,6 +585,7 @@
 
     function randomize() {
         applyRandomPattern();
+        saveSessionState();
     }
 
     function playSharpClick(time, isChecked) {
@@ -574,6 +663,7 @@
             const currentBar = Math.floor(currentStep / p);
             if (currentBar !== prevBar) {
                 applyRandomPatternToBar(prevBar, parseRandomSelect(), p);
+                saveSessionState();
             }
         }
     }
@@ -597,8 +687,13 @@
         document.querySelectorAll('.cell').forEach(c => c.classList.remove('playing'));
     }
 
+    const savedState = loadSessionState();
+    applySessionStateToControls(savedState);
     initApp();
+    restoreSelectState(savedState);
+    restoreChecksFromState(savedState);
     updateTempoLabel();
+    saveSessionState();
 </script>
 </body>
 </html>
