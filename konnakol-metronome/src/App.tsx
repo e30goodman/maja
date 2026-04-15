@@ -40,6 +40,31 @@ function getLeadIdleStyle(
   };
 }
 
+/** Индекс цикла Ta-ki-ta / Ta-ka из id (`g1-2-0` → 2). */
+function subCycleFromNoteId(id: string): number {
+  const parts = id.split('-');
+  if (parts.length < 2) return 0;
+  const n = parseInt(parts[1], 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Раскладка: в каждой строке до двух полных циклов (2× при 4X, 2+1 при 3X, 2 при 2X, 1 при 1X).
+ */
+function buildRowsOfTwoCycles(notes: Note[], speed: Speed): Note[][][] {
+  const sorted = [...notes].sort((a, b) => a.beatOffset - b.beatOffset);
+  const cycles: Note[][] = [];
+  for (let i = 0; i < speed; i++) {
+    const block = sorted.filter((n) => subCycleFromNoteId(n.id) === i);
+    if (block.length) cycles.push(block);
+  }
+  const rows: Note[][][] = [];
+  for (let r = 0; r < cycles.length; r += 2) {
+    rows.push(cycles.slice(r, r + 2));
+  }
+  return rows;
+}
+
 // --- Helper Functions ---
 const generateSequence = (speed1: Speed, speed2: Speed, speed3: Speed): Note[] => {
   const seq: Note[] = [];
@@ -290,6 +315,47 @@ export default function App() {
   };
 
   // --- UI Render Helpers ---
+  const renderSyllableButton = (note: Note) => (
+    <div
+      key={note.id}
+      onClick={() => toggleAccent(note.id)}
+      style={getLeadIdleStyle(note, activeNoteId === note.id, Boolean(accents[note.id]))}
+      className={`flex items-center justify-center min-w-[2.2rem] py-1.5 px-1 rounded text-[11px] font-mono font-medium transition-all duration-150 cursor-pointer select-none border ${
+        activeNoteId === note.id
+          ? 'bg-[#D4AF37] text-[#0C0D10] shadow-[0_0_15px_#D4AF37] border-transparent'
+          : accents[note.id]
+            ? 'bg-[#252830] text-[#E0E0E0] border-[#947A27]'
+            : CELL_IDLE
+      }`}
+    >
+      {note.syllable}
+    </div>
+  );
+
+  const renderRhythmRows = (groupId: 1 | 2 | 3, speed: Speed) => {
+    const notes = sequence.filter((n) => n.group === groupId);
+    const rows = buildRowsOfTwoCycles(notes, speed);
+    return (
+      <div className="flex flex-col gap-2.5 w-full items-stretch">
+        {rows.map((row, ri) => (
+          <div
+            key={ri}
+            className="flex flex-row flex-wrap justify-center items-center gap-x-[14px] gap-y-2"
+          >
+            {row.map((cycle, ci) => (
+              <div
+                key={`${ri}-${ci}`}
+                className="inline-flex flex-row flex-wrap gap-1.5 justify-center shrink-0"
+              >
+                {cycle.map((note) => renderSyllableButton(note))}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   const renderSpeedSelector = (group: 1 | 2 | 3, currentSpeed: Speed, setter: (s: Speed) => void) => (
     <div className="flex gap-1 bg-[#0C0D10] p-1 rounded-md">
       {([1, 2, 3, 4] as Speed[]).map((s) => (
@@ -342,24 +408,7 @@ export default function App() {
               <h2 className="font-mono text-[10px] text-[#888B94] uppercase">Group 1</h2>
               <span className="text-[20px] font-light text-[#D4AF37] leading-none">3</span>
             </div>
-            <div className="flex flex-wrap gap-1.5 justify-center">
-              {sequence.filter(n => n.group === 1).map((note) => (
-                <div
-                  key={note.id}
-                  onClick={() => toggleAccent(note.id)}
-                  style={getLeadIdleStyle(note, activeNoteId === note.id, Boolean(accents[note.id]))}
-                  className={`flex items-center justify-center min-w-[2.2rem] py-1.5 px-1 rounded text-[11px] font-mono font-medium transition-all duration-150 cursor-pointer select-none border ${
-                    activeNoteId === note.id
-                      ? 'bg-[#D4AF37] text-[#0C0D10] shadow-[0_0_15px_#D4AF37] border-transparent'
-                      : accents[note.id]
-                        ? 'bg-[#252830] text-[#E0E0E0] border-[#947A27]'
-                        : CELL_IDLE
-                  }`}
-                >
-                  {note.syllable}
-                </div>
-              ))}
-            </div>
+            {renderRhythmRows(1, speed1)}
             {renderSpeedSelector(1, speed1, setSpeed1)}
           </section>
 
@@ -369,24 +418,7 @@ export default function App() {
               <h2 className="font-mono text-[10px] text-[#888B94] uppercase">Group 2</h2>
               <span className="text-[20px] font-light text-[#D4AF37] leading-none">3</span>
             </div>
-            <div className="flex flex-wrap gap-1.5 justify-center">
-              {sequence.filter(n => n.group === 2).map((note) => (
-                <div
-                  key={note.id}
-                  onClick={() => toggleAccent(note.id)}
-                  style={getLeadIdleStyle(note, activeNoteId === note.id, Boolean(accents[note.id]))}
-                  className={`flex items-center justify-center min-w-[2.2rem] py-1.5 px-1 rounded text-[11px] font-mono font-medium transition-all duration-150 cursor-pointer select-none border ${
-                    activeNoteId === note.id
-                      ? 'bg-[#D4AF37] text-[#0C0D10] shadow-[0_0_15px_#D4AF37] border-transparent'
-                      : accents[note.id]
-                        ? 'bg-[#252830] text-[#E0E0E0] border-[#947A27]'
-                        : CELL_IDLE
-                  }`}
-                >
-                  {note.syllable}
-                </div>
-              ))}
-            </div>
+            {renderRhythmRows(2, speed2)}
             {renderSpeedSelector(2, speed2, setSpeed2)}
           </section>
 
@@ -396,24 +428,7 @@ export default function App() {
               <h2 className="font-mono text-[10px] text-[#888B94] uppercase">Group 3</h2>
               <span className="text-[20px] font-light text-[#D4AF37] leading-none">2</span>
             </div>
-            <div className="flex flex-wrap gap-1.5 justify-center">
-              {sequence.filter(n => n.group === 3).map((note) => (
-                <div
-                  key={note.id}
-                  onClick={() => toggleAccent(note.id)}
-                  style={getLeadIdleStyle(note, activeNoteId === note.id, Boolean(accents[note.id]))}
-                  className={`flex items-center justify-center min-w-[2.2rem] py-1.5 px-1 rounded text-[11px] font-mono font-medium transition-all duration-150 cursor-pointer select-none border ${
-                    activeNoteId === note.id
-                      ? 'bg-[#D4AF37] text-[#0C0D10] shadow-[0_0_15px_#D4AF37] border-transparent'
-                      : accents[note.id]
-                        ? 'bg-[#252830] text-[#E0E0E0] border-[#947A27]'
-                        : CELL_IDLE
-                  }`}
-                >
-                  {note.syllable}
-                </div>
-              ))}
-            </div>
+            {renderRhythmRows(3, speed3)}
             {renderSpeedSelector(3, speed3, setSpeed3)}
           </section>
 
