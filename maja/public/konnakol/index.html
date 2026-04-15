@@ -283,6 +283,21 @@
             box-shadow: 0 4px 14px rgba(244, 63, 94, 0.25);
         }
         .btn-stop:hover { filter: brightness(1.06); }
+        .playback-stop-status {
+            margin: 12px 0 0;
+            padding: 10px 12px;
+            border-radius: 0.75rem;
+            border: 1px solid var(--slate-600);
+            background: rgba(30, 41, 59, 0.55);
+            font-size: 0.86rem;
+            line-height: 1.45;
+            color: var(--text-muted);
+        }
+        .playback-stop-status.playback-stop-status--error {
+            border-color: rgba(244, 63, 94, 0.55);
+            background: rgba(127, 29, 29, 0.32);
+            color: #fecdd3;
+        }
         .randomizer-block { display: flex; flex-direction: column; gap: 10px; }
         .scale-control {
             border-color: var(--violet-500);
@@ -299,41 +314,6 @@
             cursor: pointer;
         }
         label.rand-cycle input { width: auto; height: auto; margin: 0; accent-color: var(--violet-600); flex-shrink: 0; }
-
-        .playback-stop-error-panel {
-            display: none;
-            margin: 0 0 14px;
-            padding: 12px 14px;
-            border-radius: 0.75rem;
-            border: 1px solid rgba(244, 63, 94, 0.55);
-            background: rgba(127, 29, 29, 0.38);
-            color: #fecaca;
-        }
-        .playback-stop-error-panel.visible { display: block; }
-        .playback-stop-error-panel .playback-stop-error-title {
-            font-weight: 700;
-            font-size: 0.9rem;
-            margin-bottom: 8px;
-            color: #fff;
-        }
-        .playback-stop-error-panel pre {
-            margin: 0;
-            white-space: pre-wrap;
-            word-break: break-word;
-            font-family: ui-monospace, 'Cascadia Mono', 'Consolas', monospace;
-            font-size: 0.78rem;
-            line-height: 1.45;
-            color: #fecaca;
-        }
-        .playback-stop-error-panel .playback-stop-error-message {
-            margin-bottom: 10px;
-            color: #fde68a;
-        }
-        .playback-stop-error-panel .playback-stop-error-location {
-            opacity: 0.95;
-            max-height: 220px;
-            overflow-y: auto;
-        }
 
         @media (max-width: 860px) {
             .bars-container.many-bars { grid-template-columns: 1fr; }
@@ -539,17 +519,12 @@
         <small id="barScaleValue" class="hint-muted">Current: 100%</small>
     </div>
 
-    <div id="playbackStopErrorPanel" class="playback-stop-error-panel" role="alert">
-        <div class="playback-stop-error-title">Воспроизведение остановлено (ошибка)</div>
-        <pre id="playbackStopErrorMessage" class="playback-stop-error-message"></pre>
-        <pre id="playbackStopErrorLocation" class="playback-stop-error-location"></pre>
-    </div>
-
     <div id="barsContainer" class="bars-container"></div>
 
     <button class="btn btn-rand" onclick="randomizeAndPlay()">🎲 RANDOMIZE PATTERN</button>
     <button id="playBtn" class="btn btn-play" onclick="start(false)">▶ PLAY</button>
-    <button id="stopBtn" class="btn btn-stop" onclick="stop()">■ STOP</button>
+    <button id="stopBtn" class="btn btn-stop" onclick="stop('manual')">■ STOP</button>
+    <p id="playbackStopStatus" class="playback-stop-status" hidden role="status" aria-live="polite"></p>
 </div>
 
 <script>
@@ -572,6 +547,8 @@
     /** Случайная пульсация на границе — только после отыгранного последнего слога какого-либо такта в этой сессии. */
     let playbackReadyForBarBoundaryRandomPulsation = false;
     let lastInternalPlaybackLogKey = '';
+    /** Текст ошибки, показывается в строке статуса при следующем stop() после сбоя. */
+    let pendingPlaybackStopError = null;
     let allowPlaybackPulsationMutation = false;
     let wakeLock = null;
     const BASE_PULSATION_FOR_BPM = 4;
@@ -590,44 +567,7 @@
         constructor(message) {
             super(message);
             this.name = 'PlaybackInvariantViolation';
-            if (typeof Error.captureStackTrace === 'function') {
-                Error.captureStackTrace(this, PlaybackInvariantViolation);
-            }
         }
-    }
-
-    function parseFirstIndexHtmlLineFromStack(stack) {
-        if (!stack || typeof stack !== 'string') return '';
-        const lines = stack.split(/\r?\n/);
-        for (let i = 0; i < lines.length; i++) {
-            const m = lines[i].match(/(?:index\.html|konnakol\/index\.html):(\d+)/i);
-            if (m) return `Строка в index.html: ${m[1]}`;
-        }
-        const m2 = stack.match(/:(\d+):\d+\)?\s*$/m);
-        if (m2) return `Строка (из stack): ${m2[1]}`;
-        return '';
-    }
-
-    function showPlaybackFatalError(err) {
-        const message = (err && err.message) ? String(err.message) : String(err);
-        const stack = (err && err.stack) ? String(err.stack) : '';
-        console.error('[konnakol playback]', err);
-
-        const c = document.getElementById('barsContainer');
-        if (c) {
-            c.dataset.playbackError = message.slice(0, 500);
-            c.dataset.playbackErrorAt = String(Date.now());
-        }
-
-        const panel = document.getElementById('playbackStopErrorPanel');
-        const msgEl = document.getElementById('playbackStopErrorMessage');
-        const locEl = document.getElementById('playbackStopErrorLocation');
-        if (msgEl) msgEl.textContent = message;
-        const lineHint = parseFirstIndexHtmlLineFromStack(stack);
-        if (locEl) {
-            locEl.textContent = (lineHint ? lineHint + '\n\n' : '') + (stack || '(stack недоступен)');
-        }
-        if (panel) panel.classList.add('visible');
     }
 
     function clearInternalPlaybackErrorAttrs() {
@@ -640,12 +580,33 @@
 
     function hidePlaybackFatalError() {
         clearInternalPlaybackErrorAttrs();
-        const panel = document.getElementById('playbackStopErrorPanel');
-        const msgEl = document.getElementById('playbackStopErrorMessage');
-        const locEl = document.getElementById('playbackStopErrorLocation');
-        if (msgEl) msgEl.textContent = '';
-        if (locEl) locEl.textContent = '';
-        if (panel) panel.classList.remove('visible');
+    }
+
+    function clearPlaybackStopStatusLine() {
+        const el = document.getElementById('playbackStopStatus');
+        if (!el) return;
+        el.hidden = true;
+        el.textContent = '';
+        el.classList.remove('playback-stop-status--error');
+    }
+
+    function setPlaybackStopStatusLine(text, isError) {
+        const el = document.getElementById('playbackStopStatus');
+        if (!el) return;
+        el.hidden = false;
+        el.classList.toggle('playback-stop-status--error', Boolean(isError));
+        el.textContent = text;
+    }
+
+    function showPlaybackFatalError(message) {
+        const msg = String(message);
+        pendingPlaybackStopError = msg;
+        console.error('[konnakol playback]', msg);
+        const c = document.getElementById('barsContainer');
+        if (c) {
+            c.dataset.playbackError = msg.slice(0, 500);
+            c.dataset.playbackErrorAt = String(Date.now());
+        }
     }
 
     function resetInternalPlaybackIndicators() {
@@ -956,6 +917,8 @@
         cycleBoundaryMutations = 0;
         playbackReadyForBarBoundaryRandomPulsation = false;
         hidePlaybackFatalError();
+        pendingPlaybackStopError = null;
+        clearPlaybackStopStatusLine();
         resetInternalPlaybackIndicators();
         rebuildRandomNotesSelect();
         requestAnimationFrame(() => enforceBarsFit(container, bCount));
@@ -1140,7 +1103,7 @@
     function togglePulsationMenu(event, barIndex) {
         event.preventDefault();
         event.stopPropagation();
-        if (document.getElementById('stopBtn').style.display === 'block') stop();
+        if (document.getElementById('stopBtn').style.display === 'block') stop('manual');
         if (pulsationMenuBarIndex === barIndex) {
             endPulsationDrag();
             return;
@@ -1524,8 +1487,8 @@
                 lastAppliedPlaybackUiSeq = evtSeq;
             } catch (e) {
                 if (e && e.name === 'PlaybackInvariantViolation') {
-                    showPlaybackFatalError(e);
-                    stop({ fault: true });
+                    showPlaybackFatalError(e.message);
+                    stop();
                     return;
                 }
                 throw e;
@@ -1556,6 +1519,8 @@
         cycleBoundaryMutations = 0;
         playbackReadyForBarBoundaryRandomPulsation = false;
         hidePlaybackFatalError();
+        pendingPlaybackStopError = null;
+        clearPlaybackStopStatusLine();
         resetInternalPlaybackIndicators();
         currentStep = 0;
         lastFocusedBarIndex = -1;
@@ -1569,8 +1534,7 @@
         requestWakeLock();
     }
 
-    function stop(options = {}) {
-        if (!options.fault) hidePlaybackFatalError();
+    function stop(how) {
         clearTimeout(timerID);
         playbackRandomizerEnabled = false;
         lastProcessedUiPaintKey = '';
@@ -1585,6 +1549,15 @@
         document.getElementById('playBtn').style.display = 'block';
         document.getElementById('stopBtn').style.display = 'none';
         releaseWakeLock();
+
+        if (pendingPlaybackStopError) {
+            setPlaybackStopStatusLine('Ошибка: ' + pendingPlaybackStopError, true);
+            pendingPlaybackStopError = null;
+        } else if (how === 'manual') {
+            setPlaybackStopStatusLine('Остановлено вручную.', false);
+        } else {
+            setPlaybackStopStatusLine('Воспроизведение остановлено.', false);
+        }
     }
 
     const savedState = loadSessionState();
