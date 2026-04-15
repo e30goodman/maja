@@ -654,17 +654,6 @@
         return Boolean(stopBtn && stopBtn.style.display === 'block');
     }
 
-    function getExpectedNextPlaybackMeta(prev) {
-        if (!prev || !barStates[prev.barIndex]) return null;
-        const b = prev.barIndex;
-        const i = prev.localIndex;
-        const p = barStates[b].pulsation;
-        const lastBar = barStates.length - 1;
-        if (i < p - 1) return { barIndex: b, localIndex: i + 1 };
-        if (b < lastBar) return { barIndex: b + 1, localIndex: 0 };
-        return { barIndex: 0, localIndex: 0 };
-    }
-
     function emitInternalPlaybackStep(barIndex, localIndex) {
         const p = barStates[barIndex] ? barStates[barIndex].pulsation : 0;
         const syllable = (syllables[p] || [])[localIndex] || '';
@@ -1454,16 +1443,6 @@
                 if (lastProcessedUiPaintKey === uiDedupKey) {
                     lastAppliedPlaybackUiSeq = Math.max(lastAppliedPlaybackUiSeq, evtSeq);
                     return;
-                }
-
-                // Колбэки setTimeout могут прийти не по порядку; не валим весь планировщик — пропускаем устаревший тик.
-                if (lastPaintedPlaybackMeta) {
-                    const exp = getExpectedNextPlaybackMeta(lastPaintedPlaybackMeta);
-                    if (!exp
-                        || exp.barIndex !== metaSnapshot.barIndex
-                        || exp.localIndex !== metaSnapshot.localIndex) {
-                        return;
-                    }
                 }
                 lastProcessedUiPaintKey = uiDedupKey;
 
