@@ -561,7 +561,9 @@
         barScaleEl.value = initialScale;
         randomEachCycleEl.checked = Boolean(state.randomEachCycle);
         uniformSoundEl.checked = Boolean(state.uniformSound);
-        randomPulsationOnRandomizeEl.checked = Boolean(state.randomPulsationOnRandomize);
+        randomPulsationOnRandomizeEl.checked = state.randomPulsationOnRandomize === undefined
+            ? false
+            : Boolean(state.randomPulsationOnRandomize);
     }
 
 
