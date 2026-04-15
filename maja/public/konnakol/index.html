@@ -575,11 +575,13 @@
     let barStates = [];
     let stepMeta = [];
     let pulsationMenuBarIndex = null;
-    let lastProcessedBarTransitionKey = '';
+    let lastProcessedUiPaintKey = '';
     let playbackUiEventSeq = 0;
     let lastAppliedPlaybackUiSeq = 0;
-    /** Случайная смена пульсации на границе такта только после отыгранного до конца такта (последний слог) в этой сессии. */
-    let playbackReadyForBarBoundaryRandomPulsation = false;
+    let lastPaintedPlaybackMeta = null;
+    let playbackCompletedCycles = 0;
+    let lastMutationPlaybackCycleId = 0;
+    let lastCycleMutationUiKey = '';
     let lastReadoutKey = '';
     let allowPlaybackPulsationMutation = false;
     let wakeLock = null;
