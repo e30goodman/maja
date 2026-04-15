@@ -441,6 +441,7 @@
     let playbackRandomizerEnabled = false;
     let barStates = [];
     let stepMeta = [];
+    const BASE_PULSATION_FOR_BPM = 4;
     const STORAGE_KEY = 'konnakolSessionStateV1';
     
     const syllables = {
@@ -778,9 +779,10 @@
 
     function getEffectiveBpmForBar(barIndex, baseBpm) {
         if (!playbackRandomizerEnabled || !barStates[barIndex]) return baseBpm;
-        // Per-bar internal tempo: baseBpm * (barPulsation / 4)
+        // In random playback, slider BPM is interpreted as tempo for 4-pulse bar.
+        // Each bar gets its internal tempo via pulsation ratio.
         const barPulsation = barStates[barIndex].pulsation;
-        return baseBpm * (barPulsation / 4);
+        return baseBpm * (barPulsation / BASE_PULSATION_FOR_BPM);
     }
 
     function getBarsLayoutMeta(bCount) {
