@@ -21,7 +21,7 @@ View your app in AI Studio: https://ai.studio/apps/8e8bab62-92b2-4c73-af02-6d5f3
 
 ## Deploy into Maja (`konnakol/adi-talam/`)
 
-Production build uses **relative** `base: './'` so JS/CSS load correctly whether the site is served at `/maja/konnakol/...` or `/konnakol/...`. For `npm run dev` in this folder, `base` is `/`. After changes to this app:
+Production build uses **relative** `base: './'` plus a tiny inline script that injects `<base href="…/">` from `location.pathname` so `./assets/*` still resolves if the URL has no trailing slash (common on static hosts). For `npm run dev` in this folder, `base` is `/`. After changes to this app:
 
 1. `npm run build`
 2. Copy everything from `dist/` into [`../maja/public/konnakol/adi-talam/`](../maja/public/konnakol/adi-talam/) (replace `index.html` and `assets/`).
