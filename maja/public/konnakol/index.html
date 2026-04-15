@@ -254,12 +254,28 @@
             min-height: calc(var(--cell-height) * var(--bar-scale));
             transition: 0.1s;
             border: 2px solid transparent;
+            cursor: pointer;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .cell:focus-visible {
+            outline: 2px solid var(--violet-400);
+            outline-offset: 2px;
         }
         .cell small {
             font-size: calc(clamp(0.55rem, calc(0.74rem - (var(--bars-count) * 0.015rem)), 0.65rem) * var(--bar-scale));
-            margin-bottom: calc(5px * var(--bar-scale));
+            margin-bottom: 0;
             font-weight: 600;
             color: var(--text-muted);
+        }
+        .cell.rhythm-note-on {
+            border-color: var(--violet-500);
+            background: rgba(124, 58, 237, 0.22);
+            color: var(--text);
+            box-shadow: 0 0 10px rgba(139, 92, 246, 0.25);
+        }
+        .cell.rhythm-note-on small {
+            color: var(--text);
         }
         .cell.playing {
             background: rgba(124, 58, 237, 0.25);
@@ -268,7 +284,10 @@
             box-shadow: 0 0 14px rgba(139, 92, 246, 0.45);
             transform: translateY(-2px);
         }
-        .cell input { cursor: pointer; width: 18px; height: 18px; accent-color: var(--violet-600); }
+        .cell.rhythm-note-on.playing {
+            background: rgba(124, 58, 237, 0.32);
+            box-shadow: 0 0 18px rgba(139, 92, 246, 0.55);
+        }
 
         .btn { width: 100%; padding: 15px; border: none; border-radius: 0.75rem; font-weight: 700; cursor: pointer; margin-bottom: 10px; font-size: 1rem; transition: 0.2s; }
         .btn-rand {
@@ -413,7 +432,7 @@
                 flex-direction: column;
                 align-items: center;
                 justify-content: center;
-                gap: 8px;
+                gap: 0;
                 padding: calc(12px * var(--bar-scale)) calc(4px * var(--bar-scale)) calc(14px * var(--bar-scale));
                 min-height: calc(var(--cell-height) * var(--bar-scale));
                 border-radius: 12px;
@@ -430,12 +449,6 @@
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
-            }
-            .cell input {
-                width: calc(24px * var(--bar-scale));
-                height: calc(24px * var(--bar-scale));
-                flex-shrink: 0;
-                margin: 0;
             }
             .cell.playing {
                 transform: scale(1.03);
@@ -1036,12 +1049,24 @@
             const p = barStates[b].pulsation;
             syllables[p].forEach((s, i) => {
                 const cell = document.createElement('div');
-                cell.className = 'cell';
+                cell.className = 'cell' + (barStates[b].checks[i] ? ' rhythm-note-on' : '');
                 cell.dataset.barIndex = String(b);
                 cell.dataset.localIndex = String(i);
                 cell.id = `step-${globalStep}`;
-                const isChecked = barStates[b].checks[i] ? 'checked' : '';
-                cell.innerHTML = `<small>${s}</small><input type="checkbox" id="check-${globalStep}" ${isChecked} onchange="onBarCheckChanged(${globalStep}, ${b}, ${i})">`;
+                cell.setAttribute('role', 'button');
+                cell.setAttribute('tabindex', '0');
+                cell.setAttribute('aria-pressed', barStates[b].checks[i] ? 'true' : 'false');
+                cell.setAttribute('aria-label', `${s}, bar ${b + 1}, beat ${i + 1}`);
+                const label = document.createElement('small');
+                label.textContent = s;
+                cell.appendChild(label);
+                cell.addEventListener('click', (ev) => toggleRhythmCell(ev, b, i));
+                cell.addEventListener('keydown', (ev) => {
+                    if (ev.key === 'Enter' || ev.key === ' ') {
+                        ev.preventDefault();
+                        toggleRhythmCell(ev, b, i);
+                    }
+                });
                 grid.appendChild(cell);
                 globalStep += 1;
             });
@@ -1158,11 +1183,15 @@
         hidePulsationDragPanel();
     }
 
-    function onBarCheckChanged(stepIdx, barIndex, localIndex) {
-        const el = document.getElementById(`check-${stepIdx}`);
-        if (!el || !barStates[barIndex]) return;
-        barStates[barIndex].checks[localIndex] = el.checked;
+    function toggleRhythmCell(evt, barIndex, localIndex) {
+        const cell = evt && evt.currentTarget;
+        if (!cell || !barStates[barIndex]) return;
+        const next = !barStates[barIndex].checks[localIndex];
+        barStates[barIndex].checks[localIndex] = next;
+        cell.classList.toggle('rhythm-note-on', next);
+        cell.setAttribute('aria-pressed', next ? 'true' : 'false');
         saveSessionState();
+        if (navigator.vibrate) navigator.vibrate(8);
     }
 
     function getEffectiveBpmForBar(barIndex, baseBpm) {
