@@ -34,31 +34,54 @@
 === Язык общения с владельцем ===
 - Пользователь предпочитает ответы на русском (user rules).
 
-=== Claude-Mem (официально: thedotmack/claude-mem) + Cursor ===
-Источник: https://github.com/thedotmack/claude-mem — документация: https://docs.claude-mem.ai/
+=== Claude-Mem (thedotmack/claude-mem) — как «делают» с Cursor (по docs) ===
+Репо: https://github.com/thedotmack/claude-mem | Доки: https://docs.claude-mem.ai/ | Индекс для ИИ: https://docs.claude-mem.ai/llms.txt
 
---- Зачем это (по README) ---
-- Плагин под Claude Code: автоматически собирает наблюдения (observations) о работе агента в сессиях, сжимает/обобщает с помощью AI, подмешивает релевантный контекст в будущие сессии — «память между чатами» по проекту.
-- Ядро: lifecycle hooks (SessionStart, UserPromptSubmit, PostToolUse, Stop, SessionEnd и т.д.), worker (HTTP API, по умолчанию порт 37777, веб-просмотр), SQLite, Chroma для гибридного поиска, skill mem-search.
+--- Зачем и из чего состоит ---
+- Память между сессиями: хуки пишут observations (инструменты, правки файлов, shell и т.д.), worker сжимает/индексирует, контекст подмешивается в новые сессии.
+- Worker: HTTP API на порту 37777 (по умолчанию), в браузере — http://localhost:37777 . БД: ~/.claude-mem/claude-mem.db ; настройки: ~/.claude-mem/settings.json ; логи: ~/.claude-mem/logs/
+- MCP-сервер (mcp-server.cjs) — тонкая обёртка над worker API: без запущенного worker MCP-запросы не обслуживаются (см. раздел Technical Details в docs «Memory Search»).
 
---- Установка (важно) ---
-- Рекомендуется: npx claude-mem install ИЛИ в Claude Code: /plugin marketplace add thedotmack/claude-mem → /plugin install claude-mem.
-- npm install -g claude-mem ставит в основном SDK/библиотеку — без хуков и worker; для полной установки использовать команды выше (см. README репозитория).
+--- Установка под Cursor (официальные два пути) ---
+Док: https://docs.claude-mem.ai/cursor/index.md
 
---- Где смотреть и настраивать ---
-- Настройки: ~/.claude-mem/settings.json (создаётся с дефолтами при первом запуске).
-- Веб-интерфейс потока памяти: http://localhost:37777 (и API наблюдений, см. README).
-- Плагин на диске обычно под ~/.claude/plugins/marketplaces/thedotmack/ — в Cursor: Settings → Tools & MCPs → claude-mem (Enabled), команда вида node ...\plugin\scripts\mcp-server.cjs.
+1) Универсально: npx claude-mem install — инсталлятор сам находит IDE, в т.ч. Cursor, копирует плагин, ставит зависимости, поднимает worker (см. Installation).
 
---- MCP tools в Cursor (как в UI) ---
-- Базовый поиск по памяти (README: ~10× экономия токенов): 1) search — компактный индекс с ID; 2) timeline — хронология вокруг якоря/запроса; 3) get_observations — полные записи только по выбранным ID. Инструмент __IMPORTANT в дескрипторе MCP — напоминание именно этого трёхшагового порядка, не «метка приоритета».
-- Дополнительно в Cursor перечислены: smart_search, smart_unfold, smart_outline (поиск/структура по коду), build_corpus, list_corpora, prime_corpus, query_corpus, rebuild_corpus, reprime_corpus — работа с именованными корпусами поверх наблюдений (см. JSON-дескрипторы в .cursor/projects/.../mcps/user-claude-mem/tools/).
+2) Только Cursor (без подписки Claude Code): клон репо → bun install && bun run build → bun run cursor:setup — мастер настроит бесплатный провайдер (Gemini и т.д.), хуки, worker. Детали: https://docs.claude-mem.ai/cursor/gemini-setup и openrouter-setup.
 
---- Связь с этим репозиторием (Maja html) ---
-- KEY_FACTS.txt — статичные факты о структуре репо и деплое; claude-mem хранит динамическую историю сессий/решений, когда плагин и worker реально пишут observations.
-- Если вызов MCP из агента Cursor даёт fetch failed при включённом сервере в Tools & MCPs — это рассинхрон/недоступность воркера агента до процесса MCP, а не «MCP выключен» в IDE.
+3) Уже есть Claude Code + плагин: после /plugin install выполнить установку хуков Cursor: claude-mem cursor install (в доке — Path B). Проверка: claude-mem cursor status (или из каталога репо: bun run cursor:status). Хуки должны лежать в .cursor/ (hooks.json). После установки перезапустить Cursor.
 
---- Полезные ссылки из README ---
-- Search tools: https://docs.claude-mem.ai/usage/search-tools
+Не путать: npm install -g claude-mem — в основном SDK, без хуков и worker.
+
+--- Как взаимодействовать с памятью из чата (MCP, «как в доке») ---
+Док: https://docs.claude-mem.ai/usage/search-tools
+
+- Порядок всегда: search (индекс, мало токенов) → при необходимости timeline (якорь или query, depth_before/after) → get_observations(ids=[...]) батчем по отобранным ID.
+- __IMPORTANT в MCP — текстовое напоминание этого пайплайна (в доке: «no need to invoke», просто видно агенту).
+- Параметры search: query, limit, offset, type / obs_type, project, dateStart/dateEnd, orderBy. Синтаксис запросов — SQLite FTS5 (AND/OR/NOT, фразы в кавычках и т.д., см. ту же страницу).
+- Проверка данных без MCP: curl "http://localhost:37777/api/search?query=..."
+
+--- Skills vs «мозг» по корпусу (Claude Code; в Cursor — те же MCP-инструменты) ---
+Док: https://docs.claude-mem.ai/usage/knowledge-agents.md
+
+- /mem-search (skill в Claude Code) ≈ живой поиск по БД: трёхшаговый MCP search/timeline/get_observations — когда нужны конкретные наблюдения и ID.
+- /knowledge-agent ≈ срез истории в корпус и диалог с ним: build_corpus(...) → prime_corpus(name) → query_corpus(name, question) ; при уходе темы — reprime_corpus(name) ; после новых observations — rebuild_corpus(name) затем снова prime/reprime.
+- Под капотом те же операции доступны через POST /api/corpus* на worker (таблица в конце страницы Knowledge Agents).
+
+--- Проверка «всё живо» (из Cursor Integration doc) ---
+- worker: bun run worker:status (или аналог из установленного пакета)
+- хуки Cursor: bun run cursor:status
+- UI памяти: открыть http://localhost:37777
+
+--- Связь с репозиторием Maja html ---
+- Этот KEY_FACTS.txt — статика проекта; claude-mem — динамика сессий, если хуки реально пишут в worker для этого workspace.
+
+--- Если MCP в Cursor UI включён, а агент получает fetch failed ---
+- Частая причина по архитектуре: worker на :37777 не запущен / недоступен из среды, где крутится воркер агента; либо MCP-процесс не проксируется до localhost. Смотреть worker:status и логи в ~/.claude-mem/logs/ .
+
+--- Ссылки ---
+- Cursor: https://docs.claude-mem.ai/cursor/index.md
+- Memory search (MCP): https://docs.claude-mem.ai/usage/search-tools
+- Knowledge agents / corpus MCP: https://docs.claude-mem.ai/usage/knowledge-agents.md
 - Configuration: https://docs.claude-mem.ai/configuration
 - Troubleshooting: https://docs.claude-mem.ai/troubleshooting
