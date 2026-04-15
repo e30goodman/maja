@@ -161,48 +161,16 @@
 
         <section class="text-center rounded-2xl border border-violet-500/40 bg-violet-950/20 px-4 py-5 shadow-lg">
             <h3 class="text-xl font-bold text-slate-100 mb-2">Continuer avec l’accès complet</h3>
-            <p class="text-slate-300 text-sm mb-4">Vous avez vu la logique de travail. Pour les schémas complets, l’algorithme de navigation et Konnakol, demandez l’accès premium.</p>
-            <a href="#feedback" class="inline-flex items-center gap-2 px-5 py-3 rounded-xl font-semibold text-sm uppercase tracking-wide bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-500 hover:to-blue-500 text-white shadow-lg transition-all hover:scale-[1.02] active:scale-[0.98] border border-violet-400/30">
-                <i data-lucide="message-square-plus" class="w-4 h-4"></i>
-                Laisser un message
+            <p class="text-slate-300 text-sm mb-4">Vous avez vu la logique de travail. Pour les schémas complets, l’algorithme de navigation et Konnakol, contactez-moi directement sur WhatsApp.</p>
+            <a href="https://wa.me/41782205262?text=Bonjour!%20Je%20souhaite%20demander%20l%27acc%C3%A8s%20complet%20%C3%A0%20BassMastery" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 px-5 py-3 rounded-xl font-semibold text-sm uppercase tracking-wide bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-500 hover:to-blue-500 text-white shadow-lg transition-all hover:scale-[1.02] active:scale-[0.98] border border-violet-400/30">
+                <i data-lucide="message-circle" class="w-4 h-4"></i>
+                Demander l’accès complet
             </a>
-        </section>
-
-        <section id="feedback" class="rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-5 shadow-lg">
-            <h3 class="text-xl font-bold text-slate-100 mb-2">Formulaire de contact</h3>
-            <p class="text-slate-400 text-sm mb-4">Laissez votre message et nous vous répondrons avec les modalités d’accès.</p>
-            <form id="feedback-form" class="space-y-3">
-                <div>
-                    <label for="feedback-name" class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Nom</label>
-                    <input id="feedback-name" name="name" type="text" required class="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-slate-100 outline-none focus:border-violet-400" placeholder="Votre nom" />
-                </div>
-                <div>
-                    <label for="feedback-email" class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Email</label>
-                    <input id="feedback-email" name="email" type="email" required class="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-slate-100 outline-none focus:border-violet-400" placeholder="votre@email.com" />
-                </div>
-                <div>
-                    <label for="feedback-message" class="block text-xs uppercase tracking-wide text-slate-400 mb-1">Message</label>
-                    <textarea id="feedback-message" name="message" rows="4" required class="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-slate-100 outline-none focus:border-violet-400" placeholder="Écrivez votre demande..."></textarea>
-                </div>
-                <button type="submit" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold border border-emerald-400/30 transition-colors">
-                    <i data-lucide="send" class="w-4 h-4"></i>
-                    Envoyer
-                </button>
-                <p id="feedback-status" class="text-sm text-emerald-300 hidden">Merci. Votre message a été enregistré.</p>
-            </form>
         </section>
     </div>
 
     <script>
       lucide.createIcons();
-      const feedbackForm = document.getElementById('feedback-form');
-      const feedbackStatus = document.getElementById('feedback-status');
-
-      feedbackForm.addEventListener('submit', function (event) {
-        event.preventDefault();
-        feedbackStatus.classList.remove('hidden');
-        feedbackForm.reset();
-      });
     </script>
 </body>
 </html>
