@@ -108,9 +108,10 @@
             --bars-count: 4;
             --bar-height: 96px;
             --cell-height: 62px;
+            --bars-gap: 16px;
             display: grid;
             grid-template-columns: 1fr;
-            gap: clamp(12px, calc(24px - (var(--bars-count) * 1px)), 20px);
+            gap: var(--bars-gap);
             margin: 25px 0;
         }
         .bars-container.many-bars { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -243,7 +244,7 @@
             label.rand-cycle { font-size: 0.8rem; gap: 10px; }
             .bars-container {
                 grid-template-columns: 1fr !important;
-                gap: 14px;
+                gap: var(--bars-gap);
                 margin: 16px 0;
                 overflow: visible;
                 padding: 0;
@@ -572,32 +573,89 @@
         currentStep = 0;
         lastFocusedBarIndex = -1;
         rebuildRandomNotesSelect();
+        requestAnimationFrame(() => enforceBarsFit(container, bCount));
+    }
+
+    function getBarsLayoutMeta(bCount) {
+        const mobileSingleColumn = window.matchMedia('(max-width: 860px)').matches;
+        const twoColumns = bCount >= 6 && !mobileSingleColumn;
+        const rows = twoColumns ? Math.ceil(bCount / 2) : bCount;
+        return { mobileSingleColumn, twoColumns, rows };
+    }
+
+    function getAllowedBarsHeight(container) {
+        const rect = container.getBoundingClientRect();
+        const viewportBottom = window.innerHeight - 12;
+        return Math.max(180, Math.floor(viewportBottom - rect.top));
     }
 
     function applyAdaptiveBarHeights(container, bCount) {
-        // Базовая цель: 8 баров должны помещаться примерно в высоту режима 5 баров.
-        // Отдельные суммарные высоты для каждого значения баров (px).
-        const totalHeightByCount = {
-            1: 180,
-            2: 250,
-            3: 320,
-            4: 390,
-            5: 460,
-            6: 460,
-            7: 460,
-            8: 460
+        const allowedHeight = getAllowedBarsHeight(container);
+        const totalHeightRatioByCount = {
+            1: 0.44,
+            2: 0.56,
+            3: 0.68,
+            4: 0.79,
+            5: 0.90,
+            6: 0.88,
+            7: 0.86,
+            8: 0.84
         };
+        const gapByCount = {
+            1: 18,
+            2: 17,
+            3: 16,
+            4: 15,
+            5: 14,
+            6: 13,
+            7: 12,
+            8: 11
+        };
+        const { rows } = getBarsLayoutMeta(bCount);
 
-        const mobileSingleColumn = window.matchMedia('(max-width: 860px)').matches;
-        const rows = bCount >= 6 && !mobileSingleColumn ? Math.ceil(bCount / 2) : bCount;
-        const totalHeight = totalHeightByCount[bCount] || totalHeightByCount[5];
-        const gap = Math.max(12, Math.min(20, 24 - bCount));
+        const totalHeightFor5 = Math.floor(allowedHeight * totalHeightRatioByCount[5]);
+        let totalHeight = Math.floor(allowedHeight * (totalHeightRatioByCount[bCount] || totalHeightRatioByCount[5]));
+        if (bCount === 8) totalHeight = Math.min(totalHeight, totalHeightFor5);
+        const gap = gapByCount[bCount] || gapByCount[5];
         const freeHeight = totalHeight - (Math.max(0, rows - 1) * gap);
-        const barHeight = Math.max(64, Math.floor(freeHeight / Math.max(1, rows)));
-        const cellHeight = Math.max(44, Math.floor(barHeight * 0.62));
+        const barHeight = Math.max(58, Math.floor(freeHeight / Math.max(1, rows)));
+        const cellHeight = Math.max(38, Math.floor(barHeight * 0.62));
 
+        container.style.setProperty('--bars-gap', `${gap}px`);
         container.style.setProperty('--bar-height', `${barHeight}px`);
         container.style.setProperty('--cell-height', `${cellHeight}px`);
+    }
+
+    function enforceBarsFit(container, bCount) {
+        const allowedHeight = getAllowedBarsHeight(container);
+        let barHeight = parseInt(container.style.getPropertyValue('--bar-height'), 10);
+        let cellHeight = parseInt(container.style.getPropertyValue('--cell-height'), 10);
+        let gap = parseInt(container.style.getPropertyValue('--bars-gap'), 10);
+
+        if (isNaN(barHeight) || isNaN(cellHeight) || isNaN(gap)) return;
+
+        let safety = 0;
+        while (container.scrollHeight > allowedHeight && safety < 18) {
+            barHeight = Math.max(52, barHeight - 3);
+            cellHeight = Math.max(34, cellHeight - 2);
+            gap = Math.max(8, gap - 1);
+            container.style.setProperty('--bar-height', `${barHeight}px`);
+            container.style.setProperty('--cell-height', `${cellHeight}px`);
+            container.style.setProperty('--bars-gap', `${gap}px`);
+            safety += 1;
+        }
+
+        // Поддерживаем требование: 8 баров не выше режима 5 баров по целевой сумме.
+        if (bCount === 8) {
+            const expectedFor5 = Math.floor(getAllowedBarsHeight(container) * 0.90);
+            if (container.scrollHeight > expectedFor5) {
+                const scale = expectedFor5 / Math.max(1, container.scrollHeight);
+                const scaledBar = Math.max(52, Math.floor(barHeight * scale));
+                const scaledCell = Math.max(34, Math.floor(cellHeight * scale));
+                container.style.setProperty('--bar-height', `${scaledBar}px`);
+                container.style.setProperty('--cell-height', `${scaledCell}px`);
+            }
+        }
     }
 
     function parseRandomSelect() {
@@ -733,6 +791,7 @@
         const container = document.getElementById('barsContainer');
         container.classList.toggle('many-bars', bCount >= 6);
         applyAdaptiveBarHeights(container, bCount);
+        requestAnimationFrame(() => enforceBarsFit(container, bCount));
     });
 </script>
 </body>
