@@ -306,6 +306,7 @@
         <div>
             <label>Pulsation:</label>
             <select id="pulsation" onchange="initApp()">
+                <option value="3">3 (Ta-Ki-Ta)</option>
                 <option value="4">4 (Ta-Ka-Di-Mi)</option>
                 <option value="5">5 (Ta-Ka-Ta-Ki-Ta)</option>
                 <option value="6">6 (Ta-Ka-Dhi-Mi-Ta-Ka)</option>
@@ -361,6 +362,7 @@
     let lastFocusedBarIndex = -1;
     
     const syllables = {
+        3: ["Ta", "Ki", "Ta"],
         4: ["Ta", "Ka", "Di", "Mi"],
         5: ["Ta", "Ka", "Ta", "Ki", "Ta"],
         6: ["Ta", "Ka", "Dhi", "Mi", "Ta", "Ka"],
@@ -456,26 +458,29 @@
         return { eachCycle, mode: 'random' };
     }
 
-    function applyRandomPattern() {
-        const spec = parseRandomSelect();
-        const p = parseInt(document.getElementById('pulsation').value);
-        const bCount = parseInt(document.getElementById('barsCount').value);
-
+    function applyRandomPatternToBar(barIndex, spec, p) {
         if (spec.mode === 'random') {
-            for (let i = 0; i < p * bCount; i++) {
-                document.getElementById(`check-${i}`).checked = Math.random() > 0.6;
+            for (let i = 0; i < p; i++) {
+                document.getElementById(`check-${barIndex * p + i}`).checked = Math.random() > 0.6;
             }
             return;
         }
 
         const n = Math.min(Math.max(0, spec.n), p);
+        const localIdx = Array.from({ length: p }, (_, i) => i);
+        shuffleInPlace(localIdx);
+        const chosen = new Set(localIdx.slice(0, n));
+        for (let i = 0; i < p; i++) {
+            document.getElementById(`check-${barIndex * p + i}`).checked = chosen.has(i);
+        }
+    }
+
+    function applyRandomPattern() {
+        const spec = parseRandomSelect();
+        const p = parseInt(document.getElementById('pulsation').value);
+        const bCount = parseInt(document.getElementById('barsCount').value);
         for (let b = 0; b < bCount; b++) {
-            const localIdx = Array.from({ length: p }, (_, i) => i);
-            shuffleInPlace(localIdx);
-            const chosen = new Set(localIdx.slice(0, n));
-            for (let i = 0; i < p; i++) {
-                document.getElementById(`check-${b * p + i}`).checked = chosen.has(i);
-            }
+            applyRandomPatternToBar(b, spec, p);
         }
     }
 
@@ -551,8 +556,12 @@
         nextNoteTime += 60.0 / bpm;
         const prev = currentStep;
         currentStep = (currentStep + 1) % totalSteps;
-        if (currentStep === 0 && prev === totalSteps - 1 && parseRandomSelect().eachCycle) {
-            applyRandomPattern();
+        if (parseRandomSelect().eachCycle) {
+            const prevBar = Math.floor(prev / p);
+            const currentBar = Math.floor(currentStep / p);
+            if (currentBar !== prevBar) {
+                applyRandomPatternToBar(prevBar, parseRandomSelect(), p);
+            }
         }
     }
 
