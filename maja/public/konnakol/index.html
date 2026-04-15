@@ -365,11 +365,6 @@
         <small id="bpmValue" class="hint-muted">Current: 100 BPM</small>
     </div>
 
-    <label class="rand-cycle" style="margin: 12px 0 4px;">
-        <input type="checkbox" id="autoScrollToBar" onchange="saveSessionState()">
-        Auto-scroll to the current bar while playing
-    </label>
-
     <div id="barsContainer" class="bars-container"></div>
 
     <button class="btn btn-rand" onclick="randomize()">🎲 RANDOMIZE PATTERN</button>
@@ -411,7 +406,6 @@
             barsCount: String(bCount),
             randNotesPerBar: document.getElementById('randNotesPerBar').value || 'random',
             randomEachCycle: document.getElementById('randomEachCycle').checked,
-            autoScrollToBar: document.getElementById('autoScrollToBar').checked,
             bpm: String(document.getElementById('bpm').value || '100'),
             checks
         };
@@ -441,7 +435,6 @@
         const barsCountEl = document.getElementById('barsCount');
         const bpmEl = document.getElementById('bpm');
         const randomEachCycleEl = document.getElementById('randomEachCycle');
-        const autoScrollToBarEl = document.getElementById('autoScrollToBar');
 
         if (state.pulsation && syllables[state.pulsation]) {
             pulsationEl.value = String(state.pulsation);
@@ -455,7 +448,6 @@
             if (!isNaN(bpm)) bpmEl.value = String(Math.max(20, Math.min(480, bpm)));
         }
         randomEachCycleEl.checked = Boolean(state.randomEachCycle);
-        autoScrollToBarEl.checked = Boolean(state.autoScrollToBar);
     }
 
     function restoreChecksFromState(state) {
@@ -637,23 +629,6 @@
         timerID = setTimeout(scheduler, 25);
     }
 
-    function focusBarForStep(step) {
-        const autoCb = document.getElementById('autoScrollToBar');
-        if (!autoCb || !autoCb.checked) return;
-        const p = parseInt(document.getElementById('pulsation').value, 10);
-        const barIndex = Math.floor(step / p);
-        if (barIndex === lastFocusedBarIndex) return;
-        lastFocusedBarIndex = barIndex;
-        const barEl = document.getElementById(`bar-${barIndex}`);
-        if (!barEl) return;
-        const mobile = window.matchMedia('(max-width: 600px)').matches;
-        barEl.scrollIntoView({
-            behavior: 'smooth',
-            block: mobile ? 'center' : 'nearest',
-            inline: 'nearest'
-        });
-    }
-
     function scheduleNote(step, time) {
         const p = parseInt(document.getElementById('pulsation').value);
         const totalSteps = p * parseInt(document.getElementById('barsCount').value);
@@ -667,7 +642,6 @@
             if (el) {
                 document.querySelectorAll('.cell').forEach(c => c.classList.remove('playing'));
                 el.classList.add('playing');
-                focusBarForStep(previewStep);
             }
         }, (time - audioCtx.currentTime) * 1000);
     }
