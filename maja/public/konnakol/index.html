@@ -109,25 +109,26 @@
             --bar-height: 96px;
             --cell-height: 62px;
             --bars-gap: 16px;
+            --bar-scale: 1;
             display: grid;
             grid-template-columns: 1fr;
-            gap: var(--bars-gap);
+            gap: calc(var(--bars-gap) * var(--bar-scale));
             margin: 25px 0;
         }
         .bars-container.many-bars { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .bar {
             background: rgba(30, 41, 59, 0.5);
             border: 1px solid var(--slate-700);
-            padding: clamp(10px, calc(19px - (var(--bars-count) * 1px)), 15px);
-            border-radius: 1rem;
-            min-height: var(--bar-height);
+            padding: calc(clamp(10px, calc(19px - (var(--bars-count) * 1px)), 15px) * var(--bar-scale));
+            border-radius: calc(1rem * var(--bar-scale));
+            min-height: calc(var(--bar-height) * var(--bar-scale));
         }
-        .bar-title { font-size: 0.75rem; font-weight: bold; color: var(--text-dim); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+        .bar-title { font-size: calc(0.75rem * var(--bar-scale)); font-weight: bold; color: var(--text-dim); margin-bottom: calc(10px * var(--bar-scale)); text-transform: uppercase; letter-spacing: 0.06em; }
 
         .rhythm-grid {
             display: flex;
             flex-wrap: wrap;
-            gap: clamp(5px, calc(10px - (var(--bars-count) * 0.4px)), 8px);
+            gap: calc(clamp(5px, calc(10px - (var(--bars-count) * 0.4px)), 8px) * var(--bar-scale));
             justify-content: flex-start;
         }
         .cell {
@@ -136,16 +137,16 @@
             align-items: center;
             justify-content: center;
             background: var(--slate-800);
-            padding: clamp(6px, calc(10px - (var(--bars-count) * 0.45px)), 8px);
-            border-radius: 0.5rem;
-            width: clamp(32px, calc(48px - (var(--bars-count) * 1.45px)), 42px);
-            min-height: var(--cell-height);
+            padding: calc(clamp(6px, calc(10px - (var(--bars-count) * 0.45px)), 8px) * var(--bar-scale));
+            border-radius: calc(0.5rem * var(--bar-scale));
+            width: calc(clamp(32px, calc(48px - (var(--bars-count) * 1.45px)), 42px) * var(--bar-scale));
+            min-height: calc(var(--cell-height) * var(--bar-scale));
             transition: 0.1s;
             border: 2px solid transparent;
         }
         .cell small {
-            font-size: clamp(0.55rem, calc(0.74rem - (var(--bars-count) * 0.015rem)), 0.65rem);
-            margin-bottom: 5px;
+            font-size: calc(clamp(0.55rem, calc(0.74rem - (var(--bars-count) * 0.015rem)), 0.65rem) * var(--bar-scale));
+            margin-bottom: calc(5px * var(--bar-scale));
             font-weight: 600;
             color: var(--text-muted);
         }
@@ -253,14 +254,14 @@
             .bar {
                 width: 100%;
                 max-width: none;
-                padding: 12px 10px 14px;
+                padding: calc(12px * var(--bar-scale)) calc(10px * var(--bar-scale)) calc(14px * var(--bar-scale));
                 border-radius: 14px;
                 box-sizing: border-box;
             }
             .bar-title {
                 text-align: left;
-                margin-bottom: 10px;
-                font-size: 0.7rem;
+                margin-bottom: calc(10px * var(--bar-scale));
+                font-size: calc(0.7rem * var(--bar-scale));
                 letter-spacing: 0.08em;
                 line-height: 1.2;
                 padding-left: 2px;
@@ -269,7 +270,7 @@
                 display: flex;
                 flex-direction: row;
                 flex-wrap: nowrap;
-                gap: 6px;
+                gap: calc(6px * var(--bar-scale));
                 justify-content: stretch;
                 align-items: stretch;
                 width: 100%;
@@ -283,14 +284,14 @@
                 align-items: center;
                 justify-content: center;
                 gap: 8px;
-                padding: 12px 4px 14px;
-                min-height: var(--cell-height);
+                padding: calc(12px * var(--bar-scale)) calc(4px * var(--bar-scale)) calc(14px * var(--bar-scale));
+                min-height: calc(var(--cell-height) * var(--bar-scale));
                 border-radius: 12px;
                 border-width: 2px;
                 box-sizing: border-box;
             }
             .cell small {
-                font-size: 0.78rem;
+                font-size: calc(0.78rem * var(--bar-scale));
                 margin-bottom: 0;
                 text-align: center;
                 line-height: 1.1;
@@ -301,8 +302,8 @@
                 white-space: nowrap;
             }
             .cell input {
-                width: 24px;
-                height: 24px;
+                width: calc(24px * var(--bar-scale));
+                height: calc(24px * var(--bar-scale));
                 flex-shrink: 0;
                 margin: 0;
             }
@@ -375,6 +376,14 @@
         <input type="range" id="bpm" min="20" max="480" value="100" oninput="updateTempoLabel()">
         <small id="bpmValue" class="hint-muted">Current: 100 BPM</small>
     </div>
+    <div class="control-group">
+        <label>
+            Bar scale
+            <small class="hint-muted">(temporary manual fit for bar size)</small>
+        </label>
+        <input type="range" id="barScale" min="55" max="100" value="100" oninput="updateBarScaleLabel()">
+        <small id="barScaleValue" class="hint-muted">Current: 100%</small>
+    </div>
 
     <div id="barsContainer" class="bars-container"></div>
 
@@ -419,6 +428,7 @@
             randomEachCycle: document.getElementById('randomEachCycle').checked,
             uniformSound: document.getElementById('uniformSound').checked,
             bpm: String(document.getElementById('bpm').value || '100'),
+            barScale: String(document.getElementById('barScale').value || '100'),
             checks
         };
     }
@@ -446,6 +456,7 @@
         const pulsationEl = document.getElementById('pulsation');
         const barsCountEl = document.getElementById('barsCount');
         const bpmEl = document.getElementById('bpm');
+        const barScaleEl = document.getElementById('barScale');
         const randomEachCycleEl = document.getElementById('randomEachCycle');
         const uniformSoundEl = document.getElementById('uniformSound');
 
@@ -459,6 +470,10 @@
         if (state.bpm) {
             const bpm = parseInt(state.bpm, 10);
             if (!isNaN(bpm)) bpmEl.value = String(Math.max(20, Math.min(480, bpm)));
+        }
+        if (state.barScale) {
+            const scale = parseInt(state.barScale, 10);
+            if (!isNaN(scale)) barScaleEl.value = String(Math.max(55, Math.min(100, scale)));
         }
         randomEachCycleEl.checked = Boolean(state.randomEachCycle);
         uniformSoundEl.checked = Boolean(state.uniformSound);
@@ -481,6 +496,26 @@
         const label = document.getElementById('bpmValue');
         if (!label || isNaN(bpm)) return;
         label.textContent = `Current: ${bpm} BPM`;
+        saveSessionState();
+    }
+
+    function applyBarScale() {
+        const scaleInput = document.getElementById('barScale');
+        const container = document.getElementById('barsContainer');
+        if (!scaleInput || !container) return;
+        const scalePercent = parseInt(scaleInput.value, 10);
+        if (isNaN(scalePercent)) return;
+        container.style.setProperty('--bar-scale', String(Math.max(55, Math.min(100, scalePercent)) / 100));
+    }
+
+    function updateBarScaleLabel() {
+        const scaleInput = document.getElementById('barScale');
+        const label = document.getElementById('barScaleValue');
+        if (!scaleInput || !label) return;
+        const scale = parseInt(scaleInput.value, 10);
+        if (isNaN(scale)) return;
+        label.textContent = `Current: ${scale}%`;
+        applyBarScale();
         saveSessionState();
     }
 
@@ -543,6 +578,9 @@
         const p = parseInt(document.getElementById('pulsation').value);
         const bCount = parseInt(document.getElementById('barsCount').value);
         const container = document.getElementById('barsContainer');
+        // #region agent log
+        fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'pre-fix-1',hypothesisId:'H1',location:'maja/public/konnakol/index.html:initApp',message:'Init app sizing context',data:{p,bCount,innerHeight:window.innerHeight,innerWidth:window.innerWidth,devicePixelRatio:window.devicePixelRatio},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         container.innerHTML = '';
         container.style.setProperty('--bars-count', String(bCount));
         container.classList.toggle('many-bars', bCount >= 6);
@@ -624,10 +662,14 @@
         container.style.setProperty('--bars-gap', `${gap}px`);
         container.style.setProperty('--bar-height', `${barHeight}px`);
         container.style.setProperty('--cell-height', `${cellHeight}px`);
+        // #region agent log
+        fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'pre-fix-1',hypothesisId:'H2',location:'maja/public/konnakol/index.html:applyAdaptiveBarHeights',message:'Computed adaptive sizes',data:{bCount,allowedHeight,rows,totalHeightFor5,totalHeight,gap,freeHeight,barHeight,cellHeight,innerHeight:window.innerHeight},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
     }
 
     function enforceBarsFit(container, bCount) {
         const allowedHeight = getAllowedBarsHeight(container);
+        const beforeScrollHeight = container.scrollHeight;
         let barHeight = parseInt(container.style.getPropertyValue('--bar-height'), 10);
         let cellHeight = parseInt(container.style.getPropertyValue('--cell-height'), 10);
         let gap = parseInt(container.style.getPropertyValue('--bars-gap'), 10);
@@ -656,6 +698,9 @@
                 container.style.setProperty('--cell-height', `${scaledCell}px`);
             }
         }
+        // #region agent log
+        fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'pre-fix-1',hypothesisId:'H3',location:'maja/public/konnakol/index.html:enforceBarsFit',message:'Post-fit measurements',data:{bCount,allowedHeight,beforeScrollHeight,afterScrollHeight:container.scrollHeight,barHeight:container.style.getPropertyValue('--bar-height'),cellHeight:container.style.getPropertyValue('--cell-height'),gap:container.style.getPropertyValue('--bars-gap'),iterations:safety},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
     }
 
     function parseRandomSelect() {
@@ -780,6 +825,7 @@
 
     const savedState = loadSessionState();
     applySessionStateToControls(savedState);
+    updateBarScaleLabel();
     initApp();
     restoreSelectState(savedState);
     restoreChecksFromState(savedState);
@@ -792,6 +838,9 @@
         container.classList.toggle('many-bars', bCount >= 6);
         applyAdaptiveBarHeights(container, bCount);
         requestAnimationFrame(() => enforceBarsFit(container, bCount));
+        // #region agent log
+        fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'pre-fix-1',hypothesisId:'H4',location:'maja/public/konnakol/index.html:resizeHandler',message:'Resize triggered recalculation',data:{bCount,innerHeight:window.innerHeight,innerWidth:window.innerWidth},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
     });
 </script>
 </body>
