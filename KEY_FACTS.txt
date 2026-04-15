@@ -1,0 +1,64 @@
+Ключевые факты о репозитории «Maja html» / BassMastery — Espace Maja
+(краткая памятка для агента и разработчика; обновлять при больших изменениях)
+
+=== Назначение ===
+- Сайт курса бас-гитары для Maja: интерфейс на французском, модули/уроки/практики, прогресс в localStorage.
+- Название в UI: BassMastery — Espace Maja.
+
+=== Что деплоится ===
+- Рабочее приложение сайта: папка maja/
+- Сборка: Vite 6 (npm run build внутри maja/)
+- Продакшен base URL: /maja/ (vite.config.ts)
+- GitHub Pages: workflow .github/workflows/deploy.yml — публикует артефакт ./maja/dist
+- Секрет CI: GEMINI_API_KEY (для define в билде)
+- Репозиторий: origin → https://github.com/e30goodman/maja.git
+
+=== Главный исходник сайта ===
+- maja/index.html — основной файл: COURSE_DATA (курс), рендер списка уроков, модалки фото/режимов, логика чекбоксов и т.д.
+- После vite build часть логики уезжает в dist/assets/*.js, но разметка и данные курса идут из этого index.html.
+- maja/index.tsx помечен как неиспользуемый (см. комментарий в файле).
+
+=== Статика и вложенное приложение ===
+- maja/public/ — копируется в dist как есть.
+- maja/public/images/ — схемы, фото уроков, konnakol pyramid и т.п.
+- maja/public/konnakol/index.html — отдельное одностраничное приложение Konnakol (ритм/метроном), стиль подогнан под палитру сайта; ссылка с главной: konnakol/
+
+=== Корень репозитория (рядом с maja/) ===
+- Дубли/наследие шаблона: корневой index.html, App.tsx, vite.config.ts, components/ — не путать с основным деплоем из maja/, если не используются явно.
+- contenu_site_maja_sans_liens.txt — выгрузка текстов сайта без URL (вспомогательный файл).
+
+=== Стек maja ===
+- Node 20 в CI; зависимости: @google/genai, vite, typescript.
+- Стили: Tailwind CDN + Lucide в maja/index.html.
+
+=== Язык общения с владельцем ===
+- Пользователь предпочитает ответы на русском (user rules).
+
+=== Claude-Mem (официально: thedotmack/claude-mem) + Cursor ===
+Источник: https://github.com/thedotmack/claude-mem — документация: https://docs.claude-mem.ai/
+
+--- Зачем это (по README) ---
+- Плагин под Claude Code: автоматически собирает наблюдения (observations) о работе агента в сессиях, сжимает/обобщает с помощью AI, подмешивает релевантный контекст в будущие сессии — «память между чатами» по проекту.
+- Ядро: lifecycle hooks (SessionStart, UserPromptSubmit, PostToolUse, Stop, SessionEnd и т.д.), worker (HTTP API, по умолчанию порт 37777, веб-просмотр), SQLite, Chroma для гибридного поиска, skill mem-search.
+
+--- Установка (важно) ---
+- Рекомендуется: npx claude-mem install ИЛИ в Claude Code: /plugin marketplace add thedotmack/claude-mem → /plugin install claude-mem.
+- npm install -g claude-mem ставит в основном SDK/библиотеку — без хуков и worker; для полной установки использовать команды выше (см. README репозитория).
+
+--- Где смотреть и настраивать ---
+- Настройки: ~/.claude-mem/settings.json (создаётся с дефолтами при первом запуске).
+- Веб-интерфейс потока памяти: http://localhost:37777 (и API наблюдений, см. README).
+- Плагин на диске обычно под ~/.claude/plugins/marketplaces/thedotmack/ — в Cursor: Settings → Tools & MCPs → claude-mem (Enabled), команда вида node ...\plugin\scripts\mcp-server.cjs.
+
+--- MCP tools в Cursor (как в UI) ---
+- Базовый поиск по памяти (README: ~10× экономия токенов): 1) search — компактный индекс с ID; 2) timeline — хронология вокруг якоря/запроса; 3) get_observations — полные записи только по выбранным ID. Инструмент __IMPORTANT в дескрипторе MCP — напоминание именно этого трёхшагового порядка, не «метка приоритета».
+- Дополнительно в Cursor перечислены: smart_search, smart_unfold, smart_outline (поиск/структура по коду), build_corpus, list_corpora, prime_corpus, query_corpus, rebuild_corpus, reprime_corpus — работа с именованными корпусами поверх наблюдений (см. JSON-дескрипторы в .cursor/projects/.../mcps/user-claude-mem/tools/).
+
+--- Связь с этим репозиторием (Maja html) ---
+- KEY_FACTS.txt — статичные факты о структуре репо и деплое; claude-mem хранит динамическую историю сессий/решений, когда плагин и worker реально пишут observations.
+- Если вызов MCP из агента Cursor даёт fetch failed при включённом сервере в Tools & MCPs — это рассинхрон/недоступность воркера агента до процесса MCP, а не «MCP выключен» в IDE.
+
+--- Полезные ссылки из README ---
+- Search tools: https://docs.claude-mem.ai/usage/search-tools
+- Configuration: https://docs.claude-mem.ai/configuration
+- Troubleshooting: https://docs.claude-mem.ai/troubleshooting
