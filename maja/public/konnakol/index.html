@@ -1303,15 +1303,15 @@
             const prevBar = (meta.barIndex - 1 + bCount) % bCount;
             const sliderP = parseInt(document.getElementById('pulsation').value, 10);
 
-            requestAnimationFrame(() => {
-                onBarTransitionOrchestrate({
-                    meta,
-                    spec,
-                    flags,
-                    prevBar,
-                    sliderP,
-                    bCount
-                });
+            // Синхронно в этом же setTimeout: иначе rAF от границы такта может выполниться
+            // после таймеров следующих слогов и откатить подсветку назад.
+            onBarTransitionOrchestrate({
+                meta,
+                spec,
+                flags,
+                prevBar,
+                sliderP,
+                bCount
             });
         }, (time - audioCtx.currentTime) * 1000);
     }
