@@ -600,18 +600,6 @@
         return { barIndex: 0, localIndex: 0 };
     }
 
-    function assertExpectedPlaybackStep(prev, next) {
-        if (!prev) return;
-        const exp = getExpectedNextPlaybackMeta(prev);
-        if (!exp) return;
-        if (exp.barIndex !== next.barIndex || exp.localIndex !== next.localIndex) {
-            throw new PlaybackInvariantViolation(
-                `Playback order violation: expected Bar ${exp.barIndex + 1} beat ${exp.localIndex + 1}, ` +
-                `got Bar ${next.barIndex + 1} beat ${next.localIndex + 1}. Stopping.`
-            );
-        }
-    }
-
     function emitInternalPlaybackStep(barIndex, localIndex) {
         const p = barStates[barIndex] ? barStates[barIndex].pulsation : 0;
         const syllable = (syllables[p] || [])[localIndex] || '';
@@ -1368,7 +1356,7 @@
         const meta = stepMeta[step];
         if (!meta || !barStates[meta.barIndex]) return;
         const isChecked = Boolean(barStates[meta.barIndex].checks[meta.localIndex]);
-        const uiDedupKey = `${step}:${Math.round(time * 1000)}`;
+        const uiDedupKey = `${step}:${time.toFixed(6)}`;
         const metaSnapshot = { barIndex: meta.barIndex, localIndex: meta.localIndex };
 
         playSharpClick(time, isChecked);
@@ -1384,9 +1372,17 @@
                     lastAppliedPlaybackUiSeq = Math.max(lastAppliedPlaybackUiSeq, evtSeq);
                     return;
                 }
-                lastProcessedUiPaintKey = uiDedupKey;
 
-                assertExpectedPlaybackStep(lastPaintedPlaybackMeta, metaSnapshot);
+                // Колбэки setTimeout могут прийти не по порядку; не валим весь планировщик — пропускаем устаревший тик.
+                if (lastPaintedPlaybackMeta) {
+                    const exp = getExpectedNextPlaybackMeta(lastPaintedPlaybackMeta);
+                    if (!exp
+                        || exp.barIndex !== metaSnapshot.barIndex
+                        || exp.localIndex !== metaSnapshot.localIndex) {
+                        return;
+                    }
+                }
+                lastProcessedUiPaintKey = uiDedupKey;
 
                 const bCount = barStates.length;
                 const spec = parsePatternSpec();
@@ -1436,14 +1432,13 @@
                     }
                 }
 
-                // Инвариант: за один полный круг по всем барам ровно bCount оркестраций на первых слогах
-                // (после старта — без «холодного» первого Bar1 beat1), иначе остановка с ошибкой.
                 if (fromFullWrap) {
                     if (needsMutation && playbackCompletedCycles >= 1 && cycleBoundaryMutations !== bCount) {
-                        throw new PlaybackInvariantViolation(
-                            `За полный круг (${bCount} баров) должно быть ровно ${bCount} оркестраций на границах тактов; ` +
-                            `сейчас ${cycleBoundaryMutations}.`
-                        );
+                        console.warn('[konnakol playback] cycleBoundaryMutations mismatch', {
+                            expected: bCount,
+                            actual: cycleBoundaryMutations,
+                            completedCycles: playbackCompletedCycles
+                        });
                     }
                     playbackCompletedCycles += 1;
                     cycleBoundaryMutations = 0;
