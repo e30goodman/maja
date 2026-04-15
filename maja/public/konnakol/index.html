@@ -243,7 +243,6 @@
             justify-content: flex-start;
         }
         .cell {
-            position: relative;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -269,42 +268,6 @@
             box-shadow: 0 0 14px rgba(139, 92, 246, 0.45);
             transform: translateY(-2px);
         }
-        .cell.playing::after {
-            content: '';
-            position: absolute;
-            right: 6px;
-            bottom: 6px;
-            width: 10px;
-            height: 10px;
-            border-radius: 2px;
-            background: var(--violet-400);
-            box-shadow: 0 0 8px rgba(167, 139, 250, 0.9);
-            pointer-events: none;
-        }
-        .now-playing-readout {
-            margin: 12px 0 10px;
-            padding: 12px 14px;
-            border-radius: 0.75rem;
-            border: 1px solid var(--slate-600);
-            background: rgba(30, 41, 59, 0.55);
-            font-size: 0.88rem;
-            line-height: 1.45;
-            color: var(--text-muted);
-        }
-        .now-playing-readout strong { color: var(--text); font-weight: 600; }
-        .now-playing-readout .readout-line2 { font-size: 0.8rem; color: var(--text-dim); margin-top: 6px; }
-        .playback-error-banner {
-            display: none;
-            margin: 0 0 12px;
-            padding: 12px 14px;
-            border-radius: 0.75rem;
-            border: 1px solid rgba(244, 63, 94, 0.55);
-            background: rgba(127, 29, 29, 0.35);
-            color: #fecaca;
-            font-size: 0.85rem;
-            line-height: 1.4;
-        }
-        .playback-error-banner.visible { display: block; }
         .cell input { cursor: pointer; width: 18px; height: 18px; accent-color: var(--violet-600); }
 
         .btn { width: 100%; padding: 15px; border: none; border-radius: 0.75rem; font-weight: 700; cursor: pointer; margin-bottom: 10px; font-size: 1rem; transition: 0.2s; }
@@ -428,7 +391,6 @@
                 width: 100%;
             }
             .cell {
-                position: relative;
                 flex: 1 1 0;
                 min-width: 0;
                 width: auto;
@@ -553,11 +515,6 @@
         <small id="barScaleValue" class="hint-muted">Current: 100%</small>
     </div>
 
-    <div id="playbackErrorBanner" class="playback-error-banner" role="alert"></div>
-    <div id="nowPlayingReadout" class="now-playing-readout" aria-live="polite" aria-atomic="true">
-        <div id="nowPlayingLine1"><strong>Now:</strong> —</div>
-        <div id="nowPlayingLine2" class="readout-line2"><strong>Highlight:</strong> —</div>
-    </div>
     <div id="barsContainer" class="bars-container"></div>
 
     <button class="btn btn-rand" onclick="randomizeAndPlay()">🎲 RANDOMIZE PATTERN</button>
@@ -580,9 +537,11 @@
     let lastAppliedPlaybackUiSeq = 0;
     let lastPaintedPlaybackMeta = null;
     let playbackCompletedCycles = 0;
-    let lastMutationPlaybackCycleId = 0;
-    let lastCycleMutationUiKey = '';
-    let lastReadoutKey = '';
+    /** Сколько раз за текущий незавершённый круг вызвали оркестратор на границах тактов (localIndex===0). Должно стать ровно bCount за полный круг. */
+    let cycleBoundaryMutations = 0;
+    /** Случайная пульсация на границе — только после отыгранного последнего слога какого-либо такта в этой сессии. */
+    let playbackReadyForBarBoundaryRandomPulsation = false;
+    let lastInternalPlaybackLogKey = '';
     let allowPlaybackPulsationMutation = false;
     let wakeLock = null;
     const BASE_PULSATION_FOR_BPM = 4;
@@ -604,28 +563,36 @@
         }
     }
 
-    function hidePlaybackFatalError() {
-        const b = document.getElementById('playbackErrorBanner');
-        if (b) {
-            b.textContent = '';
-            b.classList.remove('visible');
+    function clearInternalPlaybackErrorAttrs() {
+        const c = document.getElementById('barsContainer');
+        if (c) {
+            delete c.dataset.playbackError;
+            delete c.dataset.playbackErrorAt;
         }
+    }
+
+    function hidePlaybackFatalError() {
+        clearInternalPlaybackErrorAttrs();
     }
 
     function showPlaybackFatalError(message) {
-        const b = document.getElementById('playbackErrorBanner');
-        if (b) {
-            b.textContent = message;
-            b.classList.add('visible');
+        console.error('[konnakol playback]', message);
+        const c = document.getElementById('barsContainer');
+        if (c) {
+            c.dataset.playbackError = String(message).slice(0, 500);
+            c.dataset.playbackErrorAt = String(Date.now());
         }
     }
 
-    function resetNowPlayingReadoutIdle() {
-        lastReadoutKey = '';
-        const l1 = document.getElementById('nowPlayingLine1');
-        const l2 = document.getElementById('nowPlayingLine2');
-        if (l1) l1.innerHTML = '<strong>Now:</strong> —';
-        if (l2) l2.innerHTML = '<strong>Highlight:</strong> —';
+    function resetInternalPlaybackIndicators() {
+        lastInternalPlaybackLogKey = '';
+        const c = document.getElementById('barsContainer');
+        if (!c) return;
+        delete c.dataset.playbackBar;
+        delete c.dataset.playbackBeat;
+        delete c.dataset.playbackPulsation;
+        delete c.dataset.playbackSyllable;
+        clearInternalPlaybackErrorAttrs();
     }
 
     function isPlaybackRunning() {
@@ -656,16 +623,20 @@
         }
     }
 
-    function updateNowPlayingReadout(barIndex, localIndex) {
+    function emitInternalPlaybackStep(barIndex, localIndex) {
         const p = barStates[barIndex] ? barStates[barIndex].pulsation : 0;
-        const syllable = (syllables[p] || [])[localIndex] || '—';
+        const syllable = (syllables[p] || [])[localIndex] || '';
         const key = `${barIndex}|${localIndex}`;
-        if (lastReadoutKey === key) return;
-        lastReadoutKey = key;
-        const l1 = document.getElementById('nowPlayingLine1');
-        const l2 = document.getElementById('nowPlayingLine2');
-        if (l1) l1.innerHTML = `<strong>Now:</strong> Bar ${barIndex + 1} · beat ${localIndex + 1}/${p} · ${syllable}`;
-        if (l2) l2.innerHTML = `<strong>Highlight:</strong> small square marker — Bar ${barIndex + 1}, cell beat ${localIndex + 1} (violet frame on that cell).`;
+        if (lastInternalPlaybackLogKey === key) return;
+        lastInternalPlaybackLogKey = key;
+        const c = document.getElementById('barsContainer');
+        if (c) {
+            c.dataset.playbackBar = String(barIndex);
+            c.dataset.playbackBeat = String(localIndex);
+            c.dataset.playbackPulsation = String(p);
+            c.dataset.playbackSyllable = syllable;
+        }
+        console.debug('[konnakol playback]', { barIndex, localIndex, pulsation: p, syllable });
     }
 
     function setPlayingCellByBarLocal(barIndex, localIndex) {
@@ -679,7 +650,7 @@
         }
         container.querySelectorAll('.cell.playing').forEach(c => c.classList.remove('playing'));
         el.classList.add('playing');
-        updateNowPlayingReadout(barIndex, localIndex);
+        emitInternalPlaybackStep(barIndex, localIndex);
         return true;
     }
 
@@ -932,11 +903,10 @@
         lastAppliedPlaybackUiSeq = 0;
         lastPaintedPlaybackMeta = null;
         playbackCompletedCycles = 0;
-        lastMutationPlaybackCycleId = 0;
-        lastCycleMutationUiKey = '';
-        lastReadoutKey = '';
+        cycleBoundaryMutations = 0;
+        playbackReadyForBarBoundaryRandomPulsation = false;
         hidePlaybackFatalError();
-        resetNowPlayingReadoutIdle();
+        resetInternalPlaybackIndicators();
         rebuildRandomNotesSelect();
         requestAnimationFrame(() => enforceBarsFit(container, bCount));
     }
@@ -1437,32 +1407,59 @@
                 const needsMutation = playbackRandomizerEnabled && bCount >= 1
                     && (flags.randomPatternAfterEachBar || flags.randomPulsationAfterEachBar);
 
-                const isBar0Local0 = metaSnapshot.barIndex === 0 && metaSnapshot.localIndex === 0;
-                const lastBarIdx = bCount - 1;
-                const lastBarPuls = barStates[lastBarIdx] ? barStates[lastBarIdx].pulsation : 0;
+                const lastBarIdx = Math.max(0, bCount - 1);
                 const lastMeta = lastPaintedPlaybackMeta;
-                const fromFullWrap = lastMeta
+                const lastBarPuls = barStates[lastBarIdx] ? barStates[lastBarIdx].pulsation : 0;
+                const fromFullWrap = Boolean(
+                    lastMeta
+                    && lastBarPuls > 0
                     && lastMeta.barIndex === lastBarIdx
-                    && lastMeta.localIndex === lastBarPuls - 1;
+                    && lastMeta.localIndex === lastBarPuls - 1
+                    && metaSnapshot.barIndex === 0
+                    && metaSnapshot.localIndex === 0
+                );
 
-                if (isBar0Local0 && fromFullWrap) {
-                    playbackCompletedCycles += 1;
-                    const cycleUiKey = `cycle:${playbackCompletedCycles}:${uiDedupKey}`;
-                    if (lastCycleMutationUiKey !== cycleUiKey) {
-                        lastCycleMutationUiKey = cycleUiKey;
-                        if (needsMutation && playbackCompletedCycles > lastMutationPlaybackCycleId) {
-                            const sliderP = parseInt(document.getElementById('pulsation').value, 10);
-                            onBarTransitionOrchestrate({
-                                spec,
-                                flags,
-                                prevBar: lastBarIdx,
-                                sliderP,
-                                bCount,
-                                pulsationRandomAllowed: flags.randomPulsationAfterEachBar
-                            });
-                            lastMutationPlaybackCycleId = playbackCompletedCycles;
-                        }
+                if (lastMeta && barStates[lastMeta.barIndex]) {
+                    const pl = barStates[lastMeta.barIndex].pulsation;
+                    if (lastMeta.localIndex === pl - 1) {
+                        playbackReadyForBarBoundaryRandomPulsation = true;
                     }
+                }
+
+                const coldStartFirstDownbeat = !lastMeta
+                    && metaSnapshot.barIndex === 0
+                    && metaSnapshot.localIndex === 0;
+
+                if (needsMutation && metaSnapshot.localIndex === 0 && !coldStartFirstDownbeat) {
+                    const prevBar = (metaSnapshot.barIndex - 1 + bCount) % bCount;
+                    const pulsationRandomAllowed = Boolean(
+                        flags.randomPulsationAfterEachBar && playbackReadyForBarBoundaryRandomPulsation
+                    );
+                    const willOrchestrate = flags.randomPatternAfterEachBar || pulsationRandomAllowed;
+                    if (willOrchestrate) {
+                        onBarTransitionOrchestrate({
+                            spec,
+                            flags,
+                            prevBar,
+                            sliderP: parseInt(document.getElementById('pulsation').value, 10),
+                            bCount,
+                            pulsationRandomAllowed
+                        });
+                        cycleBoundaryMutations += 1;
+                    }
+                }
+
+                // Инвариант: за один полный круг по всем барам ровно bCount оркестраций на первых слогах
+                // (после старта — без «холодного» первого Bar1 beat1), иначе остановка с ошибкой.
+                if (fromFullWrap) {
+                    if (needsMutation && playbackCompletedCycles >= 1 && cycleBoundaryMutations !== bCount) {
+                        throw new PlaybackInvariantViolation(
+                            `За полный круг (${bCount} баров) должно быть ровно ${bCount} оркестраций на границах тактов; ` +
+                            `сейчас ${cycleBoundaryMutations}.`
+                        );
+                    }
+                    playbackCompletedCycles += 1;
+                    cycleBoundaryMutations = 0;
                 }
 
                 setPlayingCellByBarLocal(metaSnapshot.barIndex, metaSnapshot.localIndex);
@@ -1499,10 +1496,10 @@
         lastAppliedPlaybackUiSeq = 0;
         lastPaintedPlaybackMeta = null;
         playbackCompletedCycles = 0;
-        lastMutationPlaybackCycleId = 0;
-        lastCycleMutationUiKey = '';
-        lastReadoutKey = '';
+        cycleBoundaryMutations = 0;
+        playbackReadyForBarBoundaryRandomPulsation = false;
         hidePlaybackFatalError();
+        resetInternalPlaybackIndicators();
         currentStep = 0;
         lastFocusedBarIndex = -1;
         nextNoteTime = audioCtx.currentTime + 0.05;
@@ -1523,8 +1520,8 @@
         lastAppliedPlaybackUiSeq = 0;
         lastPaintedPlaybackMeta = null;
         playbackCompletedCycles = 0;
-        lastMutationPlaybackCycleId = 0;
-        lastCycleMutationUiKey = '';
+        cycleBoundaryMutations = 0;
+        playbackReadyForBarBoundaryRandomPulsation = false;
         lastFocusedBarIndex = -1;
         lastReadoutKey = '';
         resetNowPlayingReadoutIdle();
