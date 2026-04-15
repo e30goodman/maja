@@ -23,6 +23,11 @@
             --emerald-500: #10b981;
             --emerald-400: #34d399;
             --rose-500: #f43f5e;
+            --rose-400: #fb7185;
+            --playback-bg: rgba(244, 63, 94, 0.2);
+            --playback-bg-strong: rgba(244, 63, 94, 0.3);
+            --playback-border: #fb7185;
+            --playback-glow: rgba(244, 63, 94, 0.48);
             --panel: #0f172a;
             --border: #334155;
             --text: #e2e8f0;
@@ -278,15 +283,22 @@
             color: var(--text);
         }
         .cell.playing {
-            background: rgba(124, 58, 237, 0.25);
+            background: var(--playback-bg);
             color: var(--text);
-            border-color: var(--violet-500);
-            box-shadow: 0 0 14px rgba(139, 92, 246, 0.45);
+            border-color: var(--playback-border);
+            box-shadow: 0 0 14px var(--playback-glow);
             transform: translateY(-2px);
         }
+        .cell.playing small {
+            color: #fecdd3;
+        }
         .cell.rhythm-note-on.playing {
-            background: rgba(124, 58, 237, 0.32);
-            box-shadow: 0 0 18px rgba(139, 92, 246, 0.55);
+            background: var(--playback-bg-strong);
+            border-color: var(--rose-500);
+            box-shadow: 0 0 18px rgba(244, 63, 94, 0.58), 0 0 0 1px rgba(251, 113, 133, 0.35) inset;
+        }
+        .cell.rhythm-note-on.playing small {
+            color: var(--text);
         }
 
         .btn { width: 100%; padding: 15px; border: none; border-radius: 0.75rem; font-weight: 700; cursor: pointer; margin-bottom: 10px; font-size: 1rem; transition: 0.2s; }
@@ -452,7 +464,10 @@
             }
             .cell.playing {
                 transform: scale(1.03);
-                box-shadow: 0 0 16px rgba(139, 92, 246, 0.5);
+                box-shadow: 0 0 18px var(--playback-glow);
+            }
+            .cell.rhythm-note-on.playing {
+                box-shadow: 0 0 20px rgba(244, 63, 94, 0.55), 0 0 0 1px rgba(251, 113, 133, 0.35) inset;
             }
             .btn {
                 padding: 14px 14px;
