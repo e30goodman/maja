@@ -11,9 +11,29 @@ interface Note {
   beatOffset: number;
   isFirstOfGroup: boolean;
   isFirstOfSubdivision: boolean;
+  /** Индекс повтора Ta-ki-ta / Ta-ka внутри группы (0 … speed−1) — для визуального различия ведущих «Ta». */
+  subCycleIndex: number;
 }
 
 const SCHEDULE_AHEAD_TIME = 0.1; // seconds
+
+/** Ведущий слог цикла (первая доля Ta) без акцента и не под «игрой» — лёгкий оттенок по номеру повтора (1X…4X). */
+const LEAD_CYCLE_IDLE_STYLE: readonly { color: string; borderColor: string; backgroundColor: string }[] = [
+  { color: '#b8a878', borderColor: 'rgba(212, 175, 55, 0.42)', backgroundColor: 'rgba(212, 175, 55, 0.07)' },
+  { color: '#8fb89a', borderColor: 'rgba(143, 184, 154, 0.45)', backgroundColor: 'rgba(143, 184, 154, 0.08)' },
+  { color: '#8ab4d4', borderColor: 'rgba(138, 180, 212, 0.45)', backgroundColor: 'rgba(138, 180, 212, 0.08)' },
+  { color: '#c4a0b8', borderColor: 'rgba(196, 160, 184, 0.42)', backgroundColor: 'rgba(196, 160, 184, 0.09)' },
+];
+
+function getLeadIdleStyle(
+  note: Note,
+  isActive: boolean,
+  hasAccent: boolean,
+): React.CSSProperties | undefined {
+  if (!note.isFirstOfSubdivision || isActive || hasAccent) return undefined;
+  const v = LEAD_CYCLE_IDLE_STYLE[note.subCycleIndex % LEAD_CYCLE_IDLE_STYLE.length];
+  return { color: v.color, borderColor: v.borderColor, backgroundColor: v.backgroundColor };
+}
 
 // --- Helper Functions ---
 const generateSequence = (speed1: Speed, speed2: Speed, speed3: Speed): Note[] => {
@@ -30,7 +50,8 @@ const generateSequence = (speed1: Speed, speed2: Speed, speed3: Speed): Note[] =
         syllable: g1Syllables[j],
         beatOffset: offset,
         isFirstOfGroup: i === 0 && j === 0,
-        isFirstOfSubdivision: j === 0
+        isFirstOfSubdivision: j === 0,
+        subCycleIndex: i
       });
       offset += 3 / (3 * speed1); // 1 / speed1
     }
@@ -46,7 +67,8 @@ const generateSequence = (speed1: Speed, speed2: Speed, speed3: Speed): Note[] =
         syllable: g2Syllables[j],
         beatOffset: offset,
         isFirstOfGroup: i === 0 && j === 0,
-        isFirstOfSubdivision: j === 0
+        isFirstOfSubdivision: j === 0,
+        subCycleIndex: i
       });
       offset += 3 / (3 * speed2); // 1 / speed2
     }
@@ -62,7 +84,8 @@ const generateSequence = (speed1: Speed, speed2: Speed, speed3: Speed): Note[] =
         syllable: g3Syllables[j],
         beatOffset: offset,
         isFirstOfGroup: i === 0 && j === 0,
-        isFirstOfSubdivision: j === 0
+        isFirstOfSubdivision: j === 0,
+        subCycleIndex: i
       });
       offset += 2 / (2 * speed3); // 1 / speed3
     }
@@ -322,12 +345,13 @@ export default function App() {
                 <div
                   key={note.id}
                   onClick={() => toggleAccent(note.id)}
-                  className={`flex items-center justify-center min-w-[2.2rem] py-1.5 px-1 rounded text-[11px] font-mono font-medium transition-all duration-150 cursor-pointer select-none ${
+                  style={getLeadIdleStyle(note, activeNoteId === note.id, Boolean(accents[note.id]))}
+                  className={`flex items-center justify-center min-w-[2.2rem] py-1.5 px-1 rounded text-[11px] font-mono font-medium transition-all duration-150 cursor-pointer select-none border ${
                     activeNoteId === note.id
-                      ? 'bg-[#D4AF37] text-[#0C0D10] shadow-[0_0_15px_#D4AF37]'
+                      ? 'bg-[#D4AF37] text-[#0C0D10] shadow-[0_0_15px_#D4AF37] border-transparent'
                       : accents[note.id]
-                        ? 'bg-[#252830] text-[#E0E0E0] border border-[#947A27]'
-                        : 'bg-[#0C0D10] text-[#888B94] border border-[#252830] hover:border-[#947A27]/50'
+                        ? 'bg-[#252830] text-[#E0E0E0] border-[#947A27]'
+                        : 'bg-[#0C0D10] text-[#888B94] border-[#252830] hover:border-[#947A27]/50'
                   }`}
                 >
                   {note.syllable}
@@ -348,12 +372,13 @@ export default function App() {
                 <div
                   key={note.id}
                   onClick={() => toggleAccent(note.id)}
-                  className={`flex items-center justify-center min-w-[2.2rem] py-1.5 px-1 rounded text-[11px] font-mono font-medium transition-all duration-150 cursor-pointer select-none ${
+                  style={getLeadIdleStyle(note, activeNoteId === note.id, Boolean(accents[note.id]))}
+                  className={`flex items-center justify-center min-w-[2.2rem] py-1.5 px-1 rounded text-[11px] font-mono font-medium transition-all duration-150 cursor-pointer select-none border ${
                     activeNoteId === note.id
-                      ? 'bg-[#D4AF37] text-[#0C0D10] shadow-[0_0_15px_#D4AF37]'
+                      ? 'bg-[#D4AF37] text-[#0C0D10] shadow-[0_0_15px_#D4AF37] border-transparent'
                       : accents[note.id]
-                        ? 'bg-[#252830] text-[#E0E0E0] border border-[#947A27]'
-                        : 'bg-[#0C0D10] text-[#888B94] border border-[#252830] hover:border-[#947A27]/50'
+                        ? 'bg-[#252830] text-[#E0E0E0] border-[#947A27]'
+                        : 'bg-[#0C0D10] text-[#888B94] border-[#252830] hover:border-[#947A27]/50'
                   }`}
                 >
                   {note.syllable}
@@ -374,12 +399,13 @@ export default function App() {
                 <div
                   key={note.id}
                   onClick={() => toggleAccent(note.id)}
-                  className={`flex items-center justify-center min-w-[2.2rem] py-1.5 px-1 rounded text-[11px] font-mono font-medium transition-all duration-150 cursor-pointer select-none ${
+                  style={getLeadIdleStyle(note, activeNoteId === note.id, Boolean(accents[note.id]))}
+                  className={`flex items-center justify-center min-w-[2.2rem] py-1.5 px-1 rounded text-[11px] font-mono font-medium transition-all duration-150 cursor-pointer select-none border ${
                     activeNoteId === note.id
-                      ? 'bg-[#D4AF37] text-[#0C0D10] shadow-[0_0_15px_#D4AF37]'
+                      ? 'bg-[#D4AF37] text-[#0C0D10] shadow-[0_0_15px_#D4AF37] border-transparent'
                       : accents[note.id]
-                        ? 'bg-[#252830] text-[#E0E0E0] border border-[#947A27]'
-                        : 'bg-[#0C0D10] text-[#888B94] border border-[#252830] hover:border-[#947A27]/50'
+                        ? 'bg-[#252830] text-[#E0E0E0] border-[#947A27]'
+                        : 'bg-[#0C0D10] text-[#888B94] border-[#252830] hover:border-[#947A27]/50'
                   }`}
                 >
                   {note.syllable}
