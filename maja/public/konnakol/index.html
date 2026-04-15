@@ -533,6 +533,8 @@
     let stepMeta = [];
     let pulsationMenuBarIndex = null;
     let lastProcessedBarTransitionKey = '';
+    let playbackUiEventSeq = 0;
+    let lastAppliedPlaybackUiSeq = 0;
     let allowPlaybackPulsationMutation = false;
     let wakeLock = null;
     const BASE_PULSATION_FOR_BPM = 4;
@@ -792,6 +794,8 @@
         currentStep = 0;
         lastFocusedBarIndex = -1;
         lastProcessedBarTransitionKey = '';
+        playbackUiEventSeq = 0;
+        lastAppliedPlaybackUiSeq = 0;
         rebuildRandomNotesSelect();
         requestAnimationFrame(() => enforceBarsFit(container, bCount));
     }
@@ -1159,6 +1163,12 @@
         return 0;
     }
 
+    function paintHighlightFromMeta(meta) {
+        if (!meta || !barStates[meta.barIndex]) return false;
+        const hi = findGlobalStepIndex(meta.barIndex, meta.localIndex);
+        return applyPlayingStep(hi);
+    }
+
     function onBarTransitionOrchestrate({ meta, spec, flags, prevBar, sliderP, bCount }) {
         allowPlaybackPulsationMutation = true;
         try {
@@ -1169,8 +1179,7 @@
         }
         const container = document.getElementById('barsContainer');
         renderBars(container);
-        const highlightStep = findGlobalStepIndex(meta.barIndex, meta.localIndex);
-        applyPlayingStep(highlightStep);
+        paintHighlightFromMeta(meta);
         requestAnimationFrame(() => enforceBarsFit(container, bCount));
         saveSessionState();
     }
@@ -1275,23 +1284,31 @@
 
         playSharpClick(time, isChecked);
 
+        const evtSeq = ++playbackUiEventSeq;
         setTimeout(() => {
+            if (evtSeq < lastAppliedPlaybackUiSeq) {
+                return;
+            }
+
             const bCount = barStates.length;
             const spec = parsePatternSpec();
             const flags = getPlaybackRandomizerFlags();
 
             if (meta.localIndex !== 0) {
-                applyPlayingStep(step);
+                lastAppliedPlaybackUiSeq = evtSeq;
+                paintHighlightFromMeta(meta);
                 return;
             }
 
             if (lastProcessedBarTransitionKey === barEntryDedupKey) {
-                applyPlayingStep(step);
+                lastAppliedPlaybackUiSeq = evtSeq;
+                paintHighlightFromMeta(meta);
                 return;
             }
             lastProcessedBarTransitionKey = barEntryDedupKey;
 
-            applyPlayingStep(step);
+            lastAppliedPlaybackUiSeq = evtSeq;
+            paintHighlightFromMeta(meta);
 
             const needsMutation = playbackRandomizerEnabled && bCount >= 1
                 && (flags.randomPatternAfterEachBar || flags.randomPulsationAfterEachBar);
@@ -1303,8 +1320,6 @@
             const prevBar = (meta.barIndex - 1 + bCount) % bCount;
             const sliderP = parseInt(document.getElementById('pulsation').value, 10);
 
-            // Синхронно в этом же setTimeout: иначе rAF от границы такта может выполниться
-            // после таймеров следующих слогов и откатить подсветку назад.
             onBarTransitionOrchestrate({
                 meta,
                 spec,
@@ -1340,6 +1355,8 @@
         const flags = getPlaybackRandomizerFlags();
         playbackRandomizerEnabled = Boolean(enableRandomizer || flags.randomPatternAfterEachBar || flags.randomPulsationAfterEachBar);
         lastProcessedBarTransitionKey = '';
+        playbackUiEventSeq = 0;
+        lastAppliedPlaybackUiSeq = 0;
         currentStep = 0;
         lastFocusedBarIndex = -1;
         nextNoteTime = audioCtx.currentTime + 0.05;
@@ -1356,6 +1373,8 @@
         clearTimeout(timerID);
         playbackRandomizerEnabled = false;
         lastProcessedBarTransitionKey = '';
+        playbackUiEventSeq = 0;
+        lastAppliedPlaybackUiSeq = 0;
         lastFocusedBarIndex = -1;
         document.getElementById('playBtn').style.display = 'block';
         document.getElementById('stopBtn').style.display = 'none';
