@@ -671,15 +671,12 @@
     }
 
     function scheduleNote(step, time) {
-        const p = parseInt(document.getElementById('pulsation').value);
-        const totalSteps = p * parseInt(document.getElementById('barsCount').value);
         const isChecked = document.getElementById(`check-${step}`).checked;
-        const previewStep = (step + 1) % totalSteps;
 
         playSharpClick(time, isChecked);
 
         setTimeout(() => {
-            const el = document.getElementById(`step-${previewStep}`);
+            const el = document.getElementById(`step-${step}`);
             if (el) {
                 document.querySelectorAll('.cell').forEach(c => c.classList.remove('playing'));
                 el.classList.add('playing');
