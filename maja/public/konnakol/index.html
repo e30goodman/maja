@@ -106,6 +106,8 @@
 
         .bars-container {
             --bars-count: 4;
+            --bar-height: 96px;
+            --cell-height: 62px;
             display: grid;
             grid-template-columns: 1fr;
             gap: clamp(12px, calc(24px - (var(--bars-count) * 1px)), 20px);
@@ -117,7 +119,7 @@
             border: 1px solid var(--slate-700);
             padding: clamp(10px, calc(19px - (var(--bars-count) * 1px)), 15px);
             border-radius: 1rem;
-            min-height: clamp(88px, calc(126px - (var(--bars-count) * 4px)), 116px);
+            min-height: var(--bar-height);
         }
         .bar-title { font-size: 0.75rem; font-weight: bold; color: var(--text-dim); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
 
@@ -136,7 +138,7 @@
             padding: clamp(6px, calc(10px - (var(--bars-count) * 0.45px)), 8px);
             border-radius: 0.5rem;
             width: clamp(32px, calc(48px - (var(--bars-count) * 1.45px)), 42px);
-            min-height: clamp(52px, calc(76px - (var(--bars-count) * 2.3px)), 70px);
+            min-height: var(--cell-height);
             transition: 0.1s;
             border: 2px solid transparent;
         }
@@ -281,7 +283,7 @@
                 justify-content: center;
                 gap: 8px;
                 padding: 12px 4px 14px;
-                min-height: clamp(68px, calc(102px - (var(--bars-count) * 3.6px)), 88px);
+                min-height: var(--cell-height);
                 border-radius: 12px;
                 border-width: 2px;
                 box-sizing: border-box;
@@ -338,6 +340,7 @@
         <div>
             <label>Number of Bars:</label>
             <select id="barsCount" onchange="initApp(); saveSessionState()">
+                <option value="1">1 Bar</option>
                 <option value="2">2 Bars</option>
                 <option value="3">3 Bars</option>
                 <option value="4" selected>4 Bars</option>
@@ -450,7 +453,7 @@
         }
         if (state.barsCount) {
             const b = parseInt(state.barsCount, 10);
-            if (!isNaN(b) && b >= 2 && b <= 8) barsCountEl.value = String(b);
+            if (!isNaN(b) && b >= 1 && b <= 8) barsCountEl.value = String(b);
         }
         if (state.bpm) {
             const bpm = parseInt(state.bpm, 10);
@@ -542,6 +545,7 @@
         container.innerHTML = '';
         container.style.setProperty('--bars-count', String(bCount));
         container.classList.toggle('many-bars', bCount >= 6);
+        applyAdaptiveBarHeights(container, bCount);
 
         for (let b = 0; b < bCount; b++) {
             const barDiv = document.createElement('div');
@@ -568,6 +572,32 @@
         currentStep = 0;
         lastFocusedBarIndex = -1;
         rebuildRandomNotesSelect();
+    }
+
+    function applyAdaptiveBarHeights(container, bCount) {
+        // Базовая цель: 8 баров должны помещаться примерно в высоту режима 5 баров.
+        // Отдельные суммарные высоты для каждого значения баров (px).
+        const totalHeightByCount = {
+            1: 180,
+            2: 250,
+            3: 320,
+            4: 390,
+            5: 460,
+            6: 460,
+            7: 460,
+            8: 460
+        };
+
+        const mobileSingleColumn = window.matchMedia('(max-width: 860px)').matches;
+        const rows = bCount >= 6 && !mobileSingleColumn ? Math.ceil(bCount / 2) : bCount;
+        const totalHeight = totalHeightByCount[bCount] || totalHeightByCount[5];
+        const gap = Math.max(12, Math.min(20, 24 - bCount));
+        const freeHeight = totalHeight - (Math.max(0, rows - 1) * gap);
+        const barHeight = Math.max(64, Math.floor(freeHeight / Math.max(1, rows)));
+        const cellHeight = Math.max(44, Math.floor(barHeight * 0.62));
+
+        container.style.setProperty('--bar-height', `${barHeight}px`);
+        container.style.setProperty('--cell-height', `${cellHeight}px`);
     }
 
     function parseRandomSelect() {
@@ -700,6 +730,13 @@
     restoreChecksFromState(savedState);
     updateTempoLabel();
     saveSessionState();
+
+    window.addEventListener('resize', () => {
+        const bCount = parseInt(document.getElementById('barsCount').value, 10);
+        const container = document.getElementById('barsContainer');
+        container.classList.toggle('many-bars', bCount >= 6);
+        applyAdaptiveBarHeights(container, bCount);
+    });
 </script>
 </body>
 </html>
