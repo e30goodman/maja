@@ -1210,10 +1210,7 @@
         playSharpClick(time, isChecked);
 
         setTimeout(() => {
-            const el = document.getElementById(`step-${step}`);
-            if (el) {
-                document.querySelectorAll('.cell').forEach(c => c.classList.remove('playing'));
-                el.classList.add('playing');
+            if (applyPlayingStep(step)) {
 
                 // Update the previous bar only after the frame has actually moved
                 // to the next bar's first syllable in the UI.
@@ -1230,12 +1227,21 @@
                         applyRandomPatternToBarWithPulsation(prevBar, spec, currentP, nextP);
                         const container = document.getElementById('barsContainer');
                         renderBars(container);
+                        applyPlayingStep(step);
                         requestAnimationFrame(() => enforceBarsFit(container, bCount));
                         saveSessionState();
                     });
                 }
             }
         }, (time - audioCtx.currentTime) * 1000);
+    }
+
+    function applyPlayingStep(step) {
+        const el = document.getElementById(`step-${step}`);
+        if (!el) return false;
+        document.querySelectorAll('.cell').forEach(c => c.classList.remove('playing'));
+        el.classList.add('playing');
+        return true;
     }
 
     function nextNote() {
