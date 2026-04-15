@@ -151,6 +151,20 @@
             min-height: calc(var(--bar-height) * var(--bar-scale));
         }
         .bar-title { font-size: calc(0.75rem * var(--bar-scale)); font-weight: bold; color: var(--text-dim); margin-bottom: calc(10px * var(--bar-scale)); text-transform: uppercase; letter-spacing: 0.06em; }
+        .pulsation-handle {
+            display: inline-block;
+            margin-left: 6px;
+            color: var(--violet-400);
+            cursor: ns-resize;
+            user-select: none;
+            touch-action: none;
+            transition: transform 0.12s ease, color 0.12s ease, text-shadow 0.12s ease;
+        }
+        .pulsation-handle.dragging {
+            color: #c4b5fd;
+            transform: scale(1.12);
+            text-shadow: 0 0 10px rgba(139, 92, 246, 0.5);
+        }
 
         .rhythm-grid {
             display: flex;
@@ -441,6 +455,7 @@
     let playbackRandomizerEnabled = false;
     let barStates = [];
     let stepMeta = [];
+    let pulsationDrag = null;
     const BASE_PULSATION_FOR_BPM = 4;
     const STORAGE_KEY = 'konnakolSessionStateV1';
     
@@ -751,7 +766,7 @@
             barDiv.className = 'bar';
             barDiv.id = `bar-${b}`;
             barDiv.dataset.barIndex = String(b);
-            barDiv.innerHTML = `<div class="bar-title">Bar ${b + 1} · P${barStates[b].pulsation}</div>`;
+            barDiv.innerHTML = `<div class="bar-title">Bar ${b + 1} · <span class="pulsation-handle" id="pulsation-handle-${b}" onpointerdown="startPulsationDrag(event, ${b})">P${barStates[b].pulsation}</span></div>`;
 
             const grid = document.createElement('div');
             grid.className = 'rhythm-grid';
@@ -770,6 +785,75 @@
             barDiv.appendChild(grid);
             container.appendChild(barDiv);
         }
+    }
+
+    function mapChecksToNewPulsation(oldChecks, oldP, newP) {
+        if (oldP === newP) return oldChecks.slice();
+        const mapped = Array.from({ length: newP }, () => false);
+        for (let i = 0; i < oldChecks.length; i++) {
+            if (!oldChecks[i]) continue;
+            const j = Math.min(newP - 1, Math.floor((i * newP) / oldP));
+            mapped[j] = true;
+        }
+        return mapped;
+    }
+
+    function setBarPulsationManual(barIndex, newP) {
+        if (!barStates[barIndex]) return;
+        const safeP = Math.min(7, Math.max(3, parseInt(newP, 10) || 4));
+        const oldP = barStates[barIndex].pulsation;
+        if (oldP === safeP) return;
+        const oldChecks = barStates[barIndex].checks.slice();
+        barStates[barIndex].pulsation = safeP;
+        barStates[barIndex].checks = mapChecksToNewPulsation(oldChecks, oldP, safeP);
+        const container = document.getElementById('barsContainer');
+        renderBars(container);
+        requestAnimationFrame(() => enforceBarsFit(container, barStates.length));
+        saveSessionState();
+        if (navigator.vibrate) navigator.vibrate(10);
+    }
+
+    function updateDraggedHandleVisual() {
+        if (!pulsationDrag) return;
+        const handle = document.getElementById(`pulsation-handle-${pulsationDrag.barIndex}`);
+        if (handle) handle.classList.add('dragging');
+    }
+
+    function startPulsationDrag(event, barIndex) {
+        event.preventDefault();
+        if (document.getElementById('stopBtn').style.display === 'block') stop();
+
+        const bar = barStates[barIndex];
+        if (!bar) return;
+        pulsationDrag = {
+            barIndex,
+            startX: event.clientX,
+            startY: event.clientY,
+            baseP: bar.pulsation,
+            lastP: bar.pulsation
+        };
+        updateDraggedHandleVisual();
+    }
+
+    function onPulsationDragMove(event) {
+        if (!pulsationDrag) return;
+        const dx = event.clientX - pulsationDrag.startX;
+        const dy = event.clientY - pulsationDrag.startY;
+        const axis = Math.abs(dx) > Math.abs(dy) ? dx : -dy;
+        const steps = Math.round(axis / 24);
+        const nextP = Math.min(7, Math.max(3, pulsationDrag.baseP + steps));
+        if (nextP !== pulsationDrag.lastP) {
+            pulsationDrag.lastP = nextP;
+            setBarPulsationManual(pulsationDrag.barIndex, nextP);
+            updateDraggedHandleVisual();
+        }
+    }
+
+    function endPulsationDrag() {
+        if (!pulsationDrag) return;
+        const handle = document.getElementById(`pulsation-handle-${pulsationDrag.barIndex}`);
+        if (handle) handle.classList.remove('dragging');
+        pulsationDrag = null;
     }
 
     function onBarCheckChanged(stepIdx, barIndex, localIndex) {
@@ -1052,6 +1136,9 @@
         fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'pre-fix-1',hypothesisId:'H4',location:'maja/public/konnakol/index.html:resizeHandler',message:'Resize triggered recalculation',data:{bCount,innerHeight:window.innerHeight,innerWidth:window.innerWidth},timestamp:Date.now()})}).catch(()=>{});
         // #endregion
     });
+    document.addEventListener('pointermove', onPulsationDragMove);
+    document.addEventListener('pointerup', endPulsationDrag);
+    document.addEventListener('pointercancel', endPulsationDrag);
 </script>
 </body>
 </html>
