@@ -1180,6 +1180,13 @@
         return values[Math.floor(Math.random() * values.length)] || 4;
     }
 
+    function getRandomPulsationValueDifferentFrom(excludeP) {
+        const values = Object.keys(syllables).map(v => parseInt(v, 10)).filter(v => !isNaN(v));
+        const pool = values.filter(v => v !== excludeP);
+        const pickFrom = pool.length ? pool : values;
+        return pickFrom[Math.floor(Math.random() * pickFrom.length)] || 4;
+    }
+
     function applyRandomPattern() {
         const spec = parsePatternSpec();
         const p = parseInt(document.getElementById('pulsation').value);
@@ -1277,14 +1284,17 @@
             const isCycleBoundary = meta.barIndex === 0 && meta.localIndex === 0;
             const transitionAlreadyProcessed = isCycleBoundary && lastProcessedTransitionKey === transitionKey;
 
-            if (isCycleBoundary && transitionAlreadyProcessed) return;
+            if (isCycleBoundary && transitionAlreadyProcessed) {
+                applyPlayingStep(step);
+                return;
+            }
             if (isCycleBoundary) {
                 lastProcessedTransitionKey = transitionKey;
                 currentCycleId += 1;
             }
 
             const shouldMutateThisCycle = playbackRandomizerEnabled
-                && bCount > 1
+                && bCount >= 1
                 && isCycleBoundary
                 && (cycleFlags.randomPatternEachCycle || cycleFlags.randomPulsationEachCycle)
                 && currentCycleId > lastMutationCycleId;
@@ -1312,7 +1322,8 @@
                 allowPlaybackPulsationMutation = true;
                 try {
                     if (shouldRandomizePulsationThisTransition) {
-                        const nextP = getRandomPulsationValue();
+                        const oldP = barStates[targetBar].pulsation;
+                        const nextP = getRandomPulsationValueDifferentFrom(oldP);
                         applyBarPulsation(targetBar, nextP, currentP);
                     }
                     if (shouldRandomizePatternThisTransition) {
