@@ -573,8 +573,6 @@
     let playbackCompletedCycles = 0;
     /** Сколько раз за текущий незавершённый круг вызвали оркестратор на границах тактов (localIndex===0). Должно стать ровно bCount за полный круг. */
     let cycleBoundaryMutations = 0;
-    /** Случайная пульсация на границе — только после отыгранного последнего слога какого-либо такта в этой сессии. */
-    let playbackReadyForBarBoundaryRandomPulsation = false;
     let lastInternalPlaybackLogKey = '';
     /** Текст ошибки, показывается в строке статуса при следующем stop() после сбоя. */
     let pendingPlaybackStopError = null;
@@ -947,7 +945,6 @@
         lastPaintedPlaybackMeta = null;
         playbackCompletedCycles = 0;
         cycleBoundaryMutations = 0;
-        playbackReadyForBarBoundaryRandomPulsation = false;
         hidePlaybackFatalError();
         pendingPlaybackStopError = null;
         clearPlaybackStopStatusLine();
@@ -1328,6 +1325,7 @@
         }
         const container = document.getElementById('barsContainer');
         renderBars(container);
+        lastInternalPlaybackLogKey = '';
         requestAnimationFrame(() => enforceBarsFit(container, bCount));
         saveSessionState();
     }
@@ -1464,22 +1462,13 @@
                     && metaSnapshot.localIndex === 0
                 );
 
-                if (lastMeta && barStates[lastMeta.barIndex]) {
-                    const pl = barStates[lastMeta.barIndex].pulsation;
-                    if (lastMeta.localIndex === pl - 1) {
-                        playbackReadyForBarBoundaryRandomPulsation = true;
-                    }
-                }
-
                 const coldStartFirstDownbeat = !lastMeta
                     && metaSnapshot.barIndex === 0
                     && metaSnapshot.localIndex === 0;
 
                 if (needsMutation && metaSnapshot.localIndex === 0 && !coldStartFirstDownbeat) {
                     const prevBar = (metaSnapshot.barIndex - 1 + bCount) % bCount;
-                    const pulsationRandomAllowed = Boolean(
-                        flags.randomPulsationAfterEachBar && playbackReadyForBarBoundaryRandomPulsation
-                    );
+                    const pulsationRandomAllowed = flags.randomPulsationAfterEachBar;
                     const willOrchestrate = flags.randomPatternAfterEachBar || pulsationRandomAllowed;
                     if (willOrchestrate) {
                         onBarTransitionOrchestrate({
@@ -1541,7 +1530,6 @@
         lastPaintedPlaybackMeta = null;
         playbackCompletedCycles = 0;
         cycleBoundaryMutations = 0;
-        playbackReadyForBarBoundaryRandomPulsation = false;
         hidePlaybackFatalError();
         pendingPlaybackStopError = null;
         clearPlaybackStopStatusLine();
@@ -1569,7 +1557,6 @@
         lastPaintedPlaybackMeta = null;
         playbackCompletedCycles = 0;
         cycleBoundaryMutations = 0;
-        playbackReadyForBarBoundaryRandomPulsation = false;
         lastFocusedBarIndex = -1;
         resetInternalPlaybackIndicators();
         document.querySelectorAll('.cell.playing').forEach(c => c.classList.remove('playing'));
