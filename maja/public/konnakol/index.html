@@ -652,12 +652,35 @@
         return Boolean(stopBtn && stopBtn.style.display === 'block');
     }
 
+    function findGlobalStepIndexForMeta(meta) {
+        if (!meta || !barStates[meta.barIndex]) return -1;
+        for (let i = 0; i < stepMeta.length; i++) {
+            if (stepMeta[i].barIndex === meta.barIndex && stepMeta[i].localIndex === meta.localIndex) return i;
+        }
+        return -1;
+    }
+
+    /**
+     * После смены пульсации длина stepMeta меняется, а currentStep остаётся от старой сетки — планировщик «ломает» порядок.
+     * Привязываем currentStep к доле anchorMeta (текущий UI-тик) и следующему шагу в новой сетке.
+     */
+    function resyncCurrentStepAfterOrchestration(anchorMeta) {
+        const idx = findGlobalStepIndexForMeta(anchorMeta);
+        if (idx < 0 || !stepMeta.length) return;
+        currentStep = (idx + 1) % stepMeta.length;
+        if (audioCtx && nextNoteTime < audioCtx.currentTime) {
+            nextNoteTime = audioCtx.currentTime + 0.05;
+        }
+    }
+
     function emitInternalPlaybackStep(barIndex, localIndex) {
         const p = barStates[barIndex] ? barStates[barIndex].pulsation : 0;
         const syllable = (syllables[p] || [])[localIndex] || '';
         const key = `${barIndex}|${localIndex}`;
-        if (lastInternalPlaybackLogKey === key) return;
-        lastInternalPlaybackLogKey = key;
+        if (lastInternalPlaybackLogKey !== key) {
+            lastInternalPlaybackLogKey = key;
+            console.debug('[konnakol playback]', { barIndex, localIndex, pulsation: p, syllable });
+        }
         const c = document.getElementById('barsContainer');
         if (c) {
             c.dataset.playbackBar = String(barIndex);
@@ -665,7 +688,6 @@
             c.dataset.playbackPulsation = String(p);
             c.dataset.playbackSyllable = syllable;
         }
-        console.debug('[konnakol playback]', { barIndex, localIndex, pulsation: p, syllable });
         const cap = document.getElementById('nowPlayingCaption');
         if (cap && isPlaybackRunning()) {
             cap.hidden = false;
@@ -1480,6 +1502,7 @@
                             pulsationRandomAllowed
                         });
                         cycleBoundaryMutations += 1;
+                        resyncCurrentStepAfterOrchestration(metaSnapshot);
                     }
                 }
 
