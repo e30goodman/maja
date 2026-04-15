@@ -536,6 +536,7 @@
     let barStates = [];
     let stepMeta = [];
     let pulsationMenuBarIndex = null;
+    let pendingCycleRandomizeQueue = [];
     let wakeLock = null;
     const BASE_PULSATION_FOR_BPM = 4;
     const STORAGE_KEY = 'konnakolSessionStateV1';
@@ -788,6 +789,7 @@
         renderBars(container);
         currentStep = 0;
         lastFocusedBarIndex = -1;
+        pendingCycleRandomizeQueue = [];
         rebuildRandomNotesSelect();
         requestAnimationFrame(() => enforceBarsFit(container, bCount));
     }
@@ -1159,8 +1161,22 @@
     }
 
     function randomize() {
+        pendingCycleRandomizeQueue = [];
         applyRandomPattern();
         saveSessionState();
+    }
+
+    function enqueueCycleRandomize(barIndex, spec, currentP) {
+        pendingCycleRandomizeQueue.push({ barIndex, spec, currentP });
+    }
+
+    function applyOldestQueuedCycleRandomize() {
+        if (!pendingCycleRandomizeQueue.length) return;
+        const payload = pendingCycleRandomizeQueue.shift();
+        if (!payload) return;
+        const randomPulsationEachCycle = document.getElementById('randomPulsationEachCycle')?.checked;
+        const nextP = randomPulsationEachCycle ? getRandomPulsationValue() : barStates[payload.barIndex].pulsation;
+        applyRandomPatternToBarWithPulsation(payload.barIndex, payload.spec, payload.currentP, nextP);
     }
 
     function randomizeAndPlay() {
@@ -1223,8 +1239,14 @@
                     const randomPulsationEachCycle = document.getElementById('randomPulsationEachCycle')?.checked;
                     // Apply random update only after the frame transition is visually committed.
                     requestAnimationFrame(() => {
-                        const nextP = randomPulsationEachCycle ? getRandomPulsationValue() : barStates[prevBar].pulsation;
-                        applyRandomPatternToBarWithPulsation(prevBar, spec, currentP, nextP);
+                        if (randomPulsationEachCycle) {
+                            // Strict rule: in random pulsation cycle mode, update after the NEXT bar is played.
+                            applyOldestQueuedCycleRandomize();
+                            enqueueCycleRandomize(prevBar, spec, currentP);
+                        } else {
+                            const nextP = barStates[prevBar].pulsation;
+                            applyRandomPatternToBarWithPulsation(prevBar, spec, currentP, nextP);
+                        }
                         const container = document.getElementById('barsContainer');
                         renderBars(container);
                         applyPlayingStep(step);
@@ -1258,6 +1280,7 @@
         if (!audioCtx) audioCtx = new AudioContext();
         if (audioCtx.state === 'suspended') audioCtx.resume();
         playbackRandomizerEnabled = Boolean(enableRandomizer);
+        pendingCycleRandomizeQueue = [];
         currentStep = 0;
         lastFocusedBarIndex = -1;
         nextNoteTime = audioCtx.currentTime + 0.05;
@@ -1270,6 +1293,7 @@
     function stop() {
         clearTimeout(timerID);
         playbackRandomizerEnabled = false;
+        pendingCycleRandomizeQueue = [];
         lastFocusedBarIndex = -1;
         document.getElementById('playBtn').style.display = 'block';
         document.getElementById('stopBtn').style.display = 'none';
