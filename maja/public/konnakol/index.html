@@ -300,6 +300,41 @@
         }
         label.rand-cycle input { width: auto; height: auto; margin: 0; accent-color: var(--violet-600); flex-shrink: 0; }
 
+        .playback-stop-error-panel {
+            display: none;
+            margin: 0 0 14px;
+            padding: 12px 14px;
+            border-radius: 0.75rem;
+            border: 1px solid rgba(244, 63, 94, 0.55);
+            background: rgba(127, 29, 29, 0.38);
+            color: #fecaca;
+        }
+        .playback-stop-error-panel.visible { display: block; }
+        .playback-stop-error-panel .playback-stop-error-title {
+            font-weight: 700;
+            font-size: 0.9rem;
+            margin-bottom: 8px;
+            color: #fff;
+        }
+        .playback-stop-error-panel pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-family: ui-monospace, 'Cascadia Mono', 'Consolas', monospace;
+            font-size: 0.78rem;
+            line-height: 1.45;
+            color: #fecaca;
+        }
+        .playback-stop-error-panel .playback-stop-error-message {
+            margin-bottom: 10px;
+            color: #fde68a;
+        }
+        .playback-stop-error-panel .playback-stop-error-location {
+            opacity: 0.95;
+            max-height: 220px;
+            overflow-y: auto;
+        }
+
         @media (max-width: 860px) {
             .bars-container.many-bars { grid-template-columns: 1fr; }
         }
@@ -504,11 +539,17 @@
         <small id="barScaleValue" class="hint-muted">Current: 100%</small>
     </div>
 
+    <div id="playbackStopErrorPanel" class="playback-stop-error-panel" role="alert">
+        <div class="playback-stop-error-title">Воспроизведение остановлено (ошибка)</div>
+        <pre id="playbackStopErrorMessage" class="playback-stop-error-message"></pre>
+        <pre id="playbackStopErrorLocation" class="playback-stop-error-location"></pre>
+    </div>
+
     <div id="barsContainer" class="bars-container"></div>
 
     <button class="btn btn-rand" onclick="randomizeAndPlay()">🎲 RANDOMIZE PATTERN</button>
     <button id="playBtn" class="btn btn-play" onclick="start(false)">▶ PLAY</button>
-    <button id="stopBtn" class="btn btn-stop" onclick="stop()">■ STOP</button>
+    <button id="stopBtn" class="btn btn-stop" onclick="stop({})">■ STOP</button>
 </div>
 
 <script>
@@ -549,7 +590,44 @@
         constructor(message) {
             super(message);
             this.name = 'PlaybackInvariantViolation';
+            if (typeof Error.captureStackTrace === 'function') {
+                Error.captureStackTrace(this, PlaybackInvariantViolation);
+            }
         }
+    }
+
+    function parseFirstIndexHtmlLineFromStack(stack) {
+        if (!stack || typeof stack !== 'string') return '';
+        const lines = stack.split(/\r?\n/);
+        for (let i = 0; i < lines.length; i++) {
+            const m = lines[i].match(/(?:index\.html|konnakol\/index\.html):(\d+)/i);
+            if (m) return `Строка в index.html: ${m[1]}`;
+        }
+        const m2 = stack.match(/:(\d+):\d+\)?\s*$/m);
+        if (m2) return `Строка (из stack): ${m2[1]}`;
+        return '';
+    }
+
+    function showPlaybackFatalError(err) {
+        const message = (err && err.message) ? String(err.message) : String(err);
+        const stack = (err && err.stack) ? String(err.stack) : '';
+        console.error('[konnakol playback]', err);
+
+        const c = document.getElementById('barsContainer');
+        if (c) {
+            c.dataset.playbackError = message.slice(0, 500);
+            c.dataset.playbackErrorAt = String(Date.now());
+        }
+
+        const panel = document.getElementById('playbackStopErrorPanel');
+        const msgEl = document.getElementById('playbackStopErrorMessage');
+        const locEl = document.getElementById('playbackStopErrorLocation');
+        if (msgEl) msgEl.textContent = message;
+        const lineHint = parseFirstIndexHtmlLineFromStack(stack);
+        if (locEl) {
+            locEl.textContent = (lineHint ? lineHint + '\n\n' : '') + (stack || '(stack недоступен)');
+        }
+        if (panel) panel.classList.add('visible');
     }
 
     function clearInternalPlaybackErrorAttrs() {
@@ -562,15 +640,12 @@
 
     function hidePlaybackFatalError() {
         clearInternalPlaybackErrorAttrs();
-    }
-
-    function showPlaybackFatalError(message) {
-        console.error('[konnakol playback]', message);
-        const c = document.getElementById('barsContainer');
-        if (c) {
-            c.dataset.playbackError = String(message).slice(0, 500);
-            c.dataset.playbackErrorAt = String(Date.now());
-        }
+        const panel = document.getElementById('playbackStopErrorPanel');
+        const msgEl = document.getElementById('playbackStopErrorMessage');
+        const locEl = document.getElementById('playbackStopErrorLocation');
+        if (msgEl) msgEl.textContent = '';
+        if (locEl) locEl.textContent = '';
+        if (panel) panel.classList.remove('visible');
     }
 
     function resetInternalPlaybackIndicators() {
@@ -1065,7 +1140,7 @@
     function togglePulsationMenu(event, barIndex) {
         event.preventDefault();
         event.stopPropagation();
-        if (document.getElementById('stopBtn').style.display === 'block') stop();
+        if (document.getElementById('stopBtn').style.display === 'block') stop({});
         if (pulsationMenuBarIndex === barIndex) {
             endPulsationDrag();
             return;
@@ -1449,8 +1524,8 @@
                 lastAppliedPlaybackUiSeq = evtSeq;
             } catch (e) {
                 if (e && e.name === 'PlaybackInvariantViolation') {
-                    showPlaybackFatalError(e.message);
-                    stop();
+                    showPlaybackFatalError(e);
+                    stop({ fault: true });
                     return;
                 }
                 throw e;
@@ -1494,7 +1569,8 @@
         requestWakeLock();
     }
 
-    function stop() {
+    function stop(options = {}) {
+        if (!options.fault) hidePlaybackFatalError();
         clearTimeout(timerID);
         playbackRandomizerEnabled = false;
         lastProcessedUiPaintKey = '';
