@@ -183,7 +183,7 @@
             -webkit-backdrop-filter: blur(8px);
             color: var(--text);
             font-size: 0.72rem;
-            pointer-events: none;
+            pointer-events: auto;
         }
         .pulsation-drag-panel[hidden] { display: none !important; }
         .pulsation-drag-panel-title {
@@ -210,6 +210,7 @@
             background: rgba(30, 41, 59, 0.55);
             border: 1px solid transparent;
             font-variant-numeric: tabular-nums;
+            cursor: pointer;
         }
         .pulsation-drag-panel-list li.active {
             border-color: var(--violet-500);
@@ -514,7 +515,7 @@
     let playbackRandomizerEnabled = false;
     let barStates = [];
     let stepMeta = [];
-    let pulsationDrag = null;
+    let pulsationMenuBarIndex = null;
     const BASE_PULSATION_FOR_BPM = 4;
     const STORAGE_KEY = 'konnakolSessionStateV1';
     
@@ -826,7 +827,7 @@
             barDiv.className = 'bar';
             barDiv.id = `bar-${b}`;
             barDiv.dataset.barIndex = String(b);
-            barDiv.innerHTML = `<div class="bar-title">Bar ${b + 1} · <span class="pulsation-handle" id="pulsation-handle-${b}" onpointerdown="startPulsationDrag(event, ${b})">P${barStates[b].pulsation}</span></div>`;
+            barDiv.innerHTML = `<div class="bar-title">Bar ${b + 1} · <span class="pulsation-handle" id="pulsation-handle-${b}" onclick="togglePulsationMenu(event, ${b})">P${barStates[b].pulsation}</span></div>`;
 
             const grid = document.createElement('div');
             grid.className = 'rhythm-grid';
@@ -905,7 +906,7 @@
         title.textContent = `Bar ${barIndex + 1}`;
         list.innerHTML = PULSATION_OPTIONS.map(p => {
             const active = p === safeP ? 'active' : '';
-            return `<li class="${active}" data-p="${p}"><span class="p-label">P${p}</span></li>`;
+            return `<li class="${active}" data-p="${p}" onclick="selectPulsationFromMenu(${p})"><span class="p-label">P${p}</span></li>`;
         }).join('');
         positionPulsationDragPanel(barIndex);
     }
@@ -917,68 +918,38 @@
         panel.setAttribute('aria-hidden', 'true');
     }
 
-    function updateDraggedHandleVisual() {
-        if (!pulsationDrag) return;
-        const handle = document.getElementById(`pulsation-handle-${pulsationDrag.barIndex}`);
+    function clearPulsationHandleActiveVisual() {
+        document.querySelectorAll('.pulsation-handle.dragging').forEach(el => el.classList.remove('dragging'));
+    }
+
+    function openPulsationMenu(barIndex) {
+        pulsationMenuBarIndex = barIndex;
+        clearPulsationHandleActiveVisual();
+        const handle = document.getElementById(`pulsation-handle-${barIndex}`);
         if (handle) handle.classList.add('dragging');
+        refreshPulsationDragPanel(barStates[barIndex].pulsation, barIndex);
     }
 
-    function startPulsationDrag(event, barIndex) {
+    function togglePulsationMenu(event, barIndex) {
         event.preventDefault();
+        event.stopPropagation();
         if (document.getElementById('stopBtn').style.display === 'block') stop();
-
-        const bar = barStates[barIndex];
-        if (!bar) return;
-        pulsationDrag = {
-            barIndex,
-            startX: event.clientX,
-            startY: event.clientY,
-            baseP: bar.pulsation,
-            lastP: bar.pulsation,
-            pointerId: event.pointerId
-        };
-        try {
-            if (event.target && event.target.setPointerCapture) {
-                event.target.setPointerCapture(event.pointerId);
-            }
-        } catch (e) {
-            // ignore
+        if (pulsationMenuBarIndex === barIndex) {
+            endPulsationDrag();
+            return;
         }
-        refreshPulsationDragPanel(bar.pulsation, barIndex);
-        updateDraggedHandleVisual();
+        openPulsationMenu(barIndex);
     }
 
-    function onPulsationDragMove(event) {
-        if (!pulsationDrag) return;
-        const dx = event.clientX - pulsationDrag.startX;
-        const dy = event.clientY - pulsationDrag.startY;
-        const axis = Math.abs(dx) > Math.abs(dy) ? dx : -dy;
-        const steps = Math.round(axis / 24);
-        const nextP = Math.min(8, Math.max(3, pulsationDrag.baseP - steps));
-        refreshPulsationDragPanel(nextP, pulsationDrag.barIndex);
-        if (nextP !== pulsationDrag.lastP) {
-            pulsationDrag.lastP = nextP;
-            setBarPulsationManual(pulsationDrag.barIndex, nextP);
-            updateDraggedHandleVisual();
-        }
+    function selectPulsationFromMenu(p) {
+        if (pulsationMenuBarIndex === null || !barStates[pulsationMenuBarIndex]) return;
+        setBarPulsationManual(pulsationMenuBarIndex, p);
+        openPulsationMenu(pulsationMenuBarIndex);
     }
 
     function endPulsationDrag() {
-        if (!pulsationDrag) return;
-        const barIndex = pulsationDrag.barIndex;
-        const pointerId = pulsationDrag.pointerId;
-        const handle = document.getElementById(`pulsation-handle-${barIndex}`);
-        if (handle) {
-            handle.classList.remove('dragging');
-            try {
-                if (pointerId != null && handle.releasePointerCapture) {
-                    handle.releasePointerCapture(pointerId);
-                }
-            } catch (e) {
-                // ignore
-            }
-        }
-        pulsationDrag = null;
+        clearPulsationHandleActiveVisual();
+        pulsationMenuBarIndex = null;
         hidePulsationDragPanel();
     }
 
@@ -1262,9 +1233,14 @@
         fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'pre-fix-1',hypothesisId:'H4',location:'maja/public/konnakol/index.html:resizeHandler',message:'Resize triggered recalculation',data:{bCount,innerHeight:window.innerHeight,innerWidth:window.innerWidth},timestamp:Date.now()})}).catch(()=>{});
         // #endregion
     });
-    document.addEventListener('pointermove', onPulsationDragMove);
-    document.addEventListener('pointerup', endPulsationDrag);
-    document.addEventListener('pointercancel', endPulsationDrag);
+    document.addEventListener('click', (event) => {
+        const panel = document.getElementById('pulsationDragPanel');
+        if (!panel || panel.hidden) return;
+        const target = event.target;
+        if (target && target.closest && target.closest('#pulsationDragPanel')) return;
+        if (target && target.closest && target.closest('.pulsation-handle')) return;
+        endPulsationDrag();
+    });
 </script>
 </body>
 </html>
