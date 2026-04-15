@@ -243,6 +243,7 @@
             justify-content: flex-start;
         }
         .cell {
+            position: relative;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -268,6 +269,42 @@
             box-shadow: 0 0 14px rgba(139, 92, 246, 0.45);
             transform: translateY(-2px);
         }
+        .cell.playing::after {
+            content: '';
+            position: absolute;
+            right: 6px;
+            bottom: 6px;
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+            background: var(--violet-400);
+            box-shadow: 0 0 8px rgba(167, 139, 250, 0.9);
+            pointer-events: none;
+        }
+        .now-playing-readout {
+            margin: 12px 0 10px;
+            padding: 12px 14px;
+            border-radius: 0.75rem;
+            border: 1px solid var(--slate-600);
+            background: rgba(30, 41, 59, 0.55);
+            font-size: 0.88rem;
+            line-height: 1.45;
+            color: var(--text-muted);
+        }
+        .now-playing-readout strong { color: var(--text); font-weight: 600; }
+        .now-playing-readout .readout-line2 { font-size: 0.8rem; color: var(--text-dim); margin-top: 6px; }
+        .playback-error-banner {
+            display: none;
+            margin: 0 0 12px;
+            padding: 12px 14px;
+            border-radius: 0.75rem;
+            border: 1px solid rgba(244, 63, 94, 0.55);
+            background: rgba(127, 29, 29, 0.35);
+            color: #fecaca;
+            font-size: 0.85rem;
+            line-height: 1.4;
+        }
+        .playback-error-banner.visible { display: block; }
         .cell input { cursor: pointer; width: 18px; height: 18px; accent-color: var(--violet-600); }
 
         .btn { width: 100%; padding: 15px; border: none; border-radius: 0.75rem; font-weight: 700; cursor: pointer; margin-bottom: 10px; font-size: 1rem; transition: 0.2s; }
@@ -391,6 +428,7 @@
                 width: 100%;
             }
             .cell {
+                position: relative;
                 flex: 1 1 0;
                 min-width: 0;
                 width: auto;
@@ -515,6 +553,11 @@
         <small id="barScaleValue" class="hint-muted">Current: 100%</small>
     </div>
 
+    <div id="playbackErrorBanner" class="playback-error-banner" role="alert"></div>
+    <div id="nowPlayingReadout" class="now-playing-readout" aria-live="polite" aria-atomic="true">
+        <div id="nowPlayingLine1"><strong>Now:</strong> —</div>
+        <div id="nowPlayingLine2" class="readout-line2"><strong>Highlight:</strong> —</div>
+    </div>
     <div id="barsContainer" class="bars-container"></div>
 
     <button class="btn btn-rand" onclick="randomizeAndPlay()">🎲 RANDOMIZE PATTERN</button>
@@ -535,6 +578,9 @@
     let lastProcessedBarTransitionKey = '';
     let playbackUiEventSeq = 0;
     let lastAppliedPlaybackUiSeq = 0;
+    /** Случайная смена пульсации на границе такта только после отыгранного до конца такта (последний слог) в этой сессии. */
+    let playbackReadyForBarBoundaryRandomPulsation = false;
+    let lastReadoutKey = '';
     let allowPlaybackPulsationMutation = false;
     let wakeLock = null;
     const BASE_PULSATION_FOR_BPM = 4;
@@ -548,6 +594,92 @@
         7: ["Ta", "Ka", "Dhi", "Mi", "Ta", "Ki", "Ta"],
         8: ["Ta", "Ka", "Dhi", "Mi", "Ta", "Ka", "Dju", "Na"]
     };
+
+    class PlaybackInvariantViolation extends Error {
+        constructor(message) {
+            super(message);
+            this.name = 'PlaybackInvariantViolation';
+        }
+    }
+
+    function hidePlaybackFatalError() {
+        const b = document.getElementById('playbackErrorBanner');
+        if (b) {
+            b.textContent = '';
+            b.classList.remove('visible');
+        }
+    }
+
+    function showPlaybackFatalError(message) {
+        const b = document.getElementById('playbackErrorBanner');
+        if (b) {
+            b.textContent = message;
+            b.classList.add('visible');
+        }
+    }
+
+    function resetNowPlayingReadoutIdle() {
+        lastReadoutKey = '';
+        const l1 = document.getElementById('nowPlayingLine1');
+        const l2 = document.getElementById('nowPlayingLine2');
+        if (l1) l1.innerHTML = '<strong>Now:</strong> —';
+        if (l2) l2.innerHTML = '<strong>Highlight:</strong> —';
+    }
+
+    function isPlaybackRunning() {
+        const stopBtn = document.getElementById('stopBtn');
+        return Boolean(stopBtn && stopBtn.style.display === 'block');
+    }
+
+    function getExpectedNextPlaybackMeta(prev) {
+        if (!prev || !barStates[prev.barIndex]) return null;
+        const b = prev.barIndex;
+        const i = prev.localIndex;
+        const p = barStates[b].pulsation;
+        const lastBar = barStates.length - 1;
+        if (i < p - 1) return { barIndex: b, localIndex: i + 1 };
+        if (b < lastBar) return { barIndex: b + 1, localIndex: 0 };
+        return { barIndex: 0, localIndex: 0 };
+    }
+
+    function assertExpectedPlaybackStep(prev, next) {
+        if (!prev) return;
+        const exp = getExpectedNextPlaybackMeta(prev);
+        if (!exp) return;
+        if (exp.barIndex !== next.barIndex || exp.localIndex !== next.localIndex) {
+            throw new PlaybackInvariantViolation(
+                `Playback order violation: expected Bar ${exp.barIndex + 1} beat ${exp.localIndex + 1}, ` +
+                `got Bar ${next.barIndex + 1} beat ${next.localIndex + 1}. Stopping.`
+            );
+        }
+    }
+
+    function updateNowPlayingReadout(barIndex, localIndex) {
+        const p = barStates[barIndex] ? barStates[barIndex].pulsation : 0;
+        const syllable = (syllables[p] || [])[localIndex] || '—';
+        const key = `${barIndex}|${localIndex}`;
+        if (lastReadoutKey === key) return;
+        lastReadoutKey = key;
+        const l1 = document.getElementById('nowPlayingLine1');
+        const l2 = document.getElementById('nowPlayingLine2');
+        if (l1) l1.innerHTML = `<strong>Now:</strong> Bar ${barIndex + 1} · beat ${localIndex + 1}/${p} · ${syllable}`;
+        if (l2) l2.innerHTML = `<strong>Highlight:</strong> small square marker — Bar ${barIndex + 1}, cell beat ${localIndex + 1} (violet frame on that cell).`;
+    }
+
+    function setPlayingCellByBarLocal(barIndex, localIndex) {
+        const container = document.getElementById('barsContainer');
+        if (!container) return false;
+        const el = container.querySelector(`.cell[data-bar-index="${barIndex}"][data-local-index="${localIndex}"]`);
+        if (!el) {
+            throw new PlaybackInvariantViolation(
+                `Playback highlight: cell not found (Bar ${barIndex + 1}, beat ${localIndex + 1}). Stopping.`
+            );
+        }
+        container.querySelectorAll('.cell.playing').forEach(c => c.classList.remove('playing'));
+        el.classList.add('playing');
+        updateNowPlayingReadout(barIndex, localIndex);
+        return true;
+    }
 
     function notesCountLabel(n) {
         return n + (n === 1 ? ' note' : ' notes');
@@ -793,9 +925,16 @@
         renderBars(container);
         currentStep = 0;
         lastFocusedBarIndex = -1;
-        lastProcessedBarTransitionKey = '';
+        lastProcessedUiPaintKey = '';
         playbackUiEventSeq = 0;
         lastAppliedPlaybackUiSeq = 0;
+        lastPaintedPlaybackMeta = null;
+        playbackCompletedCycles = 0;
+        lastMutationPlaybackCycleId = 0;
+        lastCycleMutationUiKey = '';
+        lastReadoutKey = '';
+        hidePlaybackFatalError();
+        resetNowPlayingReadoutIdle();
         rebuildRandomNotesSelect();
         requestAnimationFrame(() => enforceBarsFit(container, bCount));
     }
@@ -878,6 +1017,8 @@
             syllables[p].forEach((s, i) => {
                 const cell = document.createElement('div');
                 cell.className = 'cell';
+                cell.dataset.barIndex = String(b);
+                cell.dataset.localIndex = String(i);
                 cell.id = `step-${globalStep}`;
                 const isChecked = barStates[b].checks[i] ? 'checked' : '';
                 cell.innerHTML = `<small>${s}</small><input type="checkbox" id="check-${globalStep}" ${isChecked} onchange="onBarCheckChanged(${globalStep}, ${b}, ${i})">`;
@@ -1158,30 +1299,16 @@
         applyBarPattern(barIndex, spec);
     }
 
-    function findGlobalStepIndex(barIndex, localIndex) {
-        for (let i = 0; i < stepMeta.length; i++) {
-            if (stepMeta[i].barIndex === barIndex && stepMeta[i].localIndex === localIndex) return i;
-        }
-        return 0;
-    }
-
-    function paintHighlightFromMeta(meta) {
-        if (!meta || !barStates[meta.barIndex]) return false;
-        const hi = findGlobalStepIndex(meta.barIndex, meta.localIndex);
-        return applyPlayingStep(hi);
-    }
-
-    function onBarTransitionOrchestrate({ meta, spec, flags, prevBar, sliderP, bCount }) {
+    function onBarTransitionOrchestrate({ spec, flags, prevBar, sliderP, bCount, pulsationRandomAllowed }) {
         allowPlaybackPulsationMutation = true;
         try {
-            maybeRandomizePulsationForBar(prevBar, sliderP, flags.randomPulsationAfterEachBar);
+            maybeRandomizePulsationForBar(prevBar, sliderP, pulsationRandomAllowed);
             maybeRandomizePatternForBar(prevBar, spec, flags.randomPatternAfterEachBar);
         } finally {
             allowPlaybackPulsationMutation = false;
         }
         const container = document.getElementById('barsContainer');
         renderBars(container);
-        paintHighlightFromMeta(meta);
         requestAnimationFrame(() => enforceBarsFit(container, bCount));
         saveSessionState();
     }
@@ -1282,63 +1409,72 @@
         const meta = stepMeta[step];
         if (!meta || !barStates[meta.barIndex]) return;
         const isChecked = Boolean(barStates[meta.barIndex].checks[meta.localIndex]);
-        const barEntryDedupKey = `${meta.barIndex}:${meta.localIndex}:${step}:${Math.round(time * 1000)}`;
+        const uiDedupKey = `${step}:${Math.round(time * 1000)}`;
+        const metaSnapshot = { barIndex: meta.barIndex, localIndex: meta.localIndex };
 
         playSharpClick(time, isChecked);
 
         const evtSeq = ++playbackUiEventSeq;
+        const delayMs = Math.max(0, (time - audioCtx.currentTime) * 1000);
         setTimeout(() => {
-            if (evtSeq < lastAppliedPlaybackUiSeq) {
-                return;
-            }
+            try {
+                if (!isPlaybackRunning()) return;
+                if (evtSeq < lastAppliedPlaybackUiSeq) return;
 
-            const bCount = barStates.length;
-            const spec = parsePatternSpec();
-            const flags = getPlaybackRandomizerFlags();
+                if (lastProcessedUiPaintKey === uiDedupKey) {
+                    lastAppliedPlaybackUiSeq = Math.max(lastAppliedPlaybackUiSeq, evtSeq);
+                    return;
+                }
+                lastProcessedUiPaintKey = uiDedupKey;
 
-            if (meta.localIndex !== 0) {
+                assertExpectedPlaybackStep(lastPaintedPlaybackMeta, metaSnapshot);
+
+                const bCount = barStates.length;
+                const spec = parsePatternSpec();
+                const flags = getPlaybackRandomizerFlags();
+                const needsMutation = playbackRandomizerEnabled && bCount >= 1
+                    && (flags.randomPatternAfterEachBar || flags.randomPulsationAfterEachBar);
+
+                const isBar0Local0 = metaSnapshot.barIndex === 0 && metaSnapshot.localIndex === 0;
+                const lastBarIdx = bCount - 1;
+                const lastBarPuls = barStates[lastBarIdx] ? barStates[lastBarIdx].pulsation : 0;
+                const lastMeta = lastPaintedPlaybackMeta;
+                const fromFullWrap = lastMeta
+                    && lastMeta.barIndex === lastBarIdx
+                    && lastMeta.localIndex === lastBarPuls - 1;
+
+                if (isBar0Local0 && fromFullWrap) {
+                    playbackCompletedCycles += 1;
+                    const cycleUiKey = `cycle:${playbackCompletedCycles}:${uiDedupKey}`;
+                    if (lastCycleMutationUiKey !== cycleUiKey) {
+                        lastCycleMutationUiKey = cycleUiKey;
+                        if (needsMutation && playbackCompletedCycles > lastMutationPlaybackCycleId) {
+                            const sliderP = parseInt(document.getElementById('pulsation').value, 10);
+                            onBarTransitionOrchestrate({
+                                spec,
+                                flags,
+                                prevBar: lastBarIdx,
+                                sliderP,
+                                bCount,
+                                pulsationRandomAllowed: flags.randomPulsationAfterEachBar
+                            });
+                            lastMutationPlaybackCycleId = playbackCompletedCycles;
+                        }
+                    }
+                }
+
+                setPlayingCellByBarLocal(metaSnapshot.barIndex, metaSnapshot.localIndex);
+                lastPaintedPlaybackMeta = { barIndex: metaSnapshot.barIndex, localIndex: metaSnapshot.localIndex };
                 lastAppliedPlaybackUiSeq = evtSeq;
-                paintHighlightFromMeta(meta);
-                return;
+            } catch (e) {
+                if (e && e.name === 'PlaybackInvariantViolation') {
+                    showPlaybackFatalError(e.message);
+                    stop();
+                    return;
+                }
+                throw e;
             }
-
-            if (lastProcessedBarTransitionKey === barEntryDedupKey) {
-                lastAppliedPlaybackUiSeq = evtSeq;
-                paintHighlightFromMeta(meta);
-                return;
-            }
-            lastProcessedBarTransitionKey = barEntryDedupKey;
-
-            lastAppliedPlaybackUiSeq = evtSeq;
-            paintHighlightFromMeta(meta);
-
-            const needsMutation = playbackRandomizerEnabled && bCount >= 1
-                && (flags.randomPatternAfterEachBar || flags.randomPulsationAfterEachBar);
-
-            if (!needsMutation) {
-                return;
-            }
-
-            const prevBar = (meta.barIndex - 1 + bCount) % bCount;
-            const sliderP = parseInt(document.getElementById('pulsation').value, 10);
-
-            onBarTransitionOrchestrate({
-                meta,
-                spec,
-                flags,
-                prevBar,
-                sliderP,
-                bCount
-            });
-        }, (time - audioCtx.currentTime) * 1000);
-    }
-
-    function applyPlayingStep(step) {
-        const el = document.getElementById(`step-${step}`);
-        if (!el) return false;
-        document.querySelectorAll('.cell').forEach(c => c.classList.remove('playing'));
-        el.classList.add('playing');
-        return true;
+        }, delayMs);
     }
 
     function nextNote() {
@@ -1356,9 +1492,15 @@
         if (audioCtx.state === 'suspended') audioCtx.resume();
         const flags = getPlaybackRandomizerFlags();
         playbackRandomizerEnabled = Boolean(enableRandomizer || flags.randomPatternAfterEachBar || flags.randomPulsationAfterEachBar);
-        lastProcessedBarTransitionKey = '';
+        lastProcessedUiPaintKey = '';
         playbackUiEventSeq = 0;
         lastAppliedPlaybackUiSeq = 0;
+        lastPaintedPlaybackMeta = null;
+        playbackCompletedCycles = 0;
+        lastMutationPlaybackCycleId = 0;
+        lastCycleMutationUiKey = '';
+        lastReadoutKey = '';
+        hidePlaybackFatalError();
         currentStep = 0;
         lastFocusedBarIndex = -1;
         nextNoteTime = audioCtx.currentTime + 0.05;
@@ -1374,10 +1516,16 @@
     function stop() {
         clearTimeout(timerID);
         playbackRandomizerEnabled = false;
-        lastProcessedBarTransitionKey = '';
+        lastProcessedUiPaintKey = '';
         playbackUiEventSeq = 0;
         lastAppliedPlaybackUiSeq = 0;
+        lastPaintedPlaybackMeta = null;
+        playbackCompletedCycles = 0;
+        lastMutationPlaybackCycleId = 0;
+        lastCycleMutationUiKey = '';
         lastFocusedBarIndex = -1;
+        lastReadoutKey = '';
+        resetNowPlayingReadoutIdle();
         document.getElementById('playBtn').style.display = 'block';
         document.getElementById('stopBtn').style.display = 'none';
         document.querySelectorAll('.cell').forEach(c => c.classList.remove('playing'));
