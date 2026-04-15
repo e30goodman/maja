@@ -1,0 +1,6 @@
+{
+  "name": "Konnakol Metronome",
+  "description": "A metronome for the 3-3-2 Adi Talam rhythmic pattern with adjustable subdivision speeds.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
