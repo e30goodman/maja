@@ -376,7 +376,7 @@
                     <label>Pulsation:</label>
                     <select id="pulsation" onchange="initApp(); saveSessionState()">
                         <option value="3">3 (Ta-Ki-Ta)</option>
-                        <option value="4">4 (Ta-Ka-Dhi-Mi)</option>
+                        <option value="4" selected>4 (Ta-Ka-Dhi-Mi)</option>
                         <option value="5">5 (Ta-Ka-Ta-Ki-Ta)</option>
                         <option value="6">6 (Ta-Ka-Dhi-Mi-Ta-Ka)</option>
                         <option value="7">7 (Ta-Ka-Dhi-Mi-Ta-Ki-Ta)</option>
@@ -401,7 +401,7 @@
                         <select id="randNotesPerBar" onchange="saveSessionState()"></select>
                     </div>
                     <label class="rand-cycle">
-                        <input type="checkbox" id="randomEachCycle" onchange="saveSessionState()">
+                        <input type="checkbox" id="randomEachCycle" onchange="saveSessionState()" checked>
                         New pattern each full cycle (while playing)
                     </label>
                     <label class="rand-cycle">
@@ -619,6 +619,9 @@
         const cycleCb = document.getElementById('randomEachCycle');
         const prevRaw = sel.value;
         let nextVal = prevRaw;
+        if (!prevRaw) {
+            nextVal = p === 4 ? '2' : 'random';
+        }
         if (prevRaw === 'cycle_random') {
             cycleCb.checked = true;
             nextVal = 'random';
