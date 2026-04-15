@@ -1224,12 +1224,15 @@
                     const prevBar = (currentBar - 1 + bCount) % bCount;
                     const currentP = parseInt(document.getElementById('pulsation').value, 10);
                     const randomPulsationEachCycle = document.getElementById('randomPulsationEachCycle')?.checked;
-                    const nextP = randomPulsationEachCycle ? getRandomPulsationValue() : barStates[prevBar].pulsation;
-                    applyRandomPatternToBarWithPulsation(prevBar, spec, currentP, nextP);
-                    const container = document.getElementById('barsContainer');
-                    renderBars(container);
-                    requestAnimationFrame(() => enforceBarsFit(container, bCount));
-                    saveSessionState();
+                    // Apply random update only after the frame transition is visually committed.
+                    requestAnimationFrame(() => {
+                        const nextP = randomPulsationEachCycle ? getRandomPulsationValue() : barStates[prevBar].pulsation;
+                        applyRandomPatternToBarWithPulsation(prevBar, spec, currentP, nextP);
+                        const container = document.getElementById('barsContainer');
+                        renderBars(container);
+                        requestAnimationFrame(() => enforceBarsFit(container, bCount));
+                        saveSessionState();
+                    });
                 }
             }
         }, (time - audioCtx.currentTime) * 1000);
