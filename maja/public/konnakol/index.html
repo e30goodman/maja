@@ -336,6 +336,10 @@
             font-weight: 600;
             color: var(--text-muted);
         }
+        .cell small.subdiv-label {
+            font-size: calc(clamp(0.5rem, calc(0.68rem - (var(--bars-count) * 0.015rem)), 0.6rem) * var(--bar-scale));
+            letter-spacing: 0.02em;
+        }
         .cell.rhythm-note-on {
             border-color: var(--violet-500);
             background: rgba(124, 58, 237, 0.22);
@@ -1245,7 +1249,11 @@
                 cell.setAttribute('aria-pressed', barStates[b].checks[i] ? 'true' : 'false');
                 cell.setAttribute('aria-label', `${s}, bar ${b + 1}, beat ${i + 1}`);
                 const label = document.createElement('small');
-                label.textContent = s;
+                const displaySyllable = cellTempoMultiplier === 2
+                    ? 'Ta-Ka'
+                    : (cellTempoMultiplier === 4 ? 'Ta-Ka-Dju-Na' : s);
+                label.textContent = displaySyllable;
+                if (cellTempoMultiplier > 1) label.classList.add('subdiv-label');
                 cell.appendChild(label);
                 if (cellTempoMultiplier > 1) {
                     const speedBadge = document.createElement('span');
