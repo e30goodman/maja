@@ -1180,7 +1180,7 @@
             barDiv.className = 'bar' + (tempoMultiplier > 1 ? ' tempo-boost' : '');
             barDiv.id = `bar-${b}`;
             barDiv.dataset.barIndex = String(b);
-            barDiv.innerHTML = `<div class="bar-title"><span class="bar-tempo-handle" id="bar-tempo-handle-${b}" onpointerdown="startBarTempoHold(event, ${b})" onpointerup="endBarTempoHold(event, ${b})" onpointercancel="endBarTempoHold(event, ${b})" onpointerleave="endBarTempoHold(event, ${b})">x${tempoMultiplier}</span><span class="pulsation-handle" id="pulsation-handle-${b}" onclick="togglePulsationMenu(event, ${b})">P${barStates[b].pulsation}</span></div>`;
+            barDiv.innerHTML = `<div class="bar-title"><span class="bar-tempo-handle" id="bar-tempo-handle-${b}" onpointerdown="startBarTempoHold(event, ${b})" onpointerup="endBarTempoHold(event, ${b})" onpointercancel="endBarTempoHold(event, ${b})">x${tempoMultiplier}</span><span class="pulsation-handle" id="pulsation-handle-${b}" onclick="togglePulsationMenu(event, ${b})">P${barStates[b].pulsation}</span></div>`;
 
             const grid = document.createElement('div');
             grid.className = 'rhythm-grid';
@@ -1258,6 +1258,13 @@
         if (event.button !== undefined && event.button !== 0) return;
         event.preventDefault();
         event.stopPropagation();
+        if (event.currentTarget && event.currentTarget.setPointerCapture && event.pointerId !== undefined) {
+            try {
+                event.currentTarget.setPointerCapture(event.pointerId);
+            } catch (_) {
+                // ignore capture errors on unsupported browsers/devices
+            }
+        }
         if (barTempoHoldTimer !== null) {
             clearTimeout(barTempoHoldTimer);
             barTempoHoldTimer = null;
@@ -1276,6 +1283,15 @@
         if (event) {
             event.preventDefault();
             event.stopPropagation();
+            if (event.currentTarget && event.currentTarget.releasePointerCapture && event.pointerId !== undefined) {
+                try {
+                    if (event.currentTarget.hasPointerCapture && event.currentTarget.hasPointerCapture(event.pointerId)) {
+                        event.currentTarget.releasePointerCapture(event.pointerId);
+                    }
+                } catch (_) {
+                    // ignore release errors on unsupported browsers/devices
+                }
+            }
         }
         const handle = document.getElementById(`bar-tempo-handle-${barIndex}`);
         if (handle) handle.classList.remove('hold-active');
