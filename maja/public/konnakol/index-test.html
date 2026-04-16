@@ -1878,7 +1878,7 @@
     function renderBars(container) {
         recalcStepMeta();
         container.innerHTML = '';
-        let lastSyllableOfPreviousCell = null;
+        let lastOriginalSyllable = null;
         let globalStep = 0;
         for (let b = 0; b < barStates.length; b++) {
             const barDiv = document.createElement('div');
@@ -1922,37 +1922,50 @@
                 const label = document.createElement('small');
                 const seq = syllables[p] || [];
                 let displaySyllable = s;
-                let lastSyllThisCell = s;
                 if (seq.length === 0) {
                     displaySyllable = s;
-                    lastSyllThisCell = s;
+                    lastOriginalSyllable = s;
                 } else {
-                    let startIdx = i % seq.length;
-                    if (lastSyllableOfPreviousCell != null && seq[startIdx] === lastSyllableOfPreviousCell) {
-                        startIdx = (startIdx + 1) % seq.length;
+                    // ВОТ ОН, ФИКС: x1 зависит от позиции, а x2/x4 всегда начинают с 0 (Ta)
+                    const defaultStart = (mult === 1) ? (i % seq.length) : 0;
+
+                    const origFirst = seq[defaultStart];
+                    let displayStart = defaultStart;
+
+                    // Проверка на стык: только если РЕАЛЬНЫЙ конфликт
+                    if (lastOriginalSyllable != null && origFirst === lastOriginalSyllable) {
+                        displayStart = (defaultStart + 1) % seq.length;
                     }
+
+                    // Формируем текст ячейки
                     if (mult === 1) {
-                        displaySyllable = seq[startIdx];
-                        lastSyllThisCell = seq[startIdx];
+                        displaySyllable = seq[displayStart];
                     } else if (mult === 2) {
-                        const a = seq[startIdx];
-                        const b = seq[(startIdx + 1) % seq.length];
+                        const a = seq[displayStart];
+                        const b = seq[(displayStart + 1) % seq.length];
                         displaySyllable = `${a} ${b}`;
-                        lastSyllThisCell = b;
                     } else if (mult === 4) {
-                        const a = seq[startIdx];
-                        const b = seq[(startIdx + 1) % seq.length];
-                        const c = seq[(startIdx + 2) % seq.length];
-                        const d = seq[(startIdx + 3) % seq.length];
+                        const a = seq[displayStart];
+                        const b = seq[(displayStart + 1) % seq.length];
+                        const c = seq[(displayStart + 2) % seq.length];
+                        const d = seq[(displayStart + 3) % seq.length];
                         displaySyllable = `${a} ${b}\n${c} ${d}`;
-                        lastSyllThisCell = d;
                     } else {
                         displaySyllable = s;
-                        lastSyllThisCell = s;
+                    }
+
+                    // ЗАПИСЫВАЕМ ОРИГИНАЛ В ХВОСТ (убивает Домино)
+                    if (mult === 1) {
+                        lastOriginalSyllable = seq[defaultStart];
+                    } else if (mult === 2) {
+                        lastOriginalSyllable = seq[(defaultStart + 1) % seq.length];
+                    } else if (mult === 4) {
+                        lastOriginalSyllable = seq[(defaultStart + 3) % seq.length];
+                    } else {
+                        lastOriginalSyllable = s;
                     }
                 }
                 label.textContent = displaySyllable;
-                lastSyllableOfPreviousCell = lastSyllThisCell;
                 cell.setAttribute('aria-label', `${String(displaySyllable).replace(/\n/g, ', ')}, bar ${b + 1}, beat ${i + 1}`);
                 if (cellTempoMultiplier > 1) {
                     label.classList.add('subdiv-label');
