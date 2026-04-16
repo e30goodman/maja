@@ -1699,14 +1699,19 @@
         if (navigator.vibrate) navigator.vibrate(8);
     }
 
+    function getBarPulseBpm(barIndex, baseBpm) {
+        if (!barStates[barIndex]) return baseBpm;
+        const barPulsation = barStates[barIndex].pulsation || BASE_PULSATION_FOR_BPM;
+        return baseBpm * (barPulsation / BASE_PULSATION_FOR_BPM);
+    }
+
     function getEffectiveBpmForBar(barIndex, baseBpm) {
         if (!barStates[barIndex]) return baseBpm;
         const barTempoMultiplier = barStates[barIndex].tempoMultiplier || 1;
-        if (!playbackRandomizerEnabled) return baseBpm * barTempoMultiplier;
-        // In random playback, slider BPM is interpreted as tempo for 4-pulse bar.
-        // Each bar gets its internal tempo via pulsation ratio.
-        const barPulsation = barStates[barIndex].pulsation;
-        return baseBpm * (barPulsation / BASE_PULSATION_FOR_BPM) * barTempoMultiplier;
+        // Slider BPM is the reference for 4-pulse bars.
+        // Each bar always gets its own internal BPM by pulsation ratio.
+        const pulseBpm = getBarPulseBpm(barIndex, baseBpm);
+        return pulseBpm * barTempoMultiplier;
     }
 
     function getCellTempoMultiplier(barIndex, localIndex) {
