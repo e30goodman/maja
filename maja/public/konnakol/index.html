@@ -114,6 +114,24 @@
             border-radius: 0.75rem;
             background: rgba(30, 41, 59, 0.35);
         }
+        .control-group.tempo-x2 {
+            border-color: var(--rose-500);
+            box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.22) inset;
+        }
+        .control-group.tempo-x2 input[type="range"] {
+            accent-color: var(--rose-500);
+        }
+        .tempo-readout {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .tempo-x2-badge {
+            color: var(--rose-400);
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
         label { display: block; margin-bottom: 8px; font-weight: 600; font-size: 0.85rem; color: var(--text-muted); }
         label .hint-muted { font-weight: 400; color: var(--text-dim); }
         select, input[type="range"] {
@@ -555,12 +573,15 @@
         </div>
     </details>
 
-    <div class="control-group">
+    <div id="tempoControl" class="control-group">
         <label>
             Tempo
         </label>
         <input type="range" id="bpm" min="20" max="480" value="100" oninput="updateTempoLabel()">
-        <small id="bpmValue" class="hint-muted">100</small>
+        <div class="tempo-readout">
+            <small id="bpmValue" class="hint-muted">100</small>
+            <small id="tempoX2Badge" class="tempo-x2-badge" hidden>x2</small>
+        </div>
     </div>
 
     <div id="barsContainer" class="bars-container"></div>
@@ -595,8 +616,11 @@
     let accentOnlyEnabled = false;
     let wakeLock = null;
     let barScalerAutoCloseTimer = null;
+    let tempoDoubleMode = false;
+    let tempoHoldTimer = null;
     const BASE_PULSATION_FOR_BPM = 4;
     const BAR_SCALER_AUTO_CLOSE_MS = 5000;
+    const TEMPO_HOLD_MS = 650;
     const STORAGE_KEY = 'konnakolSessionStateV1';
     
     const syllables = {
@@ -725,6 +749,51 @@
         saveSessionState();
     }
 
+    function refreshTempoModeUi() {
+        const tempoControl = document.getElementById('tempoControl');
+        const badge = document.getElementById('tempoX2Badge');
+        if (tempoControl) tempoControl.classList.toggle('tempo-x2', tempoDoubleMode);
+        if (badge) badge.hidden = !tempoDoubleMode;
+    }
+
+    function toggleTempoDoubleMode() {
+        tempoDoubleMode = !tempoDoubleMode;
+        refreshTempoModeUi();
+        saveSessionState();
+    }
+
+    function setupTempoHoldToggle() {
+        const bpmSlider = document.getElementById('bpm');
+        if (!bpmSlider || bpmSlider.dataset.holdSetup === '1') return;
+        bpmSlider.dataset.holdSetup = '1';
+
+        const clearHold = () => {
+            if (tempoHoldTimer !== null) {
+                clearTimeout(tempoHoldTimer);
+                tempoHoldTimer = null;
+            }
+        };
+
+        bpmSlider.addEventListener('pointerdown', (event) => {
+            if (event.button !== undefined && event.button !== 0) return;
+            clearHold();
+            tempoHoldTimer = setTimeout(() => {
+                tempoHoldTimer = null;
+                toggleTempoDoubleMode();
+            }, TEMPO_HOLD_MS);
+        });
+
+        bpmSlider.addEventListener('pointerup', () => {
+            clearHold();
+        });
+        bpmSlider.addEventListener('pointercancel', () => {
+            clearHold();
+        });
+        bpmSlider.addEventListener('pointerleave', () => {
+            clearHold();
+        });
+    }
+
     function notesCountLabel(n) {
         return n + (n === 1 ? ' note' : ' notes');
     }
@@ -741,6 +810,7 @@
             randomPatternAfterEachBar: document.getElementById('randomPatternAfterEachBar').checked,
             randomPulsationAfterEachBar: document.getElementById('randomPulsationAfterEachBar').checked,
             accentOnlySound: accentOnlyEnabled,
+            tempoDoubleMode,
             bpm: String(document.getElementById('bpm').value || '100'),
             barScaleByCount: getBarScaleMapForSave(),
             barPulsations,
@@ -846,7 +916,9 @@
                 : Boolean(state.randomPulsationAfterEachBar);
         }
         accentOnlyEnabled = Boolean(state.accentOnlySound);
+        tempoDoubleMode = Boolean(state.tempoDoubleMode);
         refreshAccentToggleButton();
+        refreshTempoModeUi();
     }
 
 
@@ -1568,7 +1640,7 @@
     }
 
     function nextNote() {
-        const baseBpm = parseFloat(document.getElementById('bpm').value);
+        const baseBpm = parseFloat(document.getElementById('bpm').value) * (tempoDoubleMode ? 2 : 1);
         const totalSteps = stepMeta.length;
         if (!totalSteps) return;
         const meta = stepMeta[currentStep];
@@ -1630,7 +1702,9 @@
     updateBarScaleLabel();
     initApp();
     restoreSelectState(savedState);
+    setupTempoHoldToggle();
     updateTempoLabel();
+    refreshTempoModeUi();
     refreshAccentToggleButton();
     saveSessionState();
 
