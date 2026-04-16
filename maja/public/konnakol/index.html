@@ -755,6 +755,7 @@
     let lastProcessedUiPaintKey = '';
     let playbackUiEventSeq = 0;
     let lastAppliedPlaybackUiSeq = 0;
+    let lastKnownRandomPatternEnabled = true;
     let lastPaintedPlaybackMeta = null;
     let playbackCompletedCycles = 0;
     /** Сколько раз за текущий незавершённый круг вызвали оркестратор на границах тактов (localIndex===0). Должно стать ровно bCount за полный круг. */
@@ -928,6 +929,17 @@
     }
 
     function onRandomizationFlagsChanged() {
+        const patternEnabledNow = Boolean(document.getElementById('randomPatternAfterEachBar')?.checked);
+        const patternDisabledNow = lastKnownRandomPatternEnabled && !patternEnabledNow;
+        lastKnownRandomPatternEnabled = patternEnabledNow;
+
+        // Если Random Pattern выключили во время playback, отменяем уже запланированные
+        // callbacks, чтобы прошлые «очереди» перестановки акцентов не отрабатывали.
+        if (patternDisabledNow && isPlaybackRunning()) {
+            lastAppliedPlaybackUiSeq = playbackUiEventSeq;
+            lastProcessedUiPaintKey = '';
+        }
+
         if (randomModeEnabled) {
             playbackRandomizerEnabled = computePlaybackRandomizerEnabled();
             refreshRandomModeToggleButton();
@@ -1144,6 +1156,7 @@
         refreshRandomModeToggleButton();
         refreshAccentToggleButton();
         refreshTempoModeUi();
+        lastKnownRandomPatternEnabled = Boolean(document.getElementById('randomPatternAfterEachBar')?.checked);
         onSoundPresetChange();
     }
 
