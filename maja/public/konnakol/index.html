@@ -863,6 +863,8 @@
         8: ["Ta", "Ka", "Dhi", "Mi", "Ta", "Ka", "Dju", "Na"],
         9: ["Ta", "Ka", "Dhi", "Mi", "Ta", "Ka", "Ta", "Ki", "Ta"]
     };
+    /** x3 on a cell (4 subdivisions): UI always Ta Ka / Dhi Mi, never e.g. Ta Ki Ta Ta from short pulses. */
+    const SUBDIV_X3_LABEL_QUAD = ['Ta', 'Ka', 'Dhi', 'Mi'];
 
     class PlaybackInvariantViolation extends Error {
         constructor(message) {
@@ -1701,12 +1703,8 @@
                         // Two subdivisions: Ta Ka when pattern starts that way.
                         displaySyllable = `${seq[0]} ${seq[1 % seq.length]}`;
                     } else if (mult === 4) {
-                        // Four subdivisions: two-line Ta Ka / Dhi Mi style.
-                        const a = seq[0];
-                        const b = seq[1 % seq.length];
-                        const c = seq[2 % seq.length];
-                        const d = seq[3 % seq.length];
-                        displaySyllable = `${a} ${b}\n${c} ${d}`;
+                        const q = SUBDIV_X3_LABEL_QUAD;
+                        displaySyllable = `${q[0]} ${q[1]}\n${q[2]} ${q[3]}`;
                     } else {
                         displaySyllable = s;
                     }
@@ -1717,7 +1715,7 @@
                     } else if (mult === 2) {
                         lastOriginalSyllable = seq[1 % seq.length];
                     } else if (mult === 4) {
-                        lastOriginalSyllable = seq[3 % seq.length];
+                        lastOriginalSyllable = SUBDIV_X3_LABEL_QUAD[3];
                     } else {
                         lastOriginalSyllable = s;
                     }
