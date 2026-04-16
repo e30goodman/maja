@@ -2821,7 +2821,7 @@
             event.preventDefault();
             event.stopPropagation();
             const p = parseInt(row.getAttribute('data-p'), 10);
-            if (!Number.isFinite(p) || p < 2 || p > 8) return;
+            if (!Number.isFinite(p) || p < 2 || p > MAX_PULSATION) return;
             selectPulsationFromMenu(p);
         });
     }
