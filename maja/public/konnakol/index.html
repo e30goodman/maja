@@ -107,6 +107,16 @@
         .top-fold-row .settings-fold {
             margin: 0;
         }
+        .top-fold-row.single-main,
+        .top-fold-row.single-scaler {
+            grid-template-columns: 1fr;
+        }
+        .top-fold-row.single-main #barScalerFold {
+            display: none;
+        }
+        .top-fold-row.single-scaler #mainSettingsFold {
+            display: none;
+        }
         .settings-fold summary {
             cursor: pointer;
             list-style: none;
@@ -639,7 +649,7 @@
     <div class="back-link">
         <a href=".." aria-label="Back">←</a>
     </div>
-    <div class="top-fold-row">
+    <div id="topFoldRow" class="top-fold-row">
     <details id="mainSettingsFold" class="settings-fold">
         <summary title="Settings">⚙️</summary>
         <div class="settings-fold-content">
@@ -2102,6 +2112,28 @@
     refreshAccentToggleButton();
     saveSessionState();
 
+    const topFoldRowEl = document.getElementById('topFoldRow');
+    const mainSettingsFoldEl = document.getElementById('mainSettingsFold');
+    const barScalerFoldEl = document.getElementById('barScalerFold');
+
+    const syncTopFoldRowState = () => {
+        if (!topFoldRowEl || !mainSettingsFoldEl || !barScalerFoldEl) return;
+        topFoldRowEl.classList.remove('single-main', 'single-scaler');
+        if (mainSettingsFoldEl.open) {
+            if (barScalerFoldEl.open) barScalerFoldEl.open = false;
+            topFoldRowEl.classList.add('single-main');
+            return;
+        }
+        if (barScalerFoldEl.open) {
+            if (mainSettingsFoldEl.open) mainSettingsFoldEl.open = false;
+            topFoldRowEl.classList.add('single-scaler');
+        }
+    };
+
+    if (mainSettingsFoldEl) {
+        mainSettingsFoldEl.addEventListener('toggle', syncTopFoldRowState);
+    }
+
     const scheduleBarScalerAutoClose = () => {
         if (!barScalerFoldEl || !barScalerFoldEl.open || barScalerSliderHeld) return;
         if (barScalerAutoCloseTimer !== null) {
@@ -2114,13 +2146,13 @@
         }, BAR_SCALER_AUTO_CLOSE_MS);
     };
 
-    const barScalerFoldEl = document.getElementById('barScalerFold');
     if (barScalerFoldEl) {
         barScalerFoldEl.addEventListener('toggle', () => {
             if (barScalerAutoCloseTimer !== null) {
                 clearTimeout(barScalerAutoCloseTimer);
                 barScalerAutoCloseTimer = null;
             }
+            syncTopFoldRowState();
             scheduleBarScalerAutoClose();
         });
     }
@@ -2148,6 +2180,7 @@
         barScaleSliderEl.addEventListener('pointerup', onRelease);
         barScaleSliderEl.addEventListener('pointercancel', onRelease);
     }
+    syncTopFoldRowState();
 
     window.addEventListener('resize', () => {
         const bCount = parseInt(document.getElementById('barsCount').value, 10);
