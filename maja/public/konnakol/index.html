@@ -195,7 +195,6 @@
             padding: calc(clamp(10px, calc(19px - (var(--bars-count) * 1px)), 15px) * var(--bar-scale));
             border-radius: calc(1rem * var(--bar-scale));
             min-height: calc(var(--bar-height) * var(--bar-scale));
-            box-sizing: border-box;
         }
         .bar.tempo-boost {
             border-color: var(--playback-border);
@@ -336,8 +335,6 @@
             flex-wrap: wrap;
             gap: calc(clamp(5px, calc(10px - (var(--bars-count) * 0.4px)), 8px) * var(--bar-scale));
             justify-content: flex-start;
-            align-items: stretch;
-            align-content: flex-start;
         }
         .cell {
             --cell-box-size-default: calc(var(--cell-height) * var(--bar-scale));
@@ -348,9 +345,7 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            align-self: stretch;
             position: relative;
-            box-sizing: border-box;
             background: var(--slate-800);
             padding: calc(clamp(6px, calc(10px - (var(--bars-count) * 0.45px)), 8px) * var(--bar-scale));
             border-radius: calc(0.5rem * var(--bar-scale));
@@ -365,14 +360,13 @@
         .cell.cell-profile-default {
             min-height: var(--cell-box-size-default);
         }
-        /* Абсолютные подписи + бейдж не дают высоты во flex — одинаковый резерв для x2 и x3 */
         .cell.cell-profile-x2 {
             --cell-label-reserve: 14px;
             --cell-box-size-x2: calc(var(--cell-box-size-default) + var(--cell-label-reserve));
             min-height: var(--cell-box-size-x2);
         }
         .cell.cell-profile-x3 {
-            --cell-label-reserve: 14px;
+            --cell-label-reserve: 22px;
             --cell-box-size-x3: calc(var(--cell-box-size-default) + var(--cell-label-reserve));
             min-height: var(--cell-box-size-x3);
         }
@@ -656,7 +650,6 @@
                 flex-direction: column;
                 align-items: center;
                 justify-content: center;
-                align-self: stretch;
                 gap: 0;
                 padding: calc(12px * var(--bar-scale)) calc(4px * var(--bar-scale)) calc(14px * var(--bar-scale));
                 min-height: var(--cell-box-size-default);
@@ -670,7 +663,7 @@
                 min-height: var(--cell-box-size-x2);
             }
             .cell.cell-profile-x3 {
-                --cell-label-reserve: 14px;
+                --cell-label-reserve: 22px;
                 --cell-box-size-x3: calc(var(--cell-box-size-default) + var(--cell-label-reserve));
                 min-height: var(--cell-box-size-x3);
             }
