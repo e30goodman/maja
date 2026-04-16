@@ -1468,6 +1468,38 @@
         requestAnimationFrame(() => enforceBarsFit(container, bCount));
     }
 
+    function cloneBarStatesRowSnapshot() {
+        return barStates.map(b => ({
+            pulsation: b.pulsation,
+            checks: b.checks.slice(),
+            tempoMultiplier: b.tempoMultiplier || 1,
+            cellTempoMultipliers: Array.isArray(b.cellTempoMultipliers)
+                ? b.cellTempoMultipliers.slice()
+                : Array.from({ length: b.pulsation }, () => 1)
+        }));
+    }
+
+    function normalizeStepTempoMultiplier(m) {
+        const n = parseInt(m, 10);
+        return (n === 2 || n === 4 || n === 3) ? (n === 3 ? 4 : n) : 1;
+    }
+
+    function mergePriorBarStatesIntoFreshDefaults(prior, defaultPulsation, bCount) {
+        const nMerge = Math.min(bCount, prior.length);
+        for (let i = 0; i < nMerge; i++) {
+            const src = prior[i];
+            let p = parseInt(src.pulsation, 10);
+            if (!syllables[p]) p = defaultPulsation;
+            p = Math.min(8, Math.max(2, p));
+            barStates[i].pulsation = p;
+            const arrChecks = Array.isArray(src.checks) ? src.checks : [];
+            barStates[i].checks = Array.from({ length: p }, (_, j) => Boolean(arrChecks[j]));
+            barStates[i].tempoMultiplier = normalizeStepTempoMultiplier(src.tempoMultiplier);
+            const arrCells = Array.isArray(src.cellTempoMultipliers) ? src.cellTempoMultipliers : [];
+            barStates[i].cellTempoMultipliers = Array.from({ length: p }, (_, j) => normalizeStepTempoMultiplier(arrCells[j]));
+        }
+    }
+
     function initializeBarStates(defaultPulsation, bCount, options = {}) {
         const state = loadSessionState();
         const defaultBar = () => ({
@@ -1476,7 +1508,15 @@
             tempoMultiplier: 1,
             cellTempoMultipliers: Array.from({ length: defaultPulsation }, () => 1)
         });
+        const priorFromLive = !options.ignorePerBarPulsationsFromSession && barStates.length > 0
+            ? cloneBarStatesRowSnapshot()
+            : null;
         barStates = Array.from({ length: bCount }, () => defaultBar());
+        if (priorFromLive) {
+            mergePriorBarStatesIntoFreshDefaults(priorFromLive, defaultPulsation, bCount);
+            recalcStepMeta();
+            return;
+        }
 
         if (!state) {
             recalcStepMeta();
