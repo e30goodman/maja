@@ -703,6 +703,10 @@
                         Pattern each bar
                     </label>
                     <label class="rand-cycle">
+                        <input type="checkbox" id="randomPatternSpeedChange" onchange="saveSessionState()">
+                        Change speed
+                    </label>
+                    <label class="rand-cycle">
                         <input type="checkbox" id="randomPulsationAfterEachBar" onchange="saveSessionState()">
                         Pulsation each bar
                     </label>
@@ -981,6 +985,7 @@
             barsCount: String(bCount),
             randNotesPerBar: document.getElementById('randNotesPerBar').value || 'random',
             randomPatternAfterEachBar: document.getElementById('randomPatternAfterEachBar').checked,
+            randomPatternSpeedChange: Boolean(document.getElementById('randomPatternSpeedChange')?.checked),
             randomPulsationAfterEachBar: document.getElementById('randomPulsationAfterEachBar').checked,
             accentOnlySound: accentOnlyEnabled,
             soundPreset: selectedSoundPreset,
@@ -1056,6 +1061,7 @@
         const bpmEl = document.getElementById('bpm');
         const barScaleEl = document.getElementById('barScale');
         const randomPatternAfterEachBarEl = document.getElementById('randomPatternAfterEachBar');
+        const randomPatternSpeedChangeEl = document.getElementById('randomPatternSpeedChange');
         const randomPulsationAfterEachBarEl = document.getElementById('randomPulsationAfterEachBar');
         const soundPresetEl = document.getElementById('soundPreset');
 
@@ -1086,6 +1092,9 @@
             } else {
                 randomPatternAfterEachBarEl.checked = true;
             }
+        }
+        if (randomPatternSpeedChangeEl) {
+            randomPatternSpeedChangeEl.checked = Boolean(state.randomPatternSpeedChange);
         }
         if (randomPulsationAfterEachBarEl) {
             randomPulsationAfterEachBarEl.checked = state.randomPulsationAfterEachBar === undefined
@@ -1795,6 +1804,7 @@
     function getPlaybackRandomizerFlags() {
         return {
             randomPatternAfterEachBar: Boolean(document.getElementById('randomPatternAfterEachBar')?.checked),
+            randomPatternSpeedChange: Boolean(document.getElementById('randomPatternSpeedChange')?.checked),
             randomPulsationAfterEachBar: Boolean(document.getElementById('randomPulsationAfterEachBar')?.checked)
         };
     }
@@ -1817,11 +1827,24 @@
         applyBarPattern(barIndex, spec);
     }
 
+    function maybeRandomizeCellSpeedsForBar(barIndex, enabled) {
+        if (!enabled || !barStates[barIndex]) return;
+        const p = barStates[barIndex].pulsation;
+        const next = Array.from({ length: p }, () => {
+            const roll = Math.random();
+            if (roll < 0.16) return 4; // x3 label / x4 effective speed
+            if (roll < 0.42) return 2; // x2
+            return 1;
+        });
+        barStates[barIndex].cellTempoMultipliers = next;
+    }
+
     function onBarTransitionOrchestrate({ spec, flags, prevBar, sliderP, bCount, pulsationRandomAllowed }) {
         allowPlaybackPulsationMutation = true;
         try {
             maybeRandomizePulsationForBar(prevBar, sliderP, pulsationRandomAllowed);
             maybeRandomizePatternForBar(prevBar, spec, flags.randomPatternAfterEachBar);
+            maybeRandomizeCellSpeedsForBar(prevBar, flags.randomPatternAfterEachBar && flags.randomPatternSpeedChange);
         } finally {
             allowPlaybackPulsationMutation = false;
         }
