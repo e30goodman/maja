@@ -1544,7 +1544,12 @@
     }
 
     function notesCountLabel(n) {
-        return n + (n === 1 ? ' node' : ' nodes');
+        const mod10 = n % 10;
+        const mod100 = n % 100;
+        let w = 'нот';
+        if (mod10 === 1 && mod100 !== 11) w = 'нота';
+        else if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) w = 'ноты';
+        return n + ' ' + w;
     }
 
     function getCurrentSessionState() {
@@ -2502,7 +2507,7 @@
         return { mode: 'random' };
     }
 
-    /** 0..1: насколько агрессивно крутить x2/x4 для Random speed (Max 1 node = слабо, Random / высокий Max = полный бросок). */
+    /** 0..1: насколько агрессивно крутить x2/x4 для Random speed (Max 1 нота = слабо, Random / высокий Max = полный бросок). */
     function getSpeedRandomAggressionFromSpec(spec, pulsationP) {
         const safeP = Math.min(8, Math.max(2, parseInt(pulsationP, 10) || 4));
         if (spec && spec.mode === 'max' && typeof spec.n === 'number' && spec.n >= 1) {
