@@ -350,7 +350,6 @@
             border-radius: calc(0.5rem * var(--bar-scale));
             width: calc(clamp(32px, calc(48px - (var(--bars-count) * 1.45px)), 42px) * var(--bar-scale));
             min-height: var(--cell-box-size-default);
-            height: var(--cell-box-size-default);
             transition: 0.1s;
             border: 2px solid transparent;
             cursor: pointer;
@@ -359,15 +358,12 @@
         }
         .cell.cell-profile-default {
             min-height: var(--cell-box-size-default);
-            height: var(--cell-box-size-default);
         }
         .cell.cell-profile-x2 {
             min-height: var(--cell-box-size-x2);
-            height: var(--cell-box-size-x2);
         }
         .cell.cell-profile-x3 {
             min-height: var(--cell-box-size-x3);
-            height: var(--cell-box-size-x3);
         }
         .cell:focus-visible {
             outline: 2px solid var(--violet-400);
@@ -632,7 +628,6 @@
                 gap: 0;
                 padding: calc(12px * var(--bar-scale)) calc(4px * var(--bar-scale)) calc(14px * var(--bar-scale));
                 min-height: var(--cell-box-size-default);
-                height: var(--cell-box-size-default);
                 border-radius: 12px;
                 border-width: 2px;
                 box-sizing: border-box;
