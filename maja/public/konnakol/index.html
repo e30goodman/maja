@@ -1779,9 +1779,9 @@
         pulsationHoldTimer = setTimeout(() => {
             pulsationHoldTimer = null;
             if (pulsationHoldBar !== barIndex) return;
-            suppressPulsationClickBar = barIndex;
             const syntheticEvent = { preventDefault() {}, stopPropagation() {} };
             togglePulsationMenu(syntheticEvent, barIndex);
+            suppressPulsationClickBar = barIndex;
         }, TEMPO_HOLD_MS);
     }
 
