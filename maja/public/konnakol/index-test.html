@@ -181,6 +181,8 @@
             --bars-count: 4;
             --bar-height: 96px;
             --cell-height: 62px;
+            /* Fixed cell window height: base from JS + slack; independent of label text */
+            --total-cell-height: calc((var(--cell-height) + 20px) * var(--bar-scale));
             --bars-gap: 16px;
             --bar-scale: 1;
             display: grid;
@@ -195,6 +197,7 @@
             padding: calc(clamp(10px, calc(19px - (var(--bars-count) * 1px)), 15px) * var(--bar-scale));
             border-radius: calc(1rem * var(--bar-scale));
             min-height: calc(var(--bar-height) * var(--bar-scale));
+            box-sizing: border-box;
         }
         .bar.tempo-boost {
             border-color: var(--playback-border);
@@ -337,10 +340,6 @@
             justify-content: flex-start;
         }
         .cell {
-            --cell-box-size-default: calc(var(--cell-height) * var(--bar-scale));
-            --cell-label-reserve: 0px;
-            --cell-box-size-x2: calc(var(--cell-box-size-default) + var(--cell-label-reserve));
-            --cell-box-size-x3: calc(var(--cell-box-size-default) + var(--cell-label-reserve));
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -350,21 +349,21 @@
             padding: calc(clamp(6px, calc(10px - (var(--bars-count) * 0.45px)), 8px) * var(--bar-scale));
             border-radius: calc(0.5rem * var(--bar-scale));
             width: calc(clamp(32px, calc(48px - (var(--bars-count) * 1.45px)), 42px) * var(--bar-scale));
-            min-height: var(--cell-box-size-default);
+            height: var(--total-cell-height);
+            min-height: var(--total-cell-height);
+            max-height: var(--total-cell-height);
             transition: 0.1s;
             border: 2px solid transparent;
             cursor: pointer;
             user-select: none;
             -webkit-tap-highlight-color: transparent;
         }
-        .cell.cell-profile-default {
-            min-height: var(--cell-box-size-default);
-        }
-        .cell.cell-profile-x2 {
-            min-height: var(--cell-box-size-x2);
-        }
+        .cell.cell-profile-default,
+        .cell.cell-profile-x2,
         .cell.cell-profile-x3 {
-            min-height: var(--cell-box-size-x3);
+            height: var(--total-cell-height);
+            min-height: var(--total-cell-height);
+            max-height: var(--total-cell-height);
         }
         .cell:focus-visible {
             outline: 2px solid var(--violet-400);
@@ -776,10 +775,6 @@
                 width: 100%;
             }
             .cell {
-                --cell-box-size-default: calc(var(--cell-height) * var(--bar-scale));
-                --cell-label-reserve: 0px;
-                --cell-box-size-x2: calc(var(--cell-box-size-default) + var(--cell-label-reserve));
-                --cell-box-size-x3: calc(var(--cell-box-size-default) + var(--cell-label-reserve));
                 flex: 1 1 0;
                 min-width: 0;
                 width: auto;
@@ -789,10 +784,19 @@
                 justify-content: center;
                 gap: 0;
                 padding: calc(12px * var(--bar-scale)) calc(4px * var(--bar-scale)) calc(14px * var(--bar-scale));
-                min-height: var(--cell-box-size-default);
+                height: var(--total-cell-height);
+                min-height: var(--total-cell-height);
+                max-height: var(--total-cell-height);
                 border-radius: 12px;
                 border-width: 2px;
                 box-sizing: border-box;
+            }
+            .cell.cell-profile-default,
+            .cell.cell-profile-x2,
+            .cell.cell-profile-x3 {
+                height: var(--total-cell-height);
+                min-height: var(--total-cell-height);
+                max-height: var(--total-cell-height);
             }
             .cell small {
                 font-size: calc(0.78rem * var(--bar-scale));
@@ -833,7 +837,7 @@
         <a href=".." aria-label="Back">←</a>
     </div>
     -->
-    <div class="back-link"><a href="index.html" class="version-link" title="Stable version">v1.01 test</a></div>
+    <div class="back-link"><a href="index.html" class="version-link" title="Stable v1.0.1">v1.0.1 test</a></div>
     <div id="topFoldRow" class="top-fold-row">
     <details id="mainSettingsFold" class="settings-fold">
         <summary title="Settings">⚙️</summary>
@@ -934,7 +938,6 @@
     <button id="playBtn" class="btn btn-play" onclick="start(false)">▶ PLAY</button>
     <button id="stopBtn" class="btn btn-stop" onclick="stop()">■ STOP</button>
 </div>
-
 <div id="dictaphoneOverlay" class="dictaphone-overlay" hidden aria-hidden="true" onclick="if(event.target===event.currentTarget)closeDictaphoneOverlay()">
     <div class="dictaphone-card" role="dialog" aria-labelledby="dictaphoneTitle" onclick="event.stopPropagation()">
         <h3 id="dictaphoneTitle">Syllable recorder</h3>
@@ -989,12 +992,12 @@
     let cellTempoHoldKey = '';
     let suppressCellClickKey = '';
     let tempoDoubleMode = false;
+    /** Last accepted BPM (revert track click without drag). */
     let bpmSliderLastStable = 100;
     let randomModeEnabled = false;
     let selectedSoundPreset = 'classic';
     let customClickBuffer = null;
     let customAccentBuffer = null;
-
     /** Six unique clips; pulsation 8 reuses Ta/Ka from slots 1–2 for beats 5–6 (same buffers in playback). */
     const DICT_SYLLABLES = ['Ta', 'Ka', 'Dhi', 'Mi', 'Dju', 'Na'];
     const customSyllableBuffers = {};
@@ -1010,6 +1013,7 @@
     const BASE_PULSATION_FOR_BPM = 4;
     const BAR_SCALER_AUTO_CLOSE_MS = 5000;
     const TEMPO_HOLD_MS = 420;
+    /** Upper bound for Max N dropdown options (independent of current pulsation; cap vs beats in bar is separate). */
     const RAND_NOTES_MENU_MAX = 8;
     const STORAGE_KEY = 'konnakolSessionStateV1Test';
     
@@ -1259,7 +1263,6 @@
             console.error('[konnakol] custom sound decode failed', e);
         }
     }
-
     function dictNormalizeSyllableKey(label) {
         if (!label) return '';
         const t = String(label).trim();
@@ -2651,17 +2654,21 @@
             if (roll < cutX2) return 2;
             return 4;
         }
+        /** Always x2 or x4 — no silent no-speed-change outcome. */
         function rollMultBoost() {
             let v = rollMult();
             if (v !== 1) return v;
             return Math.random() < 0.5 ? 2 : 4;
         }
+        // Drum (accents) off: passives muted → Random Speed affects accents only; on: whole bar.
         const pool = accentOnlyEnabled
             ? Array.from({ length: p }, (_, i) => i)
             : Array.from({ length: p }, (_, i) => i).filter(i => s.checks[i]);
         if (pool.length === 0) return;
+        // Occasionally leave speeds untouched: bar stays x1 everywhere (after clearBarCellSpeeds).
         const RANDOM_SPEED_IDLE_PASS_CHANCE = 0.08;
         if (Math.random() < RANDOM_SPEED_IDLE_PASS_CHANCE) return;
+        // Exactly N beats (N from Max N; in Random mode all in pool), each gets x2/x4.
         let cap;
         if (spec.mode === 'max' && typeof spec.n === 'number' && spec.n >= 1) {
             cap = Math.min(spec.n, pool.length);
