@@ -2229,6 +2229,7 @@
             if (!insideMain) mainSettingsFoldEl.open = false;
         }
         if (barScalerFoldEl && barScalerFoldEl.open) {
+            if (barScalerSliderHeld) return;
             const insideScaler = target && target.closest && target.closest('#barScalerFold');
             if (!insideScaler) barScalerFoldEl.open = false;
         }
