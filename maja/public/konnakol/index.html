@@ -1958,15 +1958,21 @@
         const safeP = barStates[barIndex].pulsation;
 
         if (spec.mode === 'random') {
+            let hasAccent = false;
             for (let i = 0; i < safeP; i++) {
                 const densityBias = safeP > 4 ? 0.56 : 0.62;
-                barStates[barIndex].checks[i] = Math.random() > densityBias;
+                const on = Math.random() > densityBias;
+                barStates[barIndex].checks[i] = on;
+                if (on) hasAccent = true;
+            }
+            if (!hasAccent && safeP > 0) {
+                barStates[barIndex].checks[Math.floor(Math.random() * safeP)] = true;
             }
             return;
         }
 
         const n = Math.min(Math.max(1, spec.n), safeP);
-        const targetNotes = Math.floor(Math.random() * (n + 1)); // 0..n accents
+        const targetNotes = 1 + Math.floor(Math.random() * n); // 1..n accents
         const localIdx = Array.from({ length: safeP }, (_, i) => i);
         shuffleInPlace(localIdx);
         const chosen = new Set(localIdx.slice(0, targetNotes));
