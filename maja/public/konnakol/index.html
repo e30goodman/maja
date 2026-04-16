@@ -2231,8 +2231,7 @@
     }
     syncTopFoldRowState();
 
-    document.addEventListener('click', (event) => {
-        const target = event.target;
+    const closeTopFoldsByOutsideTarget = (target) => {
         if (mainSettingsFoldEl && mainSettingsFoldEl.open) {
             const insideMain = target && target.closest && target.closest('#mainSettingsFold');
             if (!insideMain) mainSettingsFoldEl.open = false;
@@ -2241,7 +2240,18 @@
             const insideScaler = target && target.closest && target.closest('#barScalerFold');
             if (!insideScaler) barScalerFoldEl.open = false;
         }
+    };
+
+    document.addEventListener('click', (event) => {
+        closeTopFoldsByOutsideTarget(event.target);
     });
+
+    const closeTopFoldsOnScrollTrigger = () => {
+        closeTopFoldsByOutsideTarget(null);
+    };
+    window.addEventListener('scroll', closeTopFoldsOnScrollTrigger, { passive: true });
+    window.addEventListener('wheel', closeTopFoldsOnScrollTrigger, { passive: true });
+    window.addEventListener('touchmove', closeTopFoldsOnScrollTrigger, { passive: true });
 
     window.addEventListener('resize', () => {
         const bCount = parseInt(document.getElementById('barsCount').value, 10);
