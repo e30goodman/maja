@@ -195,6 +195,7 @@
             padding: calc(clamp(10px, calc(19px - (var(--bars-count) * 1px)), 15px) * var(--bar-scale));
             border-radius: calc(1rem * var(--bar-scale));
             min-height: calc(var(--bar-height) * var(--bar-scale));
+            box-sizing: border-box;
         }
         .bar.tempo-boost {
             border-color: var(--playback-border);
@@ -335,6 +336,8 @@
             flex-wrap: wrap;
             gap: calc(clamp(5px, calc(10px - (var(--bars-count) * 0.4px)), 8px) * var(--bar-scale));
             justify-content: flex-start;
+            align-items: stretch;
+            align-content: flex-start;
         }
         .cell {
             --cell-box-size-default: calc(var(--cell-height) * var(--bar-scale));
@@ -351,6 +354,8 @@
             border-radius: calc(0.5rem * var(--bar-scale));
             width: calc(clamp(32px, calc(48px - (var(--bars-count) * 1.45px)), 42px) * var(--bar-scale));
             min-height: var(--cell-box-size-default);
+            box-sizing: border-box;
+            align-self: stretch;
             transition: 0.1s;
             border: 2px solid transparent;
             cursor: pointer;
@@ -656,6 +661,7 @@
                 border-radius: 12px;
                 border-width: 2px;
                 box-sizing: border-box;
+                align-self: stretch;
             }
             .cell.cell-profile-x2 {
                 --cell-label-reserve: 14px;
