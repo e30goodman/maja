@@ -2582,6 +2582,8 @@
             ? Array.from({ length: p }, (_, i) => i)
             : Array.from({ length: p }, (_, i) => i).filter(i => s.checks[i]);
         if (pool.length === 0) return;
+        const RANDOM_SPEED_IDLE_PASS_CHANCE = 0.08;
+        if (Math.random() < RANDOM_SPEED_IDLE_PASS_CHANCE) return;
         let cap;
         if (spec.mode === 'max' && typeof spec.n === 'number' && spec.n >= 1) {
             cap = Math.min(spec.n, pool.length);
