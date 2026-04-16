@@ -183,9 +183,9 @@
             height: calc(22px * var(--bar-scale));
             padding: 0 calc(8px * var(--bar-scale));
             border-radius: calc(999px * var(--bar-scale));
-            border: 1px solid rgba(139, 92, 246, 0.55);
-            background: rgba(124, 58, 237, 0.16);
-            color: #c4b5fd;
+            border: 1px solid rgba(244, 63, 94, 0.55);
+            background: rgba(244, 63, 94, 0.15);
+            color: #fecdd3;
             cursor: pointer;
             user-select: none;
             touch-action: none;
@@ -194,15 +194,22 @@
             transition: transform 0.12s ease, color 0.12s ease, text-shadow 0.12s ease, background 0.12s ease, border-color 0.12s ease;
         }
         .pulsation-handle:hover {
-            background: rgba(139, 92, 246, 0.24);
-            border-color: rgba(196, 181, 253, 0.82);
+            background: rgba(244, 63, 94, 0.24);
+            border-color: rgba(251, 113, 133, 0.85);
         }
         .pulsation-handle.dragging {
-            color: #c4b5fd;
+            color: #fecdd3;
             transform: scale(1.12);
-            text-shadow: 0 0 10px rgba(139, 92, 246, 0.5);
-            background: rgba(139, 92, 246, 0.3);
-            border-color: rgba(196, 181, 253, 0.95);
+            text-shadow: 0 0 10px rgba(244, 63, 94, 0.55);
+            background: rgba(244, 63, 94, 0.3);
+            border-color: rgba(251, 113, 133, 0.95);
+        }
+        .bar-speed-tag {
+            margin-left: 6px;
+            color: var(--rose-400);
+            font-size: calc(0.66rem * var(--bar-scale));
+            font-weight: 700;
+            letter-spacing: 0.03em;
         }
 
         .pulsation-drag-panel {
@@ -618,9 +625,12 @@
     let barScalerAutoCloseTimer = null;
     let tempoDoubleMode = false;
     let tempoHoldTimer = null;
+    let pulsationHandleHoldTimer = null;
+    let suppressPulsationMenuForBarIndex = -1;
     const BASE_PULSATION_FOR_BPM = 4;
     const BAR_SCALER_AUTO_CLOSE_MS = 5000;
     const TEMPO_HOLD_MS = 650;
+    const BAR_SPEED_HOLD_MS = 650;
     const STORAGE_KEY = 'konnakolSessionStateV1';
     
     const syllables = {
@@ -814,6 +824,7 @@
             bpm: String(document.getElementById('bpm').value || '100'),
             barScaleByCount: getBarScaleMapForSave(),
             barPulsations,
+            barTempoMultipliers: barStates.map(b => b.tempoMultiplier || 1),
             checks
         };
     }
@@ -1067,7 +1078,7 @@
 
     function initializeBarStates(defaultPulsation, bCount, options = {}) {
         const state = loadSessionState();
-        const defaultBar = () => ({ pulsation: defaultPulsation, checks: Array.from({ length: defaultPulsation }, () => false) });
+        const defaultBar = () => ({ pulsation: defaultPulsation, checks: Array.from({ length: defaultPulsation }, () => false), tempoMultiplier: 1 });
         barStates = Array.from({ length: bCount }, () => defaultBar());
 
         if (!state) {
@@ -1082,7 +1093,7 @@
             for (let i = 0; i < bCount; i++) {
                 const p = parseInt(state.barPulsations[i], 10);
                 const safeP = syllables[p] ? p : defaultPulsation;
-                barStates[i] = { pulsation: safeP, checks: Array.from({ length: safeP }, () => false) };
+                barStates[i] = { pulsation: safeP, checks: Array.from({ length: safeP }, () => false), tempoMultiplier: 1 };
             }
         }
 
@@ -1103,6 +1114,13 @@
                         barStates[b].checks[i] = Boolean(state.checks[idx++]);
                     }
                 }
+            }
+        }
+
+        if (Array.isArray(state.barTempoMultipliers) && state.barTempoMultipliers.length === bCount) {
+            for (let i = 0; i < bCount; i++) {
+                const m = parseInt(state.barTempoMultipliers[i], 10);
+                barStates[i].tempoMultiplier = (m === 2 || m === 3) ? m : 1;
             }
         }
 
@@ -1127,6 +1145,29 @@
         }
     }
 
+    function getBarTempoMultiplier(barIndex) {
+        if (!barStates[barIndex]) return 1;
+        const m = parseInt(barStates[barIndex].tempoMultiplier, 10);
+        return (m === 2 || m === 3) ? m : 1;
+    }
+
+    function getNextBarTempoMultiplier(current) {
+        if (current === 1) return 2;
+        if (current === 2) return 3;
+        return 1;
+    }
+
+    function toggleBarTempoMultiplier(barIndex) {
+        if (!barStates[barIndex]) return;
+        barStates[barIndex].tempoMultiplier = getNextBarTempoMultiplier(getBarTempoMultiplier(barIndex));
+        const container = document.getElementById('barsContainer');
+        if (container) {
+            renderBars(container);
+            requestAnimationFrame(() => enforceBarsFit(container, barStates.length));
+        }
+        saveSessionState();
+    }
+
     function renderBars(container) {
         recalcStepMeta();
         container.innerHTML = '';
@@ -1136,7 +1177,9 @@
             barDiv.className = 'bar';
             barDiv.id = `bar-${b}`;
             barDiv.dataset.barIndex = String(b);
-            barDiv.innerHTML = `<div class="bar-title">Bar ${b + 1} · <span class="pulsation-handle" id="pulsation-handle-${b}" onclick="togglePulsationMenu(event, ${b})">P${barStates[b].pulsation}</span></div>`;
+            const m = getBarTempoMultiplier(b);
+            const multTag = m > 1 ? `<span class="bar-speed-tag">x${m}</span>` : '';
+            barDiv.innerHTML = `<div class="bar-title">Bar ${b + 1} · <span class="pulsation-handle" id="pulsation-handle-${b}" onclick="togglePulsationMenu(event, ${b})" onpointerdown="onPulsationHandlePointerDown(event, ${b})" onpointerup="onPulsationHandlePointerUp(event)" onpointercancel="onPulsationHandlePointerCancel()">${multTag}P${barStates[b].pulsation}</span></div>`;
 
             const grid = document.createElement('div');
             grid.className = 'rhythm-grid';
@@ -1255,9 +1298,39 @@
         refreshPulsationDragPanel(barStates[barIndex].pulsation, barIndex);
     }
 
+    function clearPulsationHandleHoldTimer() {
+        if (pulsationHandleHoldTimer !== null) {
+            clearTimeout(pulsationHandleHoldTimer);
+            pulsationHandleHoldTimer = null;
+        }
+    }
+
+    function onPulsationHandlePointerDown(event, barIndex) {
+        if (event.button !== undefined && event.button !== 0) return;
+        clearPulsationHandleHoldTimer();
+        pulsationHandleHoldTimer = setTimeout(() => {
+            pulsationHandleHoldTimer = null;
+            suppressPulsationMenuForBarIndex = barIndex;
+            toggleBarTempoMultiplier(barIndex);
+            endPulsationDrag();
+        }, BAR_SPEED_HOLD_MS);
+    }
+
+    function onPulsationHandlePointerUp() {
+        clearPulsationHandleHoldTimer();
+    }
+
+    function onPulsationHandlePointerCancel() {
+        clearPulsationHandleHoldTimer();
+    }
+
     function togglePulsationMenu(event, barIndex) {
         event.preventDefault();
         event.stopPropagation();
+        if (suppressPulsationMenuForBarIndex === barIndex) {
+            suppressPulsationMenuForBarIndex = -1;
+            return;
+        }
         if (document.getElementById('stopBtn').style.display === 'block') stop();
         if (pulsationMenuBarIndex === barIndex) {
             endPulsationDrag();
@@ -1644,7 +1717,8 @@
         const totalSteps = stepMeta.length;
         if (!totalSteps) return;
         const meta = stepMeta[currentStep];
-        const effectiveBpm = meta ? getEffectiveBpmForBar(meta.barIndex, baseBpm) : baseBpm;
+        const barMul = meta ? getBarTempoMultiplier(meta.barIndex) : 1;
+        const effectiveBpm = meta ? (getEffectiveBpmForBar(meta.barIndex, baseBpm) * barMul) : baseBpm;
         nextNoteTime += 60.0 / effectiveBpm;
         currentStep = (currentStep + 1) % totalSteps;
     }
