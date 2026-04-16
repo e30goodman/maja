@@ -1926,34 +1926,44 @@
                     displaySyllable = s;
                     lastOriginalSyllable = s;
                 } else {
-                    // Базовая точка всегда привязана к сетке (No Global Domino)
+                    // 1. УСТАНАВЛИВАЕМ БАЗУ: x1 идет по сетке, x2/x4 ВСЕГДА начинают с Ta (индекс 0)
                     const defaultStart = (mult === 1) ? (i % seq.length) : 0;
-                    const origFirst = seq[defaultStart];
+
                     let displayStart = defaultStart;
 
-                    // СРАВНИВАЕМ: Оригинал текущей ячейки с РЕАЛЬНЫМ хвостом предыдущей
-                    if (lastOriginalSyllable != null && origFirst === lastOriginalSyllable) {
-                        // Сдвиг назад (-1), чтобы не наткнуться на следующую ноту
+                    // 2. УМНЫЙ СДВИГ: Разрешен ТОЛЬКО для одиночных ячеек (mult === 1)
+                    // Множители (x2, x4) теперь ЗАБЛОКИРОВАНЫ и не будут "прыгать"
+                    if (mult === 1 && lastOriginalSyllable != null && seq[defaultStart] === lastOriginalSyllable) {
                         displayStart = (defaultStart - 1 + seq.length) % seq.length;
                     }
 
-                    // Собираем текст для экрана
+                    // 3. ФОРМИРУЕМ СТРОКУ (строго по твоим правилам)
                     if (mult === 1) {
                         displaySyllable = seq[displayStart];
                     } else if (mult === 2) {
-                        displaySyllable = `${seq[displayStart]} ${seq[(displayStart + 1) % seq.length]}`;
+                        // Всегда будет Ta Ka (если паттерн начинается с Ta Ka)
+                        displaySyllable = `${seq[0]} ${seq[1 % seq.length]}`;
                     } else if (mult === 4) {
-                        const a = seq[displayStart];
-                        const b = seq[(displayStart + 1) % seq.length];
-                        const c = seq[(displayStart + 2) % seq.length];
-                        const d = seq[(displayStart + 3) % seq.length];
+                        // Всегда будет Ta Ka / Dhi Mi
+                        const a = seq[0];
+                        const b = seq[1 % seq.length];
+                        const c = seq[2 % seq.length];
+                        const d = seq[3 % seq.length];
                         displaySyllable = `${a} ${b}\n${c} ${d}`;
+                    } else {
+                        displaySyllable = s;
                     }
 
-                    // ОБНОВЛЯЕМ ХВОСТ: Теперь записываем то, что РЕАЛЬНО отобразили
-                    // Это заставит следующую ячейку увидеть сдвиг и тоже подвинуться если надо
-                    const tailOffset = (mult === 4) ? 3 : (mult === 2 ? 1 : 0);
-                    lastOriginalSyllable = seq[(displayStart + tailOffset) % seq.length];
+                    // 4. ОБНОВЛЯЕМ ПАМЯТЬ: Запоминаем РЕАЛЬНЫЙ последний слог для следующего соседа
+                    if (mult === 1) {
+                        lastOriginalSyllable = seq[displayStart];
+                    } else if (mult === 2) {
+                        lastOriginalSyllable = seq[1 % seq.length];
+                    } else if (mult === 4) {
+                        lastOriginalSyllable = seq[3 % seq.length];
+                    } else {
+                        lastOriginalSyllable = s;
+                    }
                 }
                 label.textContent = displaySyllable;
                 cell.setAttribute('aria-label', `${String(displaySyllable).replace(/\n/g, ', ')}, bar ${b + 1}, beat ${i + 1}`);
