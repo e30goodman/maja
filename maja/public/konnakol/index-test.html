@@ -1926,42 +1926,34 @@
                     displaySyllable = s;
                     lastOriginalSyllable = s;
                 } else {
+                    // Базовая точка всегда привязана к сетке (No Global Domino)
                     const defaultStart = (mult === 1) ? (i % seq.length) : 0;
                     const origFirst = seq[defaultStart];
                     let displayStart = defaultStart;
 
-                    // ЖЕСТКАЯ ЛОГИКА: Если конфликт — делаем шаг НАЗАД (-1), а не вперед
+                    // СРАВНИВАЕМ: Оригинал текущей ячейки с РЕАЛЬНЫМ хвостом предыдущей
                     if (lastOriginalSyllable != null && origFirst === lastOriginalSyllable) {
-                        // (defaultStart - 1 + len) % len — это заимствование предыдущего слога
+                        // Сдвиг назад (-1), чтобы не наткнуться на следующую ноту
                         displayStart = (defaultStart - 1 + seq.length) % seq.length;
                     }
 
+                    // Собираем текст для экрана
                     if (mult === 1) {
                         displaySyllable = seq[displayStart];
                     } else if (mult === 2) {
-                        const a = seq[displayStart];
-                        const b = seq[(displayStart + 1) % seq.length];
-                        displaySyllable = `${a} ${b}`;
+                        displaySyllable = `${seq[displayStart]} ${seq[(displayStart + 1) % seq.length]}`;
                     } else if (mult === 4) {
                         const a = seq[displayStart];
                         const b = seq[(displayStart + 1) % seq.length];
                         const c = seq[(displayStart + 2) % seq.length];
                         const d = seq[(displayStart + 3) % seq.length];
                         displaySyllable = `${a} ${b}\n${c} ${d}`;
-                    } else {
-                        displaySyllable = s;
                     }
 
-                    // Сохраняем ОРИГИНАЛЬНЫЙ хвост для следующей проверки
-                    if (mult === 1) {
-                        lastOriginalSyllable = seq[defaultStart];
-                    } else if (mult === 2) {
-                        lastOriginalSyllable = seq[(defaultStart + 1) % seq.length];
-                    } else if (mult === 4) {
-                        lastOriginalSyllable = seq[(defaultStart + 3) % seq.length];
-                    } else {
-                        lastOriginalSyllable = s;
-                    }
+                    // ОБНОВЛЯЕМ ХВОСТ: Теперь записываем то, что РЕАЛЬНО отобразили
+                    // Это заставит следующую ячейку увидеть сдвиг и тоже подвинуться если надо
+                    const tailOffset = (mult === 4) ? 3 : (mult === 2 ? 1 : 0);
+                    lastOriginalSyllable = seq[(displayStart + tailOffset) % seq.length];
                 }
                 label.textContent = displaySyllable;
                 cell.setAttribute('aria-label', `${String(displaySyllable).replace(/\n/g, ', ')}, bar ${b + 1}, beat ${i + 1}`);
