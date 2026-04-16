@@ -711,6 +711,7 @@
                         <option value="6">6 (Ta-Ka-Dhi-Mi-Ta-Ka)</option>
                         <option value="7">7 (Ta-Ka-Dhi-Mi-Ta-Ki-Ta)</option>
                         <option value="8">8 (Ta Ka Dhi Mi Ta Ka Dju Na)</option>
+                        <option value="9">9 (Ta Ka Dhi Mi Ta Ka Ta Ki Ta)</option>
                     </select>
                 </div>
                 <div>
@@ -838,10 +839,12 @@
     let customClickBuffer = null;
     let customAccentBuffer = null;
     const BASE_PULSATION_FOR_BPM = 4;
+    /** Highest supported beat count per bar (must match syllables keys). */
+    const MAX_PULSATION = 9;
     const BAR_SCALER_AUTO_CLOSE_MS = 5000;
     const TEMPO_HOLD_MS = 420;
     /** Upper bound for Max N dropdown options (independent of current pulsation; cap vs beats in bar is separate). */
-    const RAND_NOTES_MENU_MAX = 8;
+    const RAND_NOTES_MENU_MAX = 9;
     const STORAGE_KEY = 'konnakolSessionStateV1';
     
     const syllables = {
@@ -851,7 +854,8 @@
         5: ["Ta", "Ka", "Ta", "Ki", "Ta"],
         6: ["Ta", "Ka", "Dhi", "Mi", "Ta", "Ka"],
         7: ["Ta", "Ka", "Dhi", "Mi", "Ta", "Ki", "Ta"],
-        8: ["Ta", "Ka", "Dhi", "Mi", "Ta", "Ka", "Dju", "Na"]
+        8: ["Ta", "Ka", "Dhi", "Mi", "Ta", "Ka", "Dju", "Na"],
+        9: ["Ta", "Ka", "Dhi", "Mi", "Ta", "Ka", "Ta", "Ki", "Ta"]
     };
 
     class PlaybackInvariantViolation extends Error {
@@ -1515,7 +1519,7 @@
             const src = prior[i];
             let p = parseInt(src.pulsation, 10);
             if (!syllables[p]) p = defaultPulsation;
-            p = Math.min(8, Math.max(2, p));
+            p = Math.min(MAX_PULSATION, Math.max(2, p));
             barStates[i].pulsation = p;
             const arrChecks = Array.isArray(src.checks) ? src.checks : [];
             barStates[i].checks = Array.from({ length: p }, (_, j) => Boolean(arrChecks[j]));
@@ -1790,7 +1794,7 @@
         if (!barStates[barIndex]) return;
         const n = parseInt(String(newP), 10);
         if (!Number.isFinite(n)) return;
-        const safeP = Math.min(8, Math.max(2, n));
+        const safeP = Math.min(MAX_PULSATION, Math.max(2, n));
         const oldP = barStates[barIndex].pulsation;
         if (oldP === safeP) return;
         const wasPlaying = isPlaybackRunning();
@@ -1920,7 +1924,7 @@
         if (cellTempoHoldKey === key) cellTempoHoldKey = '';
     }
 
-    const PULSATION_OPTIONS = [2, 3, 4, 5, 6, 7, 8];
+    const PULSATION_OPTIONS = [2, 3, 4, 5, 6, 7, 8, 9];
 
     function positionPulsationDragPanel(barIndex) {
         const panel = document.getElementById('pulsationDragPanel');
@@ -1945,7 +1949,7 @@
         const panel = document.getElementById('pulsationDragPanel');
         const list = document.getElementById('pulsationDragPanelList');
         if (!panel || !list) return;
-        const safeP = Math.min(8, Math.max(2, previewP));
+        const safeP = Math.min(MAX_PULSATION, Math.max(2, previewP));
         panel.hidden = false;
         panel.setAttribute('aria-hidden', 'false');
         list.innerHTML = PULSATION_OPTIONS.map(p => {
@@ -2198,7 +2202,7 @@
 
     /** 0..1: how aggressively to apply x2/x4 in Random speed (Max 1 note = mild; Random / high Max = full spread). */
     function getSpeedRandomAggressionFromSpec(spec, pulsationP) {
-        const safeP = Math.min(8, Math.max(2, parseInt(pulsationP, 10) || 4));
+        const safeP = Math.min(MAX_PULSATION, Math.max(2, parseInt(pulsationP, 10) || 4));
         if (spec && spec.mode === 'max' && typeof spec.n === 'number' && spec.n >= 1) {
             return Math.min(1, spec.n / safeP);
         }
@@ -2312,7 +2316,7 @@
 
     function applyBarPulsation(barIndex, nextP, fallbackP) {
         if (!barStates[barIndex]) return false;
-        const safeP = Math.min(8, Math.max(2, parseInt(nextP, 10) || fallbackP || barStates[barIndex].pulsation));
+        const safeP = Math.min(MAX_PULSATION, Math.max(2, parseInt(nextP, 10) || fallbackP || barStates[barIndex].pulsation));
         const oldP = barStates[barIndex].pulsation;
         assertPlaybackPulsationMutationAllowed(barIndex, oldP, safeP);
         if (oldP === safeP) return false;
