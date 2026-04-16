@@ -691,12 +691,14 @@
                             <option value="konnakol_metronome">Konnakol metronome</option>
                             <option value="custom">Custom</option>
                         </select>
-                        <button type="button" class="btn btn-accent" style="margin:0;padding:8px 10px;font-size:0.82rem;" onclick="toggleCustomSoundPanel()">Custom</button>
-                        <div id="customSoundPanel" class="custom-sound-panel" hidden>
-                            <label for="customClickFile">Click sound</label>
-                            <input id="customClickFile" type="file" accept="audio/*" onchange="onCustomSoundFileSelected(event, 'click')">
-                            <label for="customAccentFile">Accent sound</label>
-                            <input id="customAccentFile" type="file" accept="audio/*" onchange="onCustomSoundFileSelected(event, 'accent')">
+                        <div id="customSoundControls" hidden>
+                            <button type="button" class="btn btn-accent" style="margin:0;padding:8px 10px;font-size:0.82rem;" onclick="toggleCustomSoundPanel()">Custom</button>
+                            <div id="customSoundPanel" class="custom-sound-panel" hidden>
+                                <label for="customClickFile">Click sound</label>
+                                <input id="customClickFile" type="file" accept="audio/*" onchange="onCustomSoundFileSelected(event, 'click')">
+                                <label for="customAccentFile">Accent sound</label>
+                                <input id="customAccentFile" type="file" accept="audio/*" onchange="onCustomSoundFileSelected(event, 'accent')">
+                            </div>
                         </div>
                     </div>
                     <label class="rand-cycle">
@@ -943,7 +945,9 @@
     function onSoundPresetChange() {
         const el = document.getElementById('soundPreset');
         selectedSoundPreset = el ? (el.value || 'classic') : 'classic';
+        const customControls = document.getElementById('customSoundControls');
         const customPanel = document.getElementById('customSoundPanel');
+        if (customControls) customControls.hidden = selectedSoundPreset !== 'custom';
         if (customPanel) customPanel.hidden = selectedSoundPreset !== 'custom';
         saveSessionState();
     }
