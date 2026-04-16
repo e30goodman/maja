@@ -1802,7 +1802,8 @@
         const metaSnapshot = { barIndex: meta.barIndex, localIndex: meta.localIndex };
 
         for (let k = 0; k < cellMult; k++) {
-            playSharpClick(time + (k * stepDuration / cellMult), isChecked);
+            const subClickIsAccent = cellMult > 1 ? true : isChecked;
+            playSharpClick(time + (k * stepDuration / cellMult), subClickIsAccent);
         }
 
         const evtSeq = ++playbackUiEventSeq;
