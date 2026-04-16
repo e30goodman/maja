@@ -459,6 +459,26 @@
             border-color: var(--violet-500);
             box-shadow: 0 0 14px rgba(139, 92, 246, 0.3);
         }
+        .custom-sound-wrap {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .custom-sound-panel {
+            margin-top: 6px;
+            padding: 8px 10px;
+            border: 1px solid var(--slate-700);
+            border-radius: 10px;
+            background: rgba(15, 23, 42, 0.45);
+        }
+        .custom-sound-panel[hidden] { display: none !important; }
+        .custom-sound-panel label { font-size: 0.76rem; margin-bottom: 4px; }
+        .custom-sound-panel input[type="file"] {
+            width: 100%;
+            font-size: 0.74rem;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
         .randomizer-block { display: flex; flex-direction: column; gap: 10px; }
         .scale-control {
             border-color: var(--violet-500);
@@ -646,6 +666,21 @@
                         <label for="randNotesPerBar">Random pattern</label>
                         <select id="randNotesPerBar" onchange="saveSessionState()"></select>
                     </div>
+                    <div class="custom-sound-wrap">
+                        <label for="soundPreset">Sound</label>
+                        <select id="soundPreset" onchange="onSoundPresetChange()">
+                            <option value="classic">Classic</option>
+                            <option value="konnakol_metronome">Konnakol metronome</option>
+                            <option value="custom">Custom</option>
+                        </select>
+                        <button type="button" class="btn btn-accent" style="margin:0;padding:8px 10px;font-size:0.82rem;" onclick="toggleCustomSoundPanel()">Custom</button>
+                        <div id="customSoundPanel" class="custom-sound-panel" hidden>
+                            <label for="customClickFile">Click sound</label>
+                            <input id="customClickFile" type="file" accept="audio/*" onchange="onCustomSoundFileSelected(event, 'click')">
+                            <label for="customAccentFile">Accent sound</label>
+                            <input id="customAccentFile" type="file" accept="audio/*" onchange="onCustomSoundFileSelected(event, 'accent')">
+                        </div>
+                    </div>
                     <label class="rand-cycle">
                         <input type="checkbox" id="randomPatternAfterEachBar" onchange="saveSessionState()" checked>
                         Pattern each bar
@@ -723,6 +758,9 @@
     let cellTempoHoldKey = '';
     let suppressCellClickKey = '';
     let tempoDoubleMode = false;
+    let selectedSoundPreset = 'classic';
+    let customClickBuffer = null;
+    let customAccentBuffer = null;
     const BASE_PULSATION_FOR_BPM = 4;
     const BAR_SCALER_AUTO_CLOSE_MS = 5000;
     const TEMPO_HOLD_MS = 420;
@@ -854,6 +892,39 @@
         saveSessionState();
     }
 
+    function onSoundPresetChange() {
+        const el = document.getElementById('soundPreset');
+        selectedSoundPreset = el ? (el.value || 'classic') : 'classic';
+        const customPanel = document.getElementById('customSoundPanel');
+        if (customPanel) customPanel.hidden = selectedSoundPreset !== 'custom';
+        saveSessionState();
+    }
+
+    function toggleCustomSoundPanel() {
+        const panel = document.getElementById('customSoundPanel');
+        if (!panel) return;
+        panel.hidden = !panel.hidden;
+    }
+
+    async function decodeCustomAudioFile(file) {
+        if (!file) return null;
+        const arr = await file.arrayBuffer();
+        if (!audioCtx) audioCtx = new AudioContext();
+        return await audioCtx.decodeAudioData(arr.slice(0));
+    }
+
+    async function onCustomSoundFileSelected(event, kind) {
+        const file = event?.target?.files?.[0];
+        if (!file) return;
+        try {
+            const buf = await decodeCustomAudioFile(file);
+            if (kind === 'accent') customAccentBuffer = buf;
+            else customClickBuffer = buf;
+        } catch (e) {
+            console.error('[konnakol] custom sound decode failed', e);
+        }
+    }
+
     function refreshTempoModeUi() {
         const tempoControl = document.getElementById('tempoControl');
         const badge = document.getElementById('tempoX2Badge');
@@ -895,6 +966,7 @@
             randomPatternAfterEachBar: document.getElementById('randomPatternAfterEachBar').checked,
             randomPulsationAfterEachBar: document.getElementById('randomPulsationAfterEachBar').checked,
             accentOnlySound: accentOnlyEnabled,
+            soundPreset: selectedSoundPreset,
             tempoDoubleMode,
             bpm: String(document.getElementById('bpm').value || '100'),
             barScaleByCount: getBarScaleMapForSave(),
@@ -968,6 +1040,7 @@
         const barScaleEl = document.getElementById('barScale');
         const randomPatternAfterEachBarEl = document.getElementById('randomPatternAfterEachBar');
         const randomPulsationAfterEachBarEl = document.getElementById('randomPulsationAfterEachBar');
+        const soundPresetEl = document.getElementById('soundPreset');
 
         if (state.pulsation && syllables[state.pulsation]) {
             pulsationEl.value = String(state.pulsation);
@@ -1002,10 +1075,15 @@
                 ? false
                 : Boolean(state.randomPulsationAfterEachBar);
         }
+        if (soundPresetEl) {
+            selectedSoundPreset = typeof state.soundPreset === 'string' ? state.soundPreset : 'classic';
+            soundPresetEl.value = selectedSoundPreset;
+        }
         accentOnlyEnabled = Boolean(state.accentOnlySound);
         tempoDoubleMode = Boolean(state.tempoDoubleMode);
         refreshAccentToggleButton();
         refreshTempoModeUi();
+        onSoundPresetChange();
     }
 
 
@@ -1804,22 +1882,45 @@
     function playSharpClick(time, isChecked) {
         if (accentOnlyEnabled && !isChecked) return;
         if (!audioCtx) audioCtx = new AudioContext();
+        if (selectedSoundPreset === 'custom') {
+            const buffer = isChecked ? (customAccentBuffer || customClickBuffer) : (customClickBuffer || customAccentBuffer);
+            if (buffer) {
+                const src = audioCtx.createBufferSource();
+                const gainNode = audioCtx.createGain();
+                src.buffer = buffer;
+                gainNode.gain.setValueAtTime(isChecked ? 0.95 : 0.75, time);
+                src.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                src.start(time);
+                return;
+            }
+        }
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
+        if (selectedSoundPreset === 'konnakol_metronome') {
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(isChecked ? 500 : 250, time);
+            osc.frequency.exponentialRampToValueAtTime(isChecked ? 120 : 80, time + (isChecked ? 0.04 : 0.02));
+        } else {
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(isChecked ? 920 : 800, time);
+        }
 
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(isChecked ? 920 : 800, time);
-
-        const peak = isChecked ? 0.34 : 0.28;
+        const peak = selectedSoundPreset === 'konnakol_metronome'
+            ? (isChecked ? 0.9 : 0.4)
+            : (isChecked ? 0.34 : 0.28);
+        const decay = selectedSoundPreset === 'konnakol_metronome'
+            ? (isChecked ? 0.04 : 0.02)
+            : 0.04;
         gain.gain.setValueAtTime(0, time);
         gain.gain.linearRampToValueAtTime(peak, time + 0.002);
-        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.04);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + decay);
 
         osc.connect(gain);
         gain.connect(audioCtx.destination);
 
         osc.start(time);
-        osc.stop(time + 0.05);
+        osc.stop(time + Math.max(0.05, decay + 0.01));
     }
 
     function scheduler() {
