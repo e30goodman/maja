@@ -675,7 +675,7 @@
                     </div>
                     <label class="rand-cycle">
                         <input type="checkbox" id="randomPatternAfterEachBar" onchange="onRandomizationFlagsChanged()" checked>
-                        Pattern
+                        Random Pattern
                     </label>
                     <label class="rand-cycle">
                         <input type="checkbox" id="randomPatternSpeedChange" onchange="onRandomizationFlagsChanged()">
@@ -1451,10 +1451,30 @@
     function mapChecksToNewPulsation(oldChecks, oldP, newP) {
         if (oldP === newP) return oldChecks.slice();
         const mapped = Array.from({ length: newP }, () => false);
+        let mappedCount = 0;
         for (let i = 0; i < oldChecks.length; i++) {
             if (!oldChecks[i]) continue;
             const j = Math.min(newP - 1, Math.floor((i * newP) / oldP));
-            mapped[j] = true;
+            if (!mapped[j]) {
+                mapped[j] = true;
+                mappedCount += 1;
+            }
+        }
+        // При росте пульсации сохраняем плотность акцентов, добавляя недостающие акценты случайно.
+        if (newP > oldP && oldP > 0) {
+            const oldCount = oldChecks.reduce((sum, v) => sum + (v ? 1 : 0), 0);
+            const targetCount = Math.min(newP, Math.max(mappedCount, Math.round((oldCount / oldP) * newP)));
+            if (targetCount > mappedCount) {
+                const freeIdx = [];
+                for (let i = 0; i < newP; i++) {
+                    if (!mapped[i]) freeIdx.push(i);
+                }
+                shuffleInPlace(freeIdx);
+                for (let i = 0; i < freeIdx.length && mappedCount < targetCount; i++) {
+                    mapped[freeIdx[i]] = true;
+                    mappedCount += 1;
+                }
+            }
         }
         return mapped;
     }
