@@ -362,6 +362,14 @@
         .cell.rhythm-note-on.playing small {
             color: var(--text);
         }
+        .cell.tempo-boost {
+            border-color: var(--playback-border);
+            box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.24) inset;
+        }
+        .cell.tempo-boost-x3 {
+            border-color: #f43f5e;
+            box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.34) inset, 0 0 12px rgba(244, 63, 94, 0.22);
+        }
 
         .btn { width: 100%; padding: 15px; border: none; border-radius: 0.75rem; font-weight: 700; cursor: pointer; margin-bottom: 10px; font-size: 1rem; transition: 0.2s; }
         .action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
@@ -662,6 +670,9 @@
     let barScalerAutoCloseTimer = null;
     let barTempoHoldTimer = null;
     let barTempoHoldTarget = -1;
+    let cellTempoHoldTimer = null;
+    let cellTempoHoldKey = '';
+    let suppressCellClickKey = '';
     let tempoDoubleMode = false;
     let tempoHoldTimer = null;
     const BASE_PULSATION_FOR_BPM = 4;
@@ -849,6 +860,7 @@
         const bCount = parseInt(document.getElementById('barsCount').value, 10);
         const barPulsations = barStates.map(b => b.pulsation);
         const barTempoMultipliers = barStates.map(b => b.tempoMultiplier || 1);
+        const cellTempoMultipliers = barStates.map(b => (Array.isArray(b.cellTempoMultipliers) ? b.cellTempoMultipliers.slice() : Array.from({ length: b.pulsation }, () => 1)));
         const checks = barStates.flatMap(b => b.checks);
         return {
             pulsation: String(p),
@@ -862,6 +874,7 @@
             barScaleByCount: getBarScaleMapForSave(),
             barPulsations,
             barTempoMultipliers,
+            cellTempoMultipliers,
             checks
         };
     }
@@ -1115,7 +1128,12 @@
 
     function initializeBarStates(defaultPulsation, bCount, options = {}) {
         const state = loadSessionState();
-        const defaultBar = () => ({ pulsation: defaultPulsation, checks: Array.from({ length: defaultPulsation }, () => false), tempoMultiplier: 1 });
+        const defaultBar = () => ({
+            pulsation: defaultPulsation,
+            checks: Array.from({ length: defaultPulsation }, () => false),
+            tempoMultiplier: 1,
+            cellTempoMultipliers: Array.from({ length: defaultPulsation }, () => 1)
+        });
         barStates = Array.from({ length: bCount }, () => defaultBar());
 
         if (!state) {
@@ -1130,13 +1148,28 @@
             for (let i = 0; i < bCount; i++) {
                 const p = parseInt(state.barPulsations[i], 10);
                 const safeP = syllables[p] ? p : defaultPulsation;
-                barStates[i] = { pulsation: safeP, checks: Array.from({ length: safeP }, () => false), tempoMultiplier: 1 };
+                barStates[i] = {
+                    pulsation: safeP,
+                    checks: Array.from({ length: safeP }, () => false),
+                    tempoMultiplier: 1,
+                    cellTempoMultipliers: Array.from({ length: safeP }, () => 1)
+                };
             }
         }
         if (Array.isArray(state.barTempoMultipliers) && state.barTempoMultipliers.length === bCount) {
             for (let i = 0; i < bCount; i++) {
                 const m = parseInt(state.barTempoMultipliers[i], 10);
                 barStates[i].tempoMultiplier = (m === 2 || m === 3) ? m : 1;
+            }
+        }
+        if (Array.isArray(state.cellTempoMultipliers) && state.cellTempoMultipliers.length === bCount) {
+            for (let b = 0; b < bCount; b++) {
+                const arr = state.cellTempoMultipliers[b];
+                if (!Array.isArray(arr)) continue;
+                for (let i = 0; i < barStates[b].pulsation; i++) {
+                    const m = parseInt(arr[i], 10);
+                    barStates[b].cellTempoMultipliers[i] = (m === 2 || m === 3) ? m : 1;
+                }
             }
         }
 
@@ -1201,9 +1234,14 @@
             const p = barStates[b].pulsation;
             syllables[p].forEach((s, i) => {
                 const cell = document.createElement('div');
-                cell.className = 'cell' + (barStates[b].checks[i] ? ' rhythm-note-on' : '');
+                const cellTempoMultiplier = barStates[b].cellTempoMultipliers?.[i] || 1;
+                cell.className = 'cell'
+                    + (barStates[b].checks[i] ? ' rhythm-note-on' : '')
+                    + (cellTempoMultiplier > 1 ? ' tempo-boost' : '')
+                    + (cellTempoMultiplier === 3 ? ' tempo-boost-x3' : '');
                 cell.dataset.barIndex = String(b);
                 cell.dataset.localIndex = String(i);
+                cell.dataset.tempoMultiplier = String(cellTempoMultiplier);
                 cell.id = `step-${globalStep}`;
                 cell.setAttribute('role', 'button');
                 cell.setAttribute('tabindex', '0');
@@ -1212,6 +1250,9 @@
                 const label = document.createElement('small');
                 label.textContent = s;
                 cell.appendChild(label);
+                cell.addEventListener('pointerdown', (ev) => startCellTempoHold(ev, b, i));
+                cell.addEventListener('pointerup', (ev) => endCellTempoHold(ev, b, i));
+                cell.addEventListener('pointercancel', (ev) => endCellTempoHold(ev, b, i));
                 cell.addEventListener('click', (ev) => toggleRhythmCell(ev, b, i));
                 cell.addEventListener('keydown', (ev) => {
                     if (ev.key === 'Enter' || ev.key === ' ') {
@@ -1239,6 +1280,18 @@
         return mapped;
     }
 
+    function mapTempoMultipliersToNewPulsation(oldMultipliers, oldP, newP) {
+        if (oldP === newP) return oldMultipliers.slice();
+        const mapped = Array.from({ length: newP }, () => 1);
+        for (let i = 0; i < oldMultipliers.length; i++) {
+            const mult = oldMultipliers[i];
+            if (mult !== 2 && mult !== 3) continue;
+            const j = Math.min(newP - 1, Math.floor((i * newP) / oldP));
+            mapped[j] = Math.max(mapped[j], mult);
+        }
+        return mapped;
+    }
+
     function setBarPulsationManual(barIndex, newP) {
         if (!barStates[barIndex]) return;
         const n = parseInt(String(newP), 10);
@@ -1249,6 +1302,10 @@
         const oldChecks = barStates[barIndex].checks.slice();
         barStates[barIndex].pulsation = safeP;
         barStates[barIndex].checks = mapChecksToNewPulsation(oldChecks, oldP, safeP);
+        const oldCellTempo = Array.isArray(barStates[barIndex].cellTempoMultipliers)
+            ? barStates[barIndex].cellTempoMultipliers.slice()
+            : Array.from({ length: oldP }, () => 1);
+        barStates[barIndex].cellTempoMultipliers = mapTempoMultipliersToNewPulsation(oldCellTempo, oldP, safeP);
         const container = document.getElementById('barsContainer');
         renderBars(container);
         requestAnimationFrame(() => enforceBarsFit(container, barStates.length));
@@ -1261,6 +1318,18 @@
         const current = barStates[barIndex].tempoMultiplier || 1;
         const next = current === 1 ? 2 : (current === 2 ? 3 : 1);
         barStates[barIndex].tempoMultiplier = next;
+        const container = document.getElementById('barsContainer');
+        renderBars(container);
+        requestAnimationFrame(() => enforceBarsFit(container, barStates.length));
+        if (navigator.vibrate) navigator.vibrate(next === 3 ? [16, 30, 20] : 12);
+        saveSessionState();
+    }
+
+    function cycleCellTempoMultiplier(barIndex, localIndex) {
+        if (!barStates[barIndex] || !barStates[barIndex].cellTempoMultipliers) return;
+        const current = barStates[barIndex].cellTempoMultipliers[localIndex] || 1;
+        const next = current === 1 ? 2 : (current === 2 ? 3 : 1);
+        barStates[barIndex].cellTempoMultipliers[localIndex] = next;
         const container = document.getElementById('barsContainer');
         renderBars(container);
         requestAnimationFrame(() => enforceBarsFit(container, barStates.length));
@@ -1316,6 +1385,43 @@
         if (barTempoHoldTarget === barIndex) {
             barTempoHoldTarget = -1;
         }
+    }
+
+    function startCellTempoHold(event, barIndex, localIndex) {
+        if (event.button !== undefined && event.button !== 0) return;
+        const key = `${barIndex}:${localIndex}`;
+        if (event.currentTarget && event.currentTarget.setPointerCapture && event.pointerId !== undefined) {
+            try {
+                event.currentTarget.setPointerCapture(event.pointerId);
+            } catch (_) {}
+        }
+        if (cellTempoHoldTimer !== null) {
+            clearTimeout(cellTempoHoldTimer);
+            cellTempoHoldTimer = null;
+        }
+        cellTempoHoldKey = key;
+        cellTempoHoldTimer = setTimeout(() => {
+            cellTempoHoldTimer = null;
+            if (cellTempoHoldKey !== key) return;
+            suppressCellClickKey = key;
+            cycleCellTempoMultiplier(barIndex, localIndex);
+        }, TEMPO_HOLD_MS);
+    }
+
+    function endCellTempoHold(event, barIndex, localIndex) {
+        if (event && event.currentTarget && event.currentTarget.releasePointerCapture && event.pointerId !== undefined) {
+            try {
+                if (event.currentTarget.hasPointerCapture && event.currentTarget.hasPointerCapture(event.pointerId)) {
+                    event.currentTarget.releasePointerCapture(event.pointerId);
+                }
+            } catch (_) {}
+        }
+        const key = `${barIndex}:${localIndex}`;
+        if (cellTempoHoldTimer !== null) {
+            clearTimeout(cellTempoHoldTimer);
+            cellTempoHoldTimer = null;
+        }
+        if (cellTempoHoldKey === key) cellTempoHoldKey = '';
     }
 
     const PULSATION_OPTIONS = [3, 4, 5, 6, 7, 8];
@@ -1400,6 +1506,11 @@
     function toggleRhythmCell(evt, barIndex, localIndex) {
         const cell = evt && evt.currentTarget;
         if (!cell || !barStates[barIndex]) return;
+        const holdKey = `${barIndex}:${localIndex}`;
+        if (suppressCellClickKey === holdKey) {
+            suppressCellClickKey = '';
+            return;
+        }
         const next = !barStates[barIndex].checks[localIndex];
         barStates[barIndex].checks[localIndex] = next;
         cell.classList.toggle('rhythm-note-on', next);
@@ -1416,6 +1527,13 @@
         // Each bar gets its internal tempo via pulsation ratio.
         const barPulsation = barStates[barIndex].pulsation;
         return baseBpm * (barPulsation / BASE_PULSATION_FOR_BPM) * barTempoMultiplier;
+    }
+
+    function getEffectiveBpmForStep(meta, baseBpm) {
+        if (!meta) return baseBpm;
+        const barBpm = getEffectiveBpmForBar(meta.barIndex, baseBpm);
+        const cellMult = barStates[meta.barIndex]?.cellTempoMultipliers?.[meta.localIndex] || 1;
+        return barBpm * ((cellMult === 2 || cellMult === 3) ? cellMult : 1);
     }
 
     async function requestWakeLock() {
@@ -1765,7 +1883,7 @@
         const totalSteps = stepMeta.length;
         if (!totalSteps) return;
         const meta = stepMeta[currentStep];
-        const effectiveBpm = meta ? getEffectiveBpmForBar(meta.barIndex, baseBpm) : baseBpm;
+        const effectiveBpm = getEffectiveBpmForStep(meta, baseBpm);
         nextNoteTime += 60.0 / effectiveBpm;
         currentStep = (currentStep + 1) % totalSteps;
     }
