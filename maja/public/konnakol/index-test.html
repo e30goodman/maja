@@ -576,8 +576,8 @@
             margin-top: 10px;
         }
         .dictaphone-row.dictaphone-after-actions {
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 6px;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
             align-items: stretch;
         }
         .dictaphone-row.dictaphone-after-actions > button {
@@ -586,8 +586,8 @@
             width: 100%;
             box-sizing: border-box;
             min-height: 46px;
-            padding: 10px 4px;
-            font-size: 0.72rem;
+            padding: 10px 6px;
+            font-size: 0.76rem;
             font-weight: 700;
             border-radius: 0.75rem;
             display: inline-flex;
@@ -607,41 +607,29 @@
             opacity: 0.45;
             cursor: not-allowed;
         }
-        .dictaphone-rec-row {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
-            gap: 8px;
-            margin-top: 10px;
-            align-items: stretch;
+        .dictaphone-nav-bar {
+            margin-top: 6px;
+            margin-bottom: 2px;
         }
-        .dictaphone-rec-row.dictaphone-rec-row--solo {
-            grid-template-columns: 1fr;
+        .dictaphone-nav-bar[hidden] {
+            display: none !important;
         }
-        .dictaphone-rec-row .btn-dict-back {
-            padding: 12px 8px;
-            border-radius: 0.75rem;
+        .dictaphone-nav-back {
+            padding: 8px 14px;
+            border-radius: 0.65rem;
             font-weight: 700;
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             cursor: pointer;
             border: 2px solid var(--slate-600);
             background: rgba(51, 65, 85, 0.55);
             color: var(--text-muted);
         }
-        .dictaphone-rec-row .btn-dict-back:disabled {
+        .dictaphone-nav-back:disabled {
             opacity: 0.35;
             cursor: not-allowed;
         }
-        .dictaphone-row.dictaphone-after-actions .btn-dict-back {
-            border: 2px solid var(--slate-600);
-            background: rgba(51, 65, 85, 0.55);
-            color: var(--text-muted);
-        }
-        .dictaphone-row.dictaphone-after-actions .btn-dict-back:disabled {
-            opacity: 0.35;
-            cursor: not-allowed;
-        }
-        .dictaphone-rec-row .btn-dict-rec {
-            margin-bottom: 0;
+        #dictaphoneRecRow {
+            margin-top: 10px;
         }
         .dictaphone-row.single { grid-template-columns: 1fr; }
         .btn-dict-rec {
@@ -953,15 +941,16 @@
         <div id="dictaphoneSyllable" class="dictaphone-syllable">Ta</div>
         <div id="dictaphoneCount" class="dictaphone-count" aria-live="polite"></div>
         <div id="dictaphoneStatus" class="dictaphone-status"></div>
-        <div id="dictaphoneRecRow" class="dictaphone-rec-row dictaphone-rec-row--solo">
-            <button type="button" id="dictaphoneBackRecBtn" class="btn-dict-back" onclick="dictaphoneBack()" hidden>Back</button>
+        <div id="dictaphoneNavBar" class="dictaphone-nav-bar" hidden>
+            <button type="button" id="dictaphoneNavBackBtn" class="dictaphone-nav-back" onclick="dictaphoneBack()">Back</button>
+        </div>
+        <div id="dictaphoneRecRow">
             <button type="button" id="dictaphoneRecBtn" class="btn-dict-rec" onclick="dictaphoneStartTake()">● REC</button>
         </div>
         <div id="dictaphoneAfterRow" class="dictaphone-row dictaphone-after-actions" hidden>
             <button type="button" class="btn btn-play" onclick="dictaphonePlayPreview()">▶ Play</button>
             <button type="button" class="btn btn-dict-again" onclick="dictaphoneRecordAgain()">↻ Re-record</button>
-            <button type="button" id="dictaphoneBackAfterBtn" class="btn btn-dict-back" onclick="dictaphoneBack()">Back</button>
-            <button type="button" class="btn btn-accent" onclick="dictaphoneNext()">Next</button>
+            <button type="button" id="dictaphoneNextBtn" class="btn btn-accent" onclick="dictaphoneNext()">Next</button>
         </div>
         <button type="button" class="btn-dict-close" onclick="closeDictaphoneOverlay()">Close</button>
     </div>
@@ -1005,8 +994,8 @@
     let customClickBuffer = null;
     let customAccentBuffer = null;
 
-    /** Test build: Ta Ka Dhi Mi Ta Ka Dju Na — per-syllable dictaphone for Custom preset */
-    const DICT_SYLLABLES = ['Ta', 'Ka', 'Dhi', 'Mi', 'Ta', 'Ka', 'Dju', 'Na'];
+    /** Six unique clips; pulsation 8 reuses Ta/Ka from slots 1–2 for beats 5–6 (same buffers in playback). */
+    const DICT_SYLLABLES = ['Ta', 'Ka', 'Dhi', 'Mi', 'Dju', 'Na'];
     const customSyllableBuffers = {};
     let dictMediaRecorder = null;
     let dictMediaChunks = [];
@@ -1282,24 +1271,32 @@
         const afterRow = document.getElementById('dictaphoneAfterRow');
         const recBtn = document.getElementById('dictaphoneRecBtn');
         const sylEl = document.getElementById('dictaphoneSyllable');
-        const backRec = document.getElementById('dictaphoneBackRecBtn');
-        const backAfter = document.getElementById('dictaphoneBackAfterBtn');
+        const navBar = document.getElementById('dictaphoneNavBar');
+        const navBack = document.getElementById('dictaphoneNavBackBtn');
+        const nextBtn = document.getElementById('dictaphoneNextBtn');
         if (!recRow || !afterRow || !recBtn || !sylEl) return;
         const key = DICT_SYLLABLES[dictCurrentIndex] || '';
         sylEl.textContent = key;
-        const done = Boolean(customSyllableBuffers[key]);
+        const hasBuf = Boolean(customSyllableBuffers[key]);
         const busy = dictPhase === 'counting' || dictPhase === 'recording';
-        const canBack = dictCurrentIndex > 0 && dictPhase !== 'done' && !busy;
-        if (backRec) {
-            const first = dictCurrentIndex <= 0;
-            backRec.hidden = first;
-            recRow.classList.toggle('dictaphone-rec-row--solo', first);
-            backRec.disabled = !canBack;
+        const canBack = dictCurrentIndex > 0 && !busy;
+        if (navBar && navBack) {
+            navBar.hidden = dictCurrentIndex <= 0 && dictPhase !== 'done';
+            navBack.disabled = !canBack;
         }
-        if (backAfter) {
-            backAfter.disabled = !canBack;
+        if (dictPhase === 'done') {
+            if (navBar && navBack) {
+                navBar.hidden = false;
+                navBack.disabled = dictCurrentIndex <= 0 || busy;
+            }
+            if (nextBtn) nextBtn.disabled = true;
+            recRow.hidden = true;
+            afterRow.hidden = false;
+            recBtn.disabled = true;
+            return;
         }
-        if (dictPhase === 'preview' && done) {
+        if (nextBtn) nextBtn.disabled = false;
+        if (dictPhase === 'preview' && hasBuf) {
             recRow.hidden = true;
             afterRow.hidden = false;
             recBtn.disabled = true;
@@ -1414,7 +1411,7 @@
     function dictaphoneRecordAgain() {
         if (dictPhase === 'counting' || dictPhase === 'recording') return;
         const key = DICT_SYLLABLES[dictCurrentIndex];
-        if (!key || dictPhase === 'done') return;
+        if (!key) return;
         clearDictCountdownTimers();
         stopDictMediaRecorderSafe();
         delete customSyllableBuffers[key];
@@ -1425,7 +1422,6 @@
 
     function dictaphoneBack() {
         if (dictPhase === 'counting' || dictPhase === 'recording') return;
-        if (dictPhase === 'done') return;
         if (dictCurrentIndex <= 0) return;
         clearDictCountdownTimers();
         stopDictMediaRecorderSafe();
@@ -1460,11 +1456,8 @@
             dictaphoneUiSet('', '');
         } else {
             dictaphoneUiSet('All syllables recorded.', '');
-            const recRow = document.getElementById('dictaphoneRecRow');
-            const afterRow = document.getElementById('dictaphoneAfterRow');
-            if (recRow) recRow.hidden = true;
-            if (afterRow) afterRow.hidden = true;
             dictPhase = 'done';
+            dictaphoneRefreshControls();
             return;
         }
         dictaphoneRefreshControls();
