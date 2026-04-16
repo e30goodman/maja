@@ -2218,9 +2218,9 @@
         const uiDedupKey = `${step}:${time.toFixed(6)}`;
         const metaSnapshot = { barIndex: meta.barIndex, localIndex: meta.localIndex };
 
+        // Один флаг ячейки (белый = акцент / серый = обычный) задаёт тембр для всех подударов x2/x4.
         for (let k = 0; k < cellMult; k++) {
-            const subClickIsAccent = cellMult > 1 ? true : isChecked;
-            playSharpClick(time + (k * stepDuration / cellMult), subClickIsAccent);
+            playSharpClick(time + (k * stepDuration / cellMult), isChecked);
         }
 
         const evtSeq = ++playbackUiEventSeq;
