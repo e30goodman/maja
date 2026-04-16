@@ -333,22 +333,30 @@
         .pulsation-drag-panel-list .p-label { font-weight: 700; color: var(--text-muted); }
         .pulsation-drag-panel-list li.active .p-label { color: var(--violet-400); }
 
+        /* Desktop: beats fill the full bar width (equal columns), not fixed mini tiles left-aligned. */
         .rhythm-grid {
             display: flex;
-            flex-wrap: wrap;
+            flex-direction: row;
+            flex-wrap: nowrap;
             gap: calc(clamp(5px, calc(10px - (var(--bars-count) * 0.4px)), 8px) * var(--bar-scale));
-            justify-content: flex-start;
+            justify-content: stretch;
+            align-items: stretch;
+            width: 100%;
         }
         .cell {
             display: flex;
             flex-direction: column;
+            flex: 1 1 0;
+            min-width: 0;
+            width: auto;
+            max-width: none;
+            box-sizing: border-box;
             align-items: center;
             justify-content: center;
             position: relative;
             background: var(--slate-800);
             padding: calc(clamp(6px, calc(10px - (var(--bars-count) * 0.45px)), 8px) * var(--bar-scale));
             border-radius: calc(0.5rem * var(--bar-scale));
-            width: calc(clamp(32px, calc(48px - (var(--bars-count) * 1.45px)), 42px) * var(--bar-scale));
             height: var(--total-cell-height);
             min-height: var(--total-cell-height);
             max-height: var(--total-cell-height);
@@ -1672,12 +1680,6 @@
                 cell.setAttribute('role', 'button');
                 cell.setAttribute('tabindex', '0');
                 cell.setAttribute('aria-pressed', barStates[b].checks[i] ? 'true' : 'false');
-                if (p === 2) {
-                    // Unify bar proportions for 2-pulsation: stretch cells across width.
-                    cell.style.flex = '1 1 0';
-                    cell.style.width = 'auto';
-                    cell.style.maxWidth = 'none';
-                }
                 const label = document.createElement('small');
                 const seq = syllables[p] || [];
                 let displaySyllable = s;
