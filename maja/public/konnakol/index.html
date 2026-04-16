@@ -178,6 +178,11 @@
             box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.24) inset, 0 0 12px rgba(244, 63, 94, 0.2);
             background: rgba(244, 63, 94, 0.10);
         }
+        .bar.tempo-boost-x3 {
+            border-color: #f43f5e;
+            box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.34) inset, 0 0 18px rgba(244, 63, 94, 0.34);
+            background: rgba(244, 63, 94, 0.18);
+        }
         .bar-title { font-size: calc(0.75rem * var(--bar-scale)); font-weight: bold; color: var(--text-dim); margin-bottom: calc(10px * var(--bar-scale)); text-transform: uppercase; letter-spacing: 0.06em; }
         .bar-tempo-handle {
             display: inline-flex;
@@ -206,6 +211,12 @@
             transform: scale(1.08);
             text-shadow: 0 0 10px rgba(244, 63, 94, 0.5);
             background: rgba(244, 63, 94, 0.35);
+        }
+        .bar-tempo-handle.x3 {
+            color: #fff1f2;
+            border-color: #fb7185;
+            background: rgba(244, 63, 94, 0.34);
+            box-shadow: 0 0 12px rgba(244, 63, 94, 0.34);
         }
         .pulsation-handle {
             display: inline-flex;
@@ -655,7 +666,7 @@
     let tempoHoldTimer = null;
     const BASE_PULSATION_FOR_BPM = 4;
     const BAR_SCALER_AUTO_CLOSE_MS = 5000;
-    const TEMPO_HOLD_MS = 650;
+    const TEMPO_HOLD_MS = 420;
     const STORAGE_KEY = 'konnakolSessionStateV1';
     
     const syllables = {
@@ -1177,10 +1188,12 @@
         for (let b = 0; b < barStates.length; b++) {
             const barDiv = document.createElement('div');
             const tempoMultiplier = barStates[b].tempoMultiplier || 1;
-            barDiv.className = 'bar' + (tempoMultiplier > 1 ? ' tempo-boost' : '');
+            barDiv.className = 'bar'
+                + (tempoMultiplier > 1 ? ' tempo-boost' : '')
+                + (tempoMultiplier === 3 ? ' tempo-boost-x3' : '');
             barDiv.id = `bar-${b}`;
             barDiv.dataset.barIndex = String(b);
-            barDiv.innerHTML = `<div class="bar-title"><span class="bar-tempo-handle" id="bar-tempo-handle-${b}" onpointerdown="startBarTempoHold(event, ${b})" onpointerup="endBarTempoHold(event, ${b})" onpointercancel="endBarTempoHold(event, ${b})">x${tempoMultiplier}</span><span class="pulsation-handle" id="pulsation-handle-${b}" onclick="togglePulsationMenu(event, ${b})">P${barStates[b].pulsation}</span></div>`;
+            barDiv.innerHTML = `<div class="bar-title"><span class="bar-tempo-handle${tempoMultiplier === 3 ? ' x3' : ''}" id="bar-tempo-handle-${b}" onpointerdown="startBarTempoHold(event, ${b})" onpointerup="endBarTempoHold(event, ${b})" onpointercancel="endBarTempoHold(event, ${b})">x${tempoMultiplier}</span><span class="pulsation-handle" id="pulsation-handle-${b}" onclick="togglePulsationMenu(event, ${b})">P${barStates[b].pulsation}</span></div>`;
 
             const grid = document.createElement('div');
             grid.className = 'rhythm-grid';
@@ -1251,6 +1264,7 @@
         const container = document.getElementById('barsContainer');
         renderBars(container);
         requestAnimationFrame(() => enforceBarsFit(container, barStates.length));
+        if (navigator.vibrate) navigator.vibrate(next === 3 ? [16, 30, 20] : 12);
         saveSessionState();
     }
 
