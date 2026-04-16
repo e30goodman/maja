@@ -365,14 +365,14 @@
         .cell.cell-profile-default {
             min-height: var(--cell-box-size-default);
         }
-        /* Та же min-height, что у дефолта — без лишнего «резерва», рамка вровень с обычными слогами (x2/x3 только стиль). */
+        /* Абсолютные подписи + бейдж не дают высоты во flex — одинаковый резерв для x2 и x3 */
         .cell.cell-profile-x2 {
-            --cell-label-reserve: 0px;
+            --cell-label-reserve: 14px;
             --cell-box-size-x2: calc(var(--cell-box-size-default) + var(--cell-label-reserve));
             min-height: var(--cell-box-size-x2);
         }
         .cell.cell-profile-x3 {
-            --cell-label-reserve: 0px;
+            --cell-label-reserve: 14px;
             --cell-box-size-x3: calc(var(--cell-box-size-default) + var(--cell-label-reserve));
             min-height: var(--cell-box-size-x3);
         }
@@ -665,12 +665,12 @@
                 box-sizing: border-box;
             }
             .cell.cell-profile-x2 {
-                --cell-label-reserve: 0px;
+                --cell-label-reserve: 14px;
                 --cell-box-size-x2: calc(var(--cell-box-size-default) + var(--cell-label-reserve));
                 min-height: var(--cell-box-size-x2);
             }
             .cell.cell-profile-x3 {
-                --cell-label-reserve: 0px;
+                --cell-label-reserve: 14px;
                 --cell-box-size-x3: calc(var(--cell-box-size-default) + var(--cell-label-reserve));
                 min-height: var(--cell-box-size-x3);
             }
