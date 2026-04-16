@@ -730,7 +730,7 @@
 
     <div class="action-row">
         <button class="btn btn-rand btn-icon" onclick="randomizeAndPlay()" title="Randomize">🎲</button>
-        <button id="accentToggleBtn" class="btn btn-accent btn-icon" onclick="toggleAccentOnlyFromButton()" title="Accent only"><img src="../../../drum.png" alt="Accent" class="btn-icon-img"></button>
+        <button id="accentToggleBtn" class="btn btn-accent btn-icon" onclick="toggleAccentOnlyFromButton()"><img src="../../../drum0.png" alt="" class="btn-icon-img"></button>
     </div>
     <button id="playBtn" class="btn btn-play" onclick="start(false)">▶ PLAY</button>
     <button id="stopBtn" class="btn btn-stop" onclick="stop()">■ STOP</button>
@@ -890,7 +890,7 @@
         if (!btn) return;
         btn.classList.toggle('active', accentOnlyEnabled);
         btn.setAttribute('aria-pressed', accentOnlyEnabled ? 'true' : 'false');
-        btn.title = accentOnlyEnabled ? 'Accent only: on' : 'Accent only: off';
+        btn.title = '';
     }
 
     function toggleAccentOnlyFromButton() {
