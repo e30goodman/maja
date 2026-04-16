@@ -897,8 +897,9 @@
     function refreshAccentToggleButton() {
         const btn = document.getElementById('accentToggleBtn');
         if (!btn) return;
-        btn.classList.toggle('active', accentOnlyEnabled);
-        btn.setAttribute('aria-pressed', accentOnlyEnabled ? 'true' : 'false');
+        const playAllEnabled = accentOnlyEnabled;
+        btn.classList.toggle('active', playAllEnabled);
+        btn.setAttribute('aria-pressed', playAllEnabled ? 'true' : 'false');
         btn.title = '';
     }
 
@@ -2004,7 +2005,7 @@
     }
 
     function playSharpClick(time, isChecked) {
-        if (accentOnlyEnabled && !isChecked) return;
+        if (!accentOnlyEnabled && !isChecked) return;
         if (!audioCtx) audioCtx = new AudioContext();
         if (selectedSoundPreset === 'custom') {
             const buffer = isChecked ? (customAccentBuffer || customClickBuffer) : (customClickBuffer || customAccentBuffer);
