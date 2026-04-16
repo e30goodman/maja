@@ -576,26 +576,38 @@
             margin-top: 10px;
         }
         .dictaphone-row.dictaphone-after-actions {
-            grid-template-columns: 1fr 1fr 1fr;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
             gap: 8px;
+            align-items: stretch;
         }
-        .dictaphone-row.dictaphone-after-actions .btn {
+        .dictaphone-row.dictaphone-after-actions > button {
+            margin: 0;
+            min-width: 0;
+            width: 100%;
+            box-sizing: border-box;
+            min-height: 46px;
             padding: 10px 6px;
             font-size: 0.78rem;
-        }
-        .dictaphone-row.single { grid-template-columns: 1fr; }
-        .btn-dict-again {
-            padding: 10px 6px;
-            border: none;
+            font-weight: 700;
             border-radius: 0.75rem;
-            font-weight: 800;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1.15;
+            text-align: center;
+        }
+        .dictaphone-row.dictaphone-after-actions .btn-dict-again {
+            border: none;
             cursor: pointer;
-            font-size: 0.78rem;
             background: linear-gradient(135deg, #fb7185 0%, var(--rose-500) 100%);
             color: #fff;
             box-shadow: 0 3px 10px rgba(244, 63, 94, 0.3);
         }
-        .btn-dict-again:disabled { opacity: 0.45; cursor: not-allowed; }
+        .dictaphone-row.dictaphone-after-actions .btn-dict-again:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+        .dictaphone-row.single { grid-template-columns: 1fr; }
         .btn-dict-rec {
             width: 100%;
             padding: 14px;
@@ -910,7 +922,7 @@
         </div>
         <div id="dictaphoneAfterRow" class="dictaphone-row dictaphone-after-actions" hidden>
             <button type="button" class="btn btn-play" onclick="dictaphonePlayPreview()">▶ Play</button>
-            <button type="button" id="dictaphoneAgainBtn" class="btn-dict-again" onclick="dictaphoneRecordAgain()">↻ Заново</button>
+            <button type="button" class="btn btn-dict-again" onclick="dictaphoneRecordAgain()">↻ Re-record</button>
             <button type="button" class="btn btn-accent" onclick="dictaphoneNext()">Next</button>
         </div>
         <button type="button" class="btn-dict-close" onclick="closeDictaphoneOverlay()">Close</button>
@@ -1267,7 +1279,7 @@
         }
         ov.hidden = false;
         ov.setAttribute('aria-hidden', 'false');
-        dictaphoneUiSet('Tap REC — count 1–4, then speak on 5.', '');
+        dictaphoneUiSet('', '');
         dictaphoneRefreshControls();
     }
 
@@ -1278,15 +1290,16 @@
         clearDictCountdownTimers();
         dictPhase = 'counting';
         dictaphoneRefreshControls();
-        dictaphoneUiSet('Get ready…', '');
+        dictaphoneUiSet('', '');
+        const countWords = ['One', 'Two', 'Three', 'Four'];
         for (let n = 1; n <= 4; n++) {
             const tid = setTimeout(() => {
-                dictaphoneUiSet(`Beat ${n} of 4`, String(n));
+                dictaphoneUiSet('', countWords[n - 1]);
             }, (n - 1) * DICT_COUNT_STEP_MS);
             dictCountdownTimerIds.push(tid);
         }
         const startRecTid = setTimeout(() => {
-            dictaphoneUiSet('5 — speak now!', '5');
+            dictaphoneUiSet('', 'Go');
             dictaphoneBeginRecording(key);
         }, 4 * DICT_COUNT_STEP_MS + 80);
         dictCountdownTimerIds.push(startRecTid);
@@ -1305,6 +1318,7 @@
             dictaphoneRefreshControls();
             return;
         }
+        dictaphoneUiSet('', '');
         let mime = 'audio/webm';
         if (!MediaRecorder.isTypeSupported(mime)) mime = '';
         dictMediaRecorder = mime ? new MediaRecorder(dictMediaStream, { mimeType: mime }) : new MediaRecorder(dictMediaStream);
@@ -1327,7 +1341,7 @@
                 const buf = await audioCtx.decodeAudioData(arr.slice(0));
                 customSyllableBuffers[syllableKey] = buf;
                 dictPhase = 'preview';
-                dictaphoneUiSet('Recorded. Play to check, Next for syllable.', '');
+                dictaphoneUiSet('', '');
             } catch (err) {
                 console.error('[dictaphone] decode', err);
                 dictaphoneUiSet('Could not decode recording.', '');
@@ -1351,7 +1365,7 @@
         stopDictMediaRecorderSafe();
         delete customSyllableBuffers[key];
         dictPhase = 'idle';
-        dictaphoneUiSet('Tap REC — count 1–4, then speak on 5.', '');
+        dictaphoneUiSet('', '');
         dictaphoneRefreshControls();
     }
 
@@ -1376,9 +1390,9 @@
         dictaphoneUiSet('', '');
         if (dictCurrentIndex < DICT_SYLLABLES.length - 1) {
             dictCurrentIndex += 1;
-            dictaphoneUiSet('Tap REC — count 1–4, then speak on 5.', '');
+            dictaphoneUiSet('', '');
         } else {
-            dictaphoneUiSet('All syllables recorded: Ta Ka Dhi Mi Ta Ka Dju Na.', '');
+            dictaphoneUiSet('All syllables recorded.', '');
             const recRow = document.getElementById('dictaphoneRecRow');
             const afterRow = document.getElementById('dictaphoneAfterRow');
             if (recRow) recRow.hidden = true;
