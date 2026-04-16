@@ -1890,11 +1890,10 @@
         const p = barStates[barIndex].pulsation;
         const onlyAccented = Boolean(options.onlyAccented);
         const next = Array.from({ length: p }, (_, i) => {
-            if (onlyAccented && !barStates[barIndex].checks[i]) return 1;
-            const roll = Math.random();
-            if (roll < 0.16) return 4; // x3 label / x4 effective speed
-            if (roll < 0.42) return 2; // x2
-            return 1;
+            const isAccent = Boolean(barStates[barIndex].checks[i]);
+            if (!isAccent) return 1;
+            if (onlyAccented && !isAccent) return 1;
+            return Math.random() < 0.5 ? 2 : 4; // x2 / x3 label (x4 effective)
         });
         barStates[barIndex].cellTempoMultipliers = next;
     }
