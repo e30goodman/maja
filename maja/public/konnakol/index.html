@@ -314,6 +314,7 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
+            position: relative;
             background: var(--slate-800);
             padding: calc(clamp(6px, calc(10px - (var(--bars-count) * 0.45px)), 8px) * var(--bar-scale));
             border-radius: calc(0.5rem * var(--bar-scale));
@@ -371,6 +372,19 @@
             border-color: #f43f5e;
             box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.34) inset, 0 0 12px rgba(244, 63, 94, 0.22);
             background: rgba(244, 63, 94, 0.20);
+        }
+        .cell-speed-badge {
+            position: absolute;
+            right: calc(4px * var(--bar-scale));
+            bottom: calc(3px * var(--bar-scale));
+            font-size: calc(0.52rem * var(--bar-scale));
+            line-height: 1;
+            font-weight: 700;
+            color: #7f1d1d;
+            letter-spacing: 0.02em;
+            pointer-events: none;
+            user-select: none;
+            opacity: 0.95;
         }
 
         .btn { width: 100%; padding: 15px; border: none; border-radius: 0.75rem; font-weight: 700; cursor: pointer; margin-bottom: 10px; font-size: 1rem; transition: 0.2s; }
@@ -1230,6 +1244,12 @@
                 const label = document.createElement('small');
                 label.textContent = s;
                 cell.appendChild(label);
+                if (cellTempoMultiplier > 1) {
+                    const speedBadge = document.createElement('span');
+                    speedBadge.className = 'cell-speed-badge';
+                    speedBadge.textContent = cellTempoMultiplier === 4 ? 'x3' : 'x2';
+                    cell.appendChild(speedBadge);
+                }
                 cell.addEventListener('pointerdown', (ev) => startCellTempoHold(ev, b, i));
                 cell.addEventListener('pointerup', (ev) => endCellTempoHold(ev, b, i));
                 cell.addEventListener('pointercancel', (ev) => endCellTempoHold(ev, b, i));
