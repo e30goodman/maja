@@ -526,10 +526,6 @@
                         Pulsation each bar
                     </label>
                     <label class="rand-cycle">
-                        <input type="checkbox" id="uniformSound" onchange="saveSessionState()">
-                        Uniform sound
-                    </label>
-                    <label class="rand-cycle">
                         <input type="checkbox" id="accentOnlySound" onchange="saveSessionState()">
                         Accent only
                     </label>
@@ -712,7 +708,6 @@
             randNotesPerBar: document.getElementById('randNotesPerBar').value || 'random',
             randomPatternAfterEachBar: document.getElementById('randomPatternAfterEachBar').checked,
             randomPulsationAfterEachBar: document.getElementById('randomPulsationAfterEachBar').checked,
-            uniformSound: document.getElementById('uniformSound').checked,
             accentOnlySound: document.getElementById('accentOnlySound').checked,
             bpm: String(document.getElementById('bpm').value || '100'),
             barScaleByCount: getBarScaleMapForSave(),
@@ -784,7 +779,6 @@
         const barScaleEl = document.getElementById('barScale');
         const randomPatternAfterEachBarEl = document.getElementById('randomPatternAfterEachBar');
         const randomPulsationAfterEachBarEl = document.getElementById('randomPulsationAfterEachBar');
-        const uniformSoundEl = document.getElementById('uniformSound');
         const accentOnlySoundEl = document.getElementById('accentOnlySound');
 
         if (state.pulsation && syllables[state.pulsation]) {
@@ -820,7 +814,6 @@
                 ? false
                 : Boolean(state.randomPulsationAfterEachBar);
         }
-        uniformSoundEl.checked = Boolean(state.uniformSound);
         if (accentOnlySoundEl) {
             accentOnlySoundEl.checked = Boolean(state.accentOnlySound);
         }
@@ -1433,12 +1426,11 @@
         if (!audioCtx) audioCtx = new AudioContext();
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
-        const uniform = document.getElementById('uniformSound').checked;
 
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(uniform ? 860 : (isChecked ? 920 : 800), time);
+        osc.frequency.setValueAtTime(isChecked ? 920 : 800, time);
 
-        const peak = uniform ? 0.31 : (isChecked ? 0.34 : 0.28);
+        const peak = isChecked ? 0.34 : 0.28;
         gain.gain.setValueAtTime(0, time);
         gain.gain.linearRampToValueAtTime(peak, time + 0.002);
         gain.gain.exponentialRampToValueAtTime(0.001, time + 0.04);
