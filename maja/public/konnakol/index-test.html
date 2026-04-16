@@ -6,7 +6,7 @@
     <title>Konnakol (test)</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        /* Палитра как на Espace Maja (Tailwind slate + violet + blue) */
+        /* Palette aligned with Espace Maja (Tailwind slate + violet + blue) */
         :root {
             --slate-900: #0f172a;
             --slate-800: #1e293b;
@@ -711,8 +711,8 @@
         }
 
         /*
-         * Телефон: другой формат — «лента тактов».
-         * Каждый такт на всю ширину; слоги в одну линию, ячейки делят ширину поровну (как дорожка).
+         * Phone layout: horizontal strip of bars.
+         * Each bar is full width; syllables on one line; beats split width evenly (timeline style).
          */
         @media (max-width: 600px) {
             body {
@@ -972,7 +972,7 @@
     let lastKnownRandomPatternEnabled = true;
     let lastPaintedPlaybackMeta = null;
     let playbackCompletedCycles = 0;
-    /** Сколько раз за текущий незавершённый круг вызвали оркестратор на границах тактов (localIndex===0). Должно стать ровно bCount за полный круг. */
+    /** How many times the orchestrator ran on bar boundaries (localIndex===0) in the current incomplete cycle. Should equal bCount over a full cycle. */
     let cycleBoundaryMutations = 0;
     let lastInternalPlaybackLogKey = '';
     let allowPlaybackPulsationMutation = false;
@@ -1077,8 +1077,8 @@
     }
 
     /**
-     * После смены пульсации длина stepMeta меняется, а currentStep остаётся от старой сетки — планировщик «ломает» порядок.
-     * Привязываем currentStep к доле anchorMeta (текущий UI-тик) и следующему шагу в новой сетке.
+     * After changing pulsation, stepMeta length changes but currentStep still points at the old grid and the scheduler breaks order.
+     * Rebind currentStep to anchorMeta beat and the next step in the new grid.
      */
     function resyncCurrentStepAfterOrchestration(anchorMeta) {
         const idx = findGlobalStepIndexForMeta(anchorMeta);
@@ -1165,8 +1165,8 @@
         const patternDisabledNow = lastKnownRandomPatternEnabled && !patternEnabledNow;
         lastKnownRandomPatternEnabled = patternEnabledNow;
 
-        // Если Random Pattern выключили во время playback, отменяем уже запланированные
-        // callbacks, чтобы прошлые «очереди» перестановки акцентов не отрабатывали.
+        // If Random Pattern was turned off during playback, cancel already scheduled
+        // callbacks so queued accent reshuffles from earlier bars do not run.
         if (patternDisabledNow && isPlaybackRunning()) {
             lastAppliedPlaybackUiSeq = playbackUiEventSeq;
             lastProcessedUiPaintKey = '';
@@ -1544,12 +1544,7 @@
     }
 
     function notesCountLabel(n) {
-        const mod10 = n % 10;
-        const mod100 = n % 100;
-        let w = 'нот';
-        if (mod10 === 1 && mod100 !== 11) w = 'нота';
-        else if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) w = 'ноты';
-        return n + ' ' + w;
+        return n + (n === 1 ? ' note' : ' notes');
     }
 
     function getCurrentSessionState() {
@@ -1975,7 +1970,7 @@
                 cell.setAttribute('tabindex', '0');
                 cell.setAttribute('aria-pressed', barStates[b].checks[i] ? 'true' : 'false');
                 if (p === 2) {
-                    // Унифицируем визуальные пропорции бара для 2-пульса: ячейки растягиваются на ширину.
+                    // Unify bar proportions for 2-pulsation: stretch cells across width.
                     cell.style.flex = '1 1 0';
                     cell.style.width = 'auto';
                     cell.style.maxWidth = 'none';
@@ -1987,25 +1982,25 @@
                     displaySyllable = s;
                     lastOriginalSyllable = s;
                 } else {
-                    // 1. УСТАНАВЛИВАЕМ БАЗУ: x1 идет по сетке, x2/x4 ВСЕГДА начинают с Ta (индекс 0)
+                    // Base: x1 follows grid; x2/x4 always start from Ta (index 0).
                     const defaultStart = (mult === 1) ? (i % seq.length) : 0;
 
                     let displayStart = defaultStart;
 
-                    // 2. УМНЫЙ СДВИГ: Разрешен ТОЛЬКО для одиночных ячеек (mult === 1)
-                    // Множители (x2, x4) теперь ЗАБЛОКИРОВАНЫ и не будут "прыгать"
+                    // Smart shift: only for single cells (mult === 1).
+                    // Multipliers (x2, x4) are locked and do not jump.
                     if (mult === 1 && lastOriginalSyllable != null && seq[defaultStart] === lastOriginalSyllable) {
                         displayStart = (defaultStart - 1 + seq.length) % seq.length;
                     }
 
-                    // 3. ФОРМИРУЕМ СТРОКУ (строго по твоим правилам)
+                    // Build label string (syllable stitching rules).
                     if (mult === 1) {
                         displaySyllable = seq[displayStart];
                     } else if (mult === 2) {
-                        // Всегда будет Ta Ka (если паттерн начинается с Ta Ka)
+                        // Two subdivisions: Ta Ka when pattern starts that way.
                         displaySyllable = `${seq[0]} ${seq[1 % seq.length]}`;
                     } else if (mult === 4) {
-                        // Всегда будет Ta Ka / Dhi Mi
+                        // Four subdivisions: two-line Ta Ka / Dhi Mi style.
                         const a = seq[0];
                         const b = seq[1 % seq.length];
                         const c = seq[2 % seq.length];
@@ -2015,7 +2010,7 @@
                         displaySyllable = s;
                     }
 
-                    // 4. ОБНОВЛЯЕМ ПАМЯТЬ: Запоминаем РЕАЛЬНЫЙ последний слог для следующего соседа
+                    // Remember real last syllable for the next neighbouring cell.
                     if (mult === 1) {
                         lastOriginalSyllable = seq[displayStart];
                     } else if (mult === 2) {
@@ -2070,7 +2065,7 @@
                 mappedCount += 1;
             }
         }
-        // При росте пульсации сохраняем плотность акцентов, добавляя недостающие акценты случайно.
+        // When pulsation increases, keep accent density and fill gaps randomly.
         if (newP > oldP && oldP > 0) {
             const oldCount = oldChecks.reduce((sum, v) => sum + (v ? 1 : 0), 0);
             const targetCount = Math.min(newP, Math.max(mappedCount, Math.round((oldCount / oldP) * newP)));
@@ -2481,7 +2476,7 @@
             safety += 1;
         }
 
-        // Поддерживаем требование: 8 баров не выше режима 5 баров по целевой сумме.
+        // Keep 8-bar layout from exceeding 5-bar target total height.
         if (bCount === 8) {
             const expectedFor5 = Math.floor(getAllowedBarsHeight(container) * 0.90);
             if (container.scrollHeight > expectedFor5) {
@@ -2507,7 +2502,7 @@
         return { mode: 'random' };
     }
 
-    /** 0..1: насколько агрессивно крутить x2/x4 для Random speed (Max 1 нота = слабо, Random / высокий Max = полный бросок). */
+    /** 0..1: how aggressively to apply x2/x4 in Random speed (Max 1 note = mild; Random / high Max = full spread). */
     function getSpeedRandomAggressionFromSpec(spec, pulsationP) {
         const safeP = Math.min(8, Math.max(2, parseInt(pulsationP, 10) || 4));
         if (spec && spec.mode === 'max' && typeof spec.n === 'number' && spec.n >= 1) {

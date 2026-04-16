@@ -504,5 +504,5 @@ Tâches : Variante Ostinato + Fills ; Variante Lock Grosse Caisse ; Variante Uni
 NOTE
 ================================================================================
 Aucune URL (YouTube, Drive, App Store, chemins /maja/...) n'est reprise dans ce fichier,
-conformément à la demande « кроме ссылок ». Les consignes du type « regarder la vidéo »
+conformément à la demande « sans liens » (no URLs in this export). Les consignes du type « regarder la vidéo »
 restent ; ouvrez le site pour les boutons Audio/Video/Métronome.

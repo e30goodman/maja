@@ -15,11 +15,11 @@ interface Note {
 
 const SCHEDULE_AHEAD_TIME = 0.1; // seconds
 
-/** Неактивный слог: почти чёрный фон, едва заметная рамка и приглушённый текст (не «кричит» при счёте). */
+/** Idle syllable: near-black background, subtle border, muted text (does not shout while counting). */
 const CELL_IDLE = 'bg-[#090a0c] text-[#4e525c] border-[#101218] hover:border-[rgba(148,122,39,0.22)]';
 
 /**
- * Ведущая «Ta» без акцента: на чуть-чуть светлее неактивных — лёгкий холодный оттенок, без яркого голубого.
+ * Leading unaccented "Ta": slightly brighter than idle cells — cool tint, no loud blue.
  */
 const LEAD_IDLE_SUBTLE: { color: string; borderColor: string; backgroundColor: string } = {
   color: '#5a616c',
@@ -40,7 +40,7 @@ function getLeadIdleStyle(
   };
 }
 
-/** Индекс цикла Ta-ki-ta / Ta-ka из id (`g1-2-0` → 2). */
+/** Sub-cycle index for Ta-ki-ta / Ta-ka from id (`g1-2-0` → 2). */
 function subCycleFromNoteId(id: string): number {
   const parts = id.split('-');
   if (parts.length < 2) return 0;
@@ -49,7 +49,7 @@ function subCycleFromNoteId(id: string): number {
 }
 
 /**
- * Раскладка: в каждой строке до двух полных циклов (2× при 4X, 2+1 при 3X, 2 при 2X, 1 при 1X).
+ * Layout: up to two full cycles per row (2× at 4X, 2+1 at 3X, 2 at 2X, 1 at 1X).
  */
 function buildRowsOfTwoCycles(notes: Note[], speed: Speed): Note[][][] {
   const sorted = [...notes].sort((a, b) => a.beatOffset - b.beatOffset);
@@ -135,9 +135,9 @@ export default function App() {
     'g2-0-0': true,
     'g3-0-0': true
   });
-  /** Временный масштаб всего UI (1 = 100%). */
+  /** Temporary scale for the whole UI (1 = 100%). */
   const [uiScale, setUiScale] = useState(1);
-  /** Отключить базовый метроном и оставить только акцентированные клики. */
+  /** Disable base metronome clicks; play accented clicks only. */
   const [accentOnlyAudio, setAccentOnlyAudio] = useState(false);
 
   // Refs for audio and timing

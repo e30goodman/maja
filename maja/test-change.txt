@@ -1,6 +1,5 @@
-Test change - проверка деплоя
+Test change - deploy check
 Timestamp: 2025-11-26
-
 
 
 

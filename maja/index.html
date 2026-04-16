@@ -5,16 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BassMastery - Espace Maja</title>
     
-    <!-- Tailwind CSS (Дизайн) -->
+    <!-- Tailwind CSS (layout) -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Иконки -->
+    <!-- Icons (Lucide) -->
     <script src="https://unpkg.com/lucide@latest"></script>
     
-    <!-- Шрифты -->
+    <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     
-    <!-- Настройки для ИИ (Gemini) -->
+    <!-- AI import map (Gemini) -->
     <script type="importmap">
     {
       "imports": {
@@ -29,7 +29,7 @@
         background-color: #0f172a; /* Slate 900 */
         color: #e2e8f0; /* Slate 200 */
       }
-      /* Скроллбар */
+      /* Scrollbar */
       ::-webkit-scrollbar { width: 8px; }
       ::-webkit-scrollbar-track { background: #1e293b; }
       ::-webkit-scrollbar-thumb { background: #4c1d95; border-radius: 4px; }
@@ -42,16 +42,16 @@
 </head>
 <body class="pb-20 relative overflow-x-hidden min-h-screen">
 
-    <!-- Фоновая амбиенс -->
+    <!-- Background ambience -->
     <div class="fixed top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
         <div class="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-blue-900/20 blur-[100px]"></div>
         <div class="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-violet-900/20 blur-[100px]"></div>
     </div>
 
-    <!-- Основной контент -->
+    <!-- Main content -->
     <div class="relative z-10 max-w-4xl mx-auto px-4 py-8 md:py-12 space-y-6">
         <div id="app">
-        <!-- Сюда будет рендериться все приложение через JavaScript -->
+        <!-- App shell rendered by JavaScript -->
         </div>
         <div class="text-center text-sm text-slate-300 bg-slate-900/70 border border-slate-700 rounded-2xl px-4 py-3 shadow-lg">
             Pour toute question, n'hésitez pas à écrire à Artem sur WhatsApp.
@@ -65,7 +65,7 @@
         </div>
     </div>
 
-    <!-- Модальное окно для фото (скрыто по умолчанию) -->
+    <!-- Image modal (hidden by default) -->
     <div id="image-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-2 sm:p-4 hidden">
         <div class="modal-content bg-slate-900 rounded-2xl border border-slate-700 w-full max-w-lg sm:max-w-3xl md:max-w-4xl p-4 sm:p-6 relative shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
             <button onclick="closeImageModal()" class="absolute top-3 right-3 sm:top-4 sm:right-4 p-2 bg-slate-800 text-slate-400 hover:text-white rounded-full border border-slate-700">
@@ -82,7 +82,7 @@
             </div>
 
             <div id="modal-gallery" class="flex-1 flex flex-col gap-4 overflow-y-auto pr-1 sm:pr-2 pb-4">
-                <!-- Фотографии появятся здесь -->
+                <!-- Gallery thumbnails -->
             </div>
             
             <p class="text-center text-sm text-slate-400 mt-auto border-t border-slate-800 pt-4">
@@ -109,7 +109,7 @@
     <!-- JAVASCRIPT LOGIC -->
     <script type="module">
         // ==========================================
-        // 1. ДАННЫЕ КУРСА (РЕДАКТИРУЙ ЗДЕСЬ)
+        // 1. COURSE DATA (edit here)
         // ==========================================
         const COURSE_DATA = [
             {
@@ -141,7 +141,7 @@
                                 text: 'Mémoriser les 4 formes géométriques (Voir photos)', 
                                 details: 'Visualiser les formes sur le manche. Cliquez pour voir ou ajouter vos photos.',
                                 showImages: true,
-                                imageUrls: [] // Загрузятся из памяти
+                                imageUrls: [] // Loaded from local storage
                             },
                             { 
                                 id: 't1-1-3', 

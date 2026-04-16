@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig, loadEnv} from 'vite';
 
-/** Гарантирует корректный base URL для ./assets/* при pathname без завершающего «/». */
+/** Ensures a correct base URL for ./assets/* when the pathname has no trailing slash. */
 function adiTalamDynamicBasePlugin() {
   const inline = `(function(){try{if(!/^https?:/i.test(location.protocol))return;var p=location.pathname.replace(/\\/index\\.html$/i,"");if(!p.endsWith("/"))p+="/";var b=document.createElement("base");b.href=location.origin+p;var m=document.querySelector("meta[charset]");document.head.insertBefore(b,m&&m.nextSibling);}catch(e){}})();`;
   return {
@@ -36,7 +36,7 @@ export default defineConfig(({mode, command}) => {
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
+      // Do not modify — file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
     },
   };
