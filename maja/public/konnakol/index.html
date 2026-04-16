@@ -1488,6 +1488,7 @@
     function renderBars(container) {
         recalcStepMeta();
         container.innerHTML = '';
+        let lastSyllableOfPreviousCell = null;
         let globalStep = 0;
         for (let b = 0; b < barStates.length; b++) {
             const barDiv = document.createElement('div');
@@ -1529,9 +1530,29 @@
                     cell.style.maxWidth = 'none';
                 }
                 const label = document.createElement('small');
-                const displaySyllable = cellTempoMultiplier === 2
-                    ? 'Ta Ka'
-                    : (cellTempoMultiplier === 4 ? 'Ta Ka\nDju Na' : s);
+                const seq = syllables[p];
+                let displaySyllable = s;
+                if (seq && seq.length) {
+                    const len = seq.length;
+                    let startIdx = ((i % len) + len) % len;
+                    if (lastSyllableOfPreviousCell !== null && seq[startIdx] === lastSyllableOfPreviousCell) {
+                        startIdx = (startIdx + 1) % len;
+                    }
+                    if (cellTempoMultiplier === 1) {
+                        displaySyllable = seq[startIdx];
+                        lastSyllableOfPreviousCell = seq[startIdx];
+                    } else if (cellTempoMultiplier === 2) {
+                        displaySyllable = `${seq[startIdx]} ${seq[(startIdx + 1) % len]}`;
+                        lastSyllableOfPreviousCell = seq[(startIdx + 1) % len];
+                    } else if (cellTempoMultiplier === 4) {
+                        displaySyllable = `${seq[startIdx]} ${seq[(startIdx + 1) % len]}\n${seq[(startIdx + 2) % len]} ${seq[(startIdx + 3) % len]}`;
+                        lastSyllableOfPreviousCell = seq[(startIdx + 3) % len];
+                    } else {
+                        lastSyllableOfPreviousCell = s;
+                    }
+                } else {
+                    lastSyllableOfPreviousCell = s;
+                }
                 label.textContent = displaySyllable;
                 if (cellTempoMultiplier > 1) {
                     label.classList.add('subdiv-label');
