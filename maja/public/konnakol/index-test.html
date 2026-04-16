@@ -219,14 +219,19 @@
             min-width: 0;
         }
         .bar-controls-stack {
-            --bar-control-chip: calc(40px * var(--bar-scale));
+            /* Sum of two controls + gap == syllable row (--total-cell-height from .bars-container). */
+            --controls-stack-gap: calc(6px * var(--bar-scale));
             display: flex;
             flex-direction: column;
-            justify-content: center;
+            justify-content: flex-start;
             align-items: stretch;
-            gap: calc(6px * var(--bar-scale));
+            gap: var(--controls-stack-gap);
             flex: 0 0 auto;
-            width: var(--bar-control-chip);
+            height: var(--total-cell-height);
+            min-height: var(--total-cell-height);
+            max-height: var(--total-cell-height);
+            /* Square chips: column width = one control row height = (H - gap) / 2 */
+            width: calc((var(--total-cell-height) - var(--controls-stack-gap)) / 2);
         }
         .bar-body .rhythm-grid {
             flex: 1 1 0;
@@ -254,16 +259,17 @@
         }
         .bar-controls-stack .bar-tempo-handle,
         .bar-controls-stack .pulsation-handle {
+            flex: 1 1 0;
+            min-height: 0;
             width: 100%;
             min-width: 0;
             max-width: none;
-            height: var(--bar-control-chip);
-            min-height: var(--bar-control-chip);
+            height: auto;
             margin: 0;
             padding: 0;
             box-sizing: border-box;
-            border-radius: calc(10px * var(--bar-scale));
-            font-size: calc(0.72rem * var(--bar-scale));
+            border-radius: calc(8px * var(--bar-scale));
+            font-size: calc(0.68rem * var(--bar-scale));
         }
         .bar-tempo-handle:hover {
             background: rgba(51, 65, 85, 0.4);
@@ -797,13 +803,12 @@
                 align-items: stretch;
             }
             .bar-controls-stack {
-                --bar-control-chip: calc(38px * var(--bar-scale));
-                gap: calc(5px * var(--bar-scale));
+                --controls-stack-gap: calc(5px * var(--bar-scale));
             }
             .bar-controls-stack .bar-tempo-handle,
             .bar-controls-stack .pulsation-handle {
-                font-size: calc(0.68rem * var(--bar-scale));
-                border-radius: calc(9px * var(--bar-scale));
+                font-size: calc(0.64rem * var(--bar-scale));
+                border-radius: calc(7px * var(--bar-scale));
             }
             .rhythm-grid {
                 display: flex;
