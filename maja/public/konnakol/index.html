@@ -1098,7 +1098,13 @@
     }
 
     function applySessionStateToControls(state) {
-        if (!state) return;
+        if (!state) {
+            randomModeEnabled = false;
+            accentOnlyEnabled = true;
+            refreshRandomModeToggleButton();
+            refreshAccentToggleButton();
+            return;
+        }
         const pulsationEl = document.getElementById('pulsation');
         const barsCountEl = document.getElementById('barsCount');
         const bpmEl = document.getElementById('bpm');
@@ -1144,7 +1150,9 @@
                 ? false
                 : Boolean(state.randomPulsationAfterEachBar);
         }
-        randomModeEnabled = Boolean(state.randomModeEnabled);
+        randomModeEnabled = state.randomModeEnabled === undefined
+            ? false
+            : Boolean(state.randomModeEnabled);
         if (soundPresetEl) {
             selectedSoundPreset = typeof state.soundPreset === 'string' ? state.soundPreset : 'classic';
             soundPresetEl.value = selectedSoundPreset;
