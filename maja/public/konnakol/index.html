@@ -2240,8 +2240,25 @@
 
     const SCROLL_CLOSE_TRIGGER_MS = 200;
     const SCROLL_ACTIVITY_RESET_MS = 120;
+    const STRONG_FLING_WHEEL_DELTA = 420;
+    const STRONG_FLING_TOUCH_VELOCITY = 1.6;
+    const BOTTOM_STOP_EPSILON = 2;
     let scrollTriggerStartedAt = 0;
     let lastScrollActivityAt = 0;
+    let lastTouchY = null;
+    let lastTouchTs = 0;
+
+    const isViewportAtBottomStop = () => {
+        const doc = document.documentElement;
+        const body = document.body;
+        const scrollTop = window.pageYOffset || doc.scrollTop || body.scrollTop || 0;
+        const scrollHeight = Math.max(
+            doc.scrollHeight || 0,
+            body.scrollHeight || 0
+        );
+        const viewportHeight = window.innerHeight || doc.clientHeight || 0;
+        return (scrollTop + viewportHeight) >= (scrollHeight - BOTTOM_STOP_EPSILON);
+    };
 
     const closeTopFoldsOnScrollTrigger = () => {
         const now = performance.now();
@@ -2258,9 +2275,44 @@
             lastScrollActivityAt = 0;
         }
     };
+    const onStrongFlingTrigger = () => {
+        closeTopFoldsByOutsideTarget(null);
+        scrollTriggerStartedAt = 0;
+        lastScrollActivityAt = 0;
+    };
+    const onWheelScrollTrigger = (event) => {
+        closeTopFoldsOnScrollTrigger();
+        if (
+            event
+            && event.deltaY > STRONG_FLING_WHEEL_DELTA
+            && isViewportAtBottomStop()
+        ) {
+            onStrongFlingTrigger();
+        }
+    };
+    const onTouchMoveScrollTrigger = (event) => {
+        closeTopFoldsOnScrollTrigger();
+        const touch = event && event.touches && event.touches[0];
+        if (!touch) return;
+        const now = performance.now();
+        if (lastTouchY !== null && lastTouchTs > 0) {
+            const dy = lastTouchY - touch.clientY;
+            const dt = Math.max(1, now - lastTouchTs);
+            const velocity = dy / dt;
+            if (velocity > STRONG_FLING_TOUCH_VELOCITY && isViewportAtBottomStop()) {
+                onStrongFlingTrigger();
+            }
+        }
+        lastTouchY = touch.clientY;
+        lastTouchTs = now;
+    };
     window.addEventListener('scroll', closeTopFoldsOnScrollTrigger, { passive: true });
-    window.addEventListener('wheel', closeTopFoldsOnScrollTrigger, { passive: true });
-    window.addEventListener('touchmove', closeTopFoldsOnScrollTrigger, { passive: true });
+    window.addEventListener('wheel', onWheelScrollTrigger, { passive: true });
+    window.addEventListener('touchmove', onTouchMoveScrollTrigger, { passive: true });
+    window.addEventListener('touchend', () => {
+        lastTouchY = null;
+        lastTouchTs = 0;
+    }, { passive: true });
 
     window.addEventListener('resize', () => {
         const bCount = parseInt(document.getElementById('barsCount').value, 10);
