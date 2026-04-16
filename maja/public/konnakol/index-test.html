@@ -1926,18 +1926,16 @@
                     displaySyllable = s;
                     lastOriginalSyllable = s;
                 } else {
-                    // ВОТ ОН, ФИКС: x1 зависит от позиции, а x2/x4 всегда начинают с 0 (Ta)
                     const defaultStart = (mult === 1) ? (i % seq.length) : 0;
-
                     const origFirst = seq[defaultStart];
                     let displayStart = defaultStart;
 
-                    // Проверка на стык: только если РЕАЛЬНЫЙ конфликт
+                    // ЖЕСТКАЯ ЛОГИКА: Если конфликт — делаем шаг НАЗАД (-1), а не вперед
                     if (lastOriginalSyllable != null && origFirst === lastOriginalSyllable) {
-                        displayStart = (defaultStart + 1) % seq.length;
+                        // (defaultStart - 1 + len) % len — это заимствование предыдущего слога
+                        displayStart = (defaultStart - 1 + seq.length) % seq.length;
                     }
 
-                    // Формируем текст ячейки
                     if (mult === 1) {
                         displaySyllable = seq[displayStart];
                     } else if (mult === 2) {
@@ -1954,7 +1952,7 @@
                         displaySyllable = s;
                     }
 
-                    // ЗАПИСЫВАЕМ ОРИГИНАЛ В ХВОСТ (убивает Домино)
+                    // Сохраняем ОРИГИНАЛЬНЫЙ хвост для следующей проверки
                     if (mult === 1) {
                         lastOriginalSyllable = seq[defaultStart];
                     } else if (mult === 2) {
