@@ -575,7 +575,27 @@
             gap: 10px;
             margin-top: 10px;
         }
+        .dictaphone-row.dictaphone-after-actions {
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 8px;
+        }
+        .dictaphone-row.dictaphone-after-actions .btn {
+            padding: 10px 6px;
+            font-size: 0.78rem;
+        }
         .dictaphone-row.single { grid-template-columns: 1fr; }
+        .btn-dict-again {
+            padding: 10px 6px;
+            border: none;
+            border-radius: 0.75rem;
+            font-weight: 800;
+            cursor: pointer;
+            font-size: 0.78rem;
+            background: linear-gradient(135deg, #fb7185 0%, var(--rose-500) 100%);
+            color: #fff;
+            box-shadow: 0 3px 10px rgba(244, 63, 94, 0.3);
+        }
+        .btn-dict-again:disabled { opacity: 0.45; cursor: not-allowed; }
         .btn-dict-rec {
             width: 100%;
             padding: 14px;
@@ -888,8 +908,9 @@
         <div id="dictaphoneRecRow">
             <button type="button" id="dictaphoneRecBtn" class="btn-dict-rec" onclick="dictaphoneStartTake()">● REC</button>
         </div>
-        <div id="dictaphoneAfterRow" class="dictaphone-row" hidden>
+        <div id="dictaphoneAfterRow" class="dictaphone-row dictaphone-after-actions" hidden>
             <button type="button" class="btn btn-play" onclick="dictaphonePlayPreview()">▶ Play</button>
+            <button type="button" id="dictaphoneAgainBtn" class="btn-dict-again" onclick="dictaphoneRecordAgain()">↻ Заново</button>
             <button type="button" class="btn btn-accent" onclick="dictaphoneNext()">Next</button>
         </div>
         <button type="button" class="btn-dict-close" onclick="closeDictaphoneOverlay()">Close</button>
@@ -1320,6 +1341,18 @@
                 try { dictMediaRecorder.stop(); } catch (_) {}
             }
         }, DICT_RECORD_MS);
+    }
+
+    function dictaphoneRecordAgain() {
+        if (dictPhase === 'counting' || dictPhase === 'recording') return;
+        const key = DICT_SYLLABLES[dictCurrentIndex];
+        if (!key || dictPhase === 'done') return;
+        clearDictCountdownTimers();
+        stopDictMediaRecorderSafe();
+        delete customSyllableBuffers[key];
+        dictPhase = 'idle';
+        dictaphoneUiSet('Tap REC — count 1–4, then speak on 5.', '');
+        dictaphoneRefreshControls();
     }
 
     function dictaphonePlayPreview() {
