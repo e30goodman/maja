@@ -1851,7 +1851,13 @@
 
     function onGlobalPulsationSelectChange() {
         endPulsationDrag();
-        initApp({ ignorePerBarPulsationsFromSession: true, preservePlaybackIfRunning: true });
+        const wasPlaying = isPlaybackRunning();
+        const playbackAnchor = wasPlaying ? capturePlaybackAnchorMeta() : null;
+        initApp({
+            ignorePerBarPulsationsFromSession: true,
+            preservePlaybackDuringGridRebuild: wasPlaying,
+            playbackAnchor
+        });
         saveSessionState();
     }
 
@@ -1859,8 +1865,6 @@
         const p = parseInt(document.getElementById('pulsation').value);
         const bCount = parseInt(document.getElementById('barsCount').value);
         const container = document.getElementById('barsContainer');
-        const preservePlayback = Boolean(options.preservePlaybackIfRunning && isPlaybackRunning());
-        const playbackAnchor = preservePlayback ? capturePlaybackAnchorMeta() : null;
         setBarScaleForCurrentBarsFromState();
         // #region agent log
         fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'pre-fix-1',hypothesisId:'H1',location:'maja/public/konnakol/index.html:initApp',message:'Init app sizing context',data:{p,bCount,innerHeight:window.innerHeight,innerWidth:window.innerWidth,devicePixelRatio:window.devicePixelRatio},timestamp:Date.now()})}).catch(()=>{});
@@ -1871,7 +1875,25 @@
         applyAdaptiveBarHeights(container, bCount);
         initializeBarStates(p, bCount, options);
         renderBars(container);
-        if (!preservePlayback) {
+        const tryKeepPlayback = Boolean(options.preservePlaybackDuringGridRebuild && isPlaybackRunning());
+        if (tryKeepPlayback && options.playbackAnchor) {
+            hidePlaybackFatalError();
+            playbackCompletedCycles = 0;
+            cycleBoundaryMutations = 0;
+            resyncPlaybackAfterManualBarPulsation(options.playbackAnchor);
+        } else if (tryKeepPlayback) {
+            hidePlaybackFatalError();
+            playbackCompletedCycles = 0;
+            cycleBoundaryMutations = 0;
+            currentStep = 0;
+            if (audioCtx && nextNoteTime < audioCtx.currentTime) {
+                nextNoteTime = audioCtx.currentTime + 0.05;
+            }
+            lastProcessedUiPaintKey = '';
+            lastInternalPlaybackLogKey = '';
+            document.querySelectorAll('.cell.playing').forEach(c => c.classList.remove('playing'));
+            resetInternalPlaybackIndicators();
+        } else {
             currentStep = 0;
             lastFocusedBarIndex = -1;
             lastProcessedUiPaintKey = '';
@@ -1880,23 +1902,9 @@
             lastPaintedPlaybackMeta = null;
             playbackCompletedCycles = 0;
             cycleBoundaryMutations = 0;
-        }
-        hidePlaybackFatalError();
-        if (!preservePlayback) {
+            hidePlaybackFatalError();
             document.querySelectorAll('.cell.playing').forEach(c => c.classList.remove('playing'));
-        }
-        resetInternalPlaybackIndicators();
-        if (preservePlayback && stepMeta.length) {
-            if (playbackAnchor) {
-                resyncPlaybackAfterManualBarPulsation(playbackAnchor);
-            } else {
-                currentStep = Math.min(Math.max(0, currentStep), stepMeta.length - 1);
-                if (audioCtx && nextNoteTime < audioCtx.currentTime) {
-                    nextNoteTime = audioCtx.currentTime + 0.05;
-                }
-                lastProcessedUiPaintKey = '';
-                lastInternalPlaybackLogKey = '';
-            }
+            resetInternalPlaybackIndicators();
         }
         rebuildRandomNotesSelect();
         requestAnimationFrame(() => enforceBarsFit(container, bCount));
