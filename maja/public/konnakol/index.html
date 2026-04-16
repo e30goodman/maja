@@ -365,10 +365,12 @@
         .cell.tempo-boost {
             border-color: var(--playback-border);
             box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.24) inset;
+            background: rgba(244, 63, 94, 0.12);
         }
         .cell.tempo-boost-x3 {
             border-color: #f43f5e;
             box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.34) inset, 0 0 12px rgba(244, 63, 94, 0.22);
+            background: rgba(244, 63, 94, 0.20);
         }
 
         .btn { width: 100%; padding: 15px; border: none; border-radius: 0.75rem; font-weight: 700; cursor: pointer; margin-bottom: 10px; font-size: 1rem; transition: 0.2s; }
@@ -1136,7 +1138,7 @@
         if (Array.isArray(state.barTempoMultipliers) && state.barTempoMultipliers.length === bCount) {
             for (let i = 0; i < bCount; i++) {
                 const m = parseInt(state.barTempoMultipliers[i], 10);
-                barStates[i].tempoMultiplier = (m === 2 || m === 3) ? m : 1;
+                barStates[i].tempoMultiplier = (m === 2 || m === 4 || m === 3) ? (m === 3 ? 4 : m) : 1;
             }
         }
         if (Array.isArray(state.cellTempoMultipliers) && state.cellTempoMultipliers.length === bCount) {
@@ -1145,7 +1147,7 @@
                 if (!Array.isArray(arr)) continue;
                 for (let i = 0; i < barStates[b].pulsation; i++) {
                     const m = parseInt(arr[i], 10);
-                    barStates[b].cellTempoMultipliers[i] = (m === 2 || m === 3) ? m : 1;
+                    barStates[b].cellTempoMultipliers[i] = (m === 2 || m === 4 || m === 3) ? (m === 3 ? 4 : m) : 1;
                 }
             }
         }
@@ -1200,10 +1202,11 @@
             const tempoMultiplier = barStates[b].tempoMultiplier || 1;
             barDiv.className = 'bar'
                 + (tempoMultiplier > 1 ? ' tempo-boost' : '')
-                + (tempoMultiplier === 3 ? ' tempo-boost-x3' : '');
+                + (tempoMultiplier === 4 ? ' tempo-boost-x3' : '');
             barDiv.id = `bar-${b}`;
             barDiv.dataset.barIndex = String(b);
-            barDiv.innerHTML = `<div class="bar-title"><span class="bar-tempo-handle${tempoMultiplier === 3 ? ' x3' : ''}" id="bar-tempo-handle-${b}" onpointerdown="startBarTempoHold(event, ${b})" onpointerup="endBarTempoHold(event, ${b})" onpointercancel="endBarTempoHold(event, ${b})">x${tempoMultiplier}</span><span class="pulsation-handle" id="pulsation-handle-${b}" onclick="togglePulsationMenu(event, ${b})">P${barStates[b].pulsation}</span></div>`;
+            const barTempoLabel = tempoMultiplier === 4 ? 3 : tempoMultiplier;
+            barDiv.innerHTML = `<div class="bar-title"><span class="bar-tempo-handle${tempoMultiplier === 4 ? ' x3' : ''}" id="bar-tempo-handle-${b}" onpointerdown="startBarTempoHold(event, ${b})" onpointerup="endBarTempoHold(event, ${b})" onpointercancel="endBarTempoHold(event, ${b})">x${barTempoLabel}</span><span class="pulsation-handle" id="pulsation-handle-${b}" onclick="togglePulsationMenu(event, ${b})">P${barStates[b].pulsation}</span></div>`;
 
             const grid = document.createElement('div');
             grid.className = 'rhythm-grid';
@@ -1215,7 +1218,7 @@
                 cell.className = 'cell'
                     + (barStates[b].checks[i] ? ' rhythm-note-on' : '')
                     + (cellTempoMultiplier > 1 ? ' tempo-boost' : '')
-                    + (cellTempoMultiplier === 3 ? ' tempo-boost-x3' : '');
+                    + (cellTempoMultiplier === 4 ? ' tempo-boost-x3' : '');
                 cell.dataset.barIndex = String(b);
                 cell.dataset.localIndex = String(i);
                 cell.dataset.tempoMultiplier = String(cellTempoMultiplier);
@@ -1262,9 +1265,9 @@
         const mapped = Array.from({ length: newP }, () => 1);
         for (let i = 0; i < oldMultipliers.length; i++) {
             const mult = oldMultipliers[i];
-            if (mult !== 2 && mult !== 3) continue;
+            if (mult !== 2 && mult !== 3 && mult !== 4) continue;
             const j = Math.min(newP - 1, Math.floor((i * newP) / oldP));
-            mapped[j] = Math.max(mapped[j], mult);
+            mapped[j] = Math.max(mapped[j], mult === 3 ? 4 : mult);
         }
         return mapped;
     }
@@ -1293,7 +1296,7 @@
     function cycleBarTempoMultiplier(barIndex) {
         if (!barStates[barIndex]) return;
         const current = barStates[barIndex].tempoMultiplier || 1;
-        const next = current === 1 ? 2 : (current === 2 ? 3 : 1);
+        const next = current === 1 ? 2 : (current === 2 ? 4 : 1);
         barStates[barIndex].tempoMultiplier = next;
         const container = document.getElementById('barsContainer');
         renderBars(container);
@@ -1305,7 +1308,7 @@
     function cycleCellTempoMultiplier(barIndex, localIndex) {
         if (!barStates[barIndex] || !barStates[barIndex].cellTempoMultipliers) return;
         const current = barStates[barIndex].cellTempoMultipliers[localIndex] || 1;
-        const next = current === 1 ? 2 : (current === 2 ? 3 : 1);
+        const next = current === 1 ? 2 : (current === 2 ? 4 : 1);
         barStates[barIndex].cellTempoMultipliers[localIndex] = next;
         const container = document.getElementById('barsContainer');
         renderBars(container);
@@ -1510,7 +1513,7 @@
         if (!meta) return baseBpm;
         const barBpm = getEffectiveBpmForBar(meta.barIndex, baseBpm);
         const cellMult = barStates[meta.barIndex]?.cellTempoMultipliers?.[meta.localIndex] || 1;
-        return barBpm * ((cellMult === 2 || cellMult === 3) ? cellMult : 1);
+        return barBpm * ((cellMult === 2 || cellMult === 4 || cellMult === 3) ? (cellMult === 3 ? 4 : cellMult) : 1);
     }
 
     async function requestWakeLock() {
