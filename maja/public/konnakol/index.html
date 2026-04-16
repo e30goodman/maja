@@ -1432,12 +1432,6 @@
             grid.className = 'rhythm-grid';
 
             const p = barStates[b].pulsation;
-            if (p === 2) {
-                // Для 2-пульса фиксируем строгую двухколоночную сетку,
-                // чтобы состояние x2/x3 у обеих ячеек не влияло на геометрию бара.
-                grid.style.display = 'grid';
-                grid.style.gridTemplateColumns = 'repeat(2, minmax(0, 1fr))';
-            }
             syllables[p].forEach((s, i) => {
                 const cell = document.createElement('div');
                 const cellTempoMultiplier = barStates[b].cellTempoMultipliers?.[i] || 1;
@@ -1453,6 +1447,12 @@
                 cell.setAttribute('tabindex', '0');
                 cell.setAttribute('aria-pressed', barStates[b].checks[i] ? 'true' : 'false');
                 cell.setAttribute('aria-label', `${s}, bar ${b + 1}, beat ${i + 1}`);
+                if (p === 2) {
+                    // Унифицируем визуальные пропорции бара для 2-пульса: ячейки растягиваются на ширину.
+                    cell.style.flex = '1 1 0';
+                    cell.style.width = 'auto';
+                    cell.style.maxWidth = 'none';
+                }
                 const label = document.createElement('small');
                 const displaySyllable = cellTempoMultiplier === 2
                     ? 'Ta Ka'
@@ -1558,7 +1558,6 @@
         barStates[barIndex].tempoMultiplier = next;
         const container = document.getElementById('barsContainer');
         renderBars(container);
-        requestAnimationFrame(() => enforceBarsFit(container, barStates.length));
         if (navigator.vibrate) navigator.vibrate(next === 3 ? [16, 30, 20] : 12);
         saveSessionState();
     }
@@ -1570,7 +1569,6 @@
         barStates[barIndex].cellTempoMultipliers[localIndex] = next;
         const container = document.getElementById('barsContainer');
         renderBars(container);
-        requestAnimationFrame(() => enforceBarsFit(container, barStates.length));
         if (navigator.vibrate) navigator.vibrate(next === 3 ? [16, 30, 20] : 12);
         saveSessionState();
     }
