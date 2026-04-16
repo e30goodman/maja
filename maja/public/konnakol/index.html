@@ -277,7 +277,7 @@
             left: 0;
             top: 0;
             z-index: 60;
-            width: min(120px, 34vw);
+            width: min(64px, 20vw);
             max-height: min(48vh, 280px);
             overflow-y: auto;
             padding: 8px;
@@ -292,14 +292,6 @@
             pointer-events: auto;
         }
         .pulsation-drag-panel[hidden] { display: none !important; }
-        .pulsation-drag-panel-title {
-            font-weight: 700;
-            font-size: 0.64rem;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-            color: var(--text-muted);
-            margin-bottom: 4px;
-        }
         .pulsation-drag-panel-list {
             list-style: none;
             margin: 0;
@@ -307,10 +299,10 @@
         }
         .pulsation-drag-panel-list li {
             display: flex;
-            justify-content: space-between;
+            justify-content: center;
             align-items: center;
-            gap: 8px;
-            padding: 5px 7px;
+            gap: 0;
+            padding: 5px 4px;
             margin-bottom: 3px;
             border-radius: 0.5rem;
             background: rgba(30, 41, 59, 0.55);
@@ -642,7 +634,6 @@
 <body>
 
 <div id="pulsationDragPanel" class="pulsation-drag-panel" hidden aria-hidden="true">
-    <div class="pulsation-drag-panel-title" id="pulsationDragPanelTitle">Pulsation</div>
     <ul class="pulsation-drag-panel-list" id="pulsationDragPanelList"></ul>
 </div>
 
@@ -1628,16 +1619,14 @@
 
     function refreshPulsationDragPanel(previewP, barIndex) {
         const panel = document.getElementById('pulsationDragPanel');
-        const title = document.getElementById('pulsationDragPanelTitle');
         const list = document.getElementById('pulsationDragPanelList');
-        if (!panel || !title || !list) return;
+        if (!panel || !list) return;
         const safeP = Math.min(8, Math.max(3, previewP));
         panel.hidden = false;
         panel.setAttribute('aria-hidden', 'false');
-        title.textContent = `Bar ${barIndex + 1}`;
         list.innerHTML = PULSATION_OPTIONS.map(p => {
             const active = p === safeP ? 'active' : '';
-            return `<li class="${active}" data-p="${p}" role="button"><span class="p-label">P${p}</span></li>`;
+            return `<li class="${active}" data-p="${p}" role="button"><span class="p-label">${p}</span></li>`;
         }).join('');
         positionPulsationDragPanel(barIndex);
     }
@@ -1675,7 +1664,7 @@
     function selectPulsationFromMenu(p) {
         if (pulsationMenuBarIndex === null || !barStates[pulsationMenuBarIndex]) return;
         setBarPulsationManual(pulsationMenuBarIndex, p);
-        openPulsationMenu(pulsationMenuBarIndex);
+        endPulsationDrag();
     }
 
     function endPulsationDrag() {
