@@ -676,6 +676,18 @@
                         <label for="randNotesPerBar">Random pattern</label>
                         <select id="randNotesPerBar" onchange="saveSessionState()"></select>
                     </div>
+                    <label class="rand-cycle">
+                        <input type="checkbox" id="randomPatternAfterEachBar" onchange="onRandomizationFlagsChanged()" checked>
+                        Random Pattern
+                    </label>
+                    <label class="rand-cycle">
+                        <input type="checkbox" id="randomPatternSpeedChange" onchange="onRandomizationFlagsChanged()">
+                        Random Speed
+                    </label>
+                    <label class="rand-cycle">
+                        <input type="checkbox" id="randomPulsationAfterEachBar" onchange="onRandomizationFlagsChanged()">
+                        Random Pulsation
+                    </label>
                     <div class="custom-sound-wrap">
                         <label for="soundPreset">Sound</label>
                         <select id="soundPreset" onchange="onSoundPresetChange()">
@@ -693,18 +705,6 @@
                             </div>
                         </div>
                     </div>
-                    <label class="rand-cycle">
-                        <input type="checkbox" id="randomPatternAfterEachBar" onchange="onRandomizationFlagsChanged()" checked>
-                        Pattern each bar
-                    </label>
-                    <label class="rand-cycle">
-                        <input type="checkbox" id="randomPatternSpeedChange" onchange="onRandomizationFlagsChanged()">
-                        Change speed
-                    </label>
-                    <label class="rand-cycle">
-                        <input type="checkbox" id="randomPulsationAfterEachBar" onchange="onRandomizationFlagsChanged()">
-                        Pulsation each bar
-                    </label>
                 </div>
             </div>
         </div>
