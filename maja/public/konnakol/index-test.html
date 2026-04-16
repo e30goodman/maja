@@ -2569,6 +2569,11 @@
             if (roll < cutX2) return 2;
             return 4;
         }
+        function rollMultBoost() {
+            let v = rollMult();
+            if (v !== 1) return v;
+            return Math.random() < 0.5 ? 2 : 4;
+        }
         const pool = [];
         for (let i = 0; i < p; i++) {
             if (!onlyAccented || s.checks[i]) pool.push(i);
@@ -2580,11 +2585,11 @@
         } else {
             cap = pool.length;
         }
-        const changeCount = Math.min(pool.length, 1 + Math.floor(Math.random() * cap));
+        const changeCount = cap;
         shuffleInPlace(pool);
         for (let k = 0; k < changeCount; k++) {
             const i = pool[k];
-            s.cellTempoMultipliers[i] = rollMult();
+            s.cellTempoMultipliers[i] = rollMultBoost();
         }
     }
 

@@ -2155,23 +2155,29 @@
             if (roll < cutX2) return 2;
             return 4;
         }
+        /** Всегда x2 или x4 — чтобы не было «нуля изменений» по ускорению. */
+        function rollMultBoost() {
+            let v = rollMult();
+            if (v !== 1) return v;
+            return Math.random() < 0.5 ? 2 : 4;
+        }
         const pool = [];
         for (let i = 0; i < p; i++) {
             if (!onlyAccented || s.checks[i]) pool.push(i);
         }
         if (pool.length === 0) return;
-        // Жёсткая связь с селектом Random / Max N: перекрашиваем скорость не больше чем у N долей (как «нот» в меню).
+        // Ровно N долей (N из Max N; в Random — все из pool), каждая обязательно получает ускорение x2/x4.
         let cap;
         if (spec.mode === 'max' && typeof spec.n === 'number' && spec.n >= 1) {
             cap = Math.min(spec.n, pool.length);
         } else {
             cap = pool.length;
         }
-        const changeCount = Math.min(pool.length, 1 + Math.floor(Math.random() * cap));
+        const changeCount = cap;
         shuffleInPlace(pool);
         for (let k = 0; k < changeCount; k++) {
             const i = pool[k];
-            s.cellTempoMultipliers[i] = rollMult();
+            s.cellTempoMultipliers[i] = rollMultBoost();
         }
     }
 
