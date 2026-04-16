@@ -2148,7 +2148,6 @@
         clearBarCellSpeeds(barIndex);
         const s = barStates[barIndex];
         const p = s.pulsation;
-        const onlyAccented = Boolean(options.onlyAccented);
         const spec = options.spec || parsePatternSpec();
         const aggression = getSpeedRandomAggressionFromSpec(spec, p);
         const probX1 = 0.34 + (1 - aggression) * 0.66;
@@ -2166,11 +2165,7 @@
             if (v !== 1) return v;
             return Math.random() < 0.5 ? 2 : 4;
         }
-        const pool = [];
-        for (let i = 0; i < p; i++) {
-            if (!onlyAccented || s.checks[i]) pool.push(i);
-        }
-        if (pool.length === 0) return;
+        const pool = Array.from({ length: p }, (_, i) => i);
         // Ровно N долей (N из Max N; в Random — все из pool), каждая обязательно получает ускорение x2/x4.
         let cap;
         if (spec.mode === 'max' && typeof spec.n === 'number' && spec.n >= 1) {
@@ -2191,13 +2186,10 @@
         try {
             maybeRandomizePulsationForBar(prevBar, sliderP, pulsationRandomAllowed);
             maybeRandomizePatternForBar(prevBar, spec, flags.randomPatternAfterEachBar);
-            const speedOnlyMode = flags.randomPatternSpeedChange
-                && !flags.randomPatternAfterEachBar
-                && !pulsationRandomAllowed;
             maybeRandomizeCellSpeedsForBar(
                 prevBar,
                 flags.randomPatternSpeedChange,
-                { onlyAccented: speedOnlyMode, spec }
+                { spec }
             );
         } finally {
             allowPlaybackPulsationMutation = false;
