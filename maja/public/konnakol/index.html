@@ -484,7 +484,7 @@
     </p>
     <h2>Rhythm Dictation & Metronome</h2>
 
-    <details class="settings-fold">
+    <details id="mainSettingsFold" class="settings-fold">
         <summary>Settings</summary>
         <div class="settings-fold-content">
             <div class="settings-grid">
@@ -534,6 +534,19 @@
         </div>
     </details>
 
+    <details id="barScalerFold" class="settings-fold">
+        <summary>Bar scaler</summary>
+        <div class="settings-fold-content">
+            <div class="control-group scale-control">
+                <label>
+                    Bar scaler
+                </label>
+                <input type="range" id="barScale" min="55" max="100" value="100" oninput="updateBarScaleLabel()">
+                <small id="barScaleValue" class="hint-muted">Current: 100%</small>
+            </div>
+        </div>
+    </details>
+
     <div class="control-group">
         <label>
             Tempo
@@ -541,14 +554,6 @@
         </label>
         <input type="range" id="bpm" min="20" max="480" value="100" oninput="updateTempoLabel()">
         <small id="bpmValue" class="hint-muted">Current: 100 BPM</small>
-    </div>
-
-    <div class="control-group scale-control">
-        <label>
-            Bar scaler
-        </label>
-        <input type="range" id="barScale" min="55" max="100" value="100" oninput="updateBarScaleLabel()">
-        <small id="barScaleValue" class="hint-muted">Current: 100%</small>
     </div>
 
     <div id="barsContainer" class="bars-container"></div>
@@ -578,7 +583,9 @@
     let lastInternalPlaybackLogKey = '';
     let allowPlaybackPulsationMutation = false;
     let wakeLock = null;
+    let barScalerAutoCloseTimer = null;
     const BASE_PULSATION_FOR_BPM = 4;
+    const BAR_SCALER_AUTO_CLOSE_MS = 5000;
     const STORAGE_KEY = 'konnakolSessionStateV1';
     
     const syllables = {
@@ -689,7 +696,7 @@
     }
 
     function closeSettingsFoldIfOpen() {
-        const settingsFoldEl = document.querySelector('details.settings-fold');
+        const settingsFoldEl = document.getElementById('mainSettingsFold');
         if (settingsFoldEl && settingsFoldEl.open) settingsFoldEl.open = false;
     }
 
@@ -1603,6 +1610,22 @@
     restoreSelectState(savedState);
     updateTempoLabel();
     saveSessionState();
+
+    const barScalerFoldEl = document.getElementById('barScalerFold');
+    if (barScalerFoldEl) {
+        barScalerFoldEl.addEventListener('toggle', () => {
+            if (barScalerAutoCloseTimer !== null) {
+                clearTimeout(barScalerAutoCloseTimer);
+                barScalerAutoCloseTimer = null;
+            }
+            if (barScalerFoldEl.open) {
+                barScalerAutoCloseTimer = setTimeout(() => {
+                    barScalerAutoCloseTimer = null;
+                    if (barScalerFoldEl.open) barScalerFoldEl.open = false;
+                }, BAR_SCALER_AUTO_CLOSE_MS);
+            }
+        });
+    }
 
     window.addEventListener('resize', () => {
         const bCount = parseInt(document.getElementById('barsCount').value, 10);
