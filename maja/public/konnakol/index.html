@@ -647,7 +647,6 @@
         <div class="settings-fold-content">
             <div class="settings-grid">
                 <div>
-                    <label>Pulsation:</label>
                     <select id="pulsation" onchange="onGlobalPulsationSelectChange()">
                         <option value="2">2 (Ta-Ka)</option>
                         <option value="3">3 (Ta-Ki-Ta)</option>
@@ -659,7 +658,6 @@
                     </select>
                 </div>
                 <div>
-                    <label>Number of Bars:</label>
                     <select id="barsCount" onchange="initApp(); saveSessionState()">
                         <option value="1">1 Bar</option>
                         <option value="2">2 Bars</option>
@@ -673,12 +671,12 @@
                 </div>
                 <div class="randomizer-block">
                     <div>
-                        <label for="randNotesPerBar">Random pattern</label>
+                        <div class="hint-muted" style="margin-bottom:6px;">Random</div>
                         <select id="randNotesPerBar" onchange="saveSessionState()"></select>
                     </div>
                     <label class="rand-cycle">
                         <input type="checkbox" id="randomPatternAfterEachBar" onchange="onRandomizationFlagsChanged()" checked>
-                        Random Pattern
+                        Pattern
                     </label>
                     <label class="rand-cycle">
                         <input type="checkbox" id="randomPatternSpeedChange" onchange="onRandomizationFlagsChanged()">
