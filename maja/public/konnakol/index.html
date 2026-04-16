@@ -149,6 +149,24 @@
             justify-content: space-between;
             align-items: center;
         }
+        #tempoControl.control-group {
+            margin: 6px 0 10px;
+            padding: 6px 10px 8px;
+        }
+        #tempoControl input[type="range"] {
+            width: 100%;
+            padding: 0 2px;
+            height: 10px;
+            margin: 0 0 2px;
+            box-sizing: border-box;
+        }
+        #tempoControl .tempo-readout {
+            margin-top: 0;
+            min-height: 0;
+        }
+        #tempoControl .tempo-readout .hint-muted {
+            font-size: 0.8rem;
+        }
         .tempo-x2-badge {
             color: var(--rose-400);
             font-weight: 700;
@@ -638,6 +656,14 @@
             .control-group { margin-bottom: 0; }
             .control-group label { font-size: 0.82rem; margin-bottom: 6px; }
             .control-group input[type="range"] { height: 1.35rem; }
+            #tempoControl.control-group {
+                margin: 4px 0 8px;
+                padding: 5px 8px 6px;
+            }
+            #tempoControl.control-group input[type="range"] {
+                height: 10px;
+                padding: 0 2px;
+            }
             label.rand-cycle { font-size: 0.8rem; gap: 10px; }
             .bars-container {
                 grid-template-columns: 1fr !important;
@@ -828,12 +854,9 @@
     </div>
 
     <div id="tempoControl" class="control-group">
-        <label>
-            Tempo
-        </label>
-        <input type="range" id="bpm" min="20" max="480" value="100">
+        <input type="range" id="bpm" min="20" max="480" value="100" aria-label="BPM">
         <div class="tempo-readout">
-            <small id="bpmValue" class="hint-muted">100</small>
+            <small id="bpmValue" class="hint-muted">100 BPM</small>
             <small id="tempoX2Badge" class="tempo-x2-badge" hidden>x2</small>
         </div>
     </div>
@@ -1386,7 +1409,7 @@
         const bpm = parseInt(document.getElementById('bpm').value, 10);
         const label = document.getElementById('bpmValue');
         if (!label || isNaN(bpm)) return;
-        label.textContent = `${bpm}`;
+        label.textContent = `${bpm} BPM`;
         saveSessionState();
     }
 
