@@ -840,6 +840,8 @@
     const BASE_PULSATION_FOR_BPM = 4;
     const BAR_SCALER_AUTO_CLOSE_MS = 5000;
     const TEMPO_HOLD_MS = 420;
+    /** Верхняя граница пунктов Max N в селекте рандома (независимо от текущей пульсации; фактический кап — по долям в такте). */
+    const RAND_NOTES_MENU_MAX = 8;
     const STORAGE_KEY = 'konnakolSessionStateV1';
     
     const syllables = {
@@ -1128,7 +1130,7 @@
     }
 
     function notesCountLabel(n) {
-        return n + (n === 1 ? ' note' : ' notes');
+        return n + (n === 1 ? ' node' : ' nodes');
     }
 
     function getCurrentSessionState() {
@@ -1352,7 +1354,8 @@
         optRand.value = 'random';
         optRand.textContent = 'Random';
         sel.appendChild(optRand);
-        for (let k = 1; k <= p; k++) {
+        const maxOpt = Math.max(p, RAND_NOTES_MENU_MAX);
+        for (let k = 1; k <= maxOpt; k++) {
             const o = document.createElement('option');
             o.value = String(k);
             o.textContent = 'Max ' + notesCountLabel(k);
@@ -1362,7 +1365,7 @@
             sel.value = 'random';
         } else {
             const n = parseInt(nextVal, 10);
-            sel.value = !isNaN(n) && n >= 1 && n <= p ? String(n) : 'random';
+            sel.value = !isNaN(n) && n >= 1 && n <= maxOpt ? String(n) : 'random';
         }
     }
 
@@ -1376,7 +1379,8 @@
         }
         const p = parseInt(document.getElementById('pulsation').value, 10);
         const n = parseInt(state.randNotesPerBar, 10);
-        sel.value = !isNaN(n) && n >= 1 && n <= p ? String(n) : 'random';
+        const maxOpt = Math.max(p, RAND_NOTES_MENU_MAX);
+        sel.value = !isNaN(n) && n >= 1 && n <= maxOpt ? String(n) : 'random';
     }
 
     function shuffleInPlace(a) {
@@ -2076,18 +2080,19 @@
 
     function parsePatternSpec() {
         const v = document.getElementById('randNotesPerBar').value;
-        const p = parseInt(document.getElementById('pulsation').value);
+        const p = parseInt(document.getElementById('pulsation').value, 10) || 4;
+        const maxOpt = Math.max(p, RAND_NOTES_MENU_MAX);
         if (v === 'random') return { mode: 'random' };
         const n = parseInt(v, 10);
-        if (!isNaN(n) && n >= 1 && n <= p) return { mode: 'max', n };
+        if (!isNaN(n) && n >= 1 && n <= maxOpt) return { mode: 'max', n };
         return { mode: 'random' };
     }
 
-    /** 0..1: насколько агрессивно крутить x2/x4 для Random speed (Max 1 Node = слабо, Random / Max p = полный бросок). */
+    /** 0..1: насколько агрессивно крутить x2/x4 для Random speed (Max 1 node = слабо, Random / высокий Max = полный бросок). */
     function getSpeedRandomAggressionFromSpec(spec, pulsationP) {
         const safeP = Math.min(8, Math.max(2, parseInt(pulsationP, 10) || 4));
-        if (spec && spec.mode === 'max' && typeof spec.n === 'number' && spec.n >= 1 && spec.n <= safeP) {
-            return spec.n / safeP;
+        if (spec && spec.mode === 'max' && typeof spec.n === 'number' && spec.n >= 1) {
+            return Math.min(1, spec.n / safeP);
         }
         return 1;
     }
@@ -2107,6 +2112,20 @@
         return pickFrom[Math.floor(Math.random() * pickFrom.length)] || 4;
     }
 
+    function clearBarAccentPattern(barIndex) {
+        const s = barStates[barIndex];
+        if (!s) return;
+        const p = s.pulsation;
+        s.checks = Array.from({ length: p }, () => false);
+    }
+
+    function clearBarCellSpeeds(barIndex) {
+        const s = barStates[barIndex];
+        if (!s) return;
+        const p = s.pulsation;
+        s.cellTempoMultipliers = Array.from({ length: p }, () => 1);
+    }
+
     function maybeRandomizePulsationForBar(barIndex, sliderBaseP, enabled) {
         if (!enabled || !barStates[barIndex]) return;
         const nextP = getRandomPulsationValueDifferentFrom(barStates[barIndex].pulsation);
@@ -2115,11 +2134,13 @@
 
     function maybeRandomizePatternForBar(barIndex, spec, enabled) {
         if (!enabled || !barStates[barIndex]) return;
+        clearBarAccentPattern(barIndex);
         applyBarPattern(barIndex, spec);
     }
 
     function maybeRandomizeCellSpeedsForBar(barIndex, enabled, options = {}) {
         if (!enabled || !barStates[barIndex]) return;
+        clearBarCellSpeeds(barIndex);
         const p = barStates[barIndex].pulsation;
         const onlyAccented = Boolean(options.onlyAccented);
         const spec = options.spec || parsePatternSpec();
@@ -2208,7 +2229,7 @@
         const p = parseInt(document.getElementById('pulsation').value);
         for (let b = 0; b < barStates.length; b++) {
             applyBarPulsation(b, p, p);
-            applyBarPattern(b, spec);
+            maybeRandomizePatternForBar(b, spec, true);
         }
         const container = document.getElementById('barsContainer');
         renderBars(container);
