@@ -716,6 +716,7 @@
     let accentOnlyEnabled = false;
     let wakeLock = null;
     let barScalerAutoCloseTimer = null;
+    let barScalerSliderHeld = false;
     let barTempoHoldTimer = null;
     let barTempoHoldTarget = -1;
     let cellTempoHoldTimer = null;
@@ -1993,6 +1994,18 @@
     refreshAccentToggleButton();
     saveSessionState();
 
+    const scheduleBarScalerAutoClose = () => {
+        if (!barScalerFoldEl || !barScalerFoldEl.open || barScalerSliderHeld) return;
+        if (barScalerAutoCloseTimer !== null) {
+            clearTimeout(barScalerAutoCloseTimer);
+            barScalerAutoCloseTimer = null;
+        }
+        barScalerAutoCloseTimer = setTimeout(() => {
+            barScalerAutoCloseTimer = null;
+            if (barScalerFoldEl.open && !barScalerSliderHeld) barScalerFoldEl.open = false;
+        }, BAR_SCALER_AUTO_CLOSE_MS);
+    };
+
     const barScalerFoldEl = document.getElementById('barScalerFold');
     if (barScalerFoldEl) {
         barScalerFoldEl.addEventListener('toggle', () => {
@@ -2000,13 +2013,32 @@
                 clearTimeout(barScalerAutoCloseTimer);
                 barScalerAutoCloseTimer = null;
             }
-            if (barScalerFoldEl.open) {
-                barScalerAutoCloseTimer = setTimeout(() => {
-                    barScalerAutoCloseTimer = null;
-                    if (barScalerFoldEl.open) barScalerFoldEl.open = false;
-                }, BAR_SCALER_AUTO_CLOSE_MS);
+            scheduleBarScalerAutoClose();
+        });
+    }
+
+    const barScaleSliderEl = document.getElementById('barScale');
+    if (barScaleSliderEl) {
+        barScaleSliderEl.addEventListener('pointerdown', () => {
+            barScalerSliderHeld = true;
+            if (barScalerAutoCloseTimer !== null) {
+                clearTimeout(barScalerAutoCloseTimer);
+                barScalerAutoCloseTimer = null;
             }
         });
+        barScaleSliderEl.addEventListener('input', () => {
+            if (barScalerAutoCloseTimer !== null) {
+                clearTimeout(barScalerAutoCloseTimer);
+                barScalerAutoCloseTimer = null;
+            }
+        });
+        const onRelease = () => {
+            if (!barScalerSliderHeld) return;
+            barScalerSliderHeld = false;
+            scheduleBarScalerAutoClose();
+        };
+        barScaleSliderEl.addEventListener('pointerup', onRelease);
+        barScaleSliderEl.addEventListener('pointercancel', onRelease);
     }
 
     window.addEventListener('resize', () => {
