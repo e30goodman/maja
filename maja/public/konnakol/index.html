@@ -193,9 +193,9 @@
             height: calc(22px * var(--bar-scale));
             padding: 0 calc(8px * var(--bar-scale));
             border-radius: calc(999px * var(--bar-scale));
-            border: 1px solid rgba(251, 113, 133, 0.72);
-            background: rgba(244, 63, 94, 0.18);
-            color: #fecdd3;
+            border: 1px solid rgba(148, 163, 184, 0.65);
+            background: rgba(51, 65, 85, 0.28);
+            color: var(--text-muted);
             cursor: pointer;
             user-select: none;
             touch-action: none;
@@ -204,19 +204,19 @@
             transition: transform 0.12s ease, color 0.12s ease, text-shadow 0.12s ease, background 0.12s ease, border-color 0.12s ease;
         }
         .bar-tempo-handle:hover {
-            background: rgba(244, 63, 94, 0.28);
-            border-color: rgba(251, 113, 133, 0.92);
+            background: rgba(51, 65, 85, 0.4);
+            border-color: rgba(148, 163, 184, 0.9);
         }
         .bar-tempo-handle.hold-active {
             transform: scale(1.08);
-            text-shadow: 0 0 10px rgba(244, 63, 94, 0.5);
-            background: rgba(244, 63, 94, 0.35);
+            text-shadow: 0 0 10px rgba(148, 163, 184, 0.28);
+            background: rgba(51, 65, 85, 0.5);
         }
         .bar-tempo-handle.x3 {
-            color: #fff1f2;
-            border-color: #fb7185;
-            background: rgba(244, 63, 94, 0.34);
-            box-shadow: 0 0 12px rgba(244, 63, 94, 0.34);
+            color: var(--text);
+            border-color: rgba(226, 232, 240, 0.9);
+            background: rgba(51, 65, 85, 0.62);
+            box-shadow: 0 0 12px rgba(148, 163, 184, 0.26);
         }
         .pulsation-handle {
             display: inline-flex;
@@ -380,11 +380,14 @@
             font-size: calc(0.52rem * var(--bar-scale));
             line-height: 1;
             font-weight: 700;
-            color: #7f1d1d;
+            color: var(--text-muted);
             letter-spacing: 0.02em;
             pointer-events: none;
             user-select: none;
             opacity: 0.95;
+        }
+        .cell-speed-badge.x3 {
+            color: var(--text);
         }
 
         .btn { width: 100%; padding: 15px; border: none; border-radius: 0.75rem; font-weight: 700; cursor: pointer; margin-bottom: 10px; font-size: 1rem; transition: 0.2s; }
@@ -1246,7 +1249,7 @@
                 cell.appendChild(label);
                 if (cellTempoMultiplier > 1) {
                     const speedBadge = document.createElement('span');
-                    speedBadge.className = 'cell-speed-badge';
+                    speedBadge.className = 'cell-speed-badge' + (cellTempoMultiplier === 4 ? ' x3' : '');
                     speedBadge.textContent = cellTempoMultiplier === 4 ? 'x3' : 'x2';
                     cell.appendChild(speedBadge);
                 }
