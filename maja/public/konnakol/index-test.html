@@ -1089,6 +1089,45 @@
         }
     }
 
+    function capturePlaybackAnchorMeta() {
+        if (lastPaintedPlaybackMeta) {
+            return {
+                barIndex: lastPaintedPlaybackMeta.barIndex,
+                localIndex: lastPaintedPlaybackMeta.localIndex
+            };
+        }
+        const c = document.getElementById('barsContainer');
+        if (!c) return null;
+        const b = parseInt(c.dataset.playbackBar, 10);
+        const beat = parseInt(c.dataset.playbackBeat, 10);
+        if (!Number.isFinite(b) || !Number.isFinite(beat)) return null;
+        return { barIndex: b, localIndex: beat };
+    }
+
+    /** Keep scheduler aligned after per-bar pulsation edit while metronome is running. */
+    function resyncPlaybackAfterManualBarPulsation(anchorMeta) {
+        if (!isPlaybackRunning() || !stepMeta.length) return;
+        if (!anchorMeta || !barStates[anchorMeta.barIndex]) {
+            currentStep = Math.min(Math.max(0, currentStep), stepMeta.length - 1);
+            if (audioCtx && nextNoteTime < audioCtx.currentTime) {
+                nextNoteTime = audioCtx.currentTime + 0.05;
+            }
+            lastProcessedUiPaintKey = '';
+            lastInternalPlaybackLogKey = '';
+            return;
+        }
+        const p = barStates[anchorMeta.barIndex].pulsation;
+        const safeLocal = Math.min(Math.max(0, anchorMeta.localIndex), Math.max(0, p - 1));
+        resyncCurrentStepAfterOrchestration({ barIndex: anchorMeta.barIndex, localIndex: safeLocal });
+        try {
+            setPlayingCellByBarLocal(anchorMeta.barIndex, safeLocal);
+        } catch (_) {
+            /* DOM may be mid-update; next scheduled tick will repaint */
+        }
+        lastProcessedUiPaintKey = '';
+        lastInternalPlaybackLogKey = '';
+    }
+
     function emitInternalPlaybackStep(barIndex, localIndex) {
         const p = barStates[barIndex] ? barStates[barIndex].pulsation : 0;
         const syllable = (syllables[p] || [])[localIndex] || '';
@@ -2103,6 +2142,8 @@
         const safeP = Math.min(8, Math.max(2, n));
         const oldP = barStates[barIndex].pulsation;
         if (oldP === safeP) return;
+        const wasPlaying = isPlaybackRunning();
+        const playbackAnchor = wasPlaying ? capturePlaybackAnchorMeta() : null;
         const oldChecks = barStates[barIndex].checks.slice();
         barStates[barIndex].pulsation = safeP;
         barStates[barIndex].checks = mapChecksToNewPulsation(oldChecks, oldP, safeP);
@@ -2112,6 +2153,9 @@
         barStates[barIndex].cellTempoMultipliers = mapTempoMultipliersToNewPulsation(oldCellTempo, oldP, safeP);
         const container = document.getElementById('barsContainer');
         renderBars(container);
+        if (wasPlaying) {
+            resyncPlaybackAfterManualBarPulsation(playbackAnchor);
+        }
         saveSessionState();
         if (navigator.vibrate) navigator.vibrate(10);
     }
@@ -2286,7 +2330,6 @@
             suppressPulsationClickBar = -1;
             return;
         }
-        if (document.getElementById('stopBtn').style.display === 'block') stop();
         if (pulsationMenuBarIndex === barIndex) {
             endPulsationDrag();
             return;
