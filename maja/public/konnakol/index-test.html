@@ -2555,24 +2555,37 @@
     function maybeRandomizeCellSpeedsForBar(barIndex, enabled, options = {}) {
         if (!enabled || !barStates[barIndex]) return;
         clearBarCellSpeeds(barIndex);
-        const p = barStates[barIndex].pulsation;
+        const s = barStates[barIndex];
+        const p = s.pulsation;
         const onlyAccented = Boolean(options.onlyAccented);
         const spec = options.spec || parsePatternSpec();
         const aggression = getSpeedRandomAggressionFromSpec(spec, p);
         const probX1 = 0.34 + (1 - aggression) * 0.66;
         const rem = Math.max(0, 1 - probX1);
         const cutX2 = probX1 + rem * 0.5;
-        const next = Array.from({ length: p }, (_, i) => {
-            const isAccent = Boolean(barStates[barIndex].checks[i]);
-            // Только чистый «Random speed» без смены паттерна/пульсации — скорости крутим у акцентов.
-            // Если включён Random Pattern (или др. оркестрация), пассивные слоги тоже попадают под бросок.
-            if (onlyAccented && !isAccent) return 1;
+        function rollMult() {
             const roll = Math.random();
             if (roll < probX1) return 1;
             if (roll < cutX2) return 2;
             return 4;
-        });
-        barStates[barIndex].cellTempoMultipliers = next;
+        }
+        const pool = [];
+        for (let i = 0; i < p; i++) {
+            if (!onlyAccented || s.checks[i]) pool.push(i);
+        }
+        if (pool.length === 0) return;
+        let cap;
+        if (spec.mode === 'max' && typeof spec.n === 'number' && spec.n >= 1) {
+            cap = Math.min(spec.n, pool.length);
+        } else {
+            cap = pool.length;
+        }
+        const changeCount = Math.min(pool.length, 1 + Math.floor(Math.random() * cap));
+        shuffleInPlace(pool);
+        for (let k = 0; k < changeCount; k++) {
+            const i = pool[k];
+            s.cellTempoMultipliers[i] = rollMult();
+        }
     }
 
     function onBarTransitionOrchestrate({ spec, flags, prevBar, sliderP, bCount, pulsationRandomAllowed }) {
