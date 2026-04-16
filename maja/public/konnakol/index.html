@@ -433,7 +433,7 @@
         .cell-speed-badge {
             position: absolute;
             right: calc(4px * var(--bar-scale));
-            bottom: calc(3px * var(--bar-scale));
+            bottom: calc(1px * var(--bar-scale));
             font-size: calc(0.52rem * var(--bar-scale));
             line-height: 1;
             font-weight: 700;
@@ -442,6 +442,7 @@
             pointer-events: none;
             user-select: none;
             opacity: 0.95;
+            transform: translateY(1px);
         }
         .cell-speed-badge.x3 {
             color: var(--text);
