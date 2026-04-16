@@ -209,17 +209,28 @@
             box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.34) inset, 0 0 18px rgba(244, 63, 94, 0.34);
             background: rgba(244, 63, 94, 0.18);
         }
-        .bar-title {
+        /* Test layout: tempo + pulsation stacked in one column beside the syllable row. */
+        .bar-body {
             display: flex;
-            align-items: center;
-            flex-wrap: nowrap;
-            min-height: calc(22px * var(--bar-scale));
-            font-size: calc(0.75rem * var(--bar-scale));
-            font-weight: bold;
-            color: var(--text-dim);
-            margin-bottom: calc(10px * var(--bar-scale));
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
+            flex-direction: row;
+            align-items: stretch;
+            gap: calc(10px * var(--bar-scale));
+            width: 100%;
+            min-width: 0;
+        }
+        .bar-controls-stack {
+            --bar-control-chip: calc(40px * var(--bar-scale));
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: stretch;
+            gap: calc(6px * var(--bar-scale));
+            flex: 0 0 auto;
+            width: var(--bar-control-chip);
+        }
+        .bar-body .rhythm-grid {
+            flex: 1 1 0;
+            min-width: 0;
         }
         .bar-tempo-handle {
             display: inline-flex;
@@ -240,6 +251,19 @@
             font-weight: 700;
             line-height: 1;
             transition: transform 0.12s ease, color 0.12s ease, text-shadow 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+        }
+        .bar-controls-stack .bar-tempo-handle,
+        .bar-controls-stack .pulsation-handle {
+            width: 100%;
+            min-width: 0;
+            max-width: none;
+            height: var(--bar-control-chip);
+            min-height: var(--bar-control-chip);
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            border-radius: calc(10px * var(--bar-scale));
+            font-size: calc(0.72rem * var(--bar-scale));
         }
         .bar-tempo-handle:hover {
             background: rgba(51, 65, 85, 0.4);
@@ -274,6 +298,9 @@
             font-weight: 700;
             line-height: 1;
             transition: transform 0.12s ease, color 0.12s ease, text-shadow 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+        }
+        .bar-controls-stack .pulsation-handle {
+            padding: 0;
         }
         .pulsation-handle:hover {
             background: rgba(139, 92, 246, 0.24);
@@ -765,13 +792,18 @@
                 box-sizing: border-box;
                 min-height: calc(var(--bar-height) * var(--bar-scale));
             }
-            .bar-title {
-                text-align: left;
-                margin-bottom: calc(10px * var(--bar-scale));
-                font-size: calc(0.7rem * var(--bar-scale));
-                letter-spacing: 0.08em;
-                line-height: 1.2;
-                padding-left: 2px;
+            .bar-body {
+                gap: calc(8px * var(--bar-scale));
+                align-items: stretch;
+            }
+            .bar-controls-stack {
+                --bar-control-chip: calc(38px * var(--bar-scale));
+                gap: calc(5px * var(--bar-scale));
+            }
+            .bar-controls-stack .bar-tempo-handle,
+            .bar-controls-stack .pulsation-handle {
+                font-size: calc(0.68rem * var(--bar-scale));
+                border-radius: calc(9px * var(--bar-scale));
             }
             .rhythm-grid {
                 display: flex;
@@ -2072,7 +2104,12 @@
             barDiv.id = `bar-${b}`;
             barDiv.dataset.barIndex = String(b);
             const barTempoLabel = tempoMultiplier === 4 ? 3 : tempoMultiplier;
-            barDiv.innerHTML = `<div class="bar-title"><span class="bar-tempo-handle${tempoMultiplier === 4 ? ' x3' : ''}" id="bar-tempo-handle-${b}" onpointerdown="startBarTempoHold(event, ${b})" onpointerup="endBarTempoHold(event, ${b})" onpointercancel="endBarTempoHold(event, ${b})">x${barTempoLabel}</span><span class="pulsation-handle" id="pulsation-handle-${b}" onpointerdown="startPulsationMenuHold(event, ${b})" onpointerup="endPulsationMenuHold(event, ${b})" onpointercancel="endPulsationMenuHold(event, ${b})" onclick="togglePulsationMenu(event, ${b})">${barStates[b].pulsation}</span></div>`;
+            const barBody = document.createElement('div');
+            barBody.className = 'bar-body';
+            const controlsStack = document.createElement('div');
+            controlsStack.className = 'bar-controls-stack';
+            controlsStack.innerHTML = `<span class="bar-tempo-handle${tempoMultiplier === 4 ? ' x3' : ''}" id="bar-tempo-handle-${b}" onpointerdown="startBarTempoHold(event, ${b})" onpointerup="endBarTempoHold(event, ${b})" onpointercancel="endBarTempoHold(event, ${b})">x${barTempoLabel}</span><span class="pulsation-handle" id="pulsation-handle-${b}" onpointerdown="startPulsationMenuHold(event, ${b})" onpointerup="endPulsationMenuHold(event, ${b})" onpointercancel="endPulsationMenuHold(event, ${b})" onclick="togglePulsationMenu(event, ${b})">${barStates[b].pulsation}</span>`;
+            barBody.appendChild(controlsStack);
 
             const grid = document.createElement('div');
             grid.className = 'rhythm-grid';
@@ -2166,7 +2203,8 @@
                 globalStep += 1;
             });
 
-            barDiv.appendChild(grid);
+            barBody.appendChild(grid);
+            barDiv.appendChild(barBody);
             container.appendChild(barDiv);
         }
     }
