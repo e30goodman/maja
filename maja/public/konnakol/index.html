@@ -1484,10 +1484,42 @@
         }
     }
 
+    /**
+     * UI-only: consecutive syllables from syllables[p], rotated so seq[0] !== lastSyllable when possible.
+     */
+    function expandCellSyllablesForDisplay(p, localIndex, mult, lastSyllable) {
+        const pat = syllables[p] || [];
+        const L = pat.length;
+        if (!L) return [];
+        const m = mult === 3 ? 4 : mult;
+        const n = m === 4 ? 4 : m === 2 ? 2 : 1;
+        for (let rot = 0; rot < L; rot++) {
+            const start = (localIndex + rot) % L;
+            const seq = [];
+            for (let k = 0; k < n; k++) {
+                seq.push(pat[(start + k) % L]);
+            }
+            if (!lastSyllable || seq[0] !== lastSyllable) {
+                return seq;
+            }
+        }
+        return Array.from({ length: n }, (_, k) => pat[(localIndex + k) % L]);
+    }
+
+    function formatDisplaySyllables(seq, mult) {
+        if (!seq.length) return '';
+        const m = mult === 3 ? 4 : mult;
+        if (m === 1 || seq.length === 1) return seq[0];
+        if (m === 2) return seq.join(' ');
+        if (m === 4) return seq.join('\n');
+        return seq[0];
+    }
+
     function renderBars(container) {
         recalcStepMeta();
         container.innerHTML = '';
         let globalStep = 0;
+        let lastDisplaySyllable = null;
         for (let b = 0; b < barStates.length; b++) {
             const barDiv = document.createElement('div');
             const tempoMultiplier = barStates[b].tempoMultiplier || 1;
@@ -1520,17 +1552,21 @@
                 cell.setAttribute('role', 'button');
                 cell.setAttribute('tabindex', '0');
                 cell.setAttribute('aria-pressed', barStates[b].checks[i] ? 'true' : 'false');
-                cell.setAttribute('aria-label', `${s}, bar ${b + 1}, beat ${i + 1}`);
                 if (p === 2) {
                     // Унифицируем визуальные пропорции бара для 2-пульса: ячейки растягиваются на ширину.
                     cell.style.flex = '1 1 0';
                     cell.style.width = 'auto';
                     cell.style.maxWidth = 'none';
                 }
+                const effectiveMult = cellTempoMultiplier === 3 ? 4 : cellTempoMultiplier;
+                const seq = expandCellSyllablesForDisplay(p, i, effectiveMult, lastDisplaySyllable);
+                const displaySyllable = formatDisplaySyllables(seq, effectiveMult);
+                if (seq.length) {
+                    lastDisplaySyllable = seq[seq.length - 1];
+                }
+                const ariaSyllables = seq.length ? seq.join(', ') : s;
+                cell.setAttribute('aria-label', `${ariaSyllables}, bar ${b + 1}, beat ${i + 1}`);
                 const label = document.createElement('small');
-                const displaySyllable = cellTempoMultiplier === 2
-                    ? 'Ta Ka'
-                    : (cellTempoMultiplier === 4 ? 'Ta Ka\nDju Na' : s);
                 label.textContent = displaySyllable;
                 if (cellTempoMultiplier > 1) {
                     label.classList.add('subdiv-label');
