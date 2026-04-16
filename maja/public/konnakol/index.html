@@ -524,10 +524,20 @@
             align-items: center;
             gap: 10px;
             margin: 0;
+            width: 100%;
+            padding: 8px 10px;
+            border-radius: 10px;
+            border: 1px solid rgba(71, 85, 105, 0.45);
+            background: rgba(30, 41, 59, 0.38);
             font-weight: 500;
             font-size: 0.85rem;
             color: var(--text-muted);
             cursor: pointer;
+            box-sizing: border-box;
+        }
+        label.rand-cycle:hover {
+            background: rgba(51, 65, 85, 0.46);
+            border-color: rgba(100, 116, 139, 0.75);
         }
         label.rand-cycle input { width: auto; height: auto; margin: 0; accent-color: var(--violet-600); flex-shrink: 0; }
 
@@ -2263,7 +2273,9 @@
     const mainSettingsFoldEl = document.getElementById('mainSettingsFold');
     const barScalerFoldEl = document.getElementById('barScalerFold');
     const SETTINGS_CLOSE_TRIGGER_COOLDOWN_MS = 3000;
+    const SETTINGS_INTERACTION_GUARD_MS = 220;
     let settingsOpenedAtMs = 0;
+    let settingsInteractionGuardUntilMs = 0;
 
     const syncTopFoldRowState = () => {
         if (!topFoldRowEl || !mainSettingsFoldEl || !barScalerFoldEl) return;
@@ -2283,6 +2295,15 @@
         mainSettingsFoldEl.addEventListener('toggle', () => {
             if (mainSettingsFoldEl.open) settingsOpenedAtMs = performance.now();
             syncTopFoldRowState();
+        });
+        mainSettingsFoldEl.addEventListener('pointerdown', () => {
+            settingsInteractionGuardUntilMs = performance.now() + SETTINGS_INTERACTION_GUARD_MS;
+        });
+        mainSettingsFoldEl.addEventListener('pointerup', () => {
+            settingsInteractionGuardUntilMs = performance.now() + SETTINGS_INTERACTION_GUARD_MS;
+        });
+        mainSettingsFoldEl.addEventListener('pointercancel', () => {
+            settingsInteractionGuardUntilMs = performance.now() + SETTINGS_INTERACTION_GUARD_MS;
         });
     }
 
@@ -2336,9 +2357,11 @@
 
     const closeTopFoldsByOutsideTarget = (target) => {
         if (mainSettingsFoldEl && mainSettingsFoldEl.open) {
+            const now = performance.now();
+            const settingsGuardActive = now <= settingsInteractionGuardUntilMs;
             const insideMain = target && target.closest && target.closest('#mainSettingsFold');
             const canCloseByTrigger = (performance.now() - settingsOpenedAtMs) >= SETTINGS_CLOSE_TRIGGER_COOLDOWN_MS;
-            if (!insideMain && canCloseByTrigger) mainSettingsFoldEl.open = false;
+            if (!insideMain && canCloseByTrigger && !settingsGuardActive) mainSettingsFoldEl.open = false;
         }
         if (barScalerFoldEl && barScalerFoldEl.open) {
             if (barScalerSliderHeld) return;
