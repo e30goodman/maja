@@ -1253,7 +1253,7 @@
             barDiv.id = `bar-${b}`;
             barDiv.dataset.barIndex = String(b);
             const barTempoLabel = tempoMultiplier === 4 ? 3 : tempoMultiplier;
-            barDiv.innerHTML = `<div class="bar-title"><span class="bar-tempo-handle${tempoMultiplier === 4 ? ' x3' : ''}" id="bar-tempo-handle-${b}" onpointerdown="startBarTempoHold(event, ${b})" onpointerup="endBarTempoHold(event, ${b})" onpointercancel="endBarTempoHold(event, ${b})">x${barTempoLabel}</span><span class="pulsation-handle" id="pulsation-handle-${b}" onclick="togglePulsationMenu(event, ${b})">P${barStates[b].pulsation}</span></div>`;
+            barDiv.innerHTML = `<div class="bar-title"><span class="bar-tempo-handle${tempoMultiplier === 4 ? ' x3' : ''}" id="bar-tempo-handle-${b}" onpointerdown="startBarTempoHold(event, ${b})" onpointerup="endBarTempoHold(event, ${b})" onpointercancel="endBarTempoHold(event, ${b})">x${barTempoLabel}</span><span class="pulsation-handle" id="pulsation-handle-${b}" onclick="togglePulsationMenu(event, ${b})">${barStates[b].pulsation}</span></div>`;
 
             const grid = document.createElement('div');
             grid.className = 'rhythm-grid';
