@@ -340,11 +340,18 @@
             color: var(--text-muted);
         }
         .cell small.subdiv-label {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 92%;
             font-size: calc(clamp(0.48rem, calc(0.66rem - (var(--bars-count) * 0.015rem)), 0.58rem) * var(--bar-scale));
             letter-spacing: 0.02em;
             line-height: 1.05;
             white-space: pre-line;
             text-align: center;
+            margin: 0;
+            pointer-events: none;
         }
         .cell small.subdiv-label.dense {
             font-size: calc(clamp(0.42rem, calc(0.58rem - (var(--bars-count) * 0.015rem)), 0.5rem) * var(--bar-scale));
