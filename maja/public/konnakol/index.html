@@ -450,7 +450,6 @@
             box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.34) inset, 0 0 12px rgba(244, 63, 94, 0.22);
             background: rgba(244, 63, 94, 0.20);
         }
-
         .btn { width: 100%; padding: 15px; border: none; border-radius: 0.75rem; font-weight: 700; cursor: pointer; margin-bottom: 10px; font-size: 1rem; transition: 0.2s; }
         .action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
         .action-row .btn { margin-bottom: 0; }
@@ -1488,7 +1487,6 @@
     function renderBars(container) {
         recalcStepMeta();
         container.innerHTML = '';
-        let lastSyllableOfPreviousCell = null;
         let globalStep = 0;
         for (let b = 0; b < barStates.length; b++) {
             const barDiv = document.createElement('div');
@@ -1530,29 +1528,9 @@
                     cell.style.maxWidth = 'none';
                 }
                 const label = document.createElement('small');
-                const seq = syllables[p];
-                let displaySyllable = s;
-                if (seq && seq.length) {
-                    const len = seq.length;
-                    let startIdx = ((i % len) + len) % len;
-                    if (lastSyllableOfPreviousCell !== null && seq[startIdx] === lastSyllableOfPreviousCell) {
-                        startIdx = (startIdx + 1) % len;
-                    }
-                    if (cellTempoMultiplier === 1) {
-                        displaySyllable = seq[startIdx];
-                        lastSyllableOfPreviousCell = seq[startIdx];
-                    } else if (cellTempoMultiplier === 2) {
-                        displaySyllable = `${seq[startIdx]} ${seq[(startIdx + 1) % len]}`;
-                        lastSyllableOfPreviousCell = seq[(startIdx + 1) % len];
-                    } else if (cellTempoMultiplier === 4) {
-                        displaySyllable = `${seq[startIdx]} ${seq[(startIdx + 1) % len]}\n${seq[(startIdx + 2) % len]} ${seq[(startIdx + 3) % len]}`;
-                        lastSyllableOfPreviousCell = seq[(startIdx + 3) % len];
-                    } else {
-                        lastSyllableOfPreviousCell = s;
-                    }
-                } else {
-                    lastSyllableOfPreviousCell = s;
-                }
+                const displaySyllable = cellTempoMultiplier === 2
+                    ? 'Ta Ka'
+                    : (cellTempoMultiplier === 4 ? 'Ta Ka\nDju Na' : s);
                 label.textContent = displaySyllable;
                 if (cellTempoMultiplier > 1) {
                     label.classList.add('subdiv-label');
