@@ -211,6 +211,9 @@
             font-weight: 700;
             letter-spacing: 0.03em;
         }
+        .bar-speed-tag-x3 {
+            color: #f97316;
+        }
 
         .pulsation-drag-panel {
             position: fixed;
@@ -1178,7 +1181,8 @@
             barDiv.id = `bar-${b}`;
             barDiv.dataset.barIndex = String(b);
             const m = getBarTempoMultiplier(b);
-            const multTag = m > 1 ? `<span class="bar-speed-tag">x${m}</span>` : '';
+            const multTagClass = m === 3 ? 'bar-speed-tag bar-speed-tag-x3' : 'bar-speed-tag';
+            const multTag = m > 1 ? `<span class="${multTagClass}">x${m}</span>` : '';
             barDiv.innerHTML = `<div class="bar-title">Bar ${b + 1} · <span class="pulsation-handle" id="pulsation-handle-${b}" onclick="togglePulsationMenu(event, ${b})" onpointerdown="onPulsationHandlePointerDown(event, ${b})" onpointerup="onPulsationHandlePointerUp(event)" onpointercancel="onPulsationHandlePointerCancel()">${multTag}P${barStates[b].pulsation}</span></div>`;
 
             const grid = document.createElement('div');
