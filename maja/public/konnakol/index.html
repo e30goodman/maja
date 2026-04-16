@@ -694,15 +694,15 @@
                         </div>
                     </div>
                     <label class="rand-cycle">
-                        <input type="checkbox" id="randomPatternAfterEachBar" onchange="saveSessionState()" checked>
+                        <input type="checkbox" id="randomPatternAfterEachBar" onchange="onRandomizationFlagsChanged()" checked>
                         Pattern each bar
                     </label>
                     <label class="rand-cycle">
-                        <input type="checkbox" id="randomPatternSpeedChange" onchange="saveSessionState()">
+                        <input type="checkbox" id="randomPatternSpeedChange" onchange="onRandomizationFlagsChanged()">
                         Change speed
                     </label>
                     <label class="rand-cycle">
-                        <input type="checkbox" id="randomPulsationAfterEachBar" onchange="saveSessionState()">
+                        <input type="checkbox" id="randomPulsationAfterEachBar" onchange="onRandomizationFlagsChanged()">
                         Pulsation each bar
                     </label>
                 </div>
@@ -926,6 +926,14 @@
         refreshRandomModeToggleButton();
         if (isPlaybackRunning()) {
             playbackRandomizerEnabled = computePlaybackRandomizerEnabled();
+        }
+        saveSessionState();
+    }
+
+    function onRandomizationFlagsChanged() {
+        if (randomModeEnabled) {
+            playbackRandomizerEnabled = computePlaybackRandomizerEnabled();
+            refreshRandomModeToggleButton();
         }
         saveSessionState();
     }
