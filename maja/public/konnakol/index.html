@@ -1950,7 +1950,10 @@
             const isAccent = Boolean(barStates[barIndex].checks[i]);
             if (!isAccent) return 1;
             if (onlyAccented && !isAccent) return 1;
-            return Math.random() < 0.5 ? 2 : 4; // x2 / x3 label (x4 effective)
+            const roll = Math.random();
+            if (roll < 0.34) return 1; // normal accent (no speed boost)
+            if (roll < 0.67) return 2; // x2
+            return 4; // x3 label (x4 effective)
         });
         barStates[barIndex].cellTempoMultipliers = next;
     }
