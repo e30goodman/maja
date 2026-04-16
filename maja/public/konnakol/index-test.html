@@ -515,6 +515,91 @@
             color: var(--text-muted);
             margin-bottom: 6px;
         }
+        .dictaphone-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 200;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            background: rgba(15, 23, 42, 0.72);
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+        }
+        .dictaphone-overlay[hidden] { display: none !important; }
+        .dictaphone-card {
+            width: min(360px, 100%);
+            border-radius: 14px;
+            border: 1px solid var(--slate-600);
+            background: rgba(30, 41, 59, 0.96);
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(139, 92, 246, 0.12) inset;
+            padding: 14px 14px 16px;
+            color: var(--text);
+        }
+        .dictaphone-card h3 {
+            margin: 0 0 10px;
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-align: center;
+        }
+        .dictaphone-syllable {
+            text-align: center;
+            font-size: 1.65rem;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            margin: 8px 0 12px;
+            color: var(--violet-400);
+            text-shadow: 0 0 14px rgba(139, 92, 246, 0.35);
+        }
+        .dictaphone-count {
+            text-align: center;
+            font-size: 2.4rem;
+            font-weight: 800;
+            min-height: 3rem;
+            line-height: 1;
+            color: var(--text);
+            margin: 6px 0 10px;
+        }
+        .dictaphone-status {
+            text-align: center;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            min-height: 1.2rem;
+            margin-bottom: 10px;
+        }
+        .dictaphone-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .dictaphone-row.single { grid-template-columns: 1fr; }
+        .btn-dict-rec {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 0.75rem;
+            font-weight: 800;
+            cursor: pointer;
+            font-size: 1rem;
+            background: linear-gradient(135deg, #fb7185 0%, var(--rose-500) 100%);
+            color: #fff;
+            box-shadow: 0 4px 14px rgba(244, 63, 94, 0.35);
+        }
+        .btn-dict-rec:disabled { opacity: 0.45; cursor: not-allowed; }
+        .btn-dict-close {
+            margin-top: 10px;
+            width: 100%;
+            padding: 10px;
+            border-radius: 0.65rem;
+            border: 1px solid var(--slate-600);
+            background: rgba(51, 65, 85, 0.45);
+            color: var(--text-muted);
+            font-weight: 600;
+            cursor: pointer;
+        }
         .randomizer-block { display: flex; flex-direction: column; gap: 10px; }
         .scale-control {
             border-color: var(--violet-500);
@@ -745,7 +830,7 @@
                             <option value="custom">Custom</option>
                         </select>
                         <div id="customSoundControls" hidden>
-                            <button type="button" class="btn btn-accent" style="margin:0;padding:8px 10px;font-size:0.82rem;" onclick="toggleCustomSoundPanel()">Custom</button>
+                            <button type="button" class="btn btn-accent" style="margin:0;padding:8px 10px;font-size:0.82rem;" onclick="openDictaphoneWizard()">Custom</button>
                             <div id="customSoundPanel" class="custom-sound-panel" hidden>
                                 <label for="customClickFile">Click sound</label>
                                 <input id="customClickFile" type="file" accept="audio/*" onchange="onCustomSoundFileSelected(event, 'click')">
@@ -794,6 +879,23 @@
     <button id="stopBtn" class="btn btn-stop" onclick="stop()">■ STOP</button>
 </div>
 
+<div id="dictaphoneOverlay" class="dictaphone-overlay" hidden aria-hidden="true" onclick="if(event.target===event.currentTarget)closeDictaphoneOverlay()">
+    <div class="dictaphone-card" role="dialog" aria-labelledby="dictaphoneTitle" onclick="event.stopPropagation()">
+        <h3 id="dictaphoneTitle">Syllable recorder</h3>
+        <div id="dictaphoneSyllable" class="dictaphone-syllable">Ta</div>
+        <div id="dictaphoneCount" class="dictaphone-count" aria-live="polite"></div>
+        <div id="dictaphoneStatus" class="dictaphone-status"></div>
+        <div id="dictaphoneRecRow">
+            <button type="button" id="dictaphoneRecBtn" class="btn-dict-rec" onclick="dictaphoneStartTake()">● REC</button>
+        </div>
+        <div id="dictaphoneAfterRow" class="dictaphone-row" hidden>
+            <button type="button" class="btn btn-play" onclick="dictaphonePlayPreview()">▶ Play</button>
+            <button type="button" class="btn btn-accent" onclick="dictaphoneNext()">Next</button>
+        </div>
+        <button type="button" class="btn-dict-close" onclick="closeDictaphoneOverlay()">Close</button>
+    </div>
+</div>
+
 <script>
     let audioCtx = null;
     let nextNoteTime = 0.0;
@@ -831,6 +933,19 @@
     let selectedSoundPreset = 'classic';
     let customClickBuffer = null;
     let customAccentBuffer = null;
+
+    /** Test build: Ta Ka Dhi Mi Ta Ka Dju Na — per-syllable dictaphone for Custom preset */
+    const DICT_SYLLABLES = ['Ta', 'Ka', 'Dhi', 'Mi', 'Ta', 'Ka', 'Dju', 'Na'];
+    const customSyllableBuffers = {};
+    let dictMediaRecorder = null;
+    let dictMediaChunks = [];
+    let dictMediaStream = null;
+    let dictCountdownTimerIds = [];
+    let dictRecordStopTimer = null;
+    let dictPhase = 'idle';
+    let dictCurrentIndex = 0;
+    const DICT_COUNT_STEP_MS = 420;
+    const DICT_RECORD_MS = 2800;
     const BASE_PULSATION_FOR_BPM = 4;
     const BAR_SCALER_AUTO_CLOSE_MS = 5000;
     const TEMPO_HOLD_MS = 420;
@@ -1015,6 +1130,7 @@
         const customPanel = document.getElementById('customSoundPanel');
         if (customControls) customControls.hidden = selectedSoundPreset !== 'custom';
         if (customPanel) customPanel.hidden = selectedSoundPreset !== 'custom';
+        if (selectedSoundPreset !== 'custom') closeDictaphoneOverlay();
         saveSessionState();
     }
 
@@ -1041,6 +1157,203 @@
         } catch (e) {
             console.error('[konnakol] custom sound decode failed', e);
         }
+    }
+
+    function dictNormalizeSyllableKey(label) {
+        if (!label) return '';
+        const t = String(label).trim();
+        for (let i = 0; i < DICT_SYLLABLES.length; i++) {
+            if (DICT_SYLLABLES[i].toLowerCase() === t.toLowerCase()) return DICT_SYLLABLES[i];
+        }
+        return '';
+    }
+
+    function clearDictCountdownTimers() {
+        dictCountdownTimerIds.forEach(id => clearTimeout(id));
+        dictCountdownTimerIds = [];
+        if (dictRecordStopTimer !== null) {
+            clearTimeout(dictRecordStopTimer);
+            dictRecordStopTimer = null;
+        }
+    }
+
+    function stopDictMediaRecorderSafe() {
+        if (dictMediaRecorder && dictMediaRecorder.state === 'recording') {
+            try { dictMediaRecorder.stop(); } catch (_) {}
+        }
+        dictMediaRecorder = null;
+        dictMediaChunks = [];
+        if (dictMediaStream) {
+            dictMediaStream.getTracks().forEach(tr => { try { tr.stop(); } catch (_) {} });
+            dictMediaStream = null;
+        }
+    }
+
+    function closeDictaphoneOverlay() {
+        const ov = document.getElementById('dictaphoneOverlay');
+        if (!ov) return;
+        clearDictCountdownTimers();
+        stopDictMediaRecorderSafe();
+        dictPhase = 'idle';
+        ov.hidden = true;
+        ov.setAttribute('aria-hidden', 'true');
+    }
+
+    function dictaphoneUiSet(status, countText) {
+        const st = document.getElementById('dictaphoneStatus');
+        const ct = document.getElementById('dictaphoneCount');
+        if (st) st.textContent = status || '';
+        if (ct) ct.textContent = countText != null ? String(countText) : '';
+    }
+
+    function dictaphoneRefreshControls() {
+        const recRow = document.getElementById('dictaphoneRecRow');
+        const afterRow = document.getElementById('dictaphoneAfterRow');
+        const recBtn = document.getElementById('dictaphoneRecBtn');
+        const sylEl = document.getElementById('dictaphoneSyllable');
+        if (!recRow || !afterRow || !recBtn || !sylEl) return;
+        const key = DICT_SYLLABLES[dictCurrentIndex] || '';
+        sylEl.textContent = key;
+        const done = Boolean(customSyllableBuffers[key]);
+        if (dictPhase === 'preview' && done) {
+            recRow.hidden = true;
+            afterRow.hidden = false;
+            recBtn.disabled = true;
+        } else {
+            recRow.hidden = false;
+            afterRow.hidden = true;
+            recBtn.disabled = dictPhase === 'counting' || dictPhase === 'recording';
+        }
+    }
+
+    function openDictaphoneWizard() {
+        const sel = document.getElementById('soundPreset');
+        if (sel && sel.value !== 'custom') {
+            sel.value = 'custom';
+            onSoundPresetChange();
+        }
+        const ov = document.getElementById('dictaphoneOverlay');
+        if (!ov) return;
+        clearDictCountdownTimers();
+        stopDictMediaRecorderSafe();
+        dictPhase = 'idle';
+        dictCurrentIndex = 0;
+        for (let i = 0; i < DICT_SYLLABLES.length; i++) {
+            if (!customSyllableBuffers[DICT_SYLLABLES[i]]) {
+                dictCurrentIndex = i;
+                break;
+            }
+        }
+        ov.hidden = false;
+        ov.setAttribute('aria-hidden', 'false');
+        dictaphoneUiSet('Tap REC — count 1–4, then speak on 5.', '');
+        dictaphoneRefreshControls();
+    }
+
+    function dictaphoneStartTake() {
+        if (dictPhase === 'counting' || dictPhase === 'recording') return;
+        const key = DICT_SYLLABLES[dictCurrentIndex];
+        if (!key) return;
+        clearDictCountdownTimers();
+        dictPhase = 'counting';
+        dictaphoneRefreshControls();
+        dictaphoneUiSet('Get ready…', '');
+        for (let n = 1; n <= 4; n++) {
+            const tid = setTimeout(() => {
+                dictaphoneUiSet(`Beat ${n} of 4`, String(n));
+            }, (n - 1) * DICT_COUNT_STEP_MS);
+            dictCountdownTimerIds.push(tid);
+        }
+        const startRecTid = setTimeout(() => {
+            dictaphoneUiSet('5 — speak now!', '5');
+            dictaphoneBeginRecording(key);
+        }, 4 * DICT_COUNT_STEP_MS + 80);
+        dictCountdownTimerIds.push(startRecTid);
+    }
+
+    async function dictaphoneBeginRecording(syllableKey) {
+        dictPhase = 'recording';
+        dictaphoneRefreshControls();
+        dictMediaChunks = [];
+        try {
+            dictMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } catch (e) {
+            console.error('[dictaphone] mic', e);
+            dictaphoneUiSet('Microphone access denied.', '');
+            dictPhase = 'idle';
+            dictaphoneRefreshControls();
+            return;
+        }
+        let mime = 'audio/webm';
+        if (!MediaRecorder.isTypeSupported(mime)) mime = '';
+        dictMediaRecorder = mime ? new MediaRecorder(dictMediaStream, { mimeType: mime }) : new MediaRecorder(dictMediaStream);
+        dictMediaRecorder.ondataavailable = (ev) => {
+            if (ev.data && ev.data.size) dictMediaChunks.push(ev.data);
+        };
+        dictMediaRecorder.onstop = async () => {
+            dictPhase = 'idle';
+            if (dictMediaStream) {
+                dictMediaStream.getTracks().forEach(tr => { try { tr.stop(); } catch (_) {} });
+                dictMediaStream = null;
+            }
+            const blob = new Blob(dictMediaChunks, { type: dictMediaRecorder.mimeType || 'audio/webm' });
+            dictMediaRecorder = null;
+            dictMediaChunks = [];
+            try {
+                if (!audioCtx) audioCtx = new AudioContext();
+                if (audioCtx.state === 'suspended') await audioCtx.resume();
+                const arr = await blob.arrayBuffer();
+                const buf = await audioCtx.decodeAudioData(arr.slice(0));
+                customSyllableBuffers[syllableKey] = buf;
+                dictPhase = 'preview';
+                dictaphoneUiSet('Recorded. Play to check, Next for syllable.', '');
+            } catch (err) {
+                console.error('[dictaphone] decode', err);
+                dictaphoneUiSet('Could not decode recording.', '');
+            }
+            dictaphoneRefreshControls();
+        };
+        dictMediaRecorder.start();
+        dictRecordStopTimer = setTimeout(() => {
+            dictRecordStopTimer = null;
+            if (dictMediaRecorder && dictMediaRecorder.state === 'recording') {
+                try { dictMediaRecorder.stop(); } catch (_) {}
+            }
+        }, DICT_RECORD_MS);
+    }
+
+    function dictaphonePlayPreview() {
+        const key = DICT_SYLLABLES[dictCurrentIndex];
+        const buf = key ? customSyllableBuffers[key] : null;
+        if (!buf || !audioCtx) return;
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const t = audioCtx.currentTime + 0.02;
+        const src = audioCtx.createBufferSource();
+        const gain = audioCtx.createGain();
+        src.buffer = buf;
+        gain.gain.setValueAtTime(0.92, t);
+        src.connect(gain);
+        gain.connect(audioCtx.destination);
+        src.start(t);
+        src.stop(t + buf.duration + 0.05);
+    }
+
+    function dictaphoneNext() {
+        dictPhase = 'idle';
+        dictaphoneUiSet('', '');
+        if (dictCurrentIndex < DICT_SYLLABLES.length - 1) {
+            dictCurrentIndex += 1;
+            dictaphoneUiSet('Tap REC — count 1–4, then speak on 5.', '');
+        } else {
+            dictaphoneUiSet('All syllables recorded: Ta Ka Dhi Mi Ta Ka Dju Na.', '');
+            const recRow = document.getElementById('dictaphoneRecRow');
+            const afterRow = document.getElementById('dictaphoneAfterRow');
+            if (recRow) recRow.hidden = true;
+            if (afterRow) afterRow.hidden = true;
+            dictPhase = 'done';
+            return;
+        }
+        dictaphoneRefreshControls();
     }
 
     function refreshTempoModeUi() {
@@ -2107,11 +2420,15 @@
         toggleRandomModeFromButton();
     }
 
-    function playSharpClick(time, isChecked) {
+    function playSharpClick(time, isChecked, syllableKey) {
         if (!accentOnlyEnabled && !isChecked) return;
         if (!audioCtx) audioCtx = new AudioContext();
         if (selectedSoundPreset === 'custom') {
-            const buffer = isChecked ? (customAccentBuffer || customClickBuffer) : (customClickBuffer || customAccentBuffer);
+            const mapKey = dictNormalizeSyllableKey(syllableKey || '');
+            let buffer = (mapKey && customSyllableBuffers[mapKey]) ? customSyllableBuffers[mapKey] : null;
+            if (!buffer) {
+                buffer = isChecked ? (customAccentBuffer || customClickBuffer) : (customClickBuffer || customAccentBuffer);
+            }
             if (buffer) {
                 const src = audioCtx.createBufferSource();
                 const gainNode = audioCtx.createGain();
@@ -2169,10 +2486,12 @@
         const cellMult = getCellTempoMultiplier(meta.barIndex, meta.localIndex);
         const uiDedupKey = `${step}:${time.toFixed(6)}`;
         const metaSnapshot = { barIndex: meta.barIndex, localIndex: meta.localIndex };
+        const pForSyl = barStates[meta.barIndex].pulsation;
+        const syllableKey = (syllables[pForSyl] || [])[meta.localIndex] || '';
 
         for (let k = 0; k < cellMult; k++) {
             const subClickIsAccent = cellMult > 1 ? true : isChecked;
-            playSharpClick(time + (k * stepDuration / cellMult), subClickIsAccent);
+            playSharpClick(time + (k * stepDuration / cellMult), subClickIsAccent, syllableKey);
         }
 
         const evtSeq = ++playbackUiEventSeq;
