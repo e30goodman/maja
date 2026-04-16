@@ -137,6 +137,8 @@ export default function App() {
   });
   /** Временный масштаб всего UI (1 = 100%). */
   const [uiScale, setUiScale] = useState(1);
+  /** Отключить базовый метроном и оставить только акцентированные клики. */
+  const [accentOnlyAudio, setAccentOnlyAudio] = useState(false);
 
   // Refs for audio and timing
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -149,10 +151,12 @@ export default function App() {
   const animationFrameRef = useRef<number | null>(null);
 
   const accentsRef = useRef(accents);
+  const accentOnlyAudioRef = useRef(accentOnlyAudio);
 
   // Update refs when state changes to avoid stale closures in the worker/scheduler
   useEffect(() => { bpmRef.current = bpm; }, [bpm]);
   useEffect(() => { accentsRef.current = accents; }, [accents]);
+  useEffect(() => { accentOnlyAudioRef.current = accentOnlyAudio; }, [accentOnlyAudio]);
 
   const toggleAccent = (id: string) => {
     setAccents(prev => ({
@@ -226,6 +230,9 @@ export default function App() {
 
     // Differentiate by accent
     const isAccented = accentsRef.current[note.id];
+    if (!isAccented && accentOnlyAudioRef.current) {
+      return;
+    }
     if (isAccented) {
       startFreq = 500;
       endFreq = 120;
@@ -480,6 +487,16 @@ export default function App() {
               className="w-full h-1 bg-[#252830] rounded-lg appearance-none cursor-pointer accent-[#D4AF37]"
             />
           </div>
+
+          <label className="w-full px-2 pb-2 flex items-center gap-2 text-[11px] text-[#9aa0ab] cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={accentOnlyAudio}
+              onChange={(e) => setAccentOnlyAudio(e.target.checked)}
+              className="w-3.5 h-3.5 rounded border border-[#3a3f4a] bg-[#0C0D10] accent-[#D4AF37]"
+            />
+            <span>Only accented notes (mute base metronome)</span>
+          </label>
         </footer>
 
       </div>
