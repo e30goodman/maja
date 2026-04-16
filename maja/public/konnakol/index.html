@@ -2225,9 +2225,9 @@
     }
 
     function getRandomPulsationValueDifferentFrom(excludeP) {
-        const values = Object.keys(syllables).map(v => parseInt(v, 10)).filter(v => !isNaN(v));
-        const pool = values.filter(v => v !== excludeP);
-        const pickFrom = pool.length ? pool : values;
+        // Same discrete set as per-bar pulsation menu (includes 9); must stay aligned with syllables / MAX_PULSATION.
+        const pool = PULSATION_OPTIONS.filter(v => v !== excludeP);
+        const pickFrom = pool.length ? pool : PULSATION_OPTIONS;
         return pickFrom[Math.floor(Math.random() * pickFrom.length)] || 4;
     }
 
