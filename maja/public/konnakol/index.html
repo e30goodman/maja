@@ -194,10 +194,7 @@
             border: 1px solid var(--slate-700);
             padding: calc(clamp(10px, calc(19px - (var(--bars-count) * 1px)), 15px) * var(--bar-scale));
             border-radius: calc(1rem * var(--bar-scale));
-            height: calc(var(--bar-height) * var(--bar-scale));
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
+            min-height: calc(var(--bar-height) * var(--bar-scale));
         }
         .bar.tempo-boost {
             border-color: var(--playback-border);
@@ -326,9 +323,6 @@
             flex-wrap: wrap;
             gap: calc(clamp(5px, calc(10px - (var(--bars-count) * 0.4px)), 8px) * var(--bar-scale));
             justify-content: flex-start;
-            align-content: flex-start;
-            flex: 1 1 auto;
-            overflow: hidden;
         }
         .cell {
             display: flex;
@@ -1534,7 +1528,6 @@
         barStates[barIndex].cellTempoMultipliers = mapTempoMultipliersToNewPulsation(oldCellTempo, oldP, safeP);
         const container = document.getElementById('barsContainer');
         renderBars(container);
-        requestAnimationFrame(() => enforceBarsFit(container, barStates.length));
         saveSessionState();
         if (navigator.vibrate) navigator.vibrate(10);
     }
@@ -1944,7 +1937,6 @@
         const container = document.getElementById('barsContainer');
         renderBars(container);
         lastInternalPlaybackLogKey = '';
-        requestAnimationFrame(() => enforceBarsFit(container, bCount));
         saveSessionState();
     }
 
