@@ -692,6 +692,11 @@
         return true;
     }
 
+    function closeSettingsFoldIfOpen() {
+        const settingsFoldEl = document.querySelector('details.settings-fold');
+        if (settingsFoldEl && settingsFoldEl.open) settingsFoldEl.open = false;
+    }
+
     function notesCountLabel(n) {
         return n + (n === 1 ? ' note' : ' notes');
     }
@@ -1409,6 +1414,7 @@
     }
 
     function randomizeAndPlay() {
+        closeSettingsFoldIfOpen();
         randomize();
         const isPlaying = document.getElementById('stopBtn').style.display === 'block';
         // #region agent log
@@ -1573,12 +1579,12 @@
         scheduler();
         document.getElementById('playBtn').style.display = 'none';
         document.getElementById('stopBtn').style.display = 'block';
-        const settingsFoldEl = document.querySelector('details.settings-fold');
-        if (settingsFoldEl && settingsFoldEl.open) settingsFoldEl.open = false;
+        closeSettingsFoldIfOpen();
         requestWakeLock();
     }
 
     function stop() {
+        closeSettingsFoldIfOpen();
         clearTimeout(timerID);
         playbackRandomizerEnabled = false;
         lastProcessedUiPaintKey = '';
