@@ -2205,6 +2205,18 @@
     }
     syncTopFoldRowState();
 
+    document.addEventListener('click', (event) => {
+        const target = event.target;
+        if (mainSettingsFoldEl && mainSettingsFoldEl.open) {
+            const insideMain = target && target.closest && target.closest('#mainSettingsFold');
+            if (!insideMain) mainSettingsFoldEl.open = false;
+        }
+        if (barScalerFoldEl && barScalerFoldEl.open) {
+            const insideScaler = target && target.closest && target.closest('#barScalerFold');
+            if (!insideScaler) barScalerFoldEl.open = false;
+        }
+    });
+
     window.addEventListener('resize', () => {
         const bCount = parseInt(document.getElementById('barsCount').value, 10);
         const container = document.getElementById('barsContainer');
