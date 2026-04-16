@@ -336,11 +336,12 @@
             flex-wrap: wrap;
             gap: calc(clamp(5px, calc(10px - (var(--bars-count) * 0.4px)), 8px) * var(--bar-scale));
             justify-content: flex-start;
-            align-items: stretch;
-            align-content: flex-start;
         }
         .cell {
-            --total-cell-height: calc(var(--cell-height) * var(--bar-scale));
+            --cell-box-size-default: calc(var(--cell-height) * var(--bar-scale));
+            --cell-label-reserve: 0px;
+            --cell-box-size-x2: calc(var(--cell-box-size-default) + var(--cell-label-reserve));
+            --cell-box-size-x3: calc(var(--cell-box-size-default) + var(--cell-label-reserve));
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -350,24 +351,21 @@
             padding: calc(clamp(6px, calc(10px - (var(--bars-count) * 0.45px)), 8px) * var(--bar-scale));
             border-radius: calc(0.5rem * var(--bar-scale));
             width: calc(clamp(32px, calc(48px - (var(--bars-count) * 1.45px)), 42px) * var(--bar-scale));
-            height: var(--total-cell-height);
-            min-height: var(--total-cell-height);
-            max-height: var(--total-cell-height);
-            overflow: visible;
-            box-sizing: border-box;
-            align-self: stretch;
+            min-height: var(--cell-box-size-default);
             transition: 0.1s;
             border: 2px solid transparent;
             cursor: pointer;
             user-select: none;
             -webkit-tap-highlight-color: transparent;
         }
-        .cell.cell-profile-default,
-        .cell.cell-profile-x2,
+        .cell.cell-profile-default {
+            min-height: var(--cell-box-size-default);
+        }
+        .cell.cell-profile-x2 {
+            min-height: var(--cell-box-size-x2);
+        }
         .cell.cell-profile-x3 {
-            height: var(--total-cell-height);
-            min-height: var(--total-cell-height);
-            max-height: var(--total-cell-height);
+            min-height: var(--cell-box-size-x3);
         }
         .cell:focus-visible {
             outline: 2px solid var(--violet-400);
@@ -378,21 +376,6 @@
             margin-bottom: 0;
             font-weight: 600;
             color: var(--text-muted);
-        }
-        .cell small:not(.subdiv-label) {
-            position: absolute;
-            left: 50%;
-            top: 50%;
-            transform: translate(-50%, -50%);
-            width: 92%;
-            max-width: 92%;
-            margin: 0;
-            text-align: center;
-            pointer-events: none;
-            z-index: 1;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
         }
         .cell small.subdiv-label {
             position: absolute;
@@ -407,8 +390,6 @@
             text-align: center;
             margin: 0;
             pointer-events: none;
-            overflow: visible;
-            z-index: 1;
         }
         .cell small.subdiv-label.dense {
             font-size: calc(clamp(0.42rem, calc(0.58rem - (var(--bars-count) * 0.015rem)), 0.5rem) * var(--bar-scale));
@@ -450,6 +431,24 @@
             box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.34) inset, 0 0 12px rgba(244, 63, 94, 0.22);
             background: rgba(244, 63, 94, 0.20);
         }
+        .cell-speed-badge {
+            position: absolute;
+            right: calc(4px * var(--bar-scale));
+            bottom: calc(3px * var(--bar-scale));
+            font-size: calc(0.52rem * var(--bar-scale));
+            line-height: 1;
+            font-weight: 700;
+            color: var(--text-muted);
+            letter-spacing: 0.02em;
+            pointer-events: none;
+            user-select: none;
+            opacity: 0.95;
+            transform: none;
+        }
+        .cell-speed-badge.x3 {
+            color: var(--text);
+        }
+
         .btn { width: 100%; padding: 15px; border: none; border-radius: 0.75rem; font-weight: 700; cursor: pointer; margin-bottom: 10px; font-size: 1rem; transition: 0.2s; }
         .action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
         .action-row .btn { margin-bottom: 0; }
@@ -637,7 +636,10 @@
                 width: 100%;
             }
             .cell {
-                --total-cell-height: calc(var(--cell-height) * var(--bar-scale));
+                --cell-box-size-default: calc(var(--cell-height) * var(--bar-scale));
+                --cell-label-reserve: 0px;
+                --cell-box-size-x2: calc(var(--cell-box-size-default) + var(--cell-label-reserve));
+                --cell-box-size-x3: calc(var(--cell-box-size-default) + var(--cell-label-reserve));
                 flex: 1 1 0;
                 min-width: 0;
                 width: auto;
@@ -647,21 +649,10 @@
                 justify-content: center;
                 gap: 0;
                 padding: calc(12px * var(--bar-scale)) calc(4px * var(--bar-scale)) calc(14px * var(--bar-scale));
-                height: var(--total-cell-height);
-                min-height: var(--total-cell-height);
-                max-height: var(--total-cell-height);
-                overflow: visible;
+                min-height: var(--cell-box-size-default);
                 border-radius: 12px;
                 border-width: 2px;
                 box-sizing: border-box;
-                align-self: stretch;
-            }
-            .cell.cell-profile-default,
-            .cell.cell-profile-x2,
-            .cell.cell-profile-x3 {
-                height: var(--total-cell-height);
-                min-height: var(--total-cell-height);
-                max-height: var(--total-cell-height);
             }
             .cell small {
                 font-size: calc(0.78rem * var(--bar-scale));
@@ -673,25 +664,6 @@
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
-            }
-            .cell small:not(.subdiv-label) {
-                position: absolute;
-                left: 50%;
-                top: 50%;
-                transform: translate(-50%, -50%);
-                width: 92%;
-                max-width: 92%;
-                margin: 0;
-                pointer-events: none;
-                z-index: 1;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-            }
-            .cell small.subdiv-label {
-                white-space: pre-line;
-                overflow: visible;
-                text-overflow: clip;
             }
             .cell.playing {
                 transform: scale(1.03);
@@ -1487,6 +1459,7 @@
     function renderBars(container) {
         recalcStepMeta();
         container.innerHTML = '';
+        let lastOriginalSyllable = null;
         let globalStep = 0;
         for (let b = 0; b < barStates.length; b++) {
             const barDiv = document.createElement('div');
@@ -1506,6 +1479,7 @@
             syllables[p].forEach((s, i) => {
                 const cell = document.createElement('div');
                 const cellTempoMultiplier = barStates[b].cellTempoMultipliers?.[i] || 1;
+                const mult = getCellTempoMultiplier(b, i);
                 cell.className = 'cell'
                     + (barStates[b].checks[i] ? ' rhythm-note-on' : '')
                     + (cellTempoMultiplier > 1 ? ' tempo-boost' : '')
@@ -1520,7 +1494,6 @@
                 cell.setAttribute('role', 'button');
                 cell.setAttribute('tabindex', '0');
                 cell.setAttribute('aria-pressed', barStates[b].checks[i] ? 'true' : 'false');
-                cell.setAttribute('aria-label', `${s}, bar ${b + 1}, beat ${i + 1}`);
                 if (p === 2) {
                     // Унифицируем визуальные пропорции бара для 2-пульса: ячейки растягиваются на ширину.
                     cell.style.flex = '1 1 0';
@@ -1528,15 +1501,64 @@
                     cell.style.maxWidth = 'none';
                 }
                 const label = document.createElement('small');
-                const displaySyllable = cellTempoMultiplier === 2
-                    ? 'Ta Ka'
-                    : (cellTempoMultiplier === 4 ? 'Ta Ka\nDju Na' : s);
+                const seq = syllables[p] || [];
+                let displaySyllable = s;
+                if (seq.length === 0) {
+                    displaySyllable = s;
+                    lastOriginalSyllable = s;
+                } else {
+                    // 1. УСТАНАВЛИВАЕМ БАЗУ: x1 идет по сетке, x2/x4 ВСЕГДА начинают с Ta (индекс 0)
+                    const defaultStart = (mult === 1) ? (i % seq.length) : 0;
+
+                    let displayStart = defaultStart;
+
+                    // 2. УМНЫЙ СДВИГ: Разрешен ТОЛЬКО для одиночных ячеек (mult === 1)
+                    // Множители (x2, x4) теперь ЗАБЛОКИРОВАНЫ и не будут "прыгать"
+                    if (mult === 1 && lastOriginalSyllable != null && seq[defaultStart] === lastOriginalSyllable) {
+                        displayStart = (defaultStart - 1 + seq.length) % seq.length;
+                    }
+
+                    // 3. ФОРМИРУЕМ СТРОКУ (строго по твоим правилам)
+                    if (mult === 1) {
+                        displaySyllable = seq[displayStart];
+                    } else if (mult === 2) {
+                        // Всегда будет Ta Ka (если паттерн начинается с Ta Ka)
+                        displaySyllable = `${seq[0]} ${seq[1 % seq.length]}`;
+                    } else if (mult === 4) {
+                        // Всегда будет Ta Ka / Dhi Mi
+                        const a = seq[0];
+                        const b = seq[1 % seq.length];
+                        const c = seq[2 % seq.length];
+                        const d = seq[3 % seq.length];
+                        displaySyllable = `${a} ${b}\n${c} ${d}`;
+                    } else {
+                        displaySyllable = s;
+                    }
+
+                    // 4. ОБНОВЛЯЕМ ПАМЯТЬ: Запоминаем РЕАЛЬНЫЙ последний слог для следующего соседа
+                    if (mult === 1) {
+                        lastOriginalSyllable = seq[displayStart];
+                    } else if (mult === 2) {
+                        lastOriginalSyllable = seq[1 % seq.length];
+                    } else if (mult === 4) {
+                        lastOriginalSyllable = seq[3 % seq.length];
+                    } else {
+                        lastOriginalSyllable = s;
+                    }
+                }
                 label.textContent = displaySyllable;
+                cell.setAttribute('aria-label', `${String(displaySyllable).replace(/\n/g, ', ')}, bar ${b + 1}, beat ${i + 1}`);
                 if (cellTempoMultiplier > 1) {
                     label.classList.add('subdiv-label');
                     if (p > 4) label.classList.add('dense');
                 }
                 cell.appendChild(label);
+                if (cellTempoMultiplier > 1) {
+                    const speedBadge = document.createElement('span');
+                    speedBadge.className = 'cell-speed-badge' + (cellTempoMultiplier === 4 ? ' x3' : '');
+                    speedBadge.textContent = cellTempoMultiplier === 4 ? 'x3' : 'x2';
+                    cell.appendChild(speedBadge);
+                }
                 cell.addEventListener('pointerdown', (ev) => startCellTempoHold(ev, b, i));
                 cell.addEventListener('pointerup', (ev) => endCellTempoHold(ev, b, i));
                 cell.addEventListener('pointercancel', (ev) => endCellTempoHold(ev, b, i));
