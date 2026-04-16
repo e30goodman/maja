@@ -529,6 +529,10 @@
                         <input type="checkbox" id="uniformSound" onchange="saveSessionState()">
                         Uniform sound (no checkbox audio cue)
                     </label>
+                    <label class="rand-cycle">
+                        <input type="checkbox" id="accentOnlySound" onchange="saveSessionState()">
+                        Sound only on accent checkboxes
+                    </label>
                 </div>
             </div>
         </div>
@@ -706,6 +710,7 @@
             randomPatternAfterEachBar: document.getElementById('randomPatternAfterEachBar').checked,
             randomPulsationAfterEachBar: document.getElementById('randomPulsationAfterEachBar').checked,
             uniformSound: document.getElementById('uniformSound').checked,
+            accentOnlySound: document.getElementById('accentOnlySound').checked,
             bpm: String(document.getElementById('bpm').value || '100'),
             barScaleByCount: getBarScaleMapForSave(),
             barPulsations,
@@ -777,6 +782,7 @@
         const randomPatternAfterEachBarEl = document.getElementById('randomPatternAfterEachBar');
         const randomPulsationAfterEachBarEl = document.getElementById('randomPulsationAfterEachBar');
         const uniformSoundEl = document.getElementById('uniformSound');
+        const accentOnlySoundEl = document.getElementById('accentOnlySound');
 
         if (state.pulsation && syllables[state.pulsation]) {
             pulsationEl.value = String(state.pulsation);
@@ -812,6 +818,9 @@
                 : Boolean(state.randomPulsationAfterEachBar);
         }
         uniformSoundEl.checked = Boolean(state.uniformSound);
+        if (accentOnlySoundEl) {
+            accentOnlySoundEl.checked = Boolean(state.accentOnlySound);
+        }
     }
 
 
@@ -1415,6 +1424,8 @@
     }
 
     function playSharpClick(time, isChecked) {
+        const accentOnly = Boolean(document.getElementById('accentOnlySound')?.checked);
+        if (accentOnly && !isChecked) return;
         if (!audioCtx) audioCtx = new AudioContext();
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
