@@ -181,6 +181,8 @@
             --bars-count: 4;
             --bar-height: 96px;
             --cell-height: 62px;
+            /* Фиксированная высота «окна» ячейки: база из JS + запас; не зависит от текста */
+            --total-cell-height: calc((var(--cell-height) + 20px) * var(--bar-scale));
             --bars-gap: 16px;
             --bar-scale: 1;
             display: grid;
@@ -338,10 +340,6 @@
             justify-content: flex-start;
         }
         .cell {
-            --cell-box-size-default: calc(var(--cell-height) * var(--bar-scale));
-            --cell-label-reserve: 0px;
-            --cell-box-size-x2: calc(var(--cell-box-size-default) + var(--cell-label-reserve));
-            --cell-box-size-x3: calc(var(--cell-box-size-default) + var(--cell-label-reserve));
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -351,21 +349,21 @@
             padding: calc(clamp(6px, calc(10px - (var(--bars-count) * 0.45px)), 8px) * var(--bar-scale));
             border-radius: calc(0.5rem * var(--bar-scale));
             width: calc(clamp(32px, calc(48px - (var(--bars-count) * 1.45px)), 42px) * var(--bar-scale));
-            min-height: var(--cell-box-size-default);
+            height: var(--total-cell-height);
+            min-height: var(--total-cell-height);
+            max-height: var(--total-cell-height);
             transition: 0.1s;
             border: 2px solid transparent;
             cursor: pointer;
             user-select: none;
             -webkit-tap-highlight-color: transparent;
         }
-        .cell.cell-profile-default {
-            min-height: var(--cell-box-size-default);
-        }
-        .cell.cell-profile-x2 {
-            min-height: var(--cell-box-size-x2);
-        }
+        .cell.cell-profile-default,
+        .cell.cell-profile-x2,
         .cell.cell-profile-x3 {
-            min-height: var(--cell-box-size-x3);
+            height: var(--total-cell-height);
+            min-height: var(--total-cell-height);
+            max-height: var(--total-cell-height);
         }
         .cell:focus-visible {
             outline: 2px solid var(--violet-400);
@@ -636,10 +634,6 @@
                 width: 100%;
             }
             .cell {
-                --cell-box-size-default: calc(var(--cell-height) * var(--bar-scale));
-                --cell-label-reserve: 0px;
-                --cell-box-size-x2: calc(var(--cell-box-size-default) + var(--cell-label-reserve));
-                --cell-box-size-x3: calc(var(--cell-box-size-default) + var(--cell-label-reserve));
                 flex: 1 1 0;
                 min-width: 0;
                 width: auto;
@@ -649,10 +643,19 @@
                 justify-content: center;
                 gap: 0;
                 padding: calc(12px * var(--bar-scale)) calc(4px * var(--bar-scale)) calc(14px * var(--bar-scale));
-                min-height: var(--cell-box-size-default);
+                height: var(--total-cell-height);
+                min-height: var(--total-cell-height);
+                max-height: var(--total-cell-height);
                 border-radius: 12px;
                 border-width: 2px;
                 box-sizing: border-box;
+            }
+            .cell.cell-profile-default,
+            .cell.cell-profile-x2,
+            .cell.cell-profile-x3 {
+                height: var(--total-cell-height);
+                min-height: var(--total-cell-height);
+                max-height: var(--total-cell-height);
             }
             .cell small {
                 font-size: calc(0.78rem * var(--bar-scale));
