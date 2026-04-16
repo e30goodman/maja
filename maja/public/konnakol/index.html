@@ -424,6 +424,13 @@
         .action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
         .action-row .btn { margin-bottom: 0; }
         .btn-icon { font-size: 1.15rem; padding: 12px; }
+        .btn-icon-img {
+            width: 20px;
+            height: 20px;
+            object-fit: contain;
+            pointer-events: none;
+            vertical-align: middle;
+        }
         .btn-rand {
             background: rgba(124, 58, 237, 0.22);
             color: var(--text);
@@ -723,7 +730,7 @@
 
     <div class="action-row">
         <button class="btn btn-rand btn-icon" onclick="randomizeAndPlay()" title="Randomize">🎲</button>
-        <button id="accentToggleBtn" class="btn btn-accent btn-icon" onclick="toggleAccentOnlyFromButton()" title="Accent only">🎯</button>
+        <button id="accentToggleBtn" class="btn btn-accent btn-icon" onclick="toggleAccentOnlyFromButton()" title="Accent only"><img src="drum.png" alt="Accent" class="btn-icon-img"></button>
     </div>
     <button id="playBtn" class="btn btn-play" onclick="start(false)">▶ PLAY</button>
     <button id="stopBtn" class="btn btn-stop" onclick="stop()">■ STOP</button>
