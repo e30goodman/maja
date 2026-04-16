@@ -2238,8 +2238,17 @@
         closeTopFoldsByOutsideTarget(event.target);
     });
 
+    const TOP_FOLD_SCROLL_CLOSE_TRIGGER_MS = 3;
+    let topFoldScrollCloseTimer = null;
     const closeTopFoldsOnScrollTrigger = () => {
-        closeTopFoldsByOutsideTarget(null);
+        if (topFoldScrollCloseTimer !== null) {
+            clearTimeout(topFoldScrollCloseTimer);
+            topFoldScrollCloseTimer = null;
+        }
+        topFoldScrollCloseTimer = setTimeout(() => {
+            topFoldScrollCloseTimer = null;
+            closeTopFoldsByOutsideTarget(null);
+        }, TOP_FOLD_SCROLL_CLOSE_TRIGGER_MS);
     };
     window.addEventListener('scroll', closeTopFoldsOnScrollTrigger, { passive: true });
     window.addEventListener('wheel', closeTopFoldsOnScrollTrigger, { passive: true });
