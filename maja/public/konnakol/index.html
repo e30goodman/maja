@@ -808,6 +808,9 @@
     let barScalerSliderHeld = false;
     let barTempoHoldTimer = null;
     let barTempoHoldTarget = -1;
+    let pulsationHoldTimer = null;
+    let pulsationHoldBar = -1;
+    let suppressPulsationClickBar = -1;
     let cellTempoHoldTimer = null;
     let cellTempoHoldKey = '';
     let suppressCellClickKey = '';
@@ -1453,7 +1456,7 @@
             barDiv.id = `bar-${b}`;
             barDiv.dataset.barIndex = String(b);
             const barTempoLabel = tempoMultiplier === 4 ? 3 : tempoMultiplier;
-            barDiv.innerHTML = `<div class="bar-title"><span class="bar-tempo-handle${tempoMultiplier === 4 ? ' x3' : ''}" id="bar-tempo-handle-${b}" onpointerdown="startBarTempoHold(event, ${b})" onpointerup="endBarTempoHold(event, ${b})" onpointercancel="endBarTempoHold(event, ${b})">x${barTempoLabel}</span><span class="pulsation-handle" id="pulsation-handle-${b}" onclick="togglePulsationMenu(event, ${b})">${barStates[b].pulsation}</span></div>`;
+            barDiv.innerHTML = `<div class="bar-title"><span class="bar-tempo-handle${tempoMultiplier === 4 ? ' x3' : ''}" id="bar-tempo-handle-${b}" onpointerdown="startBarTempoHold(event, ${b})" onpointerup="endBarTempoHold(event, ${b})" onpointercancel="endBarTempoHold(event, ${b})">x${barTempoLabel}</span><span class="pulsation-handle" id="pulsation-handle-${b}" onpointerdown="startPulsationMenuHold(event, ${b})" onpointerup="endPulsationMenuHold(event, ${b})" onpointercancel="endPulsationMenuHold(event, ${b})" onclick="togglePulsationMenu(event, ${b})">${barStates[b].pulsation}</span></div>`;
 
             const grid = document.createElement('div');
             grid.className = 'rhythm-grid';
@@ -1747,12 +1750,52 @@
     function togglePulsationMenu(event, barIndex) {
         event.preventDefault();
         event.stopPropagation();
+        if (suppressPulsationClickBar === barIndex) {
+            suppressPulsationClickBar = -1;
+            return;
+        }
         if (document.getElementById('stopBtn').style.display === 'block') stop();
         if (pulsationMenuBarIndex === barIndex) {
             endPulsationDrag();
             return;
         }
         openPulsationMenu(barIndex);
+    }
+
+    function startPulsationMenuHold(event, barIndex) {
+        if (event.button !== undefined && event.button !== 0) return;
+        if (event.currentTarget && event.currentTarget.setPointerCapture && event.pointerId !== undefined) {
+            try {
+                event.currentTarget.setPointerCapture(event.pointerId);
+            } catch (_) {}
+        }
+        if (pulsationHoldTimer !== null) {
+            clearTimeout(pulsationHoldTimer);
+            pulsationHoldTimer = null;
+        }
+        pulsationHoldBar = barIndex;
+        pulsationHoldTimer = setTimeout(() => {
+            pulsationHoldTimer = null;
+            if (pulsationHoldBar !== barIndex) return;
+            suppressPulsationClickBar = barIndex;
+            const syntheticEvent = { preventDefault() {}, stopPropagation() {} };
+            togglePulsationMenu(syntheticEvent, barIndex);
+        }, TEMPO_HOLD_MS);
+    }
+
+    function endPulsationMenuHold(event, barIndex) {
+        if (event && event.currentTarget && event.currentTarget.releasePointerCapture && event.pointerId !== undefined) {
+            try {
+                if (event.currentTarget.hasPointerCapture && event.currentTarget.hasPointerCapture(event.pointerId)) {
+                    event.currentTarget.releasePointerCapture(event.pointerId);
+                }
+            } catch (_) {}
+        }
+        if (pulsationHoldTimer !== null) {
+            clearTimeout(pulsationHoldTimer);
+            pulsationHoldTimer = null;
+        }
+        if (pulsationHoldBar === barIndex) pulsationHoldBar = -1;
     }
 
     function selectPulsationFromMenu(p) {
