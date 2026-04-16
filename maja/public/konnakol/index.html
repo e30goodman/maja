@@ -2244,10 +2244,13 @@
     const STRONG_FLING_WHEEL_DELTA = 420;
     const STRONG_FLING_TOUCH_VELOCITY = 1.6;
     const BOTTOM_STOP_EPSILON = 2;
+    const WHEEL_SLIDE_END_IDLE_MS = 140;
     let scrollTriggerStartedAt = 0;
     let lastScrollActivityAt = 0;
     let lastTouchY = null;
     let lastTouchTs = 0;
+    let closeTopFoldsPendingOnSlideEnd = false;
+    let wheelSlideEndTimer = null;
 
     const isViewportAtBottomStop = () => {
         const doc = document.documentElement;
@@ -2261,6 +2264,16 @@
         return (scrollTop + viewportHeight) >= (scrollHeight - BOTTOM_STOP_EPSILON);
     };
 
+    const markCloseTopFoldsOnSlideEnd = () => {
+        closeTopFoldsPendingOnSlideEnd = true;
+    };
+
+    const flushPendingTopFoldsClose = () => {
+        if (!closeTopFoldsPendingOnSlideEnd) return;
+        closeTopFoldsPendingOnSlideEnd = false;
+        closeTopFoldsByOutsideTarget(null);
+    };
+
     const closeTopFoldsOnScrollTrigger = () => {
         const now = performance.now();
         if (lastScrollActivityAt && (now - lastScrollActivityAt) > SCROLL_ACTIVITY_RESET_MS) {
@@ -2271,13 +2284,13 @@
         }
         lastScrollActivityAt = now;
         if ((now - scrollTriggerStartedAt) >= SCROLL_CLOSE_TRIGGER_MS) {
-            closeTopFoldsByOutsideTarget(null);
+            markCloseTopFoldsOnSlideEnd();
             scrollTriggerStartedAt = 0;
             lastScrollActivityAt = 0;
         }
     };
     const onStrongFlingTrigger = () => {
-        closeTopFoldsByOutsideTarget(null);
+        markCloseTopFoldsOnSlideEnd();
         scrollTriggerStartedAt = 0;
         lastScrollActivityAt = 0;
     };
@@ -2290,6 +2303,14 @@
         ) {
             onStrongFlingTrigger();
         }
+        if (wheelSlideEndTimer !== null) {
+            clearTimeout(wheelSlideEndTimer);
+            wheelSlideEndTimer = null;
+        }
+        wheelSlideEndTimer = setTimeout(() => {
+            wheelSlideEndTimer = null;
+            flushPendingTopFoldsClose();
+        }, WHEEL_SLIDE_END_IDLE_MS);
     };
     const onTouchMoveScrollTrigger = (event) => {
         closeTopFoldsOnScrollTrigger();
@@ -2313,6 +2334,7 @@
     window.addEventListener('touchend', () => {
         lastTouchY = null;
         lastTouchTs = 0;
+        flushPendingTopFoldsClose();
     }, { passive: true });
 
     window.addEventListener('resize', () => {
