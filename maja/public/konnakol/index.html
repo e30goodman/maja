@@ -649,6 +649,7 @@
                 <div>
                     <label>Pulsation:</label>
                     <select id="pulsation" onchange="onGlobalPulsationSelectChange()">
+                        <option value="2">2 (Ta-Ka)</option>
                         <option value="3">3 (Ta-Ki-Ta)</option>
                         <option value="4" selected>4 (Ta-Ka-Dhi-Mi)</option>
                         <option value="5">5 (Ta-Ka-Ta-Ki-Ta)</option>
@@ -783,6 +784,7 @@
     const STORAGE_KEY = 'konnakolSessionStateV1';
     
     const syllables = {
+        2: ["Ta", "Ka"],
         3: ["Ta", "Ki", "Ta"],
         4: ["Ta", "Ka", "Dhi", "Mi"],
         5: ["Ta", "Ka", "Ta", "Ki", "Ta"],
@@ -1468,7 +1470,7 @@
         if (!barStates[barIndex]) return;
         const n = parseInt(String(newP), 10);
         if (!Number.isFinite(n)) return;
-        const safeP = Math.min(8, Math.max(3, n));
+        const safeP = Math.min(8, Math.max(2, n));
         const oldP = barStates[barIndex].pulsation;
         if (oldP === safeP) return;
         const oldChecks = barStates[barIndex].checks.slice();
@@ -1596,7 +1598,7 @@
         if (cellTempoHoldKey === key) cellTempoHoldKey = '';
     }
 
-    const PULSATION_OPTIONS = [3, 4, 5, 6, 7, 8];
+    const PULSATION_OPTIONS = [2, 3, 4, 5, 6, 7, 8];
 
     function positionPulsationDragPanel(barIndex) {
         const panel = document.getElementById('pulsationDragPanel');
@@ -1621,7 +1623,7 @@
         const panel = document.getElementById('pulsationDragPanel');
         const list = document.getElementById('pulsationDragPanelList');
         if (!panel || !list) return;
-        const safeP = Math.min(8, Math.max(3, previewP));
+        const safeP = Math.min(8, Math.max(2, previewP));
         panel.hidden = false;
         panel.setAttribute('aria-hidden', 'false');
         list.innerHTML = PULSATION_OPTIONS.map(p => {
@@ -1883,7 +1885,7 @@
 
     function applyBarPulsation(barIndex, nextP, fallbackP) {
         if (!barStates[barIndex]) return false;
-        const safeP = Math.min(8, Math.max(3, parseInt(nextP, 10) || fallbackP || barStates[barIndex].pulsation));
+        const safeP = Math.min(8, Math.max(2, parseInt(nextP, 10) || fallbackP || barStates[barIndex].pulsation));
         const oldP = barStates[barIndex].pulsation;
         assertPlaybackPulsationMutationAllowed(barIndex, oldP, safeP);
         if (oldP === safeP) return false;
@@ -2355,7 +2357,7 @@
             event.preventDefault();
             event.stopPropagation();
             const p = parseInt(row.getAttribute('data-p'), 10);
-            if (!Number.isFinite(p) || p < 3 || p > 8) return;
+            if (!Number.isFinite(p) || p < 2 || p > 8) return;
             selectPulsationFromMenu(p);
         });
     }
