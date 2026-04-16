@@ -1875,42 +1875,11 @@
         }
     }
 
-    /**
-     * UI-only: consecutive syllables from syllables[p], rotated so seq[0] !== lastSyllable when possible.
-     */
-    function expandCellSyllablesForDisplay(p, localIndex, mult, lastSyllable) {
-        const pat = syllables[p] || [];
-        const L = pat.length;
-        if (!L) return [];
-        const m = mult === 3 ? 4 : mult;
-        const n = m === 4 ? 4 : m === 2 ? 2 : 1;
-        for (let rot = 0; rot < L; rot++) {
-            const start = (localIndex + rot) % L;
-            const seq = [];
-            for (let k = 0; k < n; k++) {
-                seq.push(pat[(start + k) % L]);
-            }
-            if (!lastSyllable || seq[0] !== lastSyllable) {
-                return seq;
-            }
-        }
-        return Array.from({ length: n }, (_, k) => pat[(localIndex + k) % L]);
-    }
-
-    function formatDisplaySyllables(seq, mult) {
-        if (!seq.length) return '';
-        const m = mult === 3 ? 4 : mult;
-        if (m === 1 || seq.length === 1) return seq[0];
-        if (m === 2) return seq.join(' ');
-        if (m === 4) return seq.join('\n');
-        return seq[0];
-    }
-
     function renderBars(container) {
         recalcStepMeta();
         container.innerHTML = '';
+        let lastSyllableOfPreviousCell = null;
         let globalStep = 0;
-        let lastDisplaySyllable = null;
         for (let b = 0; b < barStates.length; b++) {
             const barDiv = document.createElement('div');
             const tempoMultiplier = barStates[b].tempoMultiplier || 1;
@@ -1929,6 +1898,7 @@
             syllables[p].forEach((s, i) => {
                 const cell = document.createElement('div');
                 const cellTempoMultiplier = barStates[b].cellTempoMultipliers?.[i] || 1;
+                const mult = getCellTempoMultiplier(b, i);
                 cell.className = 'cell'
                     + (barStates[b].checks[i] ? ' rhythm-note-on' : '')
                     + (cellTempoMultiplier > 1 ? ' tempo-boost' : '')
@@ -1949,16 +1919,41 @@
                     cell.style.width = 'auto';
                     cell.style.maxWidth = 'none';
                 }
-                const effectiveMult = cellTempoMultiplier === 3 ? 4 : cellTempoMultiplier;
-                const seq = expandCellSyllablesForDisplay(p, i, effectiveMult, lastDisplaySyllable);
-                const displaySyllable = formatDisplaySyllables(seq, effectiveMult);
-                if (seq.length) {
-                    lastDisplaySyllable = seq[seq.length - 1];
-                }
-                const ariaSyllables = seq.length ? seq.join(', ') : s;
-                cell.setAttribute('aria-label', `${ariaSyllables}, bar ${b + 1}, beat ${i + 1}`);
                 const label = document.createElement('small');
+                const seq = syllables[p] || [];
+                let displaySyllable = s;
+                let lastSyllThisCell = s;
+                if (seq.length === 0) {
+                    displaySyllable = s;
+                    lastSyllThisCell = s;
+                } else {
+                    let startIdx = i % seq.length;
+                    if (lastSyllableOfPreviousCell != null && seq[startIdx] === lastSyllableOfPreviousCell) {
+                        startIdx = (startIdx + 1) % seq.length;
+                    }
+                    if (mult === 1) {
+                        displaySyllable = seq[startIdx];
+                        lastSyllThisCell = seq[startIdx];
+                    } else if (mult === 2) {
+                        const a = seq[startIdx];
+                        const b = seq[(startIdx + 1) % seq.length];
+                        displaySyllable = `${a} ${b}`;
+                        lastSyllThisCell = b;
+                    } else if (mult === 4) {
+                        const a = seq[startIdx];
+                        const b = seq[(startIdx + 1) % seq.length];
+                        const c = seq[(startIdx + 2) % seq.length];
+                        const d = seq[(startIdx + 3) % seq.length];
+                        displaySyllable = `${a} ${b}\n${c} ${d}`;
+                        lastSyllThisCell = d;
+                    } else {
+                        displaySyllable = s;
+                        lastSyllThisCell = s;
+                    }
+                }
                 label.textContent = displaySyllable;
+                lastSyllableOfPreviousCell = lastSyllThisCell;
+                cell.setAttribute('aria-label', `${String(displaySyllable).replace(/\n/g, ', ')}, bar ${b + 1}, beat ${i + 1}`);
                 if (cellTempoMultiplier > 1) {
                     label.classList.add('subdiv-label');
                     if (p > 4) label.classList.add('dense');
