@@ -607,16 +607,41 @@
             opacity: 0.45;
             cursor: not-allowed;
         }
-        .dictaphone-row.dictaphone-after-actions .btn-dict-take {
-            border: none;
-            cursor: pointer;
-            background: linear-gradient(135deg, #fb7185 0%, var(--rose-500) 100%);
-            color: #fff;
-            box-shadow: 0 3px 10px rgba(244, 63, 94, 0.3);
+        .dictaphone-rec-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+            gap: 8px;
+            margin-top: 10px;
+            align-items: stretch;
         }
-        .dictaphone-row.dictaphone-after-actions .btn-dict-take:disabled {
-            opacity: 0.45;
+        .dictaphone-rec-row.dictaphone-rec-row--solo {
+            grid-template-columns: 1fr;
+        }
+        .dictaphone-rec-row .btn-dict-back {
+            padding: 12px 8px;
+            border-radius: 0.75rem;
+            font-weight: 700;
+            font-size: 0.85rem;
+            cursor: pointer;
+            border: 2px solid var(--slate-600);
+            background: rgba(51, 65, 85, 0.55);
+            color: var(--text-muted);
+        }
+        .dictaphone-rec-row .btn-dict-back:disabled {
+            opacity: 0.35;
             cursor: not-allowed;
+        }
+        .dictaphone-row.dictaphone-after-actions .btn-dict-back {
+            border: 2px solid var(--slate-600);
+            background: rgba(51, 65, 85, 0.55);
+            color: var(--text-muted);
+        }
+        .dictaphone-row.dictaphone-after-actions .btn-dict-back:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+        }
+        .dictaphone-rec-row .btn-dict-rec {
+            margin-bottom: 0;
         }
         .dictaphone-row.single { grid-template-columns: 1fr; }
         .btn-dict-rec {
@@ -928,14 +953,15 @@
         <div id="dictaphoneSyllable" class="dictaphone-syllable">Ta</div>
         <div id="dictaphoneCount" class="dictaphone-count" aria-live="polite"></div>
         <div id="dictaphoneStatus" class="dictaphone-status"></div>
-        <div id="dictaphoneRecRow">
+        <div id="dictaphoneRecRow" class="dictaphone-rec-row dictaphone-rec-row--solo">
+            <button type="button" id="dictaphoneBackRecBtn" class="btn-dict-back" onclick="dictaphoneBack()" hidden>Back</button>
             <button type="button" id="dictaphoneRecBtn" class="btn-dict-rec" onclick="dictaphoneStartTake()">● REC</button>
         </div>
         <div id="dictaphoneAfterRow" class="dictaphone-row dictaphone-after-actions" hidden>
             <button type="button" class="btn btn-play" onclick="dictaphonePlayPreview()">▶ Play</button>
             <button type="button" class="btn btn-dict-again" onclick="dictaphoneRecordAgain()">↻ Re-record</button>
+            <button type="button" id="dictaphoneBackAfterBtn" class="btn btn-dict-back" onclick="dictaphoneBack()">Back</button>
             <button type="button" class="btn btn-accent" onclick="dictaphoneNext()">Next</button>
-            <button type="button" class="btn btn-dict-take" onclick="dictaphoneImmediateRetake()" title="Clear clip and start countdown">● Take</button>
         </div>
         <button type="button" class="btn-dict-close" onclick="closeDictaphoneOverlay()">Close</button>
     </div>
@@ -1256,10 +1282,23 @@
         const afterRow = document.getElementById('dictaphoneAfterRow');
         const recBtn = document.getElementById('dictaphoneRecBtn');
         const sylEl = document.getElementById('dictaphoneSyllable');
+        const backRec = document.getElementById('dictaphoneBackRecBtn');
+        const backAfter = document.getElementById('dictaphoneBackAfterBtn');
         if (!recRow || !afterRow || !recBtn || !sylEl) return;
         const key = DICT_SYLLABLES[dictCurrentIndex] || '';
         sylEl.textContent = key;
         const done = Boolean(customSyllableBuffers[key]);
+        const busy = dictPhase === 'counting' || dictPhase === 'recording';
+        const canBack = dictCurrentIndex > 0 && dictPhase !== 'done' && !busy;
+        if (backRec) {
+            const first = dictCurrentIndex <= 0;
+            backRec.hidden = first;
+            recRow.classList.toggle('dictaphone-rec-row--solo', first);
+            backRec.disabled = !canBack;
+        }
+        if (backAfter) {
+            backAfter.disabled = !canBack;
+        }
         if (dictPhase === 'preview' && done) {
             recRow.hidden = true;
             afterRow.hidden = false;
@@ -1267,7 +1306,7 @@
         } else {
             recRow.hidden = false;
             afterRow.hidden = true;
-            recBtn.disabled = dictPhase === 'counting' || dictPhase === 'recording';
+            recBtn.disabled = busy;
         }
     }
 
@@ -1384,18 +1423,17 @@
         dictaphoneRefreshControls();
     }
 
-    function dictaphoneImmediateRetake() {
+    function dictaphoneBack() {
         if (dictPhase === 'counting' || dictPhase === 'recording') return;
         if (dictPhase === 'done') return;
-        const key = DICT_SYLLABLES[dictCurrentIndex];
-        if (!key) return;
+        if (dictCurrentIndex <= 0) return;
         clearDictCountdownTimers();
         stopDictMediaRecorderSafe();
-        delete customSyllableBuffers[key];
-        dictPhase = 'idle';
+        dictCurrentIndex -= 1;
+        const prevKey = DICT_SYLLABLES[dictCurrentIndex];
+        dictPhase = (prevKey && customSyllableBuffers[prevKey]) ? 'preview' : 'idle';
         dictaphoneUiSet('', '');
         dictaphoneRefreshControls();
-        dictaphoneStartTake();
     }
 
     function dictaphonePlayPreview() {
