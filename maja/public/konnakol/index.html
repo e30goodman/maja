@@ -772,7 +772,7 @@
     let cycleBoundaryMutations = 0;
     let lastInternalPlaybackLogKey = '';
     let allowPlaybackPulsationMutation = false;
-    let accentOnlyEnabled = false;
+    let accentOnlyEnabled = true;
     let wakeLock = null;
     let barScalerAutoCloseTimer = null;
     let barScalerSliderHeld = false;
@@ -906,8 +906,9 @@
     function refreshAccentToggleButton() {
         const btn = document.getElementById('accentToggleBtn');
         if (!btn) return;
-        btn.classList.toggle('active', accentOnlyEnabled);
-        btn.setAttribute('aria-pressed', accentOnlyEnabled ? 'true' : 'false');
+        const playAllEnabled = !accentOnlyEnabled;
+        btn.classList.toggle('active', playAllEnabled);
+        btn.setAttribute('aria-pressed', playAllEnabled ? 'true' : 'false');
         btn.title = '';
     }
 
@@ -1138,7 +1139,9 @@
             selectedSoundPreset = typeof state.soundPreset === 'string' ? state.soundPreset : 'classic';
             soundPresetEl.value = selectedSoundPreset;
         }
-        accentOnlyEnabled = Boolean(state.accentOnlySound);
+        accentOnlyEnabled = state.accentOnlySound === undefined
+            ? true
+            : Boolean(state.accentOnlySound);
         tempoDoubleMode = Boolean(state.tempoDoubleMode);
         refreshRandomModeToggleButton();
         refreshAccentToggleButton();
