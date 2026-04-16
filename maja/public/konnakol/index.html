@@ -337,21 +337,40 @@
             justify-content: flex-start;
         }
         .cell {
+            --cell-box-width: calc(clamp(32px, calc(48px - (var(--bars-count) * 1.45px)), 42px) * var(--bar-scale));
+            --cell-box-height: calc(var(--cell-height) * var(--bar-scale));
+            --cell-box-padding: calc(clamp(6px, calc(10px - (var(--bars-count) * 0.45px)), 8px) * var(--bar-scale));
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             position: relative;
             background: var(--slate-800);
-            padding: calc(clamp(6px, calc(10px - (var(--bars-count) * 0.45px)), 8px) * var(--bar-scale));
+            padding: var(--cell-box-padding);
             border-radius: calc(0.5rem * var(--bar-scale));
-            width: calc(clamp(32px, calc(48px - (var(--bars-count) * 1.45px)), 42px) * var(--bar-scale));
-            min-height: calc(var(--cell-height) * var(--bar-scale));
+            width: var(--cell-box-width);
+            height: var(--cell-box-height);
+            min-height: var(--cell-box-height);
             transition: 0.1s;
             border: 2px solid transparent;
             cursor: pointer;
             user-select: none;
             -webkit-tap-highlight-color: transparent;
+        }
+        .cell.cell-profile-base {
+            --cell-box-width: calc(clamp(32px, calc(48px - (var(--bars-count) * 1.45px)), 42px) * var(--bar-scale));
+            --cell-box-height: calc(var(--cell-height) * var(--bar-scale));
+            --cell-box-padding: calc(clamp(6px, calc(10px - (var(--bars-count) * 0.45px)), 8px) * var(--bar-scale));
+        }
+        .cell.cell-profile-x2 {
+            --cell-box-width: calc(clamp(32px, calc(48px - (var(--bars-count) * 1.45px)), 42px) * var(--bar-scale));
+            --cell-box-height: calc(var(--cell-height) * var(--bar-scale));
+            --cell-box-padding: calc(clamp(6px, calc(10px - (var(--bars-count) * 0.45px)), 8px) * var(--bar-scale));
+        }
+        .cell.cell-profile-x3 {
+            --cell-box-width: calc(clamp(32px, calc(48px - (var(--bars-count) * 1.45px)), 42px) * var(--bar-scale));
+            --cell-box-height: calc(var(--cell-height) * var(--bar-scale));
+            --cell-box-padding: calc(clamp(6px, calc(10px - (var(--bars-count) * 0.45px)), 8px) * var(--bar-scale));
         }
         .cell:focus-visible {
             outline: 2px solid var(--violet-400);
@@ -1436,6 +1455,7 @@
                 const cell = document.createElement('div');
                 const cellTempoMultiplier = barStates[b].cellTempoMultipliers?.[i] || 1;
                 cell.className = 'cell'
+                    + (cellTempoMultiplier === 4 ? ' cell-profile-x3' : (cellTempoMultiplier === 2 ? ' cell-profile-x2' : ' cell-profile-base'))
                     + (barStates[b].checks[i] ? ' rhythm-note-on' : '')
                     + (cellTempoMultiplier > 1 ? ' tempo-boost' : '')
                     + (cellTempoMultiplier === 4 ? ' tempo-boost-x3' : '');
