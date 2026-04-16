@@ -917,7 +917,7 @@
         const flags = getPlaybackRandomizerFlags();
         return Boolean(
             randomModeEnabled
-            && (flags.randomPatternAfterEachBar || flags.randomPulsationAfterEachBar)
+            && (flags.randomPatternAfterEachBar || flags.randomPulsationAfterEachBar || flags.randomPatternSpeedChange)
         );
     }
 
@@ -1868,10 +1868,12 @@
         applyBarPattern(barIndex, spec);
     }
 
-    function maybeRandomizeCellSpeedsForBar(barIndex, enabled) {
+    function maybeRandomizeCellSpeedsForBar(barIndex, enabled, options = {}) {
         if (!enabled || !barStates[barIndex]) return;
         const p = barStates[barIndex].pulsation;
-        const next = Array.from({ length: p }, () => {
+        const onlyAccented = Boolean(options.onlyAccented);
+        const next = Array.from({ length: p }, (_, i) => {
+            if (onlyAccented && !barStates[barIndex].checks[i]) return 1;
             const roll = Math.random();
             if (roll < 0.16) return 4; // x3 label / x4 effective speed
             if (roll < 0.42) return 2; // x2
@@ -1885,7 +1887,14 @@
         try {
             maybeRandomizePulsationForBar(prevBar, sliderP, pulsationRandomAllowed);
             maybeRandomizePatternForBar(prevBar, spec, flags.randomPatternAfterEachBar);
-            maybeRandomizeCellSpeedsForBar(prevBar, flags.randomPatternAfterEachBar && flags.randomPatternSpeedChange);
+            const speedOnlyMode = flags.randomPatternSpeedChange
+                && !flags.randomPatternAfterEachBar
+                && !pulsationRandomAllowed;
+            maybeRandomizeCellSpeedsForBar(
+                prevBar,
+                flags.randomPatternSpeedChange,
+                { onlyAccented: speedOnlyMode }
+            );
         } finally {
             allowPlaybackPulsationMutation = false;
         }
@@ -2037,7 +2046,7 @@
                 const spec = parsePatternSpec();
                 const flags = getPlaybackRandomizerFlags();
                 const needsMutation = playbackRandomizerEnabled && bCount >= 1
-                    && (flags.randomPatternAfterEachBar || flags.randomPulsationAfterEachBar);
+                    && (flags.randomPatternAfterEachBar || flags.randomPulsationAfterEachBar || flags.randomPatternSpeedChange);
 
                 const lastBarIdx = Math.max(0, bCount - 1);
                 const lastMeta = lastPaintedPlaybackMeta;
@@ -2058,7 +2067,7 @@
                 if (needsMutation && metaSnapshot.localIndex === 0 && !coldStartFirstDownbeat) {
                     const prevBar = (metaSnapshot.barIndex - 1 + bCount) % bCount;
                     const pulsationRandomAllowed = flags.randomPulsationAfterEachBar;
-                    const willOrchestrate = flags.randomPatternAfterEachBar || pulsationRandomAllowed;
+                    const willOrchestrate = flags.randomPatternAfterEachBar || pulsationRandomAllowed || flags.randomPatternSpeedChange;
                     if (willOrchestrate) {
                         onBarTransitionOrchestrate({
                             spec,
