@@ -1217,17 +1217,17 @@
         optRand.value = 'random';
         optRand.textContent = 'Random';
         sel.appendChild(optRand);
-        for (let k = 0; k <= p; k++) {
+        for (let k = 1; k <= p; k++) {
             const o = document.createElement('option');
             o.value = String(k);
-            o.textContent = 'Exactly ' + notesCountLabel(k);
+            o.textContent = 'Max ' + notesCountLabel(k);
             sel.appendChild(o);
         }
         if (nextVal === 'random') {
             sel.value = 'random';
         } else {
             const n = parseInt(nextVal, 10);
-            sel.value = !isNaN(n) && n >= 0 && n <= p ? String(n) : 'random';
+            sel.value = !isNaN(n) && n >= 1 && n <= p ? String(n) : 'random';
         }
     }
 
@@ -1241,7 +1241,7 @@
         }
         const p = parseInt(document.getElementById('pulsation').value, 10);
         const n = parseInt(state.randNotesPerBar, 10);
-        sel.value = !isNaN(n) && n >= 0 && n <= p ? String(n) : 'random';
+        sel.value = !isNaN(n) && n >= 1 && n <= p ? String(n) : 'random';
     }
 
     function shuffleInPlace(a) {
@@ -1833,7 +1833,7 @@
         const p = parseInt(document.getElementById('pulsation').value);
         if (v === 'random') return { mode: 'random' };
         const n = parseInt(v, 10);
-        if (!isNaN(n) && n >= 0 && n <= p) return { mode: 'exact', n };
+        if (!isNaN(n) && n >= 1 && n <= p) return { mode: 'max', n };
         return { mode: 'random' };
     }
 
@@ -1915,10 +1915,11 @@
             return;
         }
 
-        const n = Math.min(Math.max(0, spec.n), safeP);
+        const n = Math.min(Math.max(1, spec.n), safeP);
+        const targetNotes = Math.floor(Math.random() * (n + 1)); // 0..n accents
         const localIdx = Array.from({ length: safeP }, (_, i) => i);
         shuffleInPlace(localIdx);
-        const chosen = new Set(localIdx.slice(0, n));
+        const chosen = new Set(localIdx.slice(0, targetNotes));
         for (let i = 0; i < safeP; i++) {
             barStates[barIndex].checks[i] = chosen.has(i);
         }
