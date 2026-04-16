@@ -1750,10 +1750,6 @@
     function onGlobalPulsationSelectChange() {
         endPulsationDrag();
         stop();
-        const rp = document.getElementById('randomPatternAfterEachBar');
-        const rpu = document.getElementById('randomPulsationAfterEachBar');
-        if (rp) rp.checked = false;
-        if (rpu) rpu.checked = false;
         initApp({ ignorePerBarPulsationsFromSession: true });
         saveSessionState();
     }
