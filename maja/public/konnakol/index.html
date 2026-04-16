@@ -2259,6 +2259,8 @@
     const topFoldRowEl = document.getElementById('topFoldRow');
     const mainSettingsFoldEl = document.getElementById('mainSettingsFold');
     const barScalerFoldEl = document.getElementById('barScalerFold');
+    const SETTINGS_CLOSE_TRIGGER_COOLDOWN_MS = 3000;
+    let settingsOpenedAtMs = 0;
 
     const syncTopFoldRowState = () => {
         if (!topFoldRowEl || !mainSettingsFoldEl || !barScalerFoldEl) return;
@@ -2275,7 +2277,10 @@
     };
 
     if (mainSettingsFoldEl) {
-        mainSettingsFoldEl.addEventListener('toggle', syncTopFoldRowState);
+        mainSettingsFoldEl.addEventListener('toggle', () => {
+            if (mainSettingsFoldEl.open) settingsOpenedAtMs = performance.now();
+            syncTopFoldRowState();
+        });
     }
 
     const scheduleBarScalerAutoClose = () => {
@@ -2329,7 +2334,8 @@
     const closeTopFoldsByOutsideTarget = (target) => {
         if (mainSettingsFoldEl && mainSettingsFoldEl.open) {
             const insideMain = target && target.closest && target.closest('#mainSettingsFold');
-            if (!insideMain) mainSettingsFoldEl.open = false;
+            const canCloseByTrigger = (performance.now() - settingsOpenedAtMs) >= SETTINGS_CLOSE_TRIGGER_COOLDOWN_MS;
+            if (!insideMain && canCloseByTrigger) mainSettingsFoldEl.open = false;
         }
         if (barScalerFoldEl && barScalerFoldEl.open) {
             if (barScalerSliderHeld) return;
