@@ -2238,17 +2238,25 @@
         closeTopFoldsByOutsideTarget(event.target);
     });
 
-    const TOP_FOLD_SCROLL_CLOSE_TRIGGER_MS = 3;
-    let topFoldScrollCloseTimer = null;
+    const SCROLL_CLOSE_TRIGGER_MS = 100;
+    const SCROLL_ACTIVITY_RESET_MS = 120;
+    let scrollTriggerStartedAt = 0;
+    let lastScrollActivityAt = 0;
+
     const closeTopFoldsOnScrollTrigger = () => {
-        if (topFoldScrollCloseTimer !== null) {
-            clearTimeout(topFoldScrollCloseTimer);
-            topFoldScrollCloseTimer = null;
+        const now = performance.now();
+        if (lastScrollActivityAt && (now - lastScrollActivityAt) > SCROLL_ACTIVITY_RESET_MS) {
+            scrollTriggerStartedAt = 0;
         }
-        topFoldScrollCloseTimer = setTimeout(() => {
-            topFoldScrollCloseTimer = null;
+        if (!scrollTriggerStartedAt) {
+            scrollTriggerStartedAt = now;
+        }
+        lastScrollActivityAt = now;
+        if ((now - scrollTriggerStartedAt) >= SCROLL_CLOSE_TRIGGER_MS) {
             closeTopFoldsByOutsideTarget(null);
-        }, TOP_FOLD_SCROLL_CLOSE_TRIGGER_MS);
+            scrollTriggerStartedAt = 0;
+            lastScrollActivityAt = 0;
+        }
     };
     window.addEventListener('scroll', closeTopFoldsOnScrollTrigger, { passive: true });
     window.addEventListener('wheel', closeTopFoldsOnScrollTrigger, { passive: true });
