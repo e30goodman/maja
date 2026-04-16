@@ -897,9 +897,8 @@
     function refreshAccentToggleButton() {
         const btn = document.getElementById('accentToggleBtn');
         if (!btn) return;
-        const playAllEnabled = !accentOnlyEnabled;
-        btn.classList.toggle('active', playAllEnabled);
-        btn.setAttribute('aria-pressed', playAllEnabled ? 'true' : 'false');
+        btn.classList.toggle('active', accentOnlyEnabled);
+        btn.setAttribute('aria-pressed', accentOnlyEnabled ? 'true' : 'false');
         btn.title = '';
     }
 
