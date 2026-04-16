@@ -781,7 +781,7 @@
         <label>
             Tempo
         </label>
-        <input type="range" id="bpm" min="20" max="480" value="100" oninput="updateTempoLabel()">
+        <input type="range" id="bpm" min="20" max="480" value="100">
         <div class="tempo-readout">
             <small id="bpmValue" class="hint-muted">100</small>
             <small id="tempoX2Badge" class="tempo-x2-badge" hidden>x2</small>
@@ -831,6 +831,8 @@
     let cellTempoHoldKey = '';
     let suppressCellClickKey = '';
     let tempoDoubleMode = false;
+    /** Последнее принятое значение BPM (для отката клика по дорожке без перетаскивания). */
+    let bpmSliderLastStable = 100;
     let randomModeEnabled = false;
     let selectedSoundPreset = 'classic';
     let customClickBuffer = null;
@@ -1060,13 +1062,68 @@
         saveSessionState();
     }
 
-    function setupTempoDoubleClickToggle() {
+    function syncBpmSliderLastStable() {
+        const el = document.getElementById('bpm');
+        if (!el) return;
+        const v = parseInt(el.value, 10);
+        bpmSliderLastStable = Number.isFinite(v) ? Math.max(20, Math.min(480, v)) : 100;
+    }
+
+    function setupBpmSliderUi() {
         const bpmSlider = document.getElementById('bpm');
-        if (!bpmSlider || bpmSlider.dataset.doubleClickSetup === '1') return;
-        bpmSlider.dataset.doubleClickSetup = '1';
+        if (!bpmSlider || bpmSlider.dataset.bpmUiSetup === '1') return;
+        bpmSlider.dataset.bpmUiSetup = '1';
+        syncBpmSliderLastStable();
+
         bpmSlider.addEventListener('dblclick', (event) => {
             event.preventDefault();
             toggleTempoDoubleMode();
+        });
+
+        let pointerDown = false;
+        let movedSinceDown = false;
+        let downPid = null;
+        let downX = 0;
+        let downY = 0;
+
+        bpmSlider.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
+            pointerDown = true;
+            movedSinceDown = false;
+            downPid = e.pointerId;
+            downX = e.clientX;
+            downY = e.clientY;
+            try {
+                bpmSlider.setPointerCapture(e.pointerId);
+            } catch (_) {}
+        });
+        bpmSlider.addEventListener('pointermove', (e) => {
+            if (!pointerDown || e.pointerId !== downPid) return;
+            if (Math.hypot(e.clientX - downX, e.clientY - downY) > 2) movedSinceDown = true;
+        });
+        const endPointer = (e) => {
+            if (!pointerDown) return;
+            if (e && e.pointerId !== undefined && e.pointerId !== downPid) return;
+            try {
+                if (e && bpmSlider.hasPointerCapture && bpmSlider.hasPointerCapture(e.pointerId)) {
+                    bpmSlider.releasePointerCapture(e.pointerId);
+                }
+            } catch (_) {}
+            pointerDown = false;
+            movedSinceDown = false;
+            downPid = null;
+        };
+        bpmSlider.addEventListener('pointerup', endPointer);
+        bpmSlider.addEventListener('pointercancel', endPointer);
+
+        bpmSlider.addEventListener('input', () => {
+            if (pointerDown && !movedSinceDown) {
+                bpmSlider.value = String(bpmSliderLastStable);
+                updateTempoLabel();
+                return;
+            }
+            syncBpmSliderLastStable();
+            updateTempoLabel();
         });
     }
 
@@ -1184,6 +1241,7 @@
             const bpm = parseInt(state.bpm, 10);
             if (!isNaN(bpm)) bpmEl.value = String(Math.max(20, Math.min(480, bpm)));
         }
+        syncBpmSliderLastStable();
         let initialScale = '100';
         if (state.barScaleByCount && typeof state.barScaleByCount === 'object') {
             const currentBars = parseInt(barsCountEl.value, 10);
@@ -2377,7 +2435,7 @@
     updateBarScaleLabel();
     initApp();
     restoreSelectState(savedState);
-    setupTempoDoubleClickToggle();
+    setupBpmSliderUi();
     updateTempoLabel();
     refreshTempoModeUi();
     refreshRandomModeToggleButton();
