@@ -442,15 +442,16 @@
             vertical-align: middle;
         }
         .btn-rand {
+            background: rgba(51, 65, 85, 0.55);
+            color: var(--text-muted);
+            border: 2px solid var(--slate-600);
+            box-shadow: none;
+        }
+        .btn-rand.active {
             background: rgba(124, 58, 237, 0.22);
             color: var(--text);
-            border: 2px solid var(--violet-500);
+            border-color: var(--violet-500);
             box-shadow: 0 0 12px rgba(139, 92, 246, 0.3);
-        }
-        .btn-rand:hover {
-            filter: brightness(1.06);
-            background: rgba(124, 58, 237, 0.32);
-            box-shadow: 0 0 16px rgba(139, 92, 246, 0.4);
         }
         .btn-play {
             background: linear-gradient(135deg, var(--emerald-400) 0%, var(--emerald-500) 100%);
@@ -743,7 +744,7 @@
     <div id="barsContainer" class="bars-container"></div>
 
     <div class="action-row">
-        <button class="btn btn-rand btn-icon" onclick="randomizeAndPlay()" title="Randomize">🎲</button>
+        <button id="randomModeToggleBtn" class="btn btn-rand btn-icon" onclick="toggleRandomModeFromButton()" title="Random mode">🎲</button>
         <button id="accentToggleBtn" class="btn btn-accent btn-icon" onclick="toggleAccentOnlyFromButton()"><img src="drum0.png" alt="" class="btn-icon-img"></button>
     </div>
     <button id="playBtn" class="btn btn-play" onclick="start(false)">▶ PLAY</button>
@@ -779,6 +780,7 @@
     let cellTempoHoldKey = '';
     let suppressCellClickKey = '';
     let tempoDoubleMode = false;
+    let randomModeEnabled = false;
     let selectedSoundPreset = 'classic';
     let customClickBuffer = null;
     let customAccentBuffer = null;
@@ -907,6 +909,31 @@
         btn.title = '';
     }
 
+    function refreshRandomModeToggleButton() {
+        const btn = document.getElementById('randomModeToggleBtn');
+        if (!btn) return;
+        btn.classList.toggle('active', randomModeEnabled);
+        btn.setAttribute('aria-pressed', randomModeEnabled ? 'true' : 'false');
+        btn.title = '';
+    }
+
+    function computePlaybackRandomizerEnabled() {
+        const flags = getPlaybackRandomizerFlags();
+        return Boolean(
+            randomModeEnabled
+            && (flags.randomPatternAfterEachBar || flags.randomPulsationAfterEachBar)
+        );
+    }
+
+    function toggleRandomModeFromButton() {
+        randomModeEnabled = !randomModeEnabled;
+        refreshRandomModeToggleButton();
+        if (isPlaybackRunning()) {
+            playbackRandomizerEnabled = computePlaybackRandomizerEnabled();
+        }
+        saveSessionState();
+    }
+
     function toggleAccentOnlyFromButton() {
         accentOnlyEnabled = !accentOnlyEnabled;
         refreshAccentToggleButton();
@@ -987,6 +1014,7 @@
             randomPatternAfterEachBar: document.getElementById('randomPatternAfterEachBar').checked,
             randomPatternSpeedChange: Boolean(document.getElementById('randomPatternSpeedChange')?.checked),
             randomPulsationAfterEachBar: document.getElementById('randomPulsationAfterEachBar').checked,
+            randomModeEnabled,
             accentOnlySound: accentOnlyEnabled,
             soundPreset: selectedSoundPreset,
             tempoDoubleMode,
@@ -1101,12 +1129,14 @@
                 ? false
                 : Boolean(state.randomPulsationAfterEachBar);
         }
+        randomModeEnabled = Boolean(state.randomModeEnabled);
         if (soundPresetEl) {
             selectedSoundPreset = typeof state.soundPreset === 'string' ? state.soundPreset : 'classic';
             soundPresetEl.value = selectedSoundPreset;
         }
         accentOnlyEnabled = Boolean(state.accentOnlySound);
         tempoDoubleMode = Boolean(state.tempoDoubleMode);
+        refreshRandomModeToggleButton();
         refreshAccentToggleButton();
         refreshTempoModeUi();
         onSoundPresetChange();
@@ -1906,17 +1936,8 @@
     }
 
     function randomizeAndPlay() {
-        closeSettingsFoldIfOpen();
-        randomize();
-        const isPlaying = document.getElementById('stopBtn').style.display === 'block';
-        // #region agent log
-        fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'cycle-debug-3',hypothesisId:'H5',location:'maja/public/konnakol/index.html:randomizeAndPlay',message:'Randomize-and-play entry state',data:{isPlaying,randomPatternAfterEachBar:Boolean(document.getElementById('randomPatternAfterEachBar')?.checked),randomPulsationAfterEachBar:Boolean(document.getElementById('randomPulsationAfterEachBar')?.checked),barsCount:barStates.length},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
-        if (!isPlaying) {
-            start(true);
-        } else {
-            playbackRandomizerEnabled = true;
-        }
+        // Legacy entry point kept for compatibility; now only toggles random mode.
+        toggleRandomModeFromButton();
     }
 
     function playSharpClick(time, isChecked) {
@@ -2079,8 +2100,8 @@
     function start(enableRandomizer = false) {
         if (!audioCtx) audioCtx = new AudioContext();
         if (audioCtx.state === 'suspended') audioCtx.resume();
-        const flags = getPlaybackRandomizerFlags();
-        playbackRandomizerEnabled = Boolean(enableRandomizer || flags.randomPatternAfterEachBar || flags.randomPulsationAfterEachBar);
+        void enableRandomizer;
+        playbackRandomizerEnabled = computePlaybackRandomizerEnabled();
         lastProcessedUiPaintKey = '';
         playbackUiEventSeq = 0;
         lastAppliedPlaybackUiSeq = 0;
@@ -2132,6 +2153,7 @@
     setupTempoDoubleClickToggle();
     updateTempoLabel();
     refreshTempoModeUi();
+    refreshRandomModeToggleButton();
     refreshAccentToggleButton();
     saveSessionState();
 
