@@ -576,8 +576,8 @@
             margin-top: 10px;
         }
         .dictaphone-row.dictaphone-after-actions {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 8px;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 6px;
             align-items: stretch;
         }
         .dictaphone-row.dictaphone-after-actions > button {
@@ -586,8 +586,8 @@
             width: 100%;
             box-sizing: border-box;
             min-height: 46px;
-            padding: 10px 6px;
-            font-size: 0.78rem;
+            padding: 10px 4px;
+            font-size: 0.72rem;
             font-weight: 700;
             border-radius: 0.75rem;
             display: inline-flex;
@@ -604,6 +604,17 @@
             box-shadow: 0 3px 10px rgba(244, 63, 94, 0.3);
         }
         .dictaphone-row.dictaphone-after-actions .btn-dict-again:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+        .dictaphone-row.dictaphone-after-actions .btn-dict-take {
+            border: none;
+            cursor: pointer;
+            background: linear-gradient(135deg, #fb7185 0%, var(--rose-500) 100%);
+            color: #fff;
+            box-shadow: 0 3px 10px rgba(244, 63, 94, 0.3);
+        }
+        .dictaphone-row.dictaphone-after-actions .btn-dict-take:disabled {
             opacity: 0.45;
             cursor: not-allowed;
         }
@@ -924,6 +935,7 @@
             <button type="button" class="btn btn-play" onclick="dictaphonePlayPreview()">▶ Play</button>
             <button type="button" class="btn btn-dict-again" onclick="dictaphoneRecordAgain()">↻ Re-record</button>
             <button type="button" class="btn btn-accent" onclick="dictaphoneNext()">Next</button>
+            <button type="button" class="btn btn-dict-take" onclick="dictaphoneImmediateRetake()" title="Clear clip and start countdown">● Take</button>
         </div>
         <button type="button" class="btn-dict-close" onclick="closeDictaphoneOverlay()">Close</button>
     </div>
@@ -1299,10 +1311,13 @@
             dictCountdownTimerIds.push(tid);
         }
         const startRecTid = setTimeout(() => {
-            dictaphoneUiSet('', 'Go');
             dictaphoneBeginRecording(key);
-        }, 4 * DICT_COUNT_STEP_MS + 80);
+        }, 3 * DICT_COUNT_STEP_MS);
         dictCountdownTimerIds.push(startRecTid);
+        const goTid = setTimeout(() => {
+            dictaphoneUiSet('', 'Go');
+        }, 4 * DICT_COUNT_STEP_MS);
+        dictCountdownTimerIds.push(goTid);
     }
 
     async function dictaphoneBeginRecording(syllableKey) {
@@ -1367,6 +1382,20 @@
         dictPhase = 'idle';
         dictaphoneUiSet('', '');
         dictaphoneRefreshControls();
+    }
+
+    function dictaphoneImmediateRetake() {
+        if (dictPhase === 'counting' || dictPhase === 'recording') return;
+        if (dictPhase === 'done') return;
+        const key = DICT_SYLLABLES[dictCurrentIndex];
+        if (!key) return;
+        clearDictCountdownTimers();
+        stopDictMediaRecorderSafe();
+        delete customSyllableBuffers[key];
+        dictPhase = 'idle';
+        dictaphoneUiSet('', '');
+        dictaphoneRefreshControls();
+        dictaphoneStartTake();
     }
 
     function dictaphonePlayPreview() {
