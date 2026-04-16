@@ -2061,10 +2061,11 @@
         const onlyAccented = Boolean(options.onlyAccented);
         const next = Array.from({ length: p }, (_, i) => {
             const isAccent = Boolean(barStates[barIndex].checks[i]);
-            if (!isAccent) return 1;
+            // Только чистый «Random speed» без смены паттерна/пульсации — скорости крутим у акцентов.
+            // Если включён Random Pattern (или др. оркестрация), пассивные слоги тоже попадают под бросок.
             if (onlyAccented && !isAccent) return 1;
             const roll = Math.random();
-            if (roll < 0.34) return 1; // normal accent (no speed boost)
+            if (roll < 0.34) return 1; // без ускорения
             if (roll < 0.67) return 2; // x2
             return 4; // x3 label (x4 effective)
         });
