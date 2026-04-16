@@ -302,6 +302,9 @@
         }
 
         .btn { width: 100%; padding: 15px; border: none; border-radius: 0.75rem; font-weight: 700; cursor: pointer; margin-bottom: 10px; font-size: 1rem; transition: 0.2s; }
+        .action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+        .action-row .btn { margin-bottom: 0; }
+        .btn-icon { font-size: 1.15rem; padding: 12px; }
         .btn-rand {
             background: rgba(124, 58, 237, 0.22);
             color: var(--text);
@@ -326,6 +329,17 @@
             box-shadow: 0 4px 14px rgba(244, 63, 94, 0.25);
         }
         .btn-stop:hover { filter: brightness(1.06); }
+        .btn-accent {
+            background: rgba(51, 65, 85, 0.55);
+            color: var(--text-muted);
+            border: 2px solid var(--slate-600);
+        }
+        .btn-accent.active {
+            background: rgba(124, 58, 237, 0.26);
+            color: var(--text);
+            border-color: var(--violet-500);
+            box-shadow: 0 0 14px rgba(139, 92, 246, 0.3);
+        }
         .randomizer-block { display: flex; flex-direction: column; gap: 10px; }
         .scale-control {
             border-color: var(--violet-500);
@@ -525,10 +539,6 @@
                         <input type="checkbox" id="randomPulsationAfterEachBar" onchange="saveSessionState()">
                         Pulsation each bar
                     </label>
-                    <label class="rand-cycle">
-                        <input type="checkbox" id="accentOnlySound" onchange="saveSessionState()">
-                        Accent only
-                    </label>
                 </div>
             </div>
         </div>
@@ -542,7 +552,7 @@
                     Bar scaler
                 </label>
                 <input type="range" id="barScale" min="55" max="100" value="100" oninput="updateBarScaleLabel()">
-                <small id="barScaleValue" class="hint-muted">Current: 100%</small>
+                <small id="barScaleValue" class="hint-muted">100%</small>
             </div>
         </div>
     </details>
@@ -550,15 +560,17 @@
     <div class="control-group">
         <label>
             Tempo
-            <small class="hint-muted">(interval between syllables, default: 100 BPM)</small>
         </label>
         <input type="range" id="bpm" min="20" max="480" value="100" oninput="updateTempoLabel()">
-        <small id="bpmValue" class="hint-muted">Current: 100 BPM</small>
+        <small id="bpmValue" class="hint-muted">100</small>
     </div>
 
     <div id="barsContainer" class="bars-container"></div>
 
-    <button class="btn btn-rand" onclick="randomizeAndPlay()">🎲 RANDOMIZE PATTERN</button>
+    <div class="action-row">
+        <button class="btn btn-rand btn-icon" onclick="randomizeAndPlay()" title="Randomize">🎲</button>
+        <button id="accentToggleBtn" class="btn btn-accent btn-icon" onclick="toggleAccentOnlyFromButton()" title="Accent only">🎯</button>
+    </div>
     <button id="playBtn" class="btn btn-play" onclick="start(false)">▶ PLAY</button>
     <button id="stopBtn" class="btn btn-stop" onclick="stop()">■ STOP</button>
 </div>
@@ -582,6 +594,7 @@
     let cycleBoundaryMutations = 0;
     let lastInternalPlaybackLogKey = '';
     let allowPlaybackPulsationMutation = false;
+    let accentOnlyEnabled = false;
     let wakeLock = null;
     let barScalerAutoCloseTimer = null;
     const BASE_PULSATION_FOR_BPM = 4;
@@ -700,6 +713,20 @@
         if (settingsFoldEl && settingsFoldEl.open) settingsFoldEl.open = false;
     }
 
+    function refreshAccentToggleButton() {
+        const btn = document.getElementById('accentToggleBtn');
+        if (!btn) return;
+        btn.classList.toggle('active', accentOnlyEnabled);
+        btn.setAttribute('aria-pressed', accentOnlyEnabled ? 'true' : 'false');
+        btn.title = accentOnlyEnabled ? 'Accent only: on' : 'Accent only: off';
+    }
+
+    function toggleAccentOnlyFromButton() {
+        accentOnlyEnabled = !accentOnlyEnabled;
+        refreshAccentToggleButton();
+        saveSessionState();
+    }
+
     function notesCountLabel(n) {
         return n + (n === 1 ? ' note' : ' notes');
     }
@@ -715,7 +742,7 @@
             randNotesPerBar: document.getElementById('randNotesPerBar').value || 'random',
             randomPatternAfterEachBar: document.getElementById('randomPatternAfterEachBar').checked,
             randomPulsationAfterEachBar: document.getElementById('randomPulsationAfterEachBar').checked,
-            accentOnlySound: document.getElementById('accentOnlySound').checked,
+            accentOnlySound: accentOnlyEnabled,
             bpm: String(document.getElementById('bpm').value || '100'),
             barScaleByCount: getBarScaleMapForSave(),
             barPulsations,
@@ -786,7 +813,6 @@
         const barScaleEl = document.getElementById('barScale');
         const randomPatternAfterEachBarEl = document.getElementById('randomPatternAfterEachBar');
         const randomPulsationAfterEachBarEl = document.getElementById('randomPulsationAfterEachBar');
-        const accentOnlySoundEl = document.getElementById('accentOnlySound');
 
         if (state.pulsation && syllables[state.pulsation]) {
             pulsationEl.value = String(state.pulsation);
@@ -821,9 +847,8 @@
                 ? false
                 : Boolean(state.randomPulsationAfterEachBar);
         }
-        if (accentOnlySoundEl) {
-            accentOnlySoundEl.checked = Boolean(state.accentOnlySound);
-        }
+        accentOnlyEnabled = Boolean(state.accentOnlySound);
+        refreshAccentToggleButton();
     }
 
 
@@ -831,7 +856,7 @@
         const bpm = parseInt(document.getElementById('bpm').value, 10);
         const label = document.getElementById('bpmValue');
         if (!label || isNaN(bpm)) return;
-        label.textContent = `Current: ${bpm} BPM`;
+        label.textContent = `${bpm}`;
         saveSessionState();
     }
 
@@ -850,7 +875,7 @@
         if (!scaleInput || !label) return;
         const scale = parseInt(scaleInput.value, 10);
         if (isNaN(scale)) return;
-        label.textContent = `Current: ${scale}%`;
+        label.textContent = `${scale}%`;
         applyBarScale();
         saveSessionState();
     }
@@ -1428,8 +1453,7 @@
     }
 
     function playSharpClick(time, isChecked) {
-        const accentOnly = Boolean(document.getElementById('accentOnlySound')?.checked);
-        if (accentOnly && !isChecked) return;
+        if (accentOnlyEnabled && !isChecked) return;
         if (!audioCtx) audioCtx = new AudioContext();
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
@@ -1609,6 +1633,7 @@
     initApp();
     restoreSelectState(savedState);
     updateTempoLabel();
+    refreshAccentToggleButton();
     saveSessionState();
 
     const barScalerFoldEl = document.getElementById('barScalerFold');
