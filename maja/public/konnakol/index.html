@@ -206,15 +206,27 @@
             box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.34) inset, 0 0 18px rgba(244, 63, 94, 0.34);
             background: rgba(244, 63, 94, 0.18);
         }
-        .bar-title { font-size: calc(0.75rem * var(--bar-scale)); font-weight: bold; color: var(--text-dim); margin-bottom: calc(10px * var(--bar-scale)); text-transform: uppercase; letter-spacing: 0.06em; }
+        .bar-title {
+            display: flex;
+            align-items: center;
+            flex-wrap: nowrap;
+            min-height: calc(22px * var(--bar-scale));
+            font-size: calc(0.75rem * var(--bar-scale));
+            font-weight: bold;
+            color: var(--text-dim);
+            margin-bottom: calc(10px * var(--bar-scale));
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
         .bar-tempo-handle {
             display: inline-flex;
             align-items: center;
             justify-content: center;
             margin-right: 6px;
-            min-width: calc(32px * var(--bar-scale));
+            width: calc(40px * var(--bar-scale));
+            min-width: calc(40px * var(--bar-scale));
             height: calc(22px * var(--bar-scale));
-            padding: 0 calc(8px * var(--bar-scale));
+            padding: 0;
             border-radius: calc(999px * var(--bar-scale));
             border: 1px solid rgba(148, 163, 184, 0.65);
             background: rgba(51, 65, 85, 0.28);
