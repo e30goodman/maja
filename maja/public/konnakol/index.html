@@ -1405,26 +1405,32 @@
 
         function showBpmFloatHud() {
             if (!floatHud) return;
+            const wasHidden = floatHud.hidden;
             floatHud.hidden = false;
             const v = parseInt(bpmSlider.value, 10);
             floatHud.textContent = Number.isFinite(v) ? String(v) : '';
             positionBpmFloatHud(bpmSlider, floatHud);
-            window.addEventListener('resize', onScrollOrResizeReposition, { passive: true });
-            document.addEventListener('scroll', onScrollOrResizeReposition, { capture: true, passive: true });
-            if (window.visualViewport) {
-                window.visualViewport.addEventListener('resize', onScrollOrResizeReposition, { passive: true });
-                window.visualViewport.addEventListener('scroll', onScrollOrResizeReposition, { passive: true });
+            if (wasHidden) {
+                window.addEventListener('resize', onScrollOrResizeReposition, { passive: true });
+                document.addEventListener('scroll', onScrollOrResizeReposition, { capture: true, passive: true });
+                if (window.visualViewport) {
+                    window.visualViewport.addEventListener('resize', onScrollOrResizeReposition, { passive: true });
+                    window.visualViewport.addEventListener('scroll', onScrollOrResizeReposition, { passive: true });
+                }
             }
         }
 
         function hideBpmFloatHud() {
             if (!floatHud) return;
+            const wasVisible = !floatHud.hidden;
             floatHud.hidden = true;
-            window.removeEventListener('resize', onScrollOrResizeReposition);
-            document.removeEventListener('scroll', onScrollOrResizeReposition, { capture: true });
-            if (window.visualViewport) {
-                window.visualViewport.removeEventListener('resize', onScrollOrResizeReposition);
-                window.visualViewport.removeEventListener('scroll', onScrollOrResizeReposition);
+            if (wasVisible) {
+                window.removeEventListener('resize', onScrollOrResizeReposition);
+                document.removeEventListener('scroll', onScrollOrResizeReposition, { capture: true });
+                if (window.visualViewport) {
+                    window.visualViewport.removeEventListener('resize', onScrollOrResizeReposition);
+                    window.visualViewport.removeEventListener('scroll', onScrollOrResizeReposition);
+                }
             }
         }
 
