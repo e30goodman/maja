@@ -124,6 +124,35 @@
             -webkit-tap-highlight-color: transparent;
             outline: none;
             transition: transform 0.1s ease, border-color 0.12s ease, background 0.12s ease;
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+            line-height: 1.1;
+        }
+        .tap-tempo-btn--showing-bpm {
+            border-color: rgba(139, 92, 246, 0.55);
+            background: rgba(124, 58, 237, 0.16);
+            color: #c4b5fd;
+        }
+        .tap-tempo-bpm-value {
+            font-size: 1.35rem;
+            font-weight: 800;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: -0.02em;
+            color: var(--text);
+        }
+        .tap-tempo-btn--showing-bpm .tap-tempo-bpm-value {
+            color: var(--text);
+        }
+        .tap-tempo-bpm-hint {
+            font-size: 0.58rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--violet-400);
+            min-height: 1em;
         }
         .tap-tempo-btn:hover {
             border-color: rgba(100, 116, 139, 0.75);
@@ -193,8 +222,9 @@
             box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.22) inset;
         }
         .control-group.tempo-x2 .bpm-tactile-handle {
-            background: var(--rose-500);
-            box-shadow: 0 0 20px rgba(244, 63, 94, 0.55);
+            border-color: rgba(251, 113, 133, 0.65);
+            background: rgba(244, 63, 94, 0.22);
+            color: #fecdd3;
         }
         .tempo-slider-row {
             position: relative;
@@ -257,13 +287,17 @@
             width: 48px;
             height: 24px;
             border-radius: 9999px;
-            background: var(--violet-500);
-            border: 2px solid rgba(255, 255, 255, 0.2);
-            box-shadow: 0 0 20px rgba(139, 92, 246, 0.55);
+            border: 1px solid rgba(139, 92, 246, 0.55);
+            background: rgba(124, 58, 237, 0.16);
+            box-shadow: none;
             cursor: grab;
             display: flex;
             align-items: center;
             justify-content: center;
+        }
+        .bpm-tactile-handle:hover {
+            background: rgba(139, 92, 246, 0.24);
+            border-color: rgba(196, 181, 253, 0.82);
         }
         .bpm-tactile-handle:active {
             cursor: grabbing;
@@ -276,18 +310,7 @@
             background: rgba(255, 255, 255, 0.4);
         }
         .bpm-tactile-hint {
-            position: absolute;
-            left: 50%;
-            bottom: 2px;
-            transform: translateX(-50%);
-            font-size: 0.55rem;
-            font-weight: 700;
-            letter-spacing: 0.06em;
-            color: var(--violet-400);
-            text-transform: uppercase;
-            pointer-events: none;
-            white-space: nowrap;
-            min-height: 1em;
+            display: none !important;
         }
         #tempoControl .tempo-readout {
             display: none !important;
@@ -295,30 +318,6 @@
         #tempoControl.control-group {
             margin: 4px 0 8px;
             padding: 4px 8px;
-        }
-        .bpm-float-hud {
-            position: fixed;
-            z-index: 10050;
-            left: 0;
-            top: 0;
-            transform: translate(-50%, calc(-100% - 8px));
-            min-width: 2.75rem;
-            padding: 8px 14px;
-            border-radius: 10px;
-            box-sizing: border-box;
-            background: rgba(15, 23, 42, 0.94);
-            border: 1px solid var(--slate-600);
-            color: var(--text);
-            font-weight: 700;
-            font-size: 1.35rem;
-            font-variant-numeric: tabular-nums;
-            line-height: 1.1;
-            text-align: center;
-            pointer-events: none;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-        }
-        .bpm-float-hud[hidden] {
-            display: none !important;
         }
         .tempo-x2-badge {
             color: var(--rose-400);
@@ -1293,7 +1292,13 @@
         </div>
     </details>
 
-    <button id="tapTempoBtn" class="tap-tempo-btn" type="button" onclick="onTapTempo()" title="Tap tempo">Tap</button>
+    <button id="tapTempoBtn" class="tap-tempo-btn" type="button" onclick="onTapTempo()" title="Tap tempo">
+        <span class="tap-tempo-idle" id="tapTempoIdle">Tap</span>
+        <span class="tap-tempo-bpm-pane" id="tapTempoBpmPane" hidden>
+            <span class="tap-tempo-bpm-value" id="tapTempoBpmValue"></span>
+            <span class="tap-tempo-bpm-hint" id="tapTempoBpmHint"></span>
+        </span>
+    </button>
 
     <details id="barScalerFold" class="settings-fold">
         <summary title="Bar scaler"><span class="scaler-icon">📐</span></summary>
@@ -1328,7 +1333,6 @@
             <div class="preset-nav-slots" role="toolbar" aria-label="Слоты 1–7, статус «сохранён» одинаков для каждого"></div>
         </nav>
     </div>
-    <div id="bpmFloatHud" class="bpm-float-hud" hidden role="status" aria-live="polite" aria-atomic="true"></div>
 
     <div id="barsContainer" class="bars-container"></div>
 
@@ -1397,6 +1401,8 @@
     let bpmSliderLastStable = 100;
     let tapTempoTimestamps = [];
     let tapTempoFlashTimer = null;
+    /** BPM readout shown inside #tapTempoBtn while dragging tactile tempo. */
+    let tapTempoBpmReadoutActive = false;
     let barFirstSyllableHighEnabled = false;
     let accentHoldTimer = null;
     let suppressAccentClick = false;
@@ -2087,56 +2093,37 @@
         bpmSliderLastStable = Number.isFinite(v) ? Math.max(20, Math.min(480, v)) : 100;
     }
 
-    function getBpmHudAnchorEl() {
-        return document.getElementById('bpmTactileWrap') || document.getElementById('bpm');
-    }
-
-    function positionBpmFloatHud(anchorEl, floatHud) {
-        if (!floatHud || floatHud.hidden || !anchorEl) return;
-        const r = anchorEl.getBoundingClientRect();
-        floatHud.style.left = `${Math.round(r.left + r.width / 2)}px`;
-        floatHud.style.top = `${Math.round(r.top)}px`;
-    }
-
-    function bpmFloatHudOnScrollResize() {
-        const anchor = getBpmHudAnchorEl();
-        const floatHud = document.getElementById('bpmFloatHud');
-        positionBpmFloatHud(anchor, floatHud);
+    function refreshTapTempoBpmReadout() {
+        if (!tapTempoBpmReadoutActive) return;
+        const bpmSlider = document.getElementById('bpm');
+        const valEl = document.getElementById('tapTempoBpmValue');
+        const hintEl = document.getElementById('tapTempoBpmHint');
+        const th = document.getElementById('bpmTactileHint');
+        const v = parseInt(bpmSlider?.value, 10);
+        if (valEl) valEl.textContent = Number.isFinite(v) ? String(v) : '';
+        if (hintEl) hintEl.textContent = th ? th.textContent : '';
     }
 
     function showBpmFloatHud() {
-        const floatHud = document.getElementById('bpmFloatHud');
-        const anchor = getBpmHudAnchorEl();
-        const bpmSlider = document.getElementById('bpm');
-        if (!floatHud || !anchor || !bpmSlider) return;
-        const wasHidden = floatHud.hidden;
-        floatHud.hidden = false;
-        const v = parseInt(bpmSlider.value, 10);
-        floatHud.textContent = Number.isFinite(v) ? String(v) : '';
-        positionBpmFloatHud(anchor, floatHud);
-        if (wasHidden) {
-            window.addEventListener('resize', bpmFloatHudOnScrollResize, { passive: true });
-            document.addEventListener('scroll', bpmFloatHudOnScrollResize, { capture: true, passive: true });
-            if (window.visualViewport) {
-                window.visualViewport.addEventListener('resize', bpmFloatHudOnScrollResize, { passive: true });
-                window.visualViewport.addEventListener('scroll', bpmFloatHudOnScrollResize, { passive: true });
-            }
-        }
+        const btn = document.getElementById('tapTempoBtn');
+        const idle = document.getElementById('tapTempoIdle');
+        const pane = document.getElementById('tapTempoBpmPane');
+        if (!btn || !idle || !pane) return;
+        tapTempoBpmReadoutActive = true;
+        idle.hidden = true;
+        pane.hidden = false;
+        btn.classList.add('tap-tempo-btn--showing-bpm');
+        refreshTapTempoBpmReadout();
     }
 
     function hideBpmFloatHud() {
-        const floatHud = document.getElementById('bpmFloatHud');
-        if (!floatHud) return;
-        const wasVisible = !floatHud.hidden;
-        floatHud.hidden = true;
-        if (wasVisible) {
-            window.removeEventListener('resize', bpmFloatHudOnScrollResize);
-            document.removeEventListener('scroll', bpmFloatHudOnScrollResize, { capture: true });
-            if (window.visualViewport) {
-                window.visualViewport.removeEventListener('resize', bpmFloatHudOnScrollResize);
-                window.visualViewport.removeEventListener('scroll', bpmFloatHudOnScrollResize);
-            }
-        }
+        const btn = document.getElementById('tapTempoBtn');
+        const idle = document.getElementById('tapTempoIdle');
+        const pane = document.getElementById('tapTempoBpmPane');
+        tapTempoBpmReadoutActive = false;
+        if (idle) idle.hidden = false;
+        if (pane) pane.hidden = true;
+        if (btn) btn.classList.remove('tap-tempo-btn--showing-bpm');
     }
 
     /** Тактильный BPM (порт логики slider/src/App.tsx): смещение от центра → зоны ±1 / ±5 / быстрый шаг; пружина к центру. */
@@ -2177,6 +2164,7 @@
                 else t = sign > 0 ? '>>>' : '<<<';
             }
             hint.textContent = t;
+            refreshTapTempoBpmReadout();
         }
 
         function applyBpmDelta(sign, amount) {
@@ -2212,14 +2200,7 @@
             if (lastPulseMs === 0 || now - lastPulseMs > interval) {
                 applyBpmDelta(sign, amount);
                 lastPulseMs = now;
-                showBpmFloatHud();
-                const floatHud = document.getElementById('bpmFloatHud');
-                const anchor = getBpmHudAnchorEl();
-                if (floatHud && !floatHud.hidden) {
-                    const v = parseInt(bpmSlider.value, 10);
-                    floatHud.textContent = Number.isFinite(v) ? String(v) : '';
-                    positionBpmFloatHud(anchor, floatHud);
-                }
+                refreshTapTempoBpmReadout();
             }
         }
 
@@ -2710,12 +2691,10 @@
 
     function updateTempoLabel() {
         const bpmEl = document.getElementById('bpm');
-        const floatHud = document.getElementById('bpmFloatHud');
         const bpm = parseInt(bpmEl?.value, 10);
         if (isNaN(bpm)) return;
-        if (floatHud && !floatHud.hidden) {
-            floatHud.textContent = String(bpm);
-            positionBpmFloatHud(getBpmHudAnchorEl(), floatHud);
+        if (tapTempoBpmReadoutActive) {
+            refreshTapTempoBpmReadout();
         }
         saveSessionState();
     }
