@@ -108,13 +108,13 @@
             margin: 0;
         }
         .tap-tempo-btn {
-            min-width: 84px;
+            min-width: 104px;
             height: 47px;
-            padding: 0 16px;
+            padding: 0 20px;
             border-radius: 10px;
-            border: 1px solid var(--slate-700);
-            background: rgba(30, 41, 59, 0.45);
-            color: var(--text);
+            border: 2px solid var(--slate-600);
+            background: rgba(51, 65, 85, 0.55);
+            color: var(--text-muted);
             font-weight: 700;
             letter-spacing: 0.04em;
             cursor: pointer;
@@ -122,11 +122,17 @@
             transition: transform 0.1s ease, border-color 0.12s ease, background 0.12s ease;
         }
         .tap-tempo-btn:hover {
-            border-color: var(--violet-500);
-            background: rgba(124, 58, 237, 0.16);
+            border-color: rgba(100, 116, 139, 0.75);
+            background: rgba(51, 65, 85, 0.7);
         }
         .tap-tempo-btn:active {
             transform: translateY(1px);
+        }
+        .tap-tempo-btn.tapped {
+            border-color: var(--violet-500);
+            background: rgba(124, 58, 237, 0.22);
+            color: var(--text);
+            box-shadow: 0 0 10px rgba(139, 92, 246, 0.3);
         }
         .top-fold-row.single-main,
         .top-fold-row.single-scaler {
@@ -1008,6 +1014,7 @@
     /** Last accepted BPM (revert track click without drag). */
     let bpmSliderLastStable = 100;
     let tapTempoTimestamps = [];
+    let tapTempoFlashTimer = null;
     let barFirstSyllableHighEnabled = false;
     let accentHoldTimer = null;
     let suppressAccentClick = false;
@@ -1321,6 +1328,17 @@
     }
 
     function onTapTempo() {
+        const tapBtn = document.getElementById('tapTempoBtn');
+        if (tapBtn) {
+            tapBtn.classList.remove('tapped');
+            void tapBtn.offsetWidth;
+            tapBtn.classList.add('tapped');
+            if (tapTempoFlashTimer !== null) clearTimeout(tapTempoFlashTimer);
+            tapTempoFlashTimer = setTimeout(() => {
+                tapTempoFlashTimer = null;
+                tapBtn.classList.remove('tapped');
+            }, 180);
+        }
         const bpmSlider = document.getElementById('bpm');
         if (!bpmSlider) return;
         const now = performance.now();
