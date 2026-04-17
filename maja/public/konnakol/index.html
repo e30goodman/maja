@@ -1044,7 +1044,6 @@
     const RAND_NOTES_MENU_MAX = 9;
     const STORAGE_KEY = 'konnakolSessionStateV1';
     /** Last inner dimensions used to ignore Chrome mobile URL-bar hide (height grows, width stable). */
-    let barRefitVwLastW = 0;
     /** When false, saveSessionState must not write — barStates may be empty during bootstrap. */
     let isAppReady = false;
 
@@ -2428,45 +2427,17 @@
         return { mobileSingleColumn, twoColumns, rows };
     }
 
-    function syncBarRefitViewportBaseline() {
-        barRefitVwLastW = window.innerWidth;
-    }
-
-    function topSettingsFoldsAreOpen() {
-        const main = document.getElementById('mainSettingsFold');
-        const scaler = document.getElementById('barScalerFold');
-        return Boolean(main?.open || scaler?.open);
-    }
-
-    function runBarsLayoutViewportRefit() {
-        const bCount = parseInt(document.getElementById('barsCount').value, 10);
-        const container = document.getElementById('barsContainer');
-        if (!container) return;
-        container.classList.toggle('many-bars', bCount >= 6);
-        applyAdaptiveBarHeights(container, bCount);
-        requestAnimationFrame(() => enforceBarsFit(container, bCount));
-        // #region agent log
-        fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'pre-fix-1',hypothesisId:'H4',location:'maja/public/konnakol/index.html:resizeHandler',message:'Resize triggered recalculation',data:{bCount,innerHeight:window.innerHeight,innerWidth:window.innerWidth},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
-    }
-
-    /** Only refit bars when layout *width* changes (rotate, desktop resize). Ignores height-only events so Settings / Bar scaler open-close and mobile URL bar do not change tact heights. */
-    function onBarsLayoutViewportResize() {
-        if (topSettingsFoldsAreOpen()) {
-            return;
-        }
-        const w = window.innerWidth;
-        if (Math.abs(w - barRefitVwLastW) < 8) {
-            return;
-        }
-        barRefitVwLastW = w;
-        runBarsLayoutViewportRefit();
-    }
-
+    /**
+     * Высота области сетки без привязки к window.innerHeight / visualViewport (скачки при скрытии адресной строки Chrome).
+     */
     function getAllowedBarsHeight(container) {
         const rect = container.getBoundingClientRect();
-        const viewportBottom = window.innerHeight - 12;
-        return Math.max(180, Math.floor(viewportBottom - rect.top));
+        const sh = Number(window.screen?.height);
+        const sw = Number(window.screen?.width);
+        const shortSide = sh > 0 && sw > 0 ? Math.min(sh, sw) : 0;
+        const layoutBaseline = shortSide > 200 ? shortSide : (Number(document.documentElement?.clientHeight) || 600);
+        const viewportBottom = Math.max(260, layoutBaseline - 72);
+        return Math.max(180, Math.min(520, Math.floor(viewportBottom - rect.top)));
     }
 
     function getGlobalPulsationForSizing() {
@@ -3238,11 +3209,7 @@
         flushPendingTopFoldsClose();
     }, { passive: true });
 
-    syncBarRefitViewportBaseline();
-    window.addEventListener('resize', onBarsLayoutViewportResize);
-    if (window.visualViewport) {
-        window.visualViewport.addEventListener('resize', onBarsLayoutViewportResize, { passive: true });
-    }
+    /* Авто-refit по resize / visualViewport отключён: см. getAllowedBarsHeight. */
     const pulsationDragPanelListEl = document.getElementById('pulsationDragPanelList');
     if (pulsationDragPanelListEl) {
         pulsationDragPanelListEl.addEventListener('click', (event) => {
