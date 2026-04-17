@@ -2131,14 +2131,15 @@
         }
     }
 
+    /** Фиолетовая заливка слота: есть сохранение и оно не совпадает с заводским дефолтом (presetMeta не сравнивается). */
     function presetHasSavedData(slotZero) {
         const i = Math.min(PRESET_SLOT_COUNT - 1, Math.max(0, parseInt(slotZero, 10) || 0));
         const presetIdStr = String(i + 1);
         try {
-            return Boolean(
-                localStorage.getItem(sessionStorageKeyForPresetId(presetIdStr))
-                || localStorage.getItem(fullMetronomeJsonStorageKeyForPresetId(presetIdStr))
-            );
+            let raw = localStorage.getItem(sessionStorageKeyForPresetId(presetIdStr));
+            if (!raw) raw = localStorage.getItem(fullMetronomeJsonStorageKeyForPresetId(presetIdStr));
+            if (!raw) return false;
+            return presetStoredJsonDiffersFromFactory(raw);
         } catch (_) {
             return false;
         }
@@ -2292,6 +2293,67 @@
         };
     }
 
+    /**
+     * «Заводской» снимок как у свежей страницы: HTML-дефолты (pulsation 4, 4 bars, BPM 100, …)
+     * и пустая сетка. Используется только для индикатора пресета: фиолет, если сохранение отличается от этого.
+     */
+    function getFactoryDefaultSessionState() {
+        const p = 4;
+        const bCount = 4;
+        const barPulsations = Array.from({ length: bCount }, () => p);
+        const barPolymeter = Array.from({ length: bCount }, () => false);
+        const barTempoMultipliers = Array.from({ length: bCount }, () => 1);
+        const cellTempoMultipliers = Array.from({ length: bCount }, () => Array.from({ length: p }, () => 1));
+        const checksByBar = Array.from({ length: bCount }, () => Array.from({ length: p }, () => false));
+        const checks = checksByBar.flat();
+        return {
+            pulsation: String(p),
+            barsCount: String(bCount),
+            randNotesPerBar: '2',
+            randomPatternAfterEachBar: true,
+            randomPatternSpeedChange: false,
+            randomPulsationAfterEachBar: false,
+            randomModeEnabled: false,
+            accentOnlySound: true,
+            barFirstSyllableHighEnabled: false,
+            soundPreset: 'classic',
+            tempoDoubleMode: false,
+            bpm: '100',
+            barScaleByCount: defaultBarScaleMap(),
+            barPulsations,
+            barPolymeter,
+            barTempoMultipliers,
+            cellTempoMultipliers,
+            checks,
+            checksByBar,
+            currentStep: 0,
+            lastFocusedBarIndex: -1,
+            snapshotSchema: 2
+        };
+    }
+
+    function pickComparableSessionFields(state) {
+        const ref = getFactoryDefaultSessionState();
+        if (!state || typeof state !== 'object') return null;
+        const out = {};
+        for (const k of Object.keys(ref)) {
+            out[k] = state[k];
+        }
+        return out;
+    }
+
+    function presetStoredJsonDiffersFromFactory(rawJson) {
+        try {
+            const parsed = JSON.parse(rawJson);
+            if (!parsed || typeof parsed !== 'object') return false;
+            const a = pickComparableSessionFields(parsed);
+            const b = getFactoryDefaultSessionState();
+            return JSON.stringify(a) !== JSON.stringify(b);
+        } catch (_) {
+            return false;
+        }
+    }
+
     function getBarScaleMapForSave() {
         const state = loadSessionState();
         const map = defaultBarScaleMap();
@@ -2319,6 +2381,7 @@
         } catch (e) {
             // Ignore storage errors (private mode/quota)
         }
+        refreshPresetNavUi();
     }
 
     function loadSessionState() {
