@@ -99,18 +99,41 @@
         }
         .top-fold-row {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr auto 1fr;
             gap: 8px;
-            align-items: start;
+            align-items: center;
             margin: 10px 0 14px;
         }
         .top-fold-row .settings-fold {
             margin: 0;
         }
+        .tap-tempo-btn {
+            min-width: 64px;
+            height: 36px;
+            padding: 0 12px;
+            border-radius: 10px;
+            border: 1px solid var(--slate-700);
+            background: rgba(30, 41, 59, 0.45);
+            color: var(--text);
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            cursor: pointer;
+            user-select: none;
+            transition: transform 0.1s ease, border-color 0.12s ease, background 0.12s ease;
+        }
+        .tap-tempo-btn:hover {
+            border-color: var(--violet-500);
+            background: rgba(124, 58, 237, 0.16);
+        }
+        .tap-tempo-btn:active {
+            transform: translateY(1px);
+        }
         .top-fold-row.single-main,
         .top-fold-row.single-scaler {
-            grid-template-columns: 1fr;
+            gap: 8px;
         }
+        .top-fold-row.single-main { grid-template-columns: 1fr auto; }
+        .top-fold-row.single-scaler { grid-template-columns: auto 1fr; }
         .top-fold-row.single-main #barScalerFold {
             display: none;
         }
@@ -1039,6 +1062,8 @@
         </div>
     </details>
 
+    <button id="tapTempoBtn" class="tap-tempo-btn" type="button" onclick="onTapTempo()" title="Tap tempo">Tap</button>
+
     <details id="barScalerFold" class="settings-fold">
         <summary title="Bar scaler">📐</summary>
         <div class="settings-fold-content">
@@ -1128,6 +1153,7 @@
     let tempoDoubleMode = false;
     /** Last accepted BPM (revert track click without drag). */
     let bpmSliderLastStable = 100;
+    let tapTempoTimestamps = [];
     let randomModeEnabled = false;
     let selectedSoundPreset = 'classic';
     let customClickBuffer = null;
@@ -1150,6 +1176,8 @@
     const BAR_SCALER_AUTO_CLOSE_MS = 12000;
     const TEMPO_HOLD_MS = 420;
     const POLYMETER_HOLD_MS = 520;
+    const TAP_TEMPO_RESET_MS = 2000;
+    const TAP_TEMPO_MAX_TAPS = 8;
     /** Upper bound for Max N dropdown options (independent of current pulsation; cap vs beats in bar is separate). */
     const RAND_NOTES_MENU_MAX = 9;
     const STORAGE_KEY = 'konnakolSessionStateV1Test';
@@ -1659,6 +1687,33 @@
         tempoDoubleMode = !tempoDoubleMode;
         refreshTempoModeUi();
         saveSessionState();
+    }
+
+    function onTapTempo() {
+        const bpmSlider = document.getElementById('bpm');
+        if (!bpmSlider) return;
+        const now = performance.now();
+        const lastTap = tapTempoTimestamps.length ? tapTempoTimestamps[tapTempoTimestamps.length - 1] : null;
+        if (lastTap !== null && (now - lastTap) > TAP_TEMPO_RESET_MS) {
+            tapTempoTimestamps = [];
+        }
+        tapTempoTimestamps.push(now);
+        if (tapTempoTimestamps.length > TAP_TEMPO_MAX_TAPS) {
+            tapTempoTimestamps = tapTempoTimestamps.slice(-TAP_TEMPO_MAX_TAPS);
+        }
+        // Use average of available intervals; after 2 taps gives estimate, after 4/8 becomes progressively more stable.
+        if (tapTempoTimestamps.length < 2) return;
+        let sumIntervals = 0;
+        for (let i = 1; i < tapTempoTimestamps.length; i++) {
+            sumIntervals += (tapTempoTimestamps[i] - tapTempoTimestamps[i - 1]);
+        }
+        const avgInterval = sumIntervals / (tapTempoTimestamps.length - 1);
+        if (!Number.isFinite(avgInterval) || avgInterval <= 0) return;
+        const bpm = Math.round(60000 / avgInterval);
+        const safeBpm = Math.max(20, Math.min(480, bpm));
+        bpmSlider.value = String(safeBpm);
+        syncBpmSliderLastStable();
+        updateTempoLabel();
     }
 
     function syncBpmSliderLastStable() {
