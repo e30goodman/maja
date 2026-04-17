@@ -2084,6 +2084,7 @@
     function loadSnapshotBankFromStorage() {
         const emptyClone = () => deepCloneState(getCanonicalEmptySnapshot());
         let needPersist = false;
+        let persistedActiveSlot = null;
         try {
             const raw = localStorage.getItem(SNAPSHOT_STORAGE_KEY);
             if (!raw) {
@@ -2099,6 +2100,11 @@
                     }
                     needPersist = true;
                 } else {
+                    if (typeof o.activeSlot === 'number'
+                        && o.activeSlot >= 0
+                        && o.activeSlot < SNAPSHOT_SLOT_COUNT) {
+                        persistedActiveSlot = o.activeSlot;
+                    }
                     for (let i = 0; i < SNAPSHOT_SLOT_COUNT; i++) {
                         if (o.slots[i]) {
                             snapshotBank.slots[i] = deepCloneState(o.slots[i]);
@@ -2116,11 +2122,16 @@
             needPersist = true;
         }
         if (needPersist) persistSnapshotBank();
+        return persistedActiveSlot;
     }
 
     function persistSnapshotBank() {
         try {
-            localStorage.setItem(SNAPSHOT_STORAGE_KEY, JSON.stringify({ v: 1, slots: snapshotBank.slots }));
+            localStorage.setItem(SNAPSHOT_STORAGE_KEY, JSON.stringify({
+                v: 2,
+                slots: snapshotBank.slots,
+                activeSlot: activeLoadedSnapshotSlot
+            }));
         } catch (_) {}
     }
 
@@ -2128,7 +2139,7 @@
         return deepCloneState(getCurrentSessionState());
     }
 
-    function applyState(snapshot) {
+    function applyState(snapshot, applyOpts = {}) {
         if (!snapshot || typeof snapshot !== 'object') return;
         const data = deepCloneState(snapshot);
         if (!data) return;
@@ -2137,7 +2148,7 @@
             localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
         } catch (_) {}
         applySessionStateToControls(data);
-        initApp();
+        initApp({ reloadBarStatesFromSession: true });
         restoreSelectState(data);
         syncBpmSliderLastStable();
         updateBarScaleLabel();
@@ -2150,7 +2161,13 @@
         lastKnownRandomPatternEnabled = Boolean(document.getElementById('randomPatternAfterEachBar')?.checked);
         playbackRandomizerEnabled = false;
         updateTempoLabel();
+        if (typeof applyOpts.activeSlotIndex === 'number'
+            && applyOpts.activeSlotIndex >= 0
+            && applyOpts.activeSlotIndex < SNAPSHOT_SLOT_COUNT) {
+            activeLoadedSnapshotSlot = applyOpts.activeSlotIndex;
+        }
         refreshSnapshotSlotsUi();
+        persistSnapshotBank();
     }
 
     function showSnapshotSavedToast() {
@@ -2215,8 +2232,7 @@
             snapshotHoldTimer = null;
         }
         if (hadTimer && snapshotHoldIndex === i && !snapshotHoldSaveActivated) {
-            applyState(snapshotBank.slots[i]);
-            activeLoadedSnapshotSlot = i;
+            applyState(snapshotBank.slots[i], { activeSlotIndex: i });
         }
         snapshotHoldIndex = -1;
         snapshotHoldSaveActivated = false;
@@ -2602,7 +2618,10 @@
             tempoMultiplier: 1,
             cellTempoMultipliers: Array.from({ length: defaultPulsation }, () => 1)
         });
-        const priorFromLive = !options.ignorePerBarPulsationsFromSession && barStates.length > 0
+        const reloadFromSession = Boolean(options.reloadBarStatesFromSession);
+        const priorFromLive = !reloadFromSession
+            && !options.ignorePerBarPulsationsFromSession
+            && barStates.length > 0
             ? cloneBarStatesRowSnapshot()
             : null;
         barStates = Array.from({ length: bCount }, () => defaultBar());
@@ -2617,9 +2636,9 @@
             return;
         }
 
-        const hasBarPulsations = !options.ignorePerBarPulsationsFromSession
-            && Array.isArray(state.barPulsations)
-            && state.barPulsations.length === bCount;
+        const hasBarPulsations = Array.isArray(state.barPulsations)
+            && state.barPulsations.length === bCount
+            && (!options.ignorePerBarPulsationsFromSession || reloadFromSession);
         if (hasBarPulsations) {
             for (let i = 0; i < bCount; i++) {
                 const p = parseInt(state.barPulsations[i], 10);
@@ -3740,9 +3759,13 @@
     refreshRandomModeToggleButton();
     refreshAccentToggleButton();
     saveSessionState();
-    loadSnapshotBankFromStorage();
+    const snapshotBootActive = loadSnapshotBankFromStorage();
     setupSnapshotSlotsUi();
-    refreshSnapshotSlotsUi();
+    if (snapshotBootActive !== null && snapshotBank.slots[snapshotBootActive]) {
+        applyState(deepCloneState(snapshotBank.slots[snapshotBootActive]), { activeSlotIndex: snapshotBootActive });
+    } else {
+        refreshSnapshotSlotsUi();
+    }
 
     const topFoldRowEl = document.getElementById('topFoldRow');
     const mainSettingsFoldEl = document.getElementById('mainSettingsFold');
