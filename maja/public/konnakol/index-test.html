@@ -256,6 +256,85 @@
             text-transform: uppercase;
             letter-spacing: 0.05em;
         }
+        .snapshot-strip {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 8px;
+            width: 100%;
+        }
+        .snapshot-slots {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+        .snapshot-slot-btn {
+            width: 30px;
+            height: 30px;
+            padding: 0;
+            border-radius: 50%;
+            border: 2px solid var(--slate-600);
+            background: var(--slate-800);
+            color: var(--text-muted);
+            font-size: 0.72rem;
+            font-weight: 700;
+            cursor: pointer;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            outline: none;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease, color 0.15s ease;
+        }
+        .snapshot-slot-btn:hover {
+            border-color: var(--violet-500);
+            color: var(--text);
+        }
+        .snapshot-slot-btn:focus,
+        .snapshot-slot-btn:focus-visible {
+            outline: none;
+            box-shadow: none;
+        }
+        .snapshot-slot-btn.filled {
+            background: #5b21b6;
+            border-color: var(--violet-400);
+            color: #f5f3ff;
+        }
+        .snapshot-slot-btn.active {
+            border-color: #f472b6;
+            box-shadow: 0 0 0 2px rgba(244, 114, 182, 0.55), 0 0 14px rgba(167, 139, 250, 0.65);
+            color: #fff;
+        }
+        .snapshot-save-btn {
+            flex: 0 0 auto;
+            padding: 6px 12px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            border-radius: 10px;
+            border: 1px solid var(--slate-600);
+            background: var(--slate-800);
+            color: var(--text-muted);
+            cursor: pointer;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            outline: none;
+        }
+        .snapshot-save-btn:hover {
+            border-color: var(--violet-500);
+            color: var(--text);
+        }
+        .snapshot-save-btn:focus,
+        .snapshot-save-btn:focus-visible {
+            outline: none;
+            box-shadow: none;
+        }
         label { display: block; margin-bottom: 8px; font-weight: 600; font-size: 0.85rem; color: var(--text-muted); }
         label .hint-muted { font-weight: 400; color: var(--text-dim); }
         select, input[type="range"] {
@@ -907,6 +986,14 @@
                 height: 10px;
                 padding: 0 2px;
             }
+            .snapshot-strip { margin-top: 6px; gap: 8px; }
+            .snapshot-slots { gap: 6px; }
+            .snapshot-slot-btn {
+                width: 26px;
+                height: 26px;
+                font-size: 0.65rem;
+            }
+            .snapshot-save-btn { padding: 5px 10px; font-size: 0.7rem; }
             label.rand-cycle { font-size: 0.8rem; gap: 10px; }
             .bars-container {
                 grid-template-columns: 1fr !important;
@@ -1119,6 +1206,19 @@
         <div class="tempo-readout">
             <small id="bpmValue" class="hint-muted">100 BPM</small>
         </div>
+        <div class="snapshot-strip" id="snapshotStrip" aria-label="Пресеты состояния">
+            <div class="snapshot-slots" role="toolbar" aria-label="Слоты 1–8">
+                <button type="button" class="snapshot-slot-btn" data-slot="0" aria-label="Слот 1">1</button>
+                <button type="button" class="snapshot-slot-btn" data-slot="1" aria-label="Слот 2">2</button>
+                <button type="button" class="snapshot-slot-btn" data-slot="2" aria-label="Слот 3">3</button>
+                <button type="button" class="snapshot-slot-btn" data-slot="3" aria-label="Слот 4">4</button>
+                <button type="button" class="snapshot-slot-btn" data-slot="4" aria-label="Слот 5">5</button>
+                <button type="button" class="snapshot-slot-btn" data-slot="5" aria-label="Слот 6">6</button>
+                <button type="button" class="snapshot-slot-btn" data-slot="6" aria-label="Слот 7">7</button>
+                <button type="button" class="snapshot-slot-btn" data-slot="7" aria-label="Слот 8">8</button>
+            </div>
+            <button type="button" class="snapshot-save-btn" id="snapshotSaveSlotBtn" onclick="onSnapshotSaveButtonClick()" title="Сохранить в целевой слот (последний загруженный или слот 1)">Save</button>
+        </div>
     </div>
 
     <div id="barsContainer" class="bars-container"></div>
@@ -1219,7 +1319,12 @@
     /** Upper bound for Max N dropdown options (independent of current pulsation; cap vs beats in bar is separate). */
     const RAND_NOTES_MENU_MAX = 9;
     const STORAGE_KEY = 'konnakolSessionStateV1Test';
-    
+    const SNAPSHOT_STORAGE_KEY = 'konnakolSnapshotsV1Test';
+    const SNAPSHOT_SLOT_COUNT = 8;
+    const snapshotBank = { slots: Array(SNAPSHOT_SLOT_COUNT).fill(null) };
+    let activeLoadedSnapshotSlot = null;
+    let lastSnapshotTargetSlot = 0;
+
     const syllables = {
         1: ["Ta"],
         2: ["Ta", "Ka"],
@@ -1905,8 +2010,122 @@
             barPolymeter,
             barTempoMultipliers,
             cellTempoMultipliers,
-            checks
+            checks,
+            currentStep,
+            lastFocusedBarIndex,
+            snapshotSchema: 1
         };
+    }
+
+    function deepCloneState(obj) {
+        try {
+            return JSON.parse(JSON.stringify(obj));
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function loadSnapshotBankFromStorage() {
+        try {
+            const raw = localStorage.getItem(SNAPSHOT_STORAGE_KEY);
+            if (!raw) return;
+            const o = JSON.parse(raw);
+            if (!o || !Array.isArray(o.slots)) return;
+            for (let i = 0; i < SNAPSHOT_SLOT_COUNT; i++) {
+                snapshotBank.slots[i] = o.slots[i] ? deepCloneState(o.slots[i]) : null;
+            }
+        } catch (_) {}
+    }
+
+    function persistSnapshotBank() {
+        try {
+            localStorage.setItem(SNAPSHOT_STORAGE_KEY, JSON.stringify({ v: 1, slots: snapshotBank.slots }));
+        } catch (_) {}
+    }
+
+    function buildFullSnapshotForSlot() {
+        return deepCloneState(getCurrentSessionState());
+    }
+
+    function applyState(snapshot) {
+        if (!snapshot || typeof snapshot !== 'object') return;
+        const data = deepCloneState(snapshot);
+        if (!data) return;
+        stop();
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        } catch (_) {}
+        applySessionStateToControls(data);
+        initApp();
+        restoreSelectState(data);
+        syncBpmSliderLastStable();
+        updateBarScaleLabel();
+        const total = stepMeta.length;
+        let cs = parseInt(data.currentStep, 10);
+        if (!Number.isFinite(cs)) cs = 0;
+        currentStep = total > 0 ? Math.min(Math.max(0, cs), total - 1) : 0;
+        const lfi = parseInt(data.lastFocusedBarIndex, 10);
+        lastFocusedBarIndex = Number.isFinite(lfi) && lfi >= -1 ? lfi : -1;
+        lastKnownRandomPatternEnabled = Boolean(document.getElementById('randomPatternAfterEachBar')?.checked);
+        playbackRandomizerEnabled = false;
+        updateTempoLabel();
+        refreshSnapshotSlotsUi();
+    }
+
+    function saveCurrentStateIntoSlot(slotIndex) {
+        const i = Math.min(SNAPSHOT_SLOT_COUNT - 1, Math.max(0, parseInt(slotIndex, 10) || 0));
+        const snap = buildFullSnapshotForSlot();
+        if (!snap) return;
+        snapshotBank.slots[i] = snap;
+        lastSnapshotTargetSlot = i;
+        persistSnapshotBank();
+        refreshSnapshotSlotsUi();
+    }
+
+    function onSnapshotSlotClick(ev, slotIndex) {
+        ev.preventDefault();
+        const i = Math.min(SNAPSHOT_SLOT_COUNT - 1, Math.max(0, slotIndex));
+        if (ev.ctrlKey || ev.metaKey) {
+            saveCurrentStateIntoSlot(i);
+            return;
+        }
+        if (!snapshotBank.slots[i]) return;
+        applyState(snapshotBank.slots[i]);
+        activeLoadedSnapshotSlot = i;
+        lastSnapshotTargetSlot = i;
+        refreshSnapshotSlotsUi();
+    }
+
+    function onSnapshotSaveButtonClick() {
+        saveCurrentStateIntoSlot(lastSnapshotTargetSlot);
+    }
+
+    function refreshSnapshotSlotsUi() {
+        const row = document.querySelector('.snapshot-slots');
+        if (!row) return;
+        row.querySelectorAll('.snapshot-slot-btn').forEach((btn) => {
+            const i = parseInt(btn.dataset.slot, 10);
+            if (!Number.isFinite(i)) return;
+            const filled = Boolean(snapshotBank.slots[i]);
+            btn.classList.toggle('filled', filled);
+            btn.classList.toggle('active', activeLoadedSnapshotSlot === i);
+            btn.title = filled
+                ? `Слот ${i + 1}: клик — загрузить; Ctrl+клик — сохранить`
+                : `Слот ${i + 1} пуст; Ctrl+клик — сохранить`;
+        });
+    }
+
+    function setupSnapshotSlotsUi() {
+        const row = document.querySelector('.snapshot-slots');
+        if (!row || row.dataset.snapshotUiBound === '1') return;
+        row.dataset.snapshotUiBound = '1';
+        row.querySelectorAll('.snapshot-slot-btn').forEach((btn) => {
+            btn.addEventListener('click', (ev) => {
+                const i = parseInt(btn.dataset.slot, 10);
+                if (!Number.isFinite(i)) return;
+                onSnapshotSlotClick(ev, i);
+            });
+        });
     }
 
     function normalizeBarScaleValue(v) {
@@ -3387,6 +3606,9 @@
     refreshRandomModeToggleButton();
     refreshAccentToggleButton();
     saveSessionState();
+    loadSnapshotBankFromStorage();
+    setupSnapshotSlotsUi();
+    refreshSnapshotSlotsUi();
 
     const topFoldRowEl = document.getElementById('topFoldRow');
     const mainSettingsFoldEl = document.getElementById('mainSettingsFold');
