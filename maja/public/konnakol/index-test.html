@@ -210,17 +210,12 @@
             flex: 0 0 auto;
             white-space: nowrap;
         }
-        .tempo-readout {
-            display: flex;
-            justify-content: flex-start;
-            align-items: center;
+        #tempoControl .tempo-readout {
+            display: none !important;
         }
         #tempoControl.control-group {
             margin: 4px 0 8px;
             padding: 4px 8px;
-        }
-        #tempoControl.tempo-bpm-show-readout.control-group {
-            padding: 6px 10px 8px;
         }
         #tempoControl .tempo-slider-row input[type="range"] {
             width: auto;
@@ -229,27 +224,29 @@
             margin: 0;
             box-sizing: border-box;
         }
-        #tempoControl.tempo-bpm-show-readout .tempo-slider-row input[type="range"] {
-            margin: 0 0 2px;
-        }
-        #tempoControl .tempo-readout {
-            max-height: 0;
-            opacity: 0;
-            overflow: hidden;
-            margin: 0;
-            padding: 0;
-            min-height: 0;
+        .bpm-float-hud {
+            position: fixed;
+            z-index: 10050;
+            left: 0;
+            top: 0;
+            transform: translate(-50%, calc(-100% - 8px));
+            min-width: 2.75rem;
+            padding: 8px 14px;
+            border-radius: 10px;
+            box-sizing: border-box;
+            background: rgba(15, 23, 42, 0.94);
+            border: 1px solid var(--slate-600);
+            color: var(--text);
+            font-weight: 700;
+            font-size: 1.35rem;
+            font-variant-numeric: tabular-nums;
+            line-height: 1.1;
+            text-align: center;
             pointer-events: none;
-            transition: max-height 0.2s ease, opacity 0.15s ease, margin 0.15s ease;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
         }
-        #tempoControl.tempo-bpm-show-readout .tempo-readout {
-            max-height: 2.5rem;
-            opacity: 1;
-            margin-top: 4px;
-            pointer-events: auto;
-        }
-        #tempoControl .tempo-readout .hint-muted {
-            font-size: 0.8rem;
+        .bpm-float-hud[hidden] {
+            display: none !important;
         }
         .tempo-x2-badge {
             color: var(--rose-400);
@@ -1019,9 +1016,6 @@
                 margin: 3px 0 6px;
                 padding: 3px 6px;
             }
-            #tempoControl.tempo-bpm-show-readout.control-group {
-                padding: 5px 8px 6px;
-            }
             #tempoControl .tempo-slider-row input[type="range"] {
                 height: 10px;
                 padding: 0 2px;
@@ -1246,16 +1240,17 @@
 
     <div id="tempoControl" class="control-group">
         <div class="tempo-slider-row">
-            <input type="range" id="bpm" min="20" max="480" value="100" aria-label="BPM">
+            <input type="range" id="bpm" min="20" max="480" value="100" aria-label="Tempo">
             <span id="tempoX2Badge" class="tempo-x2-badge" hidden>x2</span>
         </div>
-        <div class="tempo-readout">
-            <small id="bpmValue" class="hint-muted">100 BPM</small>
+        <div class="tempo-readout" hidden aria-hidden="true">
+            <small id="bpmValue"></small>
         </div>
         <nav class="preset-nav-strip" id="presetNavStrip" aria-label="Пресеты 1–7: сохранение только удержанием кнопки">
             <div class="preset-nav-slots" role="toolbar" aria-label="Слоты 1–7, статус «сохранён» одинаков для каждого"></div>
         </nav>
     </div>
+    <div id="bpmFloatHud" class="bpm-float-hud" hidden role="status" aria-live="polite" aria-atomic="true"></div>
 
     <div id="barsContainer" class="bars-container"></div>
 
@@ -2014,18 +2009,47 @@
         bpmSliderLastStable = Number.isFinite(v) ? Math.max(20, Math.min(480, v)) : 100;
     }
 
+    function positionBpmFloatHud(bpmSlider, floatHud) {
+        if (!floatHud || floatHud.hidden || !bpmSlider) return;
+        const r = bpmSlider.getBoundingClientRect();
+        floatHud.style.left = `${Math.round(r.left + r.width / 2)}px`;
+        floatHud.style.top = `${Math.round(r.top)}px`;
+    }
+
     function setupBpmSliderUi() {
         const bpmSlider = document.getElementById('bpm');
-        const tempoControl = document.getElementById('tempoControl');
+        const floatHud = document.getElementById('bpmFloatHud');
         if (!bpmSlider || bpmSlider.dataset.bpmUiSetup === '1') return;
         bpmSlider.dataset.bpmUiSetup = '1';
         syncBpmSliderLastStable();
 
-        function showBpmReadout() {
-            if (tempoControl) tempoControl.classList.add('tempo-bpm-show-readout');
+        function onScrollOrResizeReposition() {
+            positionBpmFloatHud(bpmSlider, floatHud);
         }
-        function hideBpmReadout() {
-            if (tempoControl) tempoControl.classList.remove('tempo-bpm-show-readout');
+
+        function showBpmFloatHud() {
+            if (!floatHud) return;
+            floatHud.hidden = false;
+            const v = parseInt(bpmSlider.value, 10);
+            floatHud.textContent = Number.isFinite(v) ? String(v) : '';
+            positionBpmFloatHud(bpmSlider, floatHud);
+            window.addEventListener('resize', onScrollOrResizeReposition, { passive: true });
+            document.addEventListener('scroll', onScrollOrResizeReposition, { capture: true, passive: true });
+            if (window.visualViewport) {
+                window.visualViewport.addEventListener('resize', onScrollOrResizeReposition, { passive: true });
+                window.visualViewport.addEventListener('scroll', onScrollOrResizeReposition, { passive: true });
+            }
+        }
+
+        function hideBpmFloatHud() {
+            if (!floatHud) return;
+            floatHud.hidden = true;
+            window.removeEventListener('resize', onScrollOrResizeReposition);
+            document.removeEventListener('scroll', onScrollOrResizeReposition, { capture: true });
+            if (window.visualViewport) {
+                window.visualViewport.removeEventListener('resize', onScrollOrResizeReposition);
+                window.visualViewport.removeEventListener('scroll', onScrollOrResizeReposition);
+            }
         }
 
         bpmSlider.addEventListener('dblclick', (event) => {
@@ -2054,7 +2078,7 @@
             if (!pointerDown || e.pointerId !== downPid) return;
             if (Math.hypot(e.clientX - downX, e.clientY - downY) > 2) {
                 movedSinceDown = true;
-                showBpmReadout();
+                showBpmFloatHud();
             }
         });
         const endPointer = (e) => {
@@ -2068,7 +2092,7 @@
             pointerDown = false;
             movedSinceDown = false;
             downPid = null;
-            hideBpmReadout();
+            hideBpmFloatHud();
         };
         bpmSlider.addEventListener('pointerup', endPointer);
         bpmSlider.addEventListener('pointercancel', endPointer);
@@ -2081,7 +2105,7 @@
             }
             syncBpmSliderLastStable();
             updateTempoLabel();
-            if (pointerDown) showBpmReadout();
+            if (pointerDown) showBpmFloatHud();
         });
     }
 
@@ -2410,10 +2434,14 @@
 
 
     function updateTempoLabel() {
-        const bpm = parseInt(document.getElementById('bpm').value, 10);
-        const label = document.getElementById('bpmValue');
-        if (!label || isNaN(bpm)) return;
-        label.textContent = `${bpm} BPM`;
+        const bpmEl = document.getElementById('bpm');
+        const floatHud = document.getElementById('bpmFloatHud');
+        const bpm = parseInt(bpmEl?.value, 10);
+        if (isNaN(bpm)) return;
+        if (floatHud && !floatHud.hidden) {
+            floatHud.textContent = String(bpm);
+            positionBpmFloatHud(bpmEl, floatHud);
+        }
         saveSessionState();
     }
 
