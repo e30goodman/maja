@@ -2033,7 +2033,8 @@
         const barPolymeter = barStates.map(b => Boolean(b.polymeter));
         const barTempoMultipliers = barStates.map(b => b.tempoMultiplier || 1);
         const cellTempoMultipliers = barStates.map(b => (Array.isArray(b.cellTempoMultipliers) ? b.cellTempoMultipliers.slice() : Array.from({ length: b.pulsation }, () => 1)));
-        const checks = barStates.flatMap(b => b.checks);
+        const checksByBar = barStates.map(b => (Array.isArray(b.checks) ? b.checks.map(Boolean) : Array.from({ length: b.pulsation }, () => false)));
+        const checks = checksByBar.flat();
         return {
             pulsation: String(p),
             barsCount: String(bCount),
@@ -2053,9 +2054,10 @@
             barTempoMultipliers,
             cellTempoMultipliers,
             checks,
+            checksByBar,
             currentStep,
             lastFocusedBarIndex,
-            snapshotSchema: 1
+            snapshotSchema: 2
         };
     }
 
@@ -2075,7 +2077,8 @@
         const barPolymeter = Array.from({ length: bCount }, () => false);
         const barTempoMultipliers = Array.from({ length: bCount }, () => 1);
         const cellTempoMultipliers = Array.from({ length: bCount }, () => Array.from({ length: p }, () => 1));
-        const checks = Array.from({ length: p * bCount }, () => false);
+        const checksByBar = Array.from({ length: bCount }, () => Array.from({ length: p }, () => false));
+        const checks = checksByBar.flat();
         return {
             pulsation: String(p),
             barsCount: String(bCount),
@@ -2095,9 +2098,10 @@
             barTempoMultipliers,
             cellTempoMultipliers,
             checks,
+            checksByBar,
             currentStep: 0,
             lastFocusedBarIndex: -1,
-            snapshotSchema: 1
+            snapshotSchema: 2
         };
     }
 
@@ -2163,6 +2167,8 @@
         if (!snapshot || typeof snapshot !== 'object') return;
         const data = deepCloneState(snapshot);
         if (!data) return;
+        data.currentStep = 0;
+        data.lastFocusedBarIndex = -1;
         stop();
         try {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -2172,12 +2178,8 @@
         restoreSelectState(data);
         syncBpmSliderLastStable();
         updateBarScaleLabel();
-        const total = stepMeta.length;
-        let cs = parseInt(data.currentStep, 10);
-        if (!Number.isFinite(cs)) cs = 0;
-        currentStep = total > 0 ? Math.min(Math.max(0, cs), total - 1) : 0;
-        const lfi = parseInt(data.lastFocusedBarIndex, 10);
-        lastFocusedBarIndex = Number.isFinite(lfi) && lfi >= -1 ? lfi : -1;
+        currentStep = 0;
+        lastFocusedBarIndex = -1;
         lastKnownRandomPatternEnabled = Boolean(document.getElementById('randomPatternAfterEachBar')?.checked);
         playbackRandomizerEnabled = false;
         updateTempoLabel();
@@ -2208,6 +2210,7 @@
 
     function saveCurrentStateIntoSlot(slotIndex) {
         const i = Math.min(SNAPSHOT_SLOT_COUNT - 1, Math.max(0, parseInt(slotIndex, 10) || 0));
+        saveSessionState();
         const snap = buildFullSnapshotForSlot();
         if (!snap) return;
         snapshotBank.slots[i] = snap;
@@ -2712,6 +2715,17 @@
         if (state && Array.isArray(state.barPolymeter) && state.barPolymeter.length === bCount) {
             for (let i = 0; i < bCount; i++) {
                 barStates[i].polymeter = Boolean(state.barPolymeter[i]);
+            }
+        }
+
+        if (reloadFromSession && Array.isArray(state.checksByBar) && state.checksByBar.length === bCount) {
+            for (let b = 0; b < bCount; b++) {
+                const row = state.checksByBar[b];
+                if (!Array.isArray(row)) continue;
+                const pb = barStates[b].pulsation;
+                for (let i = 0; i < pb; i++) {
+                    barStates[b].checks[i] = i < row.length ? Boolean(row[i]) : false;
+                }
             }
         }
 
