@@ -3184,10 +3184,13 @@
         barRefitVwLastH = window.innerHeight;
     }
 
-    function onBarsLayoutViewportResize() {
-        if (shouldIgnoreChromeDynamicToolbarResize()) {
-            return;
-        }
+    function topSettingsFoldsAreOpen() {
+        const main = document.getElementById('mainSettingsFold');
+        const scaler = document.getElementById('barScalerFold');
+        return Boolean(main?.open || scaler?.open);
+    }
+
+    function runBarsLayoutViewportRefit() {
         const bCount = parseInt(document.getElementById('barsCount').value, 10);
         const container = document.getElementById('barsContainer');
         if (!container) return;
@@ -3197,6 +3200,24 @@
         // #region agent log
         fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'pre-fix-1',hypothesisId:'H4',location:'maja/public/konnakol/index.html:resizeHandler',message:'Resize triggered recalculation',data:{bCount,innerHeight:window.innerHeight,innerWidth:window.innerWidth},timestamp:Date.now()})}).catch(()=>{});
         // #endregion
+    }
+
+    function scheduleBarsLayoutRefitAfterFoldsClosed() {
+        requestAnimationFrame(() => {
+            if (topSettingsFoldsAreOpen()) return;
+            syncBarRefitViewportBaseline();
+            runBarsLayoutViewportRefit();
+        });
+    }
+
+    function onBarsLayoutViewportResize() {
+        if (topSettingsFoldsAreOpen()) {
+            return;
+        }
+        if (shouldIgnoreChromeDynamicToolbarResize()) {
+            return;
+        }
+        runBarsLayoutViewportRefit();
     }
 
     function getAllowedBarsHeight(container) {
@@ -3789,6 +3810,9 @@
         mainSettingsFoldEl.addEventListener('toggle', () => {
             if (mainSettingsFoldEl.open) settingsOpenedAtMs = performance.now();
             syncTopFoldRowState();
+            if (!mainSettingsFoldEl.open) {
+                scheduleBarsLayoutRefitAfterFoldsClosed();
+            }
         });
         mainSettingsFoldEl.addEventListener('pointerdown', () => {
             settingsInteractionGuardUntilMs = performance.now() + SETTINGS_INTERACTION_GUARD_MS;
@@ -3821,6 +3845,9 @@
             }
             syncTopFoldRowState();
             scheduleBarScalerAutoClose();
+            if (!barScalerFoldEl.open) {
+                scheduleBarsLayoutRefitAfterFoldsClosed();
+            }
         });
     }
 
