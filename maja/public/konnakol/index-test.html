@@ -3907,6 +3907,8 @@
             if (!t.closest('#mainSettingsFold, #barScalerFold')) return;
             // Bar scaler should stay open while adjusting; do not force-close on its own controls.
             if (t.closest('#barScalerFold')) return;
+            // Галочки Random Pattern / Speed / Pulsation — не сворачивать Settings.
+            if (t.matches('input[type="checkbox"]') && t.closest('.randomizer-block')) return;
             if (!t.matches('input, select, textarea, button')) return;
             forceCloseTopFoldsImmediately();
         };
