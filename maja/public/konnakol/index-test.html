@@ -500,6 +500,8 @@
             grid-template-columns: 1fr;
             gap: calc(var(--bars-gap) * var(--bar-scale));
             margin: 25px 0 8px;
+            /* Preset/initApp: avoid layout collapse while grid DOM is rebuilt (matches JS allowedHeight ~180–520). */
+            min-height: clamp(252px, 36dvh, 520px);
         }
         .bars-container.many-bars { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .bar {
@@ -810,7 +812,13 @@
         .btn { width: 100%; padding: 15px; border: none; border-radius: 0.75rem; font-weight: 700; cursor: pointer; margin-bottom: 10px; font-size: 1rem; transition: 0.2s; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; outline: none; }
         .btn:focus,
         .btn:focus-visible { outline: none; box-shadow: none; }
-        .action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+        .action-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 10px;
+            min-height: 52px;
+        }
         .action-row .btn { margin-bottom: 0; }
         #playBtn,
         #stopBtn {
@@ -2852,7 +2860,6 @@
         // #region agent log
         fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'pre-fix-1',hypothesisId:'H1',location:'maja/public/konnakol/index.html:initApp',message:'Init app sizing context',data:{p,bCount,innerHeight:window.innerHeight,innerWidth:window.innerWidth,devicePixelRatio:window.devicePixelRatio},timestamp:Date.now()})}).catch(()=>{});
         // #endregion
-        container.innerHTML = '';
         container.style.setProperty('--bars-count', String(bCount));
         container.classList.toggle('many-bars', bCount >= 6);
         applyAdaptiveBarHeights(container, bCount);
@@ -3103,7 +3110,7 @@
 
     function renderBars(container) {
         recalcStepMeta();
-        container.innerHTML = '';
+        const fragment = document.createDocumentFragment();
         let lastOriginalSyllable = null;
         let globalStep = 0;
         for (let b = 0; b < barStates.length; b++) {
@@ -3217,8 +3224,9 @@
 
             barBody.appendChild(grid);
             barDiv.appendChild(barBody);
-            container.appendChild(barDiv);
+            fragment.appendChild(barDiv);
         }
+        container.replaceChildren(fragment);
     }
 
     function mapChecksToNewPulsation(oldChecks, oldP, newP) {
