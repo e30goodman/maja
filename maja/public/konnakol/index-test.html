@@ -1369,7 +1369,6 @@
     const PRESET_SLOT_COUNT = 8;
     const PRESET_HOLD_MS = 550;
     let barRefitVwLastW = 0;
-    let barRefitVwLastH = 0;
     function parsePresetIndexFromUrl() {
         try {
             const n = parseInt(new URLSearchParams(location.search).get(PRESET_QUERY) || '1', 10);
@@ -3170,22 +3169,8 @@
         return { mobileSingleColumn, twoColumns, rows };
     }
 
-    function shouldIgnoreChromeDynamicToolbarResize() {
-        const w = window.innerWidth;
-        const h = window.innerHeight;
-        const widthStable = Math.abs(w - barRefitVwLastW) < 3;
-        const heightGrew = h > barRefitVwLastH + 8;
-        if (widthStable && heightGrew) {
-            return true;
-        }
-        barRefitVwLastW = w;
-        barRefitVwLastH = h;
-        return false;
-    }
-
     function syncBarRefitViewportBaseline() {
         barRefitVwLastW = window.innerWidth;
-        barRefitVwLastH = window.innerHeight;
     }
 
     function topSettingsFoldsAreOpen() {
@@ -3206,21 +3191,16 @@
         // #endregion
     }
 
-    function scheduleBarsLayoutRefitAfterFoldsClosed() {
-        requestAnimationFrame(() => {
-            if (topSettingsFoldsAreOpen()) return;
-            syncBarRefitViewportBaseline();
-            runBarsLayoutViewportRefit();
-        });
-    }
-
+    /** Only refit when layout width changes; folds and height-only viewport changes do not change tact heights. */
     function onBarsLayoutViewportResize() {
         if (topSettingsFoldsAreOpen()) {
             return;
         }
-        if (shouldIgnoreChromeDynamicToolbarResize()) {
+        const w = window.innerWidth;
+        if (Math.abs(w - barRefitVwLastW) < 8) {
             return;
         }
+        barRefitVwLastW = w;
         runBarsLayoutViewportRefit();
     }
 
@@ -3814,9 +3794,6 @@
         mainSettingsFoldEl.addEventListener('toggle', () => {
             if (mainSettingsFoldEl.open) settingsOpenedAtMs = performance.now();
             syncTopFoldRowState();
-            if (!mainSettingsFoldEl.open) {
-                scheduleBarsLayoutRefitAfterFoldsClosed();
-            }
         });
         mainSettingsFoldEl.addEventListener('pointerdown', () => {
             settingsInteractionGuardUntilMs = performance.now() + SETTINGS_INTERACTION_GUARD_MS;
@@ -3849,9 +3826,6 @@
             }
             syncTopFoldRowState();
             scheduleBarScalerAutoClose();
-            if (!barScalerFoldEl.open) {
-                scheduleBarsLayoutRefitAfterFoldsClosed();
-            }
         });
     }
 

@@ -1056,7 +1056,6 @@
     const STORAGE_KEY = 'konnakolSessionStateV1';
     /** Last inner dimensions used to ignore Chrome mobile URL-bar hide (height grows, width stable). */
     let barRefitVwLastW = 0;
-    let barRefitVwLastH = 0;
 
     const syllables = {
         1: ["Ta"],
@@ -2434,22 +2433,8 @@
         return { mobileSingleColumn, twoColumns, rows };
     }
 
-    function shouldIgnoreChromeDynamicToolbarResize() {
-        const w = window.innerWidth;
-        const h = window.innerHeight;
-        const widthStable = Math.abs(w - barRefitVwLastW) < 3;
-        const heightGrew = h > barRefitVwLastH + 8;
-        if (widthStable && heightGrew) {
-            return true;
-        }
-        barRefitVwLastW = w;
-        barRefitVwLastH = h;
-        return false;
-    }
-
     function syncBarRefitViewportBaseline() {
         barRefitVwLastW = window.innerWidth;
-        barRefitVwLastH = window.innerHeight;
     }
 
     function topSettingsFoldsAreOpen() {
@@ -2470,21 +2455,16 @@
         // #endregion
     }
 
-    function scheduleBarsLayoutRefitAfterFoldsClosed() {
-        requestAnimationFrame(() => {
-            if (topSettingsFoldsAreOpen()) return;
-            syncBarRefitViewportBaseline();
-            runBarsLayoutViewportRefit();
-        });
-    }
-
+    /** Only refit bars when layout *width* changes (rotate, desktop resize). Ignores height-only events so Settings / Bar scaler open-close and mobile URL bar do not change tact heights. */
     function onBarsLayoutViewportResize() {
         if (topSettingsFoldsAreOpen()) {
             return;
         }
-        if (shouldIgnoreChromeDynamicToolbarResize()) {
+        const w = window.innerWidth;
+        if (Math.abs(w - barRefitVwLastW) < 8) {
             return;
         }
+        barRefitVwLastW = w;
         runBarsLayoutViewportRefit();
     }
 
@@ -3070,9 +3050,6 @@
         mainSettingsFoldEl.addEventListener('toggle', () => {
             if (mainSettingsFoldEl.open) settingsOpenedAtMs = performance.now();
             syncTopFoldRowState();
-            if (!mainSettingsFoldEl.open) {
-                scheduleBarsLayoutRefitAfterFoldsClosed();
-            }
         });
         mainSettingsFoldEl.addEventListener('pointerdown', () => {
             settingsInteractionGuardUntilMs = performance.now() + SETTINGS_INTERACTION_GUARD_MS;
@@ -3105,9 +3082,6 @@
             }
             syncTopFoldRowState();
             scheduleBarScalerAutoClose();
-            if (!barScalerFoldEl.open) {
-                scheduleBarsLayoutRefitAfterFoldsClosed();
-            }
         });
     }
 
