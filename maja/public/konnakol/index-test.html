@@ -136,23 +136,38 @@
             background: rgba(124, 58, 237, 0.16);
             color: #c4b5fd;
         }
+        .tap-tempo-bpm-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+            align-items: baseline;
+            gap: 6px;
+            width: 100%;
+            max-width: 100%;
+        }
+        .tap-tempo-bpm-hint-slot {
+            font-size: 0.58rem;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: var(--violet-400);
+            line-height: 1.2;
+        }
+        .tap-tempo-bpm-hint-slot:first-child {
+            text-align: right;
+        }
+        .tap-tempo-bpm-hint-slot:last-child {
+            text-align: left;
+        }
         .tap-tempo-bpm-value {
             font-size: 1.35rem;
             font-weight: 800;
             font-variant-numeric: tabular-nums;
             letter-spacing: -0.02em;
             color: var(--text);
+            justify-self: center;
         }
         .tap-tempo-btn--showing-bpm .tap-tempo-bpm-value {
             color: var(--text);
-        }
-        .tap-tempo-bpm-hint {
-            font-size: 0.58rem;
-            font-weight: 700;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            color: var(--violet-400);
-            min-height: 1em;
         }
         .tap-tempo-btn:hover {
             border-color: rgba(100, 116, 139, 0.75);
@@ -222,9 +237,12 @@
             box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.22) inset;
         }
         .control-group.tempo-x2 .bpm-tactile-handle {
-            border-color: rgba(251, 113, 133, 0.65);
-            background: rgba(244, 63, 94, 0.22);
-            color: #fecdd3;
+            border-color: #fb7185;
+            background: var(--rose-500);
+        }
+        .control-group.tempo-x2 .bpm-tactile-handle:hover {
+            background: #fb7185;
+            border-color: #fecdd3;
         }
         .tempo-slider-row {
             position: relative;
@@ -287,8 +305,8 @@
             width: 48px;
             height: 24px;
             border-radius: 9999px;
-            border: 1px solid rgba(139, 92, 246, 0.55);
-            background: rgba(124, 58, 237, 0.16);
+            border: 1px solid var(--violet-500);
+            background: var(--violet-600);
             box-shadow: none;
             cursor: grab;
             display: flex;
@@ -296,8 +314,8 @@
             justify-content: center;
         }
         .bpm-tactile-handle:hover {
-            background: rgba(139, 92, 246, 0.24);
-            border-color: rgba(196, 181, 253, 0.82);
+            background: var(--violet-500);
+            border-color: #c4b5fd;
         }
         .bpm-tactile-handle:active {
             cursor: grabbing;
@@ -1295,8 +1313,11 @@
     <button id="tapTempoBtn" class="tap-tempo-btn" type="button" onclick="onTapTempo()" title="Tap tempo">
         <span class="tap-tempo-idle" id="tapTempoIdle">Tap</span>
         <span class="tap-tempo-bpm-pane" id="tapTempoBpmPane" hidden>
-            <span class="tap-tempo-bpm-value" id="tapTempoBpmValue"></span>
-            <span class="tap-tempo-bpm-hint" id="tapTempoBpmHint"></span>
+            <span class="tap-tempo-bpm-row">
+                <span class="tap-tempo-bpm-hint-slot" id="tapTempoBpmHintLeft" aria-hidden="true"></span>
+                <span class="tap-tempo-bpm-value" id="tapTempoBpmValue"></span>
+                <span class="tap-tempo-bpm-hint-slot" id="tapTempoBpmHintRight" aria-hidden="true"></span>
+            </span>
         </span>
     </button>
 
@@ -2097,11 +2118,20 @@
         if (!tapTempoBpmReadoutActive) return;
         const bpmSlider = document.getElementById('bpm');
         const valEl = document.getElementById('tapTempoBpmValue');
-        const hintEl = document.getElementById('tapTempoBpmHint');
+        const leftEl = document.getElementById('tapTempoBpmHintLeft');
+        const rightEl = document.getElementById('tapTempoBpmHintRight');
         const th = document.getElementById('bpmTactileHint');
         const v = parseInt(bpmSlider?.value, 10);
         if (valEl) valEl.textContent = Number.isFinite(v) ? String(v) : '';
-        if (hintEl) hintEl.textContent = th ? th.textContent : '';
+        const text = th && th.textContent ? th.textContent.trim() : '';
+        let isMinus = false;
+        let isPlus = false;
+        if (text) {
+            if (text.startsWith('-') || text === '<<<') isMinus = true;
+            else if (text.startsWith('+') || text === '>>>') isPlus = true;
+        }
+        if (leftEl) leftEl.textContent = isMinus ? text : '';
+        if (rightEl) rightEl.textContent = isPlus ? text : '';
     }
 
     function showBpmFloatHud() {
