@@ -119,6 +119,9 @@
             letter-spacing: 0.04em;
             cursor: pointer;
             user-select: none;
+            -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            outline: none;
             transition: transform 0.1s ease, border-color 0.12s ease, background 0.12s ease;
         }
         .tap-tempo-btn:hover {
@@ -133,6 +136,11 @@
             background: rgba(124, 58, 237, 0.22);
             color: var(--text);
             box-shadow: 0 0 10px rgba(139, 92, 246, 0.3);
+        }
+        .tap-tempo-btn:focus,
+        .tap-tempo-btn:focus-visible {
+            outline: none;
+            box-shadow: none;
         }
         .top-fold-row.single-main,
         .top-fold-row.single-scaler {
