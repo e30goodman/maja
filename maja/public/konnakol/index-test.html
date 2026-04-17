@@ -325,19 +325,22 @@
             transition: background 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
         }
         .bpm-tactile-handle-bpm {
-            font-size: 0.64rem;
+            font-size: 0.75rem;
             font-weight: 900;
             font-variant-numeric: tabular-nums;
-            letter-spacing: -0.03em;
+            letter-spacing: -0.04em;
             line-height: 1;
-            color: rgba(15, 23, 42, 0.92);
+            color: rgba(15, 23, 42, 0.94);
+            -webkit-text-stroke: 0.4px rgba(15, 23, 42, 0.45);
+            paint-order: stroke fill;
             text-shadow: 0 1px 0 rgba(255, 255, 255, 0.12);
             pointer-events: none;
             user-select: none;
             -webkit-user-select: none;
         }
         .control-group.tempo-x2 .bpm-tactile-handle-bpm {
-            color: rgba(69, 10, 10, 0.88);
+            color: rgba(69, 10, 10, 0.9);
+            -webkit-text-stroke: 0.4px rgba(69, 10, 10, 0.4);
             text-shadow: 0 1px 0 rgba(255, 255, 255, 0.08);
         }
         .bpm-tactile-handle:hover {
