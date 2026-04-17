@@ -2078,12 +2078,6 @@
         if (badge) badge.hidden = !tempoDoubleMode;
     }
 
-    function toggleTempoDoubleMode() {
-        tempoDoubleMode = !tempoDoubleMode;
-        refreshTempoModeUi();
-        saveSessionState();
-    }
-
     function onTapTempo() {
         const tapBtn = document.getElementById('tapTempoBtn');
         if (tapBtn) {
@@ -2315,11 +2309,6 @@
         handle.addEventListener('pointermove', onPointerMove);
         handle.addEventListener('pointerup', onPointerEnd);
         handle.addEventListener('pointercancel', onPointerEnd);
-
-        wrap.addEventListener('dblclick', (event) => {
-            event.preventDefault();
-            toggleTempoDoubleMode();
-        });
 
         handle.addEventListener('keydown', (e) => {
             if (e.key === 'ArrowUp' || e.key === 'ArrowRight') {
