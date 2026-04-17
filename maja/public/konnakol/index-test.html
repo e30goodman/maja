@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=overlays-content">
     <title>Konnakol (test)</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Press+Start+2P&display=swap" rel="stylesheet">
     <style>
@@ -1364,6 +1364,8 @@
     const PRESET_QUERY = 'preset';
     const PRESET_SLOT_COUNT = 8;
     const PRESET_HOLD_MS = 550;
+    let barRefitVwLastW = 0;
+    let barRefitVwLastH = 0;
     function parsePresetIndexFromUrl() {
         try {
             const n = parseInt(new URLSearchParams(location.search).get(PRESET_QUERY) || '1', 10);
@@ -3164,6 +3166,39 @@
         return { mobileSingleColumn, twoColumns, rows };
     }
 
+    function shouldIgnoreChromeDynamicToolbarResize() {
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        const widthStable = Math.abs(w - barRefitVwLastW) < 3;
+        const heightGrew = h > barRefitVwLastH + 8;
+        if (widthStable && heightGrew) {
+            return true;
+        }
+        barRefitVwLastW = w;
+        barRefitVwLastH = h;
+        return false;
+    }
+
+    function syncBarRefitViewportBaseline() {
+        barRefitVwLastW = window.innerWidth;
+        barRefitVwLastH = window.innerHeight;
+    }
+
+    function onBarsLayoutViewportResize() {
+        if (shouldIgnoreChromeDynamicToolbarResize()) {
+            return;
+        }
+        const bCount = parseInt(document.getElementById('barsCount').value, 10);
+        const container = document.getElementById('barsContainer');
+        if (!container) return;
+        container.classList.toggle('many-bars', bCount >= 6);
+        applyAdaptiveBarHeights(container, bCount);
+        requestAnimationFrame(() => enforceBarsFit(container, bCount));
+        // #region agent log
+        fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'pre-fix-1',hypothesisId:'H4',location:'maja/public/konnakol/index.html:resizeHandler',message:'Resize triggered recalculation',data:{bCount,innerHeight:window.innerHeight,innerWidth:window.innerWidth},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
+    }
+
     function getAllowedBarsHeight(container) {
         const rect = container.getBoundingClientRect();
         const viewportBottom = window.innerHeight - 12;
@@ -3947,16 +3982,11 @@
         flushPendingTopFoldsClose();
     }, { passive: true });
 
-    window.addEventListener('resize', () => {
-        const bCount = parseInt(document.getElementById('barsCount').value, 10);
-        const container = document.getElementById('barsContainer');
-        container.classList.toggle('many-bars', bCount >= 6);
-        applyAdaptiveBarHeights(container, bCount);
-        requestAnimationFrame(() => enforceBarsFit(container, bCount));
-        // #region agent log
-        fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'pre-fix-1',hypothesisId:'H4',location:'maja/public/konnakol/index.html:resizeHandler',message:'Resize triggered recalculation',data:{bCount,innerHeight:window.innerHeight,innerWidth:window.innerWidth},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
-    });
+    syncBarRefitViewportBaseline();
+    window.addEventListener('resize', onBarsLayoutViewportResize);
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', onBarsLayoutViewportResize, { passive: true });
+    }
     const pulsationDragPanelListEl = document.getElementById('pulsationDragPanelList');
     if (pulsationDragPanelListEl) {
         pulsationDragPanelListEl.addEventListener('click', (event) => {
