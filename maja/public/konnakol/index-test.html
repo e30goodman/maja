@@ -964,25 +964,18 @@
             .bars-container.many-bars { grid-template-columns: 1fr; }
         }
 
-        .back-link {
-            display: block;
+        .settings-version-row {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(71, 85, 105, 0.45);
             text-align: center;
-            margin-bottom: 20px;
-            font-size: 0.9rem;
         }
-        .back-link a {
+        .settings-version-link {
+            font-size: 0.78rem;
             color: var(--text-muted);
             text-decoration: none;
         }
-        .back-link a:hover {
-            color: var(--violet-400);
-            text-decoration: underline;
-        }
-        .back-link a.version-link {
-            color: var(--slate-600);
-            text-decoration: none;
-        }
-        .back-link a.version-link:hover {
+        .settings-version-link:hover {
             color: var(--violet-400);
             text-decoration: underline;
         }
@@ -1005,7 +998,6 @@
                 box-sizing: border-box;
                 margin-inline: auto;
             }
-            .back-link { margin-bottom: 14px; font-size: 0.88rem; }
             h2 { font-size: 1.15rem; margin-bottom: 14px; line-height: 1.25; }
             .settings-grid {
                 grid-template-columns: 1fr;
@@ -1162,12 +1154,6 @@
 </div>
 
 <div class="app-container">
-    <!--
-    <div class="back-link">
-        <a href=".." aria-label="Back">←</a>
-    </div>
-    -->
-    <div class="back-link"><a href="index.html" class="version-link" title="Stable v1.0.1">v1.0.1 test</a></div>
     <div id="topFoldRow" class="top-fold-row">
     <details id="mainSettingsFold" class="settings-fold">
         <summary title="Settings">⚙️</summary>
@@ -1234,6 +1220,9 @@
                         </div>
                     </div>
                 </div>
+            </div>
+            <div class="settings-version-row">
+                <a href="index.html" class="settings-version-link">Стабильная версия</a>
             </div>
         </div>
     </details>
