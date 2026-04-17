@@ -997,6 +997,8 @@
                         <option value="6">6 Bars</option>
                         <option value="7">7 Bars</option>
                         <option value="8">8 Bars</option>
+                        <option value="9">9 Bars</option>
+                        <option value="10">10 Bars</option>
                     </select>
                 </div>
                 <div class="randomizer-block">
@@ -1785,7 +1787,9 @@
             5: '100',
             6: '100',
             7: '100',
-            8: '100'
+            8: '100',
+            9: '100',
+            10: '100'
         };
     }
 
@@ -1793,14 +1797,14 @@
         const state = loadSessionState();
         const map = defaultBarScaleMap();
         if (state && state.barScaleByCount && typeof state.barScaleByCount === 'object') {
-            for (let i = 1; i <= 8; i++) {
+            for (let i = 1; i <= 10; i++) {
                 if (state.barScaleByCount[i] !== undefined) {
                     map[i] = normalizeBarScaleValue(state.barScaleByCount[i]);
                 }
             }
         } else if (state && state.barScale !== undefined) {
             // Backward compatibility with old single-scale format
-            for (let i = 1; i <= 8; i++) map[i] = normalizeBarScaleValue(state.barScale);
+            for (let i = 1; i <= 10; i++) map[i] = normalizeBarScaleValue(state.barScale);
         }
         const currentBars = parseInt(document.getElementById('barsCount').value, 10);
         map[currentBars] = normalizeBarScaleValue(document.getElementById('barScale').value);
@@ -1847,7 +1851,7 @@
         }
         if (state.barsCount) {
             const b = parseInt(state.barsCount, 10);
-            if (!isNaN(b) && b >= 1 && b <= 8) barsCountEl.value = String(b);
+            if (!isNaN(b) && b >= 1 && b <= 10) barsCountEl.value = String(b);
         }
         if (state.bpm) {
             const bpm = parseInt(state.bpm, 10);
@@ -2714,7 +2718,9 @@
             5: 0.90,
             6: 0.88,
             7: 0.86,
-            8: 0.84
+            8: 0.84,
+            9: 0.82,
+            10: 0.80
         };
         const gapByCount = {
             1: 18,
@@ -2724,7 +2730,9 @@
             5: 14,
             6: 13,
             7: 12,
-            8: 11
+            8: 11,
+            9: 10,
+            10: 10
         };
         const { rows } = getBarsLayoutMeta(bCount);
 
@@ -2737,7 +2745,7 @@
             totalHeight = Math.floor(totalHeight * (1 + boost));
         }
         totalHeight = Math.min(Math.floor(allowedHeight * 0.96), totalHeight);
-        if (bCount === 8) totalHeight = Math.min(totalHeight, totalHeightFor5);
+        if (bCount >= 8) totalHeight = Math.min(totalHeight, totalHeightFor5);
         const gap = gapByCount[bCount] || gapByCount[5];
         const freeHeight = totalHeight - (Math.max(0, rows - 1) * gap);
         const barHeight = Math.max(58, Math.floor(freeHeight / Math.max(1, rows)));
@@ -2771,8 +2779,8 @@
             safety += 1;
         }
 
-        // Keep 8-bar layout from exceeding 5-bar target total height.
-        if (bCount === 8) {
+        // Keep high bar-count layouts from exceeding 5-bar target total height.
+        if (bCount >= 8) {
             const expectedFor5 = Math.floor(getAllowedBarsHeight(container) * 0.90);
             if (container.scrollHeight > expectedFor5) {
                 const scale = expectedFor5 / Math.max(1, container.scrollHeight);
