@@ -827,6 +827,7 @@
             <div class="settings-grid">
                 <div>
                     <select id="pulsation" onchange="onGlobalPulsationSelectChange()">
+                        <option value="1">1 (Ta)</option>
                         <option value="2">2 (Ta-Ka)</option>
                         <option value="3">3 (Ta-Ki-Ta)</option>
                         <option value="4" selected>4 (Ta-Ka-Dhi-Mi)</option>
@@ -972,6 +973,7 @@
     const STORAGE_KEY = 'konnakolSessionStateV1';
     
     const syllables = {
+        1: ["Ta"],
         2: ["Ta", "Ka"],
         3: ["Ta", "Ki", "Ta"],
         4: ["Ta", "Ka", "Dhi", "Mi"],
@@ -1661,7 +1663,7 @@
             const src = prior[i];
             let p = parseInt(src.pulsation, 10);
             if (!syllables[p]) p = defaultPulsation;
-            p = Math.min(MAX_PULSATION, Math.max(2, p));
+            p = Math.min(MAX_PULSATION, Math.max(1, p));
             barStates[i].pulsation = p;
             const arrChecks = Array.isArray(src.checks) ? src.checks : [];
             barStates[i].checks = Array.from({ length: p }, (_, j) => Boolean(arrChecks[j]));
@@ -1943,7 +1945,7 @@
         if (!barStates[barIndex]) return;
         const n = parseInt(String(newP), 10);
         if (!Number.isFinite(n)) return;
-        const safeP = Math.min(MAX_PULSATION, Math.max(2, n));
+        const safeP = Math.min(MAX_PULSATION, Math.max(1, n));
         const oldP = barStates[barIndex].pulsation;
         if (oldP === safeP) return;
         const wasPlaying = isPlaybackRunning();
@@ -2073,7 +2075,7 @@
         if (cellTempoHoldKey === key) cellTempoHoldKey = '';
     }
 
-    const PULSATION_OPTIONS = [2, 3, 4, 5, 6, 7, 8, 9];
+    const PULSATION_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
     function positionPulsationDragPanel(barIndex) {
         const panel = document.getElementById('pulsationDragPanel');
@@ -2098,7 +2100,7 @@
         const panel = document.getElementById('pulsationDragPanel');
         const list = document.getElementById('pulsationDragPanelList');
         if (!panel || !list) return;
-        const safeP = Math.min(MAX_PULSATION, Math.max(2, previewP));
+        const safeP = Math.min(MAX_PULSATION, Math.max(1, previewP));
         panel.hidden = false;
         panel.setAttribute('aria-hidden', 'false');
         list.innerHTML = PULSATION_OPTIONS.map(p => {
@@ -2358,7 +2360,7 @@
 
     /** 0..1: how aggressively to apply x2/x4 in Random speed (Max 1 note = mild; Random / high Max = full spread). */
     function getSpeedRandomAggressionFromSpec(spec, pulsationP) {
-        const safeP = Math.min(MAX_PULSATION, Math.max(2, parseInt(pulsationP, 10) || 4));
+        const safeP = Math.min(MAX_PULSATION, Math.max(1, parseInt(pulsationP, 10) || 4));
         if (spec && spec.mode === 'max' && typeof spec.n === 'number' && spec.n >= 1) {
             return Math.min(1, spec.n / safeP);
         }
@@ -2472,7 +2474,7 @@
 
     function applyBarPulsation(barIndex, nextP, fallbackP) {
         if (!barStates[barIndex]) return false;
-        const safeP = Math.min(MAX_PULSATION, Math.max(2, parseInt(nextP, 10) || fallbackP || barStates[barIndex].pulsation));
+        const safeP = Math.min(MAX_PULSATION, Math.max(1, parseInt(nextP, 10) || fallbackP || barStates[barIndex].pulsation));
         const oldP = barStates[barIndex].pulsation;
         assertPlaybackPulsationMutationAllowed(barIndex, oldP, safeP);
         if (oldP === safeP) return false;
@@ -2970,7 +2972,7 @@
             event.preventDefault();
             event.stopPropagation();
             const p = parseInt(row.getAttribute('data-p'), 10);
-            if (!Number.isFinite(p) || p < 2 || p > MAX_PULSATION) return;
+            if (!Number.isFinite(p) || p < 1 || p > MAX_PULSATION) return;
             selectPulsationFromMenu(p);
         });
     }
