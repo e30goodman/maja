@@ -2171,12 +2171,17 @@
             pulsationHoldTimer = null;
             if (pulsationHoldBar !== barIndex) return;
             if (!barStates[barIndex]) return;
+            const wasPlaying = isPlaybackRunning();
+            const playbackAnchor = wasPlaying ? capturePlaybackAnchorMeta() : null;
             const next = !barStates[barIndex].polymeter;
             barStates[barIndex].polymeter = next;
             pulsationHoldBar = -1;
             suppressPulsationClickBar = barIndex;
             const container = document.getElementById('barsContainer');
             renderBars(container);
+            if (wasPlaying) {
+                resyncPlaybackAfterManualBarPulsation(playbackAnchor);
+            }
             saveSessionState();
             if (navigator.vibrate) navigator.vibrate(next ? [18, 50, 18] : 14);
         }, POLYMETER_HOLD_MS);
