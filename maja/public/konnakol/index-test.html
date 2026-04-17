@@ -1147,7 +1147,7 @@
     const BASE_PULSATION_FOR_BPM = 4;
     /** Highest supported beat count per bar (must match syllables keys). */
     const MAX_PULSATION = 9;
-    const BAR_SCALER_AUTO_CLOSE_MS = 5000;
+    const BAR_SCALER_AUTO_CLOSE_MS = 12000;
     const TEMPO_HOLD_MS = 420;
     const POLYMETER_HOLD_MS = 520;
     /** Upper bound for Max N dropdown options (independent of current pulsation; cap vs beats in bar is separate). */
@@ -3313,6 +3313,8 @@
             const t = event.target;
             if (!t || !t.closest) return;
             if (!t.closest('#mainSettingsFold, #barScalerFold')) return;
+            // Bar scaler should stay open while adjusting; do not force-close on its own controls.
+            if (t.closest('#barScalerFold')) return;
             if (!t.matches('input, select, textarea, button')) return;
             forceCloseTopFoldsImmediately();
         };
