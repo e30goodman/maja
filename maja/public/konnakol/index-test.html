@@ -1396,9 +1396,11 @@
 
     function computePlaybackRandomizerEnabled() {
         const flags = getPlaybackRandomizerFlags();
+        const pulsationIndependent = flags.randomPulsationAfterEachBar;
+        const gatedByRandomMode = randomModeEnabled
+            && (flags.randomPatternAfterEachBar || flags.randomPatternSpeedChange);
         return Boolean(
-            randomModeEnabled
-            && (flags.randomPatternAfterEachBar || flags.randomPulsationAfterEachBar || flags.randomPatternSpeedChange)
+            pulsationIndependent || gatedByRandomMode
         );
     }
 
@@ -1423,8 +1425,10 @@
             lastProcessedUiPaintKey = '';
         }
 
-        if (randomModeEnabled) {
+        if (isPlaybackRunning()) {
             playbackRandomizerEnabled = computePlaybackRandomizerEnabled();
+        }
+        if (randomModeEnabled) {
             refreshRandomModeToggleButton();
         }
         saveSessionState();
