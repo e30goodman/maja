@@ -1250,8 +1250,8 @@
         <div class="tempo-readout">
             <small id="bpmValue" class="hint-muted">100 BPM</small>
         </div>
-        <nav class="preset-nav-strip" id="presetNavStrip" aria-label="Восемь отдельных метрономов (пресеты)">
-            <div class="preset-nav-slots" role="toolbar" aria-label="Пресеты 1–8">
+        <nav class="preset-nav-strip" id="presetNavStrip" aria-label="Семь отдельных метрономов (пресеты)">
+            <div class="preset-nav-slots" role="toolbar" aria-label="Пресеты 1–7">
                 <a class="preset-nav-link" data-preset="0" href="?preset=1">1</a>
                 <a class="preset-nav-link" data-preset="1" href="?preset=2">2</a>
                 <a class="preset-nav-link" data-preset="2" href="?preset=3">3</a>
@@ -1259,7 +1259,6 @@
                 <a class="preset-nav-link" data-preset="4" href="?preset=5">5</a>
                 <a class="preset-nav-link" data-preset="5" href="?preset=6">6</a>
                 <a class="preset-nav-link" data-preset="6" href="?preset=7">7</a>
-                <a class="preset-nav-link" data-preset="7" href="?preset=8">8</a>
             </div>
         </nav>
     </div>
@@ -1362,7 +1361,7 @@
     /** Upper bound for Max N dropdown options (independent of current pulsation; cap vs beats in bar is separate). */
     const RAND_NOTES_MENU_MAX = 9;
     const PRESET_QUERY = 'preset';
-    const PRESET_SLOT_COUNT = 8;
+    const PRESET_SLOT_COUNT = 7;
     const PRESET_HOLD_MS = 550;
     let barRefitVwLastW = 0;
     /** When false, saveSessionState must not write — barStates may be empty during bootstrap (applySessionStateToControls / updateBarScaleLabel). */
@@ -1370,11 +1369,26 @@
     function parsePresetIndexFromUrl() {
         try {
             const n = parseInt(new URLSearchParams(location.search).get(PRESET_QUERY) || '1', 10);
-            if (Number.isFinite(n) && n >= 1 && n <= PRESET_SLOT_COUNT) return n - 1;
+            if (Number.isFinite(n) && n >= 1) {
+                return Math.min(PRESET_SLOT_COUNT, n) - 1;
+            }
         } catch (_) {}
         return 0;
     }
     const CURRENT_PRESET_INDEX = parsePresetIndexFromUrl();
+    (function normalizeLegacyPresetQueryInUrl() {
+        try {
+            const params = new URLSearchParams(location.search);
+            const raw = params.get(PRESET_QUERY);
+            if (raw === null) return;
+            const n = parseInt(raw, 10);
+            if (!Number.isFinite(n) || n < 1) return;
+            if (n <= PRESET_SLOT_COUNT) return;
+            const u = new URL(location.href);
+            u.searchParams.set(PRESET_QUERY, String(PRESET_SLOT_COUNT));
+            history.replaceState({}, '', `${u.pathname}?${u.searchParams.toString()}${u.hash}`);
+        } catch (_) {}
+    })();
     (function ensurePresetIdInUrl() {
         if (location.search.includes(`${PRESET_QUERY}=`)) return;
         try {
