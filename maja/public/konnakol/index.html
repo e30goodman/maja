@@ -42,12 +42,13 @@
             font-family: 'Inter', system-ui, sans-serif;
             margin: 0;
             min-height: 100vh;
+            min-height: 100dvh;
             background-color: var(--slate-900);
             color: var(--text);
             display: flex;
             justify-content: center;
-            align-items: flex-start;
-            padding: 20px 20px max(10px, env(safe-area-inset-bottom, 0px));
+            align-items: flex-end;
+            padding: 12px 16px max(6px, env(safe-area-inset-bottom, 0px));
             box-sizing: border-box;
             position: relative;
             user-select: none;
@@ -81,7 +82,7 @@
             z-index: 1;
             background: var(--panel);
             border: 1px solid var(--slate-700);
-            padding: 30px 30px max(10px, env(safe-area-inset-bottom, 0px));
+            padding: 22px 24px max(6px, env(safe-area-inset-bottom, 0px));
             border-radius: 1rem;
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(139, 92, 246, 0.08) inset;
             width: 100%;
@@ -725,11 +726,11 @@
          */
         @media (max-width: 600px) {
             body {
-                padding: 10px 10px max(8px, env(safe-area-inset-bottom, 0px));
-                align-items: stretch;
+                padding: 8px 10px max(6px, env(safe-area-inset-bottom, 0px));
+                align-items: flex-end;
             }
             .app-container {
-                padding: 14px 12px max(8px, env(safe-area-inset-bottom, 0px));
+                padding: 12px 12px max(6px, env(safe-area-inset-bottom, 0px));
                 border-radius: 18px;
                 /* Avoid horizontal stretch when dynamic browser chrome changes layout viewport (e.g. dragging slider near bottom). */
                 max-width: min(600px, 100vw);
