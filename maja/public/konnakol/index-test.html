@@ -2487,21 +2487,34 @@
         const snap = deepCloneState(getCurrentSessionState());
         if (!snap) return;
 
-        if (existingParsed && parsedHasManualPresetMeta(existingParsed)) {
+        const sourceHasManual = presetHasManualSnapshot(getCurrentPresetIndexZero());
+        const targetHadManual = presetHasManualSnapshot(i);
+
+        if (targetHadManual && existingParsed && parsedHasManualPresetMeta(existingParsed)) {
             const nextStripped = stripPresetMetaCloneForCompare(snap);
             const prevStripped = stripPresetMetaCloneForCompare(existingParsed);
             if (nextStripped && prevStripped && JSON.stringify(nextStripped) === JSON.stringify(prevStripped)) {
+                if (sourceHasManual) {
+                    refreshPresetNavUi();
+                    return;
+                }
+                delete snap.presetMeta;
+                persistPresetSlotDualWrite(targetPresetId, JSON.stringify(snap));
+                showSnapshotSavedToast();
                 refreshPresetNavUi();
                 return;
             }
         }
 
-        snap.presetMeta = {
-            preset: parseInt(targetPresetId, 10),
-            savedAt: Date.now(),
-            format: 'konnakolMetronomeFullJson_v2',
-            sourcePreset: parseInt(getCurrentPresetId(), 10)
-        };
+        delete snap.presetMeta;
+        if (sourceHasManual || !targetHadManual) {
+            snap.presetMeta = {
+                preset: parseInt(targetPresetId, 10),
+                savedAt: Date.now(),
+                format: 'konnakolMetronomeFullJson_v2',
+                sourcePreset: parseInt(getCurrentPresetId(), 10)
+            };
+        }
         persistPresetSlotDualWrite(targetPresetId, JSON.stringify(snap));
         showSnapshotSavedToast();
         refreshPresetNavUi();
