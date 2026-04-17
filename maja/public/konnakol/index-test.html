@@ -262,10 +262,11 @@
         }
         /* Test layout: tempo + pulsation stacked in one column beside the syllable row. */
         .bar-body {
+            --bar-cell-gap: calc(clamp(5px, calc(10px - (var(--bars-count) * 0.4px)), 8px) * var(--bar-scale));
             display: flex;
             flex-direction: row;
             align-items: stretch;
-            gap: calc(10px * var(--bar-scale));
+            gap: var(--bar-cell-gap);
             width: 100%;
             min-width: 0;
         }
@@ -429,7 +430,7 @@
             display: flex;
             flex-direction: row;
             flex-wrap: nowrap;
-            gap: calc(clamp(5px, calc(10px - (var(--bars-count) * 0.4px)), 8px) * var(--bar-scale));
+            gap: var(--bar-cell-gap, calc(clamp(5px, calc(10px - (var(--bars-count) * 0.4px)), 8px) * var(--bar-scale)));
             justify-content: stretch;
             align-items: stretch;
             width: 100%;
@@ -868,7 +869,7 @@
                 min-height: calc(var(--bar-height) * var(--bar-scale));
             }
             .bar-body {
-                gap: calc(8px * var(--bar-scale));
+                --bar-cell-gap: calc(6px * var(--bar-scale));
                 align-items: stretch;
             }
             .bar-controls-stack {
@@ -883,7 +884,7 @@
                 display: flex;
                 flex-direction: row;
                 flex-wrap: nowrap;
-                gap: calc(6px * var(--bar-scale));
+                gap: var(--bar-cell-gap);
                 justify-content: stretch;
                 align-items: stretch;
                 width: 100%;
@@ -2219,6 +2220,8 @@
             barBody.className = 'bar-body';
             const controlsStack = document.createElement('div');
             controlsStack.className = 'bar-controls-stack';
+            // Keep controls column no wider than one "cell" of (pulsation + 1) equal columns.
+            controlsStack.style.width = `calc((100% - (${barStates[b].pulsation} * var(--bar-cell-gap))) / ${barStates[b].pulsation + 1})`;
             controlsStack.innerHTML = `<span class="bar-tempo-handle${tempoMultiplier === 4 ? ' x3' : ''}" id="bar-tempo-handle-${b}" onpointerdown="startBarTempoHold(event, ${b})" onpointerup="endBarTempoHold(event, ${b})" onpointercancel="endBarTempoHold(event, ${b})">x${barTempoLabel}</span><span class="pulsation-handle${barStates[b].polymeter ? ' polymeter' : ''}" id="pulsation-handle-${b}" onpointerdown="startPulsationMenuHold(event, ${b})" onpointerup="endPulsationMenuHold(event, ${b})" onpointercancel="endPulsationMenuHold(event, ${b})" onclick="togglePulsationMenu(event, ${b})">${barStates[b].pulsation}</span>`;
             barBody.appendChild(controlsStack);
 
