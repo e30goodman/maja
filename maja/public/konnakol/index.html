@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=overlays-content">
     <title>Konnakol Multi-Bar Trainer</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Press+Start+2P&display=swap" rel="stylesheet">
     <style>
         /* Palette aligned with Espace Maja (Tailwind slate + violet + blue) */
         :root {
@@ -109,9 +109,9 @@
             margin: 0;
         }
         .tap-tempo-btn {
-            min-width: 104px;
+            min-width: 176px;
             height: 47px;
-            padding: 0 20px;
+            padding: 0 36px;
             border-radius: 10px;
             border: 2px solid var(--slate-600);
             background: rgba(51, 65, 85, 0.55);
@@ -124,6 +124,50 @@
             -webkit-tap-highlight-color: transparent;
             outline: none;
             transition: transform 0.1s ease, border-color 0.12s ease, background 0.12s ease;
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+            line-height: 1.1;
+        }
+        .tap-tempo-btn--showing-bpm {
+            border-color: rgba(139, 92, 246, 0.55);
+            background: rgba(124, 58, 237, 0.16);
+            color: #c4b5fd;
+        }
+        .tap-tempo-bpm-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+            align-items: baseline;
+            gap: 6px;
+            width: 100%;
+            max-width: 100%;
+        }
+        .tap-tempo-bpm-hint-slot {
+            font-size: 0.58rem;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: var(--violet-400);
+            line-height: 1.2;
+        }
+        .tap-tempo-bpm-hint-slot:first-child {
+            text-align: right;
+        }
+        .tap-tempo-bpm-hint-slot:last-child {
+            text-align: left;
+        }
+        .tap-tempo-bpm-value {
+            font-size: 1.35rem;
+            font-weight: 800;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: -0.02em;
+            color: var(--text);
+            justify-self: center;
+        }
+        .tap-tempo-btn--showing-bpm .tap-tempo-bpm-value {
+            color: var(--text);
         }
         .tap-tempo-btn:hover {
             border-color: rgba(100, 116, 139, 0.75);
@@ -192,23 +236,104 @@
             border-color: var(--rose-500);
             box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.22) inset;
         }
-        .control-group.tempo-x2 input[type="range"] {
-            accent-color: var(--rose-500);
+        .control-group.tempo-x2 .bpm-tactile-handle {
+            border-color: rgba(190, 18, 60, 0.55);
+            background: linear-gradient(180deg, #3f3540 0%, #1a1418 100%);
+            box-shadow:
+                0 1px 4px rgba(0, 0, 0, 0.5),
+                inset 0 1px 0 rgba(251, 113, 133, 0.06);
+        }
+        .control-group.tempo-x2 .bpm-tactile-handle:hover {
+            border-color: rgba(251, 113, 133, 0.45);
+            background: linear-gradient(180deg, #4a3d45 0%, #221a1f 100%);
+            box-shadow:
+                0 1px 5px rgba(0, 0, 0, 0.55),
+                inset 0 1px 0 rgba(251, 113, 133, 0.09);
         }
         .tempo-slider-row {
+            position: relative;
             display: flex;
             flex-direction: row;
             align-items: center;
             gap: 8px;
             width: 100%;
         }
-        .tempo-slider-row input[type="range"] {
-            flex: 1 1 auto;
-            min-width: 0;
-        }
         .tempo-slider-row .tempo-x2-badge {
             flex: 0 0 auto;
             white-space: nowrap;
+        }
+        .bpm-native-range-hidden {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            pointer-events: none;
+            margin: 0;
+            padding: 0;
+            border: 0;
+        }
+        .bpm-tactile-wrap {
+            position: relative;
+            flex: 1 1 auto;
+            min-width: 0;
+            height: 3rem;
+            touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        .bpm-tactile-track {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            height: 8px;
+            border-radius: 9999px;
+            background: rgba(255, 255, 255, 0.1);
+            pointer-events: none;
+        }
+        .bpm-tactile-handle-wrap {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 46px;
+            height: 22px;
+            margin-top: -11px;
+            margin-left: -23px;
+            z-index: 2;
+            will-change: transform;
+        }
+        .bpm-tactile-handle {
+            width: 46px;
+            height: 22px;
+            border-radius: 11px;
+            border: 1px solid rgba(71, 85, 105, 0.95);
+            /* Тёмный овальный бегунок в тон панели (без яркого градиента и светлой рамки). */
+            background: linear-gradient(180deg, #3d4d64 0%, #1e293b 100%);
+            box-shadow:
+                0 1px 4px rgba(0, 0, 0, 0.45),
+                inset 0 1px 0 rgba(148, 163, 184, 0.07);
+            box-sizing: border-box;
+            cursor: grab;
+            display: block;
+            transition: background 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
+        }
+        .bpm-tactile-handle:hover {
+            border-color: rgba(100, 116, 139, 0.95);
+            background: linear-gradient(180deg, #475569 0%, #243044 100%);
+            box-shadow:
+                0 1px 5px rgba(0, 0, 0, 0.5),
+                inset 0 1px 0 rgba(148, 163, 184, 0.1);
+        }
+        .bpm-tactile-handle:active {
+            cursor: grabbing;
+        }
+        .bpm-tactile-hint {
+            display: none !important;
         }
         #tempoControl .tempo-readout {
             display: none !important;
@@ -217,42 +342,129 @@
             margin: 4px 0 8px;
             padding: 4px 8px;
         }
-        #tempoControl .tempo-slider-row input[type="range"] {
-            width: auto;
-            padding: 0 2px;
-            height: 10px;
-            margin: 0;
-            box-sizing: border-box;
-        }
-        .bpm-float-hud {
-            position: fixed;
-            z-index: 10050;
-            left: 0;
-            top: 0;
-            transform: translate(-50%, calc(-100% - 8px));
-            min-width: 2.75rem;
-            padding: 8px 14px;
-            border-radius: 10px;
-            box-sizing: border-box;
-            background: rgba(15, 23, 42, 0.94);
-            border: 1px solid var(--slate-600);
-            color: var(--text);
-            font-weight: 700;
-            font-size: 1.35rem;
-            font-variant-numeric: tabular-nums;
-            line-height: 1.1;
-            text-align: center;
-            pointer-events: none;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-        }
-        .bpm-float-hud[hidden] {
-            display: none !important;
-        }
         .tempo-x2-badge {
             color: var(--rose-400);
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.05em;
+        }
+        .preset-nav-strip {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: stretch;
+            margin-top: 10px;
+            width: 100%;
+            padding: 0 2px;
+            box-sizing: border-box;
+        }
+        .preset-nav-slots {
+            display: flex;
+            flex-wrap: nowrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: clamp(4px, 1.2vw, 14px);
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+            box-sizing: border-box;
+        }
+        /* Пресеты: пустой — серый; активный — белый текст; .filled — фиолетовая «капсула» (и у активного слота тоже). */
+        a.preset-nav-link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+            min-width: 44px;
+            height: 26px;
+            padding: 0 14px;
+            border-radius: 13px;
+            border: 2px solid transparent;
+            background: var(--slate-800);
+            color: var(--slate-500);
+            font-size: 0.7rem;
+            font-weight: 700;
+            line-height: 1;
+            cursor: pointer;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+            -webkit-tap-highlight-color: transparent;
+            outline: none;
+            text-decoration: none;
+            box-shadow: none;
+            transition: color 0.14s ease, background 0.14s ease, border-color 0.14s ease;
+        }
+        a.preset-nav-link:hover,
+        a.preset-nav-link:focus,
+        a.preset-nav-link:focus-visible {
+            outline: none;
+            box-shadow: none;
+        }
+        a.preset-nav-link:hover:not(.filled) {
+            background: var(--slate-800);
+            border-color: transparent;
+            color: var(--slate-500);
+        }
+        a.preset-nav-link.filled {
+            background: rgba(124, 58, 237, 0.22);
+            border: 1px solid rgba(139, 92, 246, 0.55);
+            color: #c4b5fd;
+        }
+        a.preset-nav-link.filled:not(.active):hover {
+            background: rgba(124, 58, 237, 0.3);
+            border-color: rgba(196, 181, 253, 0.78);
+            color: #c4b5fd;
+        }
+        a.preset-nav-link.active:not(.filled) {
+            color: #ffffff;
+        }
+        a.preset-nav-link.active:not(.filled):hover {
+            color: #ffffff;
+        }
+        a.preset-nav-link.filled.active {
+            color: #ffffff;
+        }
+        a.preset-nav-link.filled.active:hover {
+            color: #ffffff;
+            background: rgba(124, 58, 237, 0.3);
+            border-color: rgba(196, 181, 253, 0.78);
+        }
+        .snapshot-saved-toast {
+            position: fixed;
+            left: 50%;
+            top: 36%;
+            z-index: 10000;
+            padding: 0.55rem 0.85rem;
+            border-radius: 4px;
+            border: 2px solid #34d399;
+            background: rgba(15, 23, 42, 0.92);
+            box-shadow: 0 0 24px rgba(52, 211, 153, 0.35), inset 0 0 0 1px rgba(167, 139, 250, 0.2);
+            font-family: 'Press Start 2P', ui-monospace, monospace;
+            font-size: 0.58rem;
+            line-height: 1.6;
+            letter-spacing: 0.04em;
+            color: #6ee7b7;
+            text-transform: lowercase;
+            text-shadow: 0 0 10px rgba(52, 211, 153, 0.9), 2px 2px 0 #064e3b;
+            pointer-events: none;
+            user-select: none;
+            -webkit-user-select: none;
+            opacity: 0;
+            visibility: hidden;
+            transform: translate(-50%, -50%) scale(0.94);
+            image-rendering: pixelated;
+        }
+        .snapshot-saved-toast.is-animating {
+            visibility: visible;
+            animation: snapshot-saved-toast-anim 1.45s ease forwards;
+        }
+        @keyframes snapshot-saved-toast-anim {
+            0% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+            14% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+            58% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+            100% { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
         }
         label { display: block; margin-bottom: 8px; font-weight: 600; font-size: 0.85rem; color: var(--text-muted); }
         label .hint-muted { font-weight: 400; color: var(--text-dim); }
@@ -288,6 +500,8 @@
             grid-template-columns: 1fr;
             gap: calc(var(--bars-gap) * var(--bar-scale));
             margin: 25px 0 8px;
+            /* Preset/initApp: avoid layout collapse while grid DOM is rebuilt (matches JS allowedHeight ~180–520). */
+            min-height: clamp(252px, 36dvh, 520px);
         }
         .bars-container.many-bars { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .bar {
@@ -308,7 +522,7 @@
             box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.34) inset, 0 0 18px rgba(244, 63, 94, 0.34);
             background: rgba(244, 63, 94, 0.18);
         }
-        /* Tempo + pulsation stacked beside syllable row; stack height matches --total-cell-height. */
+        /* Test layout: tempo + pulsation stacked in one column beside the syllable row. */
         .bar-body {
             --bar-cell-gap: calc(clamp(5px, calc(10px - (var(--bars-count) * 0.4px)), 8px) * var(--bar-scale));
             display: flex;
@@ -319,6 +533,7 @@
             min-width: 0;
         }
         .bar-controls-stack {
+            /* Sum of two controls + gap == syllable row (--total-cell-height from .bars-container). */
             --controls-stack-gap: calc(6px * var(--bar-scale));
             display: flex;
             flex-direction: column;
@@ -329,6 +544,7 @@
             height: var(--total-cell-height);
             min-height: var(--total-cell-height);
             max-height: var(--total-cell-height);
+            /* Square chips: column width = one control row height = (H - gap) / 2 */
             width: calc((var(--total-cell-height) - var(--controls-stack-gap)) / 2);
         }
         .bar-body .rhythm-grid {
@@ -596,7 +812,13 @@
         .btn { width: 100%; padding: 15px; border: none; border-radius: 0.75rem; font-weight: 700; cursor: pointer; margin-bottom: 10px; font-size: 1rem; transition: 0.2s; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; outline: none; }
         .btn:focus,
         .btn:focus-visible { outline: none; box-shadow: none; }
-        .action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+        .action-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 10px;
+            min-height: 52px;
+        }
         .action-row .btn { margin-bottom: 0; }
         #playBtn,
         #stopBtn {
@@ -670,6 +892,147 @@
             color: var(--text-muted);
             margin-bottom: 6px;
         }
+        .dictaphone-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 200;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            background: rgba(15, 23, 42, 0.72);
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+        }
+        .dictaphone-overlay[hidden] { display: none !important; }
+        .dictaphone-card {
+            width: min(360px, 100%);
+            border-radius: 14px;
+            border: 1px solid var(--slate-600);
+            background: rgba(30, 41, 59, 0.96);
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(139, 92, 246, 0.12) inset;
+            padding: 14px 14px 16px;
+            color: var(--text);
+        }
+        .dictaphone-card h3 {
+            margin: 0 0 10px;
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-align: center;
+        }
+        .dictaphone-syllable {
+            text-align: center;
+            font-size: 1.65rem;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            margin: 8px 0 12px;
+            color: var(--violet-400);
+            text-shadow: 0 0 14px rgba(139, 92, 246, 0.35);
+        }
+        .dictaphone-count {
+            text-align: center;
+            font-size: 2.4rem;
+            font-weight: 800;
+            min-height: 3rem;
+            line-height: 1;
+            color: var(--text);
+            margin: 6px 0 10px;
+        }
+        .dictaphone-status {
+            text-align: center;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            min-height: 1.2rem;
+            margin-bottom: 10px;
+        }
+        .dictaphone-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .dictaphone-row.dictaphone-after-actions {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+            align-items: stretch;
+        }
+        .dictaphone-row.dictaphone-after-actions > button {
+            margin: 0;
+            min-width: 0;
+            width: 100%;
+            box-sizing: border-box;
+            min-height: 46px;
+            padding: 10px 6px;
+            font-size: 0.76rem;
+            font-weight: 700;
+            border-radius: 0.75rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1.15;
+            text-align: center;
+        }
+        .dictaphone-row.dictaphone-after-actions .btn-dict-again {
+            border: none;
+            cursor: pointer;
+            background: linear-gradient(135deg, #fb7185 0%, var(--rose-500) 100%);
+            color: #fff;
+            box-shadow: 0 3px 10px rgba(244, 63, 94, 0.3);
+        }
+        .dictaphone-row.dictaphone-after-actions .btn-dict-again:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+        .dictaphone-nav-bar {
+            margin-top: 6px;
+            margin-bottom: 2px;
+        }
+        .dictaphone-nav-bar[hidden] {
+            display: none !important;
+        }
+        .dictaphone-nav-back {
+            padding: 8px 14px;
+            border-radius: 0.65rem;
+            font-weight: 700;
+            font-size: 0.8rem;
+            cursor: pointer;
+            border: 2px solid var(--slate-600);
+            background: rgba(51, 65, 85, 0.55);
+            color: var(--text-muted);
+        }
+        .dictaphone-nav-back:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+        }
+        #dictaphoneRecRow {
+            margin-top: 10px;
+        }
+        .dictaphone-row.single { grid-template-columns: 1fr; }
+        .btn-dict-rec {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 0.75rem;
+            font-weight: 800;
+            cursor: pointer;
+            font-size: 1rem;
+            background: linear-gradient(135deg, #fb7185 0%, var(--rose-500) 100%);
+            color: #fff;
+            box-shadow: 0 4px 14px rgba(244, 63, 94, 0.35);
+        }
+        .btn-dict-rec:disabled { opacity: 0.45; cursor: not-allowed; }
+        .btn-dict-close {
+            margin-top: 10px;
+            width: 100%;
+            padding: 10px;
+            border-radius: 0.65rem;
+            border: 1px solid var(--slate-600);
+            background: rgba(51, 65, 85, 0.45);
+            color: var(--text-muted);
+            font-weight: 600;
+            cursor: pointer;
+        }
         .randomizer-block { display: flex; flex-direction: column; gap: 10px; }
         .scale-control {
             border-color: var(--violet-500);
@@ -729,7 +1092,6 @@
             .app-container {
                 padding: 12px 12px max(6px, env(safe-area-inset-bottom, 0px));
                 border-radius: 18px;
-                /* Avoid horizontal stretch when dynamic browser chrome changes layout viewport (e.g. dragging slider near bottom). */
                 max-width: min(600px, 100vw);
                 max-width: min(600px, 100svw);
                 width: 100%;
@@ -756,9 +1118,25 @@
                 margin: 3px 0 6px;
                 padding: 3px 6px;
             }
-            #tempoControl .tempo-slider-row input[type="range"] {
-                height: 10px;
-                padding: 0 2px;
+            .bpm-tactile-wrap {
+                height: 2.75rem;
+            }
+            .preset-nav-strip { margin-top: 8px; padding: 0; }
+            .preset-nav-slots {
+                gap: clamp(3px, 1vw, 10px);
+                justify-content: space-between;
+            }
+            a.preset-nav-link {
+                min-width: 40px;
+                height: 24px;
+                padding: 0 12px;
+                font-size: 0.62rem;
+                border-radius: 12px;
+            }
+            .snapshot-saved-toast {
+                font-size: 0.48rem;
+                padding: 0.45rem 0.65rem;
+                top: 32%;
             }
             label.rand-cycle { font-size: 0.8rem; gap: 10px; }
             .bars-container {
@@ -891,7 +1269,7 @@
                     </select>
                 </div>
                 <div>
-                    <select id="barsCount" onchange="initApp(); saveSessionState()">
+                    <select id="barsCount" onchange="initApp()">
                         <option value="1">1 Bar</option>
                         <option value="2">2 Bars</option>
                         <option value="3">3 Bars</option>
@@ -906,7 +1284,7 @@
                 </div>
                 <div class="randomizer-block">
                     <div>
-                        <select id="randNotesPerBar" onchange="saveSessionState()"></select>
+                        <select id="randNotesPerBar"></select>
                     </div>
                     <label class="rand-cycle">
                         <input type="checkbox" id="randomPatternAfterEachBar" onchange="onRandomizationFlagsChanged()" checked>
@@ -928,7 +1306,7 @@
                             <option value="custom">Custom</option>
                         </select>
                         <div id="customSoundControls" hidden>
-                            <button type="button" class="btn btn-accent" style="margin:0;padding:8px 10px;font-size:0.82rem;" onclick="toggleCustomSoundPanel()">Custom</button>
+                            <button type="button" class="btn btn-accent" style="margin:0;padding:8px 10px;font-size:0.82rem;" onclick="openDictaphoneWizard()">Custom</button>
                             <div id="customSoundPanel" class="custom-sound-panel" hidden>
                                 <label for="customClickFile">Click sound</label>
                                 <input id="customClickFile" type="file" accept="audio/*" onchange="onCustomSoundFileSelected(event, 'click')">
@@ -945,7 +1323,16 @@
         </div>
     </details>
 
-    <button id="tapTempoBtn" class="tap-tempo-btn" type="button" onclick="onTapTempo()" title="Tap tempo">Tap</button>
+    <button id="tapTempoBtn" class="tap-tempo-btn" type="button" onclick="onTapTempo()" title="Tap tempo">
+        <span class="tap-tempo-idle" id="tapTempoIdle">Tap</span>
+        <span class="tap-tempo-bpm-pane" id="tapTempoBpmPane" hidden>
+            <span class="tap-tempo-bpm-row">
+                <span class="tap-tempo-bpm-hint-slot" id="tapTempoBpmHintLeft" aria-hidden="true"></span>
+                <span class="tap-tempo-bpm-value" id="tapTempoBpmValue"></span>
+                <span class="tap-tempo-bpm-hint-slot" id="tapTempoBpmHintRight" aria-hidden="true"></span>
+            </span>
+        </span>
+    </button>
 
     <details id="barScalerFold" class="settings-fold">
         <summary title="Bar scaler"><span class="scaler-icon">📐</span></summary>
@@ -963,14 +1350,23 @@
 
     <div id="tempoControl" class="control-group">
         <div class="tempo-slider-row">
-            <input type="range" id="bpm" min="20" max="480" value="100" aria-label="Tempo">
+            <input type="range" id="bpm" class="bpm-native-range-hidden" min="20" max="480" value="100" tabindex="-1" aria-hidden="true">
+            <div class="bpm-tactile-wrap" id="bpmTactileWrap" role="group" aria-label="Tempo">
+                <div class="bpm-tactile-track" aria-hidden="true"></div>
+                <div class="bpm-tactile-handle-wrap" id="bpmTactileHandleWrap">
+                    <div class="bpm-tactile-handle" id="bpmTactileHandle" role="slider" aria-valuemin="20" aria-valuemax="480" aria-valuenow="100" aria-label="Tempo" tabindex="0"></div>
+                </div>
+                <span class="bpm-tactile-hint" id="bpmTactileHint" aria-hidden="true"></span>
+            </div>
             <span id="tempoX2Badge" class="tempo-x2-badge" hidden>x2</span>
         </div>
         <div class="tempo-readout" hidden aria-hidden="true">
             <small id="bpmValue"></small>
         </div>
+        <nav class="preset-nav-strip" id="presetNavStrip" aria-label="Пресеты 1–7: сохранение только удержанием кнопки">
+            <div class="preset-nav-slots" role="toolbar" aria-label="Слоты 1–7, статус «сохранён» одинаков для каждого"></div>
+        </nav>
     </div>
-    <div id="bpmFloatHud" class="bpm-float-hud" hidden role="status" aria-live="polite" aria-atomic="true"></div>
 
     <div id="barsContainer" class="bars-container"></div>
 
@@ -980,6 +1376,26 @@
     </div>
     <button id="playBtn" class="btn btn-play" onclick="start(false)">▶ PLAY</button>
     <button id="stopBtn" class="btn btn-stop" onclick="stop()">■ STOP</button>
+</div>
+<div id="dictaphoneOverlay" class="dictaphone-overlay" hidden aria-hidden="true" onclick="if(event.target===event.currentTarget)closeDictaphoneOverlay()">
+    <div class="dictaphone-card" role="dialog" aria-labelledby="dictaphoneTitle" onclick="event.stopPropagation()">
+        <h3 id="dictaphoneTitle">Syllable recorder</h3>
+        <div id="dictaphoneSyllable" class="dictaphone-syllable">Ta</div>
+        <div id="dictaphoneCount" class="dictaphone-count" aria-live="polite"></div>
+        <div id="dictaphoneStatus" class="dictaphone-status"></div>
+        <div id="dictaphoneNavBar" class="dictaphone-nav-bar" hidden>
+            <button type="button" id="dictaphoneNavBackBtn" class="dictaphone-nav-back" onclick="dictaphoneBack()">Back</button>
+        </div>
+        <div id="dictaphoneRecRow">
+            <button type="button" id="dictaphoneRecBtn" class="btn-dict-rec" onclick="dictaphoneStartTake()">● REC</button>
+        </div>
+        <div id="dictaphoneAfterRow" class="dictaphone-row dictaphone-after-actions" hidden>
+            <button type="button" class="btn btn-play" onclick="dictaphonePlayPreview()">▶ Play</button>
+            <button type="button" class="btn btn-dict-again" onclick="dictaphoneRecordAgain()">↻ Re-record</button>
+            <button type="button" id="dictaphoneNextBtn" class="btn btn-accent" onclick="dictaphoneNext()">Next</button>
+        </div>
+        <button type="button" class="btn-dict-close" onclick="closeDictaphoneOverlay()">Close</button>
+    </div>
 </div>
 
 <script>
@@ -1019,6 +1435,8 @@
     let bpmSliderLastStable = 100;
     let tapTempoTimestamps = [];
     let tapTempoFlashTimer = null;
+    /** BPM readout shown inside #tapTempoBtn while dragging tactile tempo. */
+    let tapTempoBpmReadoutActive = false;
     let barFirstSyllableHighEnabled = false;
     let accentHoldTimer = null;
     let suppressAccentClick = false;
@@ -1026,22 +1444,108 @@
     let selectedSoundPreset = 'classic';
     let customClickBuffer = null;
     let customAccentBuffer = null;
+    /** Six unique clips; pulsation 8 reuses Ta/Ka from slots 1–2 for beats 5–6 (same buffers in playback). */
+    const DICT_SYLLABLES = ['Ta', 'Ka', 'Dhi', 'Mi', 'Dju', 'Na'];
+    const customSyllableBuffers = {};
+    let dictMediaRecorder = null;
+    let dictMediaChunks = [];
+    let dictMediaStream = null;
+    let dictCountdownTimerIds = [];
+    let dictRecordStopTimer = null;
+    let dictPhase = 'idle';
+    let dictCurrentIndex = 0;
+    const DICT_COUNT_STEP_MS = 560;
+    const DICT_RECORD_MS = 520;
     const BASE_PULSATION_FOR_BPM = 4;
     /** Highest supported beat count per bar (must match syllables keys). */
     const MAX_PULSATION = 9;
     const BAR_SCALER_AUTO_CLOSE_MS = 12000;
     const TEMPO_HOLD_MS = 420;
-    /** Long-press pulsation handle: toggle polymeter (same BPM per beat as reference bar, no pulsation-based stretch). */
     const POLYMETER_HOLD_MS = 520;
     const TAP_TEMPO_RESET_MS = 2000;
     const TAP_TEMPO_MAX_TAPS = 8;
     const ACCENT_HOLD_MS = 420;
     /** Upper bound for Max N dropdown options (independent of current pulsation; cap vs beats in bar is separate). */
     const RAND_NOTES_MENU_MAX = 9;
-    const STORAGE_KEY = 'konnakolSessionStateV1';
-    /** Last inner dimensions used to ignore Chrome mobile URL-bar hide (height grows, width stable). */
-    /** When false, saveSessionState must not write — barStates may be empty during bootstrap. */
+    const PRESET_QUERY = 'preset';
+    const PRESET_SLOT_COUNT = 7;
+    const PRESET_HOLD_MS = 420;
+    /** When false, initApp ещё не завершил загрузку barStates (защита от гонок при будущих писателях). */
     let isAppReady = false;
+    /** Во время программного применения пресета блокирует saveSessionState даже после isAppReady=true внутри initApp. */
+    let suppressSessionWritesDepth = 0;
+    /** Preset id from URL (?preset=N), clamped 1..PRESET_SLOT_COUNT; default `'1'`. */
+    function getCurrentPresetId() {
+        try {
+            const n = parseInt(new URLSearchParams(location.search).get(PRESET_QUERY) || '1', 10);
+            if (Number.isFinite(n) && n >= 1) {
+                return String(Math.min(PRESET_SLOT_COUNT, n));
+            }
+        } catch (_) {}
+        return '1';
+    }
+    function getCurrentPresetIndexZero() {
+        return Math.min(PRESET_SLOT_COUNT - 1, Math.max(0, parseInt(getCurrentPresetId(), 10) - 1));
+    }
+    /** localStorage key for the active preset (same as `konnakolSessionStateV1_preset${getCurrentPresetId()}`). */
+    function getSessionStorageKey() {
+        return `konnakolSessionStateV1_preset${getCurrentPresetId()}`;
+    }
+    function sessionStorageKeyForPresetId(presetIdStr) {
+        return `konnakolSessionStateV1_preset${presetIdStr}`;
+    }
+    /** Полный JSON метронома для слота preset id (строка «1»..«7»). */
+    function fullMetronomeJsonStorageKeyForPresetId(presetIdStr) {
+        return `konnakolMetronomeFullJson_v2_preset${presetIdStr}`;
+    }
+    function hrefForPresetSwitch(presetIdOneBased) {
+        try {
+            const u = new URL(location.href);
+            u.searchParams.set(PRESET_QUERY, String(presetIdOneBased));
+            return `${u.pathname}?${u.searchParams.toString()}${u.hash}`;
+        } catch (_) {
+            return `?${PRESET_QUERY}=${presetIdOneBased}`;
+        }
+    }
+    (function normalizeLegacyPresetQueryInUrl() {
+        try {
+            const params = new URLSearchParams(location.search);
+            const raw = params.get(PRESET_QUERY);
+            if (raw === null) return;
+            const n = parseInt(raw, 10);
+            if (!Number.isFinite(n) || n < 1) return;
+            if (n <= PRESET_SLOT_COUNT) return;
+            const u = new URL(location.href);
+            u.searchParams.set(PRESET_QUERY, String(PRESET_SLOT_COUNT));
+            history.replaceState({}, '', `${u.pathname}?${u.searchParams.toString()}${u.hash}`);
+        } catch (_) {}
+    })();
+    (function ensurePresetIdInUrl() {
+        if (location.search.includes(`${PRESET_QUERY}=`)) return;
+        try {
+            const u = new URL(location.href);
+            u.searchParams.set(PRESET_QUERY, getCurrentPresetId());
+            history.replaceState({}, '', `${u.pathname}?${u.searchParams.toString()}${u.hash}`);
+        } catch (_) {}
+    })();
+    function migrateLegacySessionIntoPreset1() {
+        const k1 = sessionStorageKeyForPresetId('1');
+        try {
+            if (localStorage.getItem(k1)) return;
+            const legacyKeys = ['konnakolSessionStateV1', 'konnakolSessionStateV1Test'];
+            for (const legacy of legacyKeys) {
+                const raw = localStorage.getItem(legacy);
+                if (raw) {
+                    localStorage.setItem(k1, raw);
+                    return;
+                }
+            }
+        } catch (_) {}
+    }
+    migrateLegacySessionIntoPreset1();
+    let presetNavHoldTimer = null;
+    let presetNavHoldSlot = -1;
+    let presetNavSuppressClick = false;
 
     const syllables = {
         1: ["Ta"],
@@ -1299,6 +1803,7 @@
         const customPanel = document.getElementById('customSoundPanel');
         if (customControls) customControls.hidden = selectedSoundPreset !== 'custom';
         if (customPanel) customPanel.hidden = selectedSoundPreset !== 'custom';
+        if (selectedSoundPreset !== 'custom') closeDictaphoneOverlay();
         saveSessionState();
     }
 
@@ -1326,18 +1831,255 @@
             console.error('[konnakol] custom sound decode failed', e);
         }
     }
+    function dictNormalizeSyllableKey(label) {
+        if (!label) return '';
+        const t = String(label).trim();
+        for (let i = 0; i < DICT_SYLLABLES.length; i++) {
+            if (DICT_SYLLABLES[i].toLowerCase() === t.toLowerCase()) return DICT_SYLLABLES[i];
+        }
+        return '';
+    }
+
+    function clearDictCountdownTimers() {
+        dictCountdownTimerIds.forEach(id => clearTimeout(id));
+        dictCountdownTimerIds = [];
+        if (dictRecordStopTimer !== null) {
+            clearTimeout(dictRecordStopTimer);
+            dictRecordStopTimer = null;
+        }
+    }
+
+    function stopDictMediaRecorderSafe() {
+        if (dictMediaRecorder && dictMediaRecorder.state === 'recording') {
+            try { dictMediaRecorder.stop(); } catch (_) {}
+        }
+        dictMediaRecorder = null;
+        dictMediaChunks = [];
+        if (dictMediaStream) {
+            dictMediaStream.getTracks().forEach(tr => { try { tr.stop(); } catch (_) {} });
+            dictMediaStream = null;
+        }
+    }
+
+    function closeDictaphoneOverlay() {
+        const ov = document.getElementById('dictaphoneOverlay');
+        if (!ov) return;
+        clearDictCountdownTimers();
+        stopDictMediaRecorderSafe();
+        dictPhase = 'idle';
+        ov.hidden = true;
+        ov.setAttribute('aria-hidden', 'true');
+    }
+
+    function dictaphoneUiSet(status, countText) {
+        const st = document.getElementById('dictaphoneStatus');
+        const ct = document.getElementById('dictaphoneCount');
+        if (st) st.textContent = status || '';
+        if (ct) ct.textContent = countText != null ? String(countText) : '';
+    }
+
+    function dictaphoneRefreshControls() {
+        const recRow = document.getElementById('dictaphoneRecRow');
+        const afterRow = document.getElementById('dictaphoneAfterRow');
+        const recBtn = document.getElementById('dictaphoneRecBtn');
+        const sylEl = document.getElementById('dictaphoneSyllable');
+        const navBar = document.getElementById('dictaphoneNavBar');
+        const navBack = document.getElementById('dictaphoneNavBackBtn');
+        const nextBtn = document.getElementById('dictaphoneNextBtn');
+        if (!recRow || !afterRow || !recBtn || !sylEl) return;
+        const key = DICT_SYLLABLES[dictCurrentIndex] || '';
+        sylEl.textContent = key;
+        const hasBuf = Boolean(customSyllableBuffers[key]);
+        const busy = dictPhase === 'counting' || dictPhase === 'recording';
+        const canBack = dictCurrentIndex > 0 && !busy;
+        if (navBar && navBack) {
+            navBar.hidden = dictCurrentIndex <= 0 && dictPhase !== 'done';
+            navBack.disabled = !canBack;
+        }
+        if (dictPhase === 'done') {
+            if (navBar && navBack) {
+                navBar.hidden = false;
+                navBack.disabled = dictCurrentIndex <= 0 || busy;
+            }
+            if (nextBtn) nextBtn.disabled = true;
+            recRow.hidden = true;
+            afterRow.hidden = false;
+            recBtn.disabled = true;
+            return;
+        }
+        if (nextBtn) nextBtn.disabled = false;
+        if (dictPhase === 'preview' && hasBuf) {
+            recRow.hidden = true;
+            afterRow.hidden = false;
+            recBtn.disabled = true;
+        } else {
+            recRow.hidden = false;
+            afterRow.hidden = true;
+            recBtn.disabled = busy;
+        }
+    }
+
+    function openDictaphoneWizard() {
+        const sel = document.getElementById('soundPreset');
+        if (sel && sel.value !== 'custom') {
+            sel.value = 'custom';
+            onSoundPresetChange();
+        }
+        const ov = document.getElementById('dictaphoneOverlay');
+        if (!ov) return;
+        clearDictCountdownTimers();
+        stopDictMediaRecorderSafe();
+        dictPhase = 'idle';
+        dictCurrentIndex = 0;
+        for (let i = 0; i < DICT_SYLLABLES.length; i++) {
+            if (!customSyllableBuffers[DICT_SYLLABLES[i]]) {
+                dictCurrentIndex = i;
+                break;
+            }
+        }
+        ov.hidden = false;
+        ov.setAttribute('aria-hidden', 'false');
+        dictaphoneUiSet('', '');
+        dictaphoneRefreshControls();
+    }
+
+    function dictaphoneStartTake() {
+        if (dictPhase === 'counting' || dictPhase === 'recording') return;
+        const key = DICT_SYLLABLES[dictCurrentIndex];
+        if (!key) return;
+        clearDictCountdownTimers();
+        dictPhase = 'counting';
+        dictaphoneRefreshControls();
+        dictaphoneUiSet('', '');
+        const countWords = ['One', 'Two', 'Three', 'Four'];
+        for (let n = 1; n <= 4; n++) {
+            const tid = setTimeout(() => {
+                dictaphoneUiSet('', countWords[n - 1]);
+            }, (n - 1) * DICT_COUNT_STEP_MS);
+            dictCountdownTimerIds.push(tid);
+        }
+        const startRecTid = setTimeout(() => {
+            dictaphoneBeginRecording(key);
+        }, 3 * DICT_COUNT_STEP_MS);
+        dictCountdownTimerIds.push(startRecTid);
+        const goTid = setTimeout(() => {
+            dictaphoneUiSet('', 'Go');
+        }, 4 * DICT_COUNT_STEP_MS);
+        dictCountdownTimerIds.push(goTid);
+    }
+
+    async function dictaphoneBeginRecording(syllableKey) {
+        dictPhase = 'recording';
+        dictaphoneRefreshControls();
+        dictMediaChunks = [];
+        try {
+            dictMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } catch (e) {
+            console.error('[dictaphone] mic', e);
+            dictaphoneUiSet('Microphone access denied.', '');
+            dictPhase = 'idle';
+            dictaphoneRefreshControls();
+            return;
+        }
+        dictaphoneUiSet('', '');
+        let mime = 'audio/webm';
+        if (!MediaRecorder.isTypeSupported(mime)) mime = '';
+        dictMediaRecorder = mime ? new MediaRecorder(dictMediaStream, { mimeType: mime }) : new MediaRecorder(dictMediaStream);
+        dictMediaRecorder.ondataavailable = (ev) => {
+            if (ev.data && ev.data.size) dictMediaChunks.push(ev.data);
+        };
+        dictMediaRecorder.onstop = async () => {
+            dictPhase = 'idle';
+            if (dictMediaStream) {
+                dictMediaStream.getTracks().forEach(tr => { try { tr.stop(); } catch (_) {} });
+                dictMediaStream = null;
+            }
+            const blob = new Blob(dictMediaChunks, { type: dictMediaRecorder.mimeType || 'audio/webm' });
+            dictMediaRecorder = null;
+            dictMediaChunks = [];
+            try {
+                if (!audioCtx) audioCtx = new AudioContext();
+                if (audioCtx.state === 'suspended') await audioCtx.resume();
+                const arr = await blob.arrayBuffer();
+                const buf = await audioCtx.decodeAudioData(arr.slice(0));
+                customSyllableBuffers[syllableKey] = buf;
+                dictPhase = 'preview';
+                dictaphoneUiSet('', '');
+            } catch (err) {
+                console.error('[dictaphone] decode', err);
+                dictaphoneUiSet('Could not decode recording.', '');
+            }
+            dictaphoneRefreshControls();
+        };
+        dictMediaRecorder.start();
+        dictRecordStopTimer = setTimeout(() => {
+            dictRecordStopTimer = null;
+            if (dictMediaRecorder && dictMediaRecorder.state === 'recording') {
+                try { dictMediaRecorder.stop(); } catch (_) {}
+            }
+        }, DICT_RECORD_MS);
+    }
+
+    function dictaphoneRecordAgain() {
+        if (dictPhase === 'counting' || dictPhase === 'recording') return;
+        const key = DICT_SYLLABLES[dictCurrentIndex];
+        if (!key) return;
+        clearDictCountdownTimers();
+        stopDictMediaRecorderSafe();
+        delete customSyllableBuffers[key];
+        dictPhase = 'idle';
+        dictaphoneUiSet('', '');
+        dictaphoneRefreshControls();
+    }
+
+    function dictaphoneBack() {
+        if (dictPhase === 'counting' || dictPhase === 'recording') return;
+        if (dictCurrentIndex <= 0) return;
+        clearDictCountdownTimers();
+        stopDictMediaRecorderSafe();
+        dictCurrentIndex -= 1;
+        const prevKey = DICT_SYLLABLES[dictCurrentIndex];
+        dictPhase = (prevKey && customSyllableBuffers[prevKey]) ? 'preview' : 'idle';
+        dictaphoneUiSet('', '');
+        dictaphoneRefreshControls();
+    }
+
+    function dictaphonePlayPreview() {
+        const key = DICT_SYLLABLES[dictCurrentIndex];
+        const buf = key ? customSyllableBuffers[key] : null;
+        if (!buf || !audioCtx) return;
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const t = audioCtx.currentTime + 0.02;
+        const src = audioCtx.createBufferSource();
+        const gain = audioCtx.createGain();
+        src.buffer = buf;
+        gain.gain.setValueAtTime(0.92, t);
+        src.connect(gain);
+        gain.connect(audioCtx.destination);
+        src.start(t);
+        src.stop(t + buf.duration + 0.05);
+    }
+
+    function dictaphoneNext() {
+        dictPhase = 'idle';
+        dictaphoneUiSet('', '');
+        if (dictCurrentIndex < DICT_SYLLABLES.length - 1) {
+            dictCurrentIndex += 1;
+            dictaphoneUiSet('', '');
+        } else {
+            dictaphoneUiSet('All syllables recorded.', '');
+            dictPhase = 'done';
+            dictaphoneRefreshControls();
+            return;
+        }
+        dictaphoneRefreshControls();
+    }
 
     function refreshTempoModeUi() {
         const tempoControl = document.getElementById('tempoControl');
         const badge = document.getElementById('tempoX2Badge');
         if (tempoControl) tempoControl.classList.toggle('tempo-x2', tempoDoubleMode);
         if (badge) badge.hidden = !tempoDoubleMode;
-    }
-
-    function toggleTempoDoubleMode() {
-        tempoDoubleMode = !tempoDoubleMode;
-        refreshTempoModeUi();
-        saveSessionState();
     }
 
     function onTapTempo() {
@@ -1385,110 +2127,222 @@
         bpmSliderLastStable = Number.isFinite(v) ? Math.max(20, Math.min(480, v)) : 100;
     }
 
-    function positionBpmFloatHud(bpmSlider, floatHud) {
-        if (!floatHud || floatHud.hidden || !bpmSlider) return;
-        const r = bpmSlider.getBoundingClientRect();
-        floatHud.style.left = `${Math.round(r.left + r.width / 2)}px`;
-        floatHud.style.top = `${Math.round(r.top)}px`;
+    function refreshTapTempoBpmReadout() {
+        if (!tapTempoBpmReadoutActive) return;
+        const bpmSlider = document.getElementById('bpm');
+        const valEl = document.getElementById('tapTempoBpmValue');
+        const leftEl = document.getElementById('tapTempoBpmHintLeft');
+        const rightEl = document.getElementById('tapTempoBpmHintRight');
+        const th = document.getElementById('bpmTactileHint');
+        const v = parseInt(bpmSlider?.value, 10);
+        if (valEl) valEl.textContent = Number.isFinite(v) ? String(v) : '';
+        const text = th && th.textContent ? th.textContent.trim() : '';
+        let isMinus = false;
+        let isPlus = false;
+        if (text) {
+            if (text.startsWith('-') || text === '<<<') isMinus = true;
+            else if (text.startsWith('+') || text === '>>>') isPlus = true;
+        }
+        if (leftEl) leftEl.textContent = isMinus ? text : '';
+        if (rightEl) rightEl.textContent = isPlus ? text : '';
+    }
+
+    function showBpmFloatHud() {
+        const btn = document.getElementById('tapTempoBtn');
+        const idle = document.getElementById('tapTempoIdle');
+        const pane = document.getElementById('tapTempoBpmPane');
+        if (!btn || !idle || !pane) return;
+        tapTempoBpmReadoutActive = true;
+        idle.hidden = true;
+        pane.hidden = false;
+        btn.classList.add('tap-tempo-btn--showing-bpm');
+        refreshTapTempoBpmReadout();
+    }
+
+    function hideBpmFloatHud() {
+        const btn = document.getElementById('tapTempoBtn');
+        const idle = document.getElementById('tapTempoIdle');
+        const pane = document.getElementById('tapTempoBpmPane');
+        tapTempoBpmReadoutActive = false;
+        if (idle) idle.hidden = false;
+        if (pane) pane.hidden = true;
+        if (btn) btn.classList.remove('tap-tempo-btn--showing-bpm');
+    }
+
+    /** Тактильный BPM (порт логики slider/src/App.tsx): смещение от центра → зоны ±1 / ±5 / быстрый шаг; пружина к центру. */
+    function setupBpmTactileSlider() {
+        const wrap = document.getElementById('bpmTactileWrap');
+        const handle = document.getElementById('bpmTactileHandle');
+        const handleWrap = document.getElementById('bpmTactileHandleWrap');
+        const hint = document.getElementById('bpmTactileHint');
+        const bpmSlider = document.getElementById('bpm');
+        if (!wrap || !handle || !handleWrap || !bpmSlider || wrap.dataset.tactileSetup === '1') return;
+        wrap.dataset.tactileSetup = '1';
+
+        const T_MIN = 20;
+        const T_MAX = 480;
+        const SPRING_ALPHA = 0.32;
+        let targetX = 0;
+        let displayX = 0;
+        let rafId = null;
+        let dragging = false;
+        let panPointerId = null;
+        let panStartClientX = 0;
+        let lastPulseMs = 0;
+
+        function syncTactileAria() {
+            const v = parseInt(bpmSlider.value, 10);
+            const n = Number.isFinite(v) ? Math.max(T_MIN, Math.min(T_MAX, v)) : 100;
+            handle.setAttribute('aria-valuenow', String(n));
+        }
+
+        function updateTactileHint() {
+            if (!hint) return;
+            const absX = Math.abs(targetX);
+            const sign = targetX > 0 ? 1 : -1;
+            let t = '';
+            if (absX > 12) {
+                if (absX <= 40) t = sign > 0 ? '+1' : '-1';
+                else if (absX <= 75) t = sign > 0 ? '+5' : '-5';
+                else t = sign > 0 ? '>>>' : '<<<';
+            }
+            hint.textContent = t;
+            refreshTapTempoBpmReadout();
+        }
+
+        function applyBpmDelta(sign, amount) {
+            const cur = parseInt(bpmSlider.value, 10);
+            const base = Number.isFinite(cur) ? cur : 100;
+            const next = Math.max(T_MIN, Math.min(T_MAX, base + amount * sign));
+            bpmSlider.value = String(next);
+            bpmSlider.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        function pulseFromTactileX() {
+            const absX = Math.abs(targetX);
+            const sign = targetX > 0 ? 1 : -1;
+            if (absX <= 12) {
+                lastPulseMs = 0;
+                updateTactileHint();
+                return;
+            }
+            let interval = 400;
+            let amount = 1;
+            if (absX <= 40) {
+                interval = 400;
+                amount = 1;
+            } else if (absX <= 75) {
+                interval = 220;
+                amount = 5;
+            } else {
+                interval = 40;
+                amount = 2;
+            }
+            updateTactileHint();
+            const now = Date.now();
+            if (lastPulseMs === 0 || now - lastPulseMs > interval) {
+                applyBpmDelta(sign, amount);
+                lastPulseMs = now;
+                refreshTapTempoBpmReadout();
+            }
+        }
+
+        function tickTactile() {
+            displayX += (targetX - displayX) * SPRING_ALPHA;
+            handleWrap.style.transform = `translate3d(${displayX}px,0,0)`;
+            pulseFromTactileX();
+            const moving = dragging || Math.abs(targetX) > 0.02 || Math.abs(displayX) > 0.25;
+            if (moving) {
+                rafId = requestAnimationFrame(tickTactile);
+            } else {
+                rafId = null;
+                displayX = 0;
+                targetX = 0;
+                handleWrap.style.transform = '';
+                lastPulseMs = 0;
+                updateTactileHint();
+            }
+        }
+
+        function startTactileRaf() {
+            if (rafId === null) {
+                rafId = requestAnimationFrame(tickTactile);
+            }
+        }
+
+        function applyResistantPan(rawX) {
+            const sign = rawX > 0 ? 1 : -1;
+            targetX = sign * Math.min(Math.pow(Math.abs(rawX), 0.75) * 4, 110);
+        }
+
+        function onPointerDown(e) {
+            if (e.button !== undefined && e.button !== 0) return;
+            dragging = true;
+            panPointerId = e.pointerId;
+            panStartClientX = e.clientX;
+            try {
+                handle.setPointerCapture(e.pointerId);
+            } catch (_) {}
+            showBpmFloatHud();
+            startTactileRaf();
+        }
+
+        function onPointerMove(e) {
+            if (!dragging || e.pointerId !== panPointerId) return;
+            applyResistantPan(e.clientX - panStartClientX);
+            startTactileRaf();
+        }
+
+        function onPointerEnd(e) {
+            if (!dragging) return;
+            if (e && e.pointerId !== undefined && e.pointerId !== panPointerId) return;
+            try {
+                if (e && handle.hasPointerCapture && handle.hasPointerCapture(e.pointerId)) {
+                    handle.releasePointerCapture(e.pointerId);
+                }
+            } catch (_) {}
+            dragging = false;
+            panPointerId = null;
+            targetX = 0;
+            syncBpmSliderLastStable();
+            hideBpmFloatHud();
+            startTactileRaf();
+        }
+
+        handle.addEventListener('pointerdown', onPointerDown);
+        handle.addEventListener('pointermove', onPointerMove);
+        handle.addEventListener('pointerup', onPointerEnd);
+        handle.addEventListener('pointercancel', onPointerEnd);
+
+        handle.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowUp' || e.key === 'ArrowRight') {
+                e.preventDefault();
+                applyBpmDelta(1, 1);
+            } else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') {
+                e.preventDefault();
+                applyBpmDelta(-1, 1);
+            }
+        });
+
+        syncTactileAria();
     }
 
     function setupBpmSliderUi() {
         const bpmSlider = document.getElementById('bpm');
-        const floatHud = document.getElementById('bpmFloatHud');
         if (!bpmSlider || bpmSlider.dataset.bpmUiSetup === '1') return;
         bpmSlider.dataset.bpmUiSetup = '1';
         syncBpmSliderLastStable();
-
-        function onScrollOrResizeReposition() {
-            positionBpmFloatHud(bpmSlider, floatHud);
-        }
-
-        function showBpmFloatHud() {
-            if (!floatHud) return;
-            const wasHidden = floatHud.hidden;
-            floatHud.hidden = false;
-            const v = parseInt(bpmSlider.value, 10);
-            floatHud.textContent = Number.isFinite(v) ? String(v) : '';
-            positionBpmFloatHud(bpmSlider, floatHud);
-            if (wasHidden) {
-                window.addEventListener('resize', onScrollOrResizeReposition, { passive: true });
-                document.addEventListener('scroll', onScrollOrResizeReposition, { capture: true, passive: true });
-                if (window.visualViewport) {
-                    window.visualViewport.addEventListener('resize', onScrollOrResizeReposition, { passive: true });
-                    window.visualViewport.addEventListener('scroll', onScrollOrResizeReposition, { passive: true });
-                }
-            }
-        }
-
-        function hideBpmFloatHud() {
-            if (!floatHud) return;
-            const wasVisible = !floatHud.hidden;
-            floatHud.hidden = true;
-            if (wasVisible) {
-                window.removeEventListener('resize', onScrollOrResizeReposition);
-                document.removeEventListener('scroll', onScrollOrResizeReposition, { capture: true });
-                if (window.visualViewport) {
-                    window.visualViewport.removeEventListener('resize', onScrollOrResizeReposition);
-                    window.visualViewport.removeEventListener('scroll', onScrollOrResizeReposition);
-                }
-            }
-        }
-
-        bpmSlider.addEventListener('dblclick', (event) => {
-            event.preventDefault();
-            toggleTempoDoubleMode();
-        });
-
-        let pointerDown = false;
-        let movedSinceDown = false;
-        let downPid = null;
-        let downX = 0;
-        let downY = 0;
-
-        bpmSlider.addEventListener('pointerdown', (e) => {
-            if (e.button !== undefined && e.button !== 0) return;
-            pointerDown = true;
-            movedSinceDown = false;
-            downPid = e.pointerId;
-            downX = e.clientX;
-            downY = e.clientY;
-            try {
-                bpmSlider.setPointerCapture(e.pointerId);
-            } catch (_) {}
-        });
-        bpmSlider.addEventListener('pointermove', (e) => {
-            if (!pointerDown || e.pointerId !== downPid) return;
-            if (Math.hypot(e.clientX - downX, e.clientY - downY) > 2) {
-                movedSinceDown = true;
-                showBpmFloatHud();
-            }
-        });
-        const endPointer = (e) => {
-            if (!pointerDown) return;
-            if (e && e.pointerId !== undefined && e.pointerId !== downPid) return;
-            try {
-                if (e && bpmSlider.hasPointerCapture && bpmSlider.hasPointerCapture(e.pointerId)) {
-                    bpmSlider.releasePointerCapture(e.pointerId);
-                }
-            } catch (_) {}
-            pointerDown = false;
-            movedSinceDown = false;
-            downPid = null;
-            hideBpmFloatHud();
-        };
-        bpmSlider.addEventListener('pointerup', endPointer);
-        bpmSlider.addEventListener('pointercancel', endPointer);
-
         bpmSlider.addEventListener('input', () => {
-            if (pointerDown && !movedSinceDown) {
-                bpmSlider.value = String(bpmSliderLastStable);
-                updateTempoLabel();
-                return;
-            }
             syncBpmSliderLastStable();
             updateTempoLabel();
-            if (pointerDown) showBpmFloatHud();
+            const h = document.getElementById('bpmTactileHandle');
+            if (h) {
+                const v = parseInt(bpmSlider.value, 10);
+                const n = Number.isFinite(v) ? Math.max(20, Math.min(480, v)) : 100;
+                h.setAttribute('aria-valuenow', String(n));
+            }
         });
+        setupBpmTactileSlider();
     }
 
     function notesCountLabel(n) {
@@ -1502,7 +2356,8 @@
         const barPolymeter = barStates.map(b => Boolean(b.polymeter));
         const barTempoMultipliers = barStates.map(b => b.tempoMultiplier || 1);
         const cellTempoMultipliers = barStates.map(b => (Array.isArray(b.cellTempoMultipliers) ? b.cellTempoMultipliers.slice() : Array.from({ length: b.pulsation }, () => 1)));
-        const checks = barStates.flatMap(b => b.checks);
+        const checksByBar = barStates.map(b => (Array.isArray(b.checks) ? b.checks.map(Boolean) : Array.from({ length: b.pulsation }, () => false)));
+        const checks = checksByBar.flat();
         return {
             pulsation: String(p),
             barsCount: String(bCount),
@@ -1521,8 +2376,240 @@
             barPolymeter,
             barTempoMultipliers,
             cellTempoMultipliers,
-            checks
+            checks,
+            checksByBar,
+            currentStep,
+            lastFocusedBarIndex,
+            snapshotSchema: 2
         };
+    }
+
+    function deepCloneState(obj) {
+        try {
+            return JSON.parse(JSON.stringify(obj));
+        } catch (_) {
+            return null;
+        }
+    }
+
+    /** Ручной снимок (удержание): оба ключа localStorage; старый автосейв мог писать session-ключ без presetMeta — тогда не терять признак «сохранён» по полному ключу. */
+    function parsedHasManualPresetMeta(parsed) {
+        return Boolean(parsed && parsed.presetMeta && parsed.presetMeta.format === 'konnakolMetronomeFullJson_v2');
+    }
+
+    function tryParsePresetStorageJson(raw) {
+        if (!raw) return null;
+        try {
+            return JSON.parse(raw);
+        } catch (_) {
+            return null;
+        }
+    }
+
+    /** Активный слот: приоритет как при загрузке — сначала session с meta, иначе full с meta, иначе «живой» session, иначе full. */
+    function readMergedPresetStateForPresetId(presetIdStr) {
+        try {
+            const rawSession = localStorage.getItem(sessionStorageKeyForPresetId(presetIdStr));
+            const rawFull = localStorage.getItem(fullMetronomeJsonStorageKeyForPresetId(presetIdStr));
+            const sessionParsed = tryParsePresetStorageJson(rawSession);
+            const fullParsed = tryParsePresetStorageJson(rawFull);
+            if (parsedHasManualPresetMeta(sessionParsed)) return sessionParsed;
+            if (parsedHasManualPresetMeta(fullParsed)) return fullParsed;
+            if (sessionParsed) return sessionParsed;
+            if (fullParsed) return fullParsed;
+            return null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function presetHasManualSnapshot(slotZero) {
+        const i = Math.min(PRESET_SLOT_COUNT - 1, Math.max(0, parseInt(slotZero, 10) || 0));
+        const presetIdStr = String(i + 1);
+        let rawSession = null;
+        let rawFull = null;
+        try {
+            rawSession = localStorage.getItem(sessionStorageKeyForPresetId(presetIdStr));
+            rawFull = localStorage.getItem(fullMetronomeJsonStorageKeyForPresetId(presetIdStr));
+        } catch (_) {
+            return false;
+        }
+        for (const raw of [rawSession, rawFull]) {
+            const parsed = tryParsePresetStorageJson(raw);
+            if (parsedHasManualPresetMeta(parsed)) return true;
+        }
+        return false;
+    }
+
+    function stripPresetMetaCloneForCompare(obj) {
+        const c = deepCloneState(obj);
+        if (!c || typeof c !== 'object') return null;
+        delete c.presetMeta;
+        return c;
+    }
+
+    function parsePresetJsonFromFullStorageKey(presetIdStr) {
+        try {
+            const raw = localStorage.getItem(fullMetronomeJsonStorageKeyForPresetId(presetIdStr));
+            return tryParsePresetStorageJson(raw);
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function persistPresetSlotDualWrite(presetIdStr, jsonString) {
+        try {
+            localStorage.setItem(sessionStorageKeyForPresetId(presetIdStr), jsonString);
+            localStorage.setItem(fullMetronomeJsonStorageKeyForPresetId(presetIdStr), jsonString);
+        } catch (_) {}
+    }
+
+    /** Слоты пресетов в DOM — один цикл, без дублирования разметки. */
+    function renderPresetNavLinks() {
+        const strip = document.getElementById('presetNavStrip');
+        if (!strip) return;
+        const slots = strip.querySelector('.preset-nav-slots');
+        if (!slots) return;
+        slots.innerHTML = '';
+        for (let z = 0; z < PRESET_SLOT_COUNT; z++) {
+            const id = z + 1;
+            const a = document.createElement('a');
+            a.className = 'preset-nav-link';
+            a.dataset.preset = String(z);
+            a.href = hrefForPresetSwitch(id);
+            a.textContent = String(id);
+            slots.appendChild(a);
+        }
+    }
+
+    /** Записать полное состояние метронома (из getCurrentSessionState) в ключи целевого слота; без лишнего save в текущий ключ до готовности. */
+    function writeFullMetronomeStateToPreset(targetSlotZero) {
+        if (!isAppReady) return;
+        const i = Math.min(PRESET_SLOT_COUNT - 1, Math.max(0, parseInt(targetSlotZero, 10) || 0));
+        const targetPresetId = String(i + 1);
+        const existingParsed = parsePresetJsonFromFullStorageKey(targetPresetId);
+        const snap = deepCloneState(getCurrentSessionState());
+        if (!snap) return;
+
+        const sourceHasManual = presetHasManualSnapshot(getCurrentPresetIndexZero());
+        const targetHadManual = presetHasManualSnapshot(i);
+
+        if (targetHadManual && existingParsed && parsedHasManualPresetMeta(existingParsed)) {
+            const nextStripped = stripPresetMetaCloneForCompare(snap);
+            const prevStripped = stripPresetMetaCloneForCompare(existingParsed);
+            if (nextStripped && prevStripped && JSON.stringify(nextStripped) === JSON.stringify(prevStripped)) {
+                if (sourceHasManual) {
+                    refreshPresetNavUi();
+                    return;
+                }
+                delete snap.presetMeta;
+                persistPresetSlotDualWrite(targetPresetId, JSON.stringify(snap));
+                showSnapshotSavedToast();
+                refreshPresetNavUi();
+                return;
+            }
+        }
+
+        delete snap.presetMeta;
+        if (sourceHasManual || !targetHadManual) {
+            snap.presetMeta = {
+                preset: parseInt(targetPresetId, 10),
+                savedAt: Date.now(),
+                format: 'konnakolMetronomeFullJson_v2',
+                sourcePreset: parseInt(getCurrentPresetId(), 10)
+            };
+        }
+        persistPresetSlotDualWrite(targetPresetId, JSON.stringify(snap));
+        showSnapshotSavedToast();
+        refreshPresetNavUi();
+    }
+
+    function showSnapshotSavedToast() {
+        let el = document.getElementById('snapshotSavedToast');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'snapshotSavedToast';
+            el.className = 'snapshot-saved-toast';
+            el.setAttribute('role', 'status');
+            el.setAttribute('aria-live', 'polite');
+            el.textContent = 'saved';
+            document.body.appendChild(el);
+        }
+        el.classList.remove('is-animating');
+        void el.offsetWidth;
+        el.classList.add('is-animating');
+    }
+
+    function cancelPresetNavHold() {
+        if (presetNavHoldTimer !== null) {
+            clearTimeout(presetNavHoldTimer);
+            presetNavHoldTimer = null;
+        }
+        presetNavHoldSlot = -1;
+    }
+
+    function refreshPresetNavUi() {
+        const strip = document.getElementById('presetNavStrip');
+        if (!strip) return;
+        const msHint = Math.round(PRESET_HOLD_MS / 100) / 10;
+        strip.querySelectorAll('a.preset-nav-link').forEach((a) => {
+            const i = parseInt(a.dataset.preset, 10);
+            if (!Number.isFinite(i)) return;
+            const saved = presetHasManualSnapshot(i);
+            a.classList.toggle('filled', saved);
+            a.classList.toggle('active', i === getCurrentPresetIndexZero());
+            a.dataset.manualSave = saved ? '1' : '0';
+            a.title = saved
+                ? `Пресет ${i + 1}: сохранён (удерж. ${msHint}s — перезаписать)`
+                : `Пресет ${i + 1}: не сохранён · удерж. ${msHint}s — записать`;
+            a.setAttribute('aria-label', saved ? `Пресет ${i + 1}, сохранён` : `Пресет ${i + 1}, не сохранён`);
+        });
+    }
+
+    function setupPresetNavUi() {
+        const strip = document.getElementById('presetNavStrip');
+        if (!strip) return;
+        const slots = strip.querySelector('.preset-nav-slots');
+        if (!slots) return;
+        if (strip.dataset.presetNavBound !== '1') {
+            renderPresetNavLinks();
+        }
+        if (strip.dataset.presetNavBound === '1') return;
+        strip.dataset.presetNavBound = '1';
+        slots.addEventListener('click', onPresetNavSlotClick, true);
+        strip.querySelectorAll('a.preset-nav-link').forEach((a) => {
+            const i = parseInt(a.dataset.preset, 10);
+            if (!Number.isFinite(i)) return;
+            a.addEventListener('pointerdown', (ev) => {
+                if (ev.button !== undefined && ev.button !== 0) return;
+                cancelPresetNavHold();
+                presetNavHoldSlot = i;
+                a.classList.add('holding');
+                presetNavHoldTimer = setTimeout(() => {
+                    presetNavHoldTimer = null;
+                    presetNavSuppressClick = true;
+                    writeFullMetronomeStateToPreset(i);
+                }, PRESET_HOLD_MS);
+                try {
+                    a.setPointerCapture(ev.pointerId);
+                } catch (_) {}
+            });
+            const onPointerEnd = (ev) => {
+                a.classList.remove('holding');
+                if (presetNavHoldTimer !== null) {
+                    clearTimeout(presetNavHoldTimer);
+                    presetNavHoldTimer = null;
+                }
+                presetNavHoldSlot = -1;
+                try {
+                    if (a.hasPointerCapture && a.hasPointerCapture(ev.pointerId)) {
+                        a.releasePointerCapture(ev.pointerId);
+                    }
+                } catch (_) {}
+            };
+            a.addEventListener('pointerup', onPointerEnd);
+            a.addEventListener('pointercancel', onPointerEnd);
+        });
     }
 
     function normalizeBarScaleValue(v) {
@@ -1564,27 +2651,25 @@
         return map;
     }
 
+    /** Автосохранение в localStorage отключено: слот пишется только через удержание пресета (writeFullMetronomeStateToPreset). Вызовы в коде оставлены как no-op. */
     function saveSessionState() {
-        if (!isAppReady) {
+        if (!isAppReady || suppressSessionWritesDepth > 0) {
             return;
-        }
-        try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(getCurrentSessionState()));
-        } catch (e) {
-            // Ignore storage errors (private mode/quota)
         }
     }
 
     function loadSessionState() {
         try {
-            const raw = localStorage.getItem(STORAGE_KEY);
-            if (!raw) return null;
-            return JSON.parse(raw);
+            return readMergedPresetStateForPresetId(getCurrentPresetId());
         } catch (e) {
             return null;
         }
     }
 
+    /**
+     * Пишет значения контролов из JSON пресета (без пересборки сетки).
+     * Сохранение в слот: saveSessionState (no-op пока !isAppReady или suppressSessionWritesDepth).
+     */
     function applySessionStateToControls(state) {
         if (!state) {
             randomModeEnabled = false;
@@ -1661,12 +2746,10 @@
 
     function updateTempoLabel() {
         const bpmEl = document.getElementById('bpm');
-        const floatHud = document.getElementById('bpmFloatHud');
         const bpm = parseInt(bpmEl?.value, 10);
         if (isNaN(bpm)) return;
-        if (floatHud && !floatHud.hidden) {
-            floatHud.textContent = String(bpm);
-            positionBpmFloatHud(bpmEl, floatHud);
+        if (tapTempoBpmReadoutActive) {
+            refreshTapTempoBpmReadout();
         }
         saveSessionState();
     }
@@ -1781,19 +2864,19 @@
     }
 
     function initApp(options = {}) {
+        isAppReady = false;
         const p = parseInt(document.getElementById('pulsation').value);
         const bCount = parseInt(document.getElementById('barsCount').value);
         const container = document.getElementById('barsContainer');
         setBarScaleForCurrentBarsFromState();
-        // #region agent log
-        fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'pre-fix-1',hypothesisId:'H1',location:'maja/public/konnakol/index.html:initApp',message:'Init app sizing context',data:{p,bCount,innerHeight:window.innerHeight,innerWidth:window.innerWidth,devicePixelRatio:window.devicePixelRatio},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
-        container.innerHTML = '';
         container.style.setProperty('--bars-count', String(bCount));
         container.classList.toggle('many-bars', bCount >= 6);
         applyAdaptiveBarHeights(container, bCount);
         initializeBarStates(p, bCount, options);
-        renderBars(container);
+        const patched = tryPatchBarsDomFromBarStates(container, { forceFullGridRebuild: Boolean(options.forceFullGridRebuild) });
+        if (!patched) {
+            renderBars(container);
+        }
         const tryKeepPlayback = Boolean(options.preservePlaybackDuringGridRebuild && isPlaybackRunning());
         if (tryKeepPlayback && options.playbackAnchor) {
             hidePlaybackFatalError();
@@ -1828,6 +2911,66 @@
         rebuildRandomNotesSelect();
         requestAnimationFrame(() => enforceBarsFit(container, bCount));
         isAppReady = true;
+    }
+
+    function switchPresetSeamlessly() {
+        cancelPresetNavHold();
+        if (isPlaybackRunning()) {
+            stop();
+        }
+        isAppReady = false;
+        suppressSessionWritesDepth += 1;
+        try {
+            const savedState = loadSessionState();
+            applySessionStateToControls(savedState);
+            updateBarScaleLabel();
+            initApp({ reloadBarStatesFromSession: true });
+            restoreSelectState(savedState);
+            updateTempoLabel();
+            refreshTempoModeUi();
+            refreshRandomModeToggleButton();
+            refreshAccentToggleButton();
+        } finally {
+            suppressSessionWritesDepth -= 1;
+        }
+        saveSessionState();
+        refreshPresetNavUi();
+    }
+
+    function onPresetNavSlotClick(e) {
+        const link = e.target.closest('a.preset-nav-link');
+        if (!link) return;
+        if (presetNavSuppressClick) {
+            e.preventDefault();
+            e.stopPropagation();
+            presetNavSuppressClick = false;
+            return;
+        }
+        if (e.defaultPrevented) return;
+        if (e.button !== 0) return;
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        let nextUrl;
+        try {
+            nextUrl = new URL(link.getAttribute('href') || '', location.href);
+        } catch (_) {
+            return;
+        }
+        const nextPreset = nextUrl.searchParams.get(PRESET_QUERY) || '1';
+        if (nextPreset === getCurrentPresetId()) {
+            e.preventDefault();
+            return;
+        }
+        e.preventDefault();
+        history.pushState(null, '', `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+        switchPresetSeamlessly();
+    }
+
+    function setupPresetHistoryNavigation() {
+        if (window.__konnakolPresetPopstateBound) return;
+        window.__konnakolPresetPopstateBound = true;
+        window.addEventListener('popstate', () => {
+            switchPresetSeamlessly();
+        });
     }
 
     function cloneBarStatesRowSnapshot() {
@@ -1873,7 +3016,10 @@
             tempoMultiplier: 1,
             cellTempoMultipliers: Array.from({ length: defaultPulsation }, () => 1)
         });
-        const priorFromLive = !options.ignorePerBarPulsationsFromSession && barStates.length > 0
+        const reloadFromSession = Boolean(options.reloadBarStatesFromSession);
+        const priorFromLive = !reloadFromSession
+            && !options.ignorePerBarPulsationsFromSession
+            && barStates.length > 0
             ? cloneBarStatesRowSnapshot()
             : null;
         barStates = Array.from({ length: bCount }, () => defaultBar());
@@ -1888,9 +3034,9 @@
             return;
         }
 
-        const hasBarPulsations = !options.ignorePerBarPulsationsFromSession
-            && Array.isArray(state.barPulsations)
-            && state.barPulsations.length === bCount;
+        const hasBarPulsations = Array.isArray(state.barPulsations)
+            && state.barPulsations.length === bCount
+            && (!options.ignorePerBarPulsationsFromSession || reloadFromSession);
         if (hasBarPulsations) {
             for (let i = 0; i < bCount; i++) {
                 const p = parseInt(state.barPulsations[i], 10);
@@ -1947,6 +3093,17 @@
             }
         }
 
+        if (reloadFromSession && Array.isArray(state.checksByBar) && state.checksByBar.length === bCount) {
+            for (let b = 0; b < bCount; b++) {
+                const row = state.checksByBar[b];
+                if (!Array.isArray(row)) continue;
+                const pb = barStates[b].pulsation;
+                for (let i = 0; i < pb; i++) {
+                    barStates[b].checks[i] = i < row.length ? Boolean(row[i]) : false;
+                }
+            }
+        }
+
         recalcStepMeta();
     }
 
@@ -1968,10 +3125,161 @@
         }
     }
 
+    /**
+     * Модели отображения ячеек такта (логика совпадает с прежним renderBars); общая для полной пересборки и patch DOM.
+     */
+    function computeBarRhythmCellPresentations(b) {
+        const row = barStates[b];
+        const p = row.pulsation;
+        const seq = syllables[p] || [];
+        const out = [];
+        let lastOriginalSyllable = null;
+        for (let i = 0; i < p; i++) {
+            const s = seq[i] !== undefined ? seq[i] : '';
+            const cellTempoMultiplier = row.cellTempoMultipliers?.[i] || 1;
+            const mult = getCellTempoMultiplier(b, i);
+            let displaySyllable = s;
+            if (seq.length === 0) {
+                displaySyllable = s;
+                lastOriginalSyllable = s;
+            } else {
+                const defaultStart = (mult === 1) ? (i % seq.length) : 0;
+                let displayStart = defaultStart;
+                const isLastBeatInBar = i === p - 1;
+                if (mult === 1 && !isLastBeatInBar && lastOriginalSyllable != null && seq[defaultStart] === lastOriginalSyllable) {
+                    displayStart = (defaultStart - 1 + seq.length) % seq.length;
+                }
+                if (mult === 1) {
+                    displaySyllable = seq[displayStart];
+                } else if (mult === 2) {
+                    displaySyllable = `${seq[0]} ${seq[1 % seq.length]}`;
+                } else if (mult === 4) {
+                    const q = SUBDIV_X3_LABEL_QUAD;
+                    displaySyllable = `${q[0]} ${q[1]}\n${q[2]} ${q[3]}`;
+                } else {
+                    displaySyllable = s;
+                }
+                if (mult === 1) {
+                    lastOriginalSyllable = seq[displayStart];
+                } else if (mult === 2) {
+                    lastOriginalSyllable = seq[1 % seq.length];
+                } else if (mult === 4) {
+                    lastOriginalSyllable = SUBDIV_X3_LABEL_QUAD[3];
+                } else {
+                    lastOriginalSyllable = s;
+                }
+            }
+            out.push({
+                displaySyllable,
+                cellTempoMultiplier,
+                mult,
+                rhythmOn: Boolean(row.checks[i])
+            });
+        }
+        return out;
+    }
+
+    function domRhythmStructureMatchesBarStates(container, states) {
+        if (!container || !Array.isArray(states) || states.length === 0) return false;
+        const barEls = container.querySelectorAll(':scope > .bar');
+        if (barEls.length !== states.length) return false;
+        for (let b = 0; b < states.length; b++) {
+            const grid = barEls[b].querySelector(':scope > .bar-body > .rhythm-grid');
+            if (!grid) return false;
+            const n = grid.querySelectorAll(':scope > .cell').length;
+            if (n !== states[b].pulsation) return false;
+        }
+        return true;
+    }
+
+    function patchRhythmCellFromPresentation(cell, b, beatIndex, pres, globalStep) {
+        const p = barStates[b].pulsation;
+        const cellTempoMultiplier = pres.cellTempoMultiplier;
+        const rhythmOn = pres.rhythmOn;
+        cell.className = 'cell'
+            + (rhythmOn ? ' rhythm-note-on' : '')
+            + (cellTempoMultiplier > 1 ? ' tempo-boost' : '')
+            + (cellTempoMultiplier === 4 ? ' tempo-boost-x3' : '')
+            + (cellTempoMultiplier === 4
+                ? ' cell-profile-x3'
+                : (cellTempoMultiplier === 2 ? ' cell-profile-x2' : ' cell-profile-default'));
+        cell.dataset.barIndex = String(b);
+        cell.dataset.localIndex = String(beatIndex);
+        cell.dataset.tempoMultiplier = String(cellTempoMultiplier);
+        cell.id = `step-${globalStep}`;
+        cell.setAttribute('aria-pressed', rhythmOn ? 'true' : 'false');
+        cell.setAttribute('aria-label', `${String(pres.displaySyllable).replace(/\n/g, ', ')}, bar ${b + 1}, beat ${beatIndex + 1}`);
+        let label = cell.querySelector('small');
+        if (!label) {
+            label = document.createElement('small');
+            const badge = cell.querySelector('.cell-speed-badge');
+            if (badge) cell.insertBefore(label, badge);
+            else cell.appendChild(label);
+        }
+        label.textContent = pres.displaySyllable;
+        label.classList.toggle('subdiv-label', cellTempoMultiplier > 1);
+        label.classList.toggle('dense', cellTempoMultiplier > 1 && p > 4);
+        let badge = cell.querySelector('.cell-speed-badge');
+        if (cellTempoMultiplier > 1) {
+            if (!badge) {
+                badge = document.createElement('span');
+                cell.appendChild(badge);
+            }
+            badge.className = 'cell-speed-badge' + (cellTempoMultiplier === 4 ? ' x3' : '');
+            badge.textContent = cellTempoMultiplier === 4 ? 'x3' : 'x2';
+        } else if (badge) {
+            badge.remove();
+        }
+    }
+
+    function patchBarsDomFromBarStates(container) {
+        let globalStep = 0;
+        const barEls = container.querySelectorAll(':scope > .bar');
+        for (let b = 0; b < barStates.length; b++) {
+            const barEl = barEls[b];
+            const tempoMultiplier = barStates[b].tempoMultiplier || 1;
+            barEl.className = 'bar'
+                + (tempoMultiplier > 1 ? ' tempo-boost' : '')
+                + (tempoMultiplier === 4 ? ' tempo-boost-x3' : '');
+            barEl.dataset.barIndex = String(b);
+            const barTempoLabel = tempoMultiplier === 4 ? 3 : tempoMultiplier;
+            const tempoHandle = document.getElementById(`bar-tempo-handle-${b}`);
+            if (tempoHandle) {
+                tempoHandle.textContent = `x${barTempoLabel}`;
+                tempoHandle.classList.toggle('x3', tempoMultiplier === 4);
+            }
+            const pulseHandle = document.getElementById(`pulsation-handle-${b}`);
+            if (pulseHandle) {
+                pulseHandle.textContent = String(barStates[b].pulsation);
+                pulseHandle.classList.toggle('polymeter', barStates[b].polymeter);
+            }
+            const grid = barEl.querySelector(':scope > .bar-body > .rhythm-grid');
+            if (grid) {
+                grid.dataset.pulsation = String(barStates[b].pulsation);
+            }
+            const presentations = computeBarRhythmCellPresentations(b);
+            const cells = barEl.querySelectorAll(':scope > .bar-body > .rhythm-grid > .cell');
+            for (let i = 0; i < cells.length; i++) {
+                patchRhythmCellFromPresentation(cells[i], b, i, presentations[i], globalStep);
+                globalStep += 1;
+            }
+        }
+    }
+
+    /**
+     * Если число тактов и долей в каждом такте совпадает с уже отрисованной сеткой — обновляем классы/тексты без replaceChildren.
+     */
+    function tryPatchBarsDomFromBarStates(container, options = {}) {
+        if (options.forceFullGridRebuild) return false;
+        if (!container || !barStates.length) return false;
+        if (!domRhythmStructureMatchesBarStates(container, barStates)) return false;
+        patchBarsDomFromBarStates(container);
+        return true;
+    }
+
     function renderBars(container) {
         recalcStepMeta();
-        container.innerHTML = '';
-        let lastOriginalSyllable = null;
+        const fragment = document.createDocumentFragment();
         let globalStep = 0;
         for (let b = 0; b < barStates.length; b++) {
             const barDiv = document.createElement('div');
@@ -1986,7 +3294,6 @@
             barBody.className = 'bar-body';
             const controlsStack = document.createElement('div');
             controlsStack.className = 'bar-controls-stack';
-            /* Width from CSS (based on --total-cell-height), not % of row — avoids stretching when viewport width jitters. */
             controlsStack.innerHTML = `<span class="bar-tempo-handle${tempoMultiplier === 4 ? ' x3' : ''}" id="bar-tempo-handle-${b}" onpointerdown="startBarTempoHold(event, ${b})" onpointerup="endBarTempoHold(event, ${b})" onpointercancel="endBarTempoHold(event, ${b})">x${barTempoLabel}</span><span class="pulsation-handle${barStates[b].polymeter ? ' polymeter' : ''}" id="pulsation-handle-${b}" onpointerdown="startPulsationMenuHold(event, ${b})" onpointerup="endPulsationMenuHold(event, ${b})" onpointercancel="endPulsationMenuHold(event, ${b})" onclick="togglePulsationMenu(event, ${b})">${barStates[b].pulsation}</span>`;
             barBody.appendChild(controlsStack);
 
@@ -1994,14 +3301,12 @@
             grid.className = 'rhythm-grid';
             grid.dataset.pulsation = String(barStates[b].pulsation);
 
-            const p = barStates[b].pulsation;
-            lastOriginalSyllable = null;
-            syllables[p].forEach((s, i) => {
+            const presentations = computeBarRhythmCellPresentations(b);
+            presentations.forEach((pres, i) => {
                 const cell = document.createElement('div');
-                const cellTempoMultiplier = barStates[b].cellTempoMultipliers?.[i] || 1;
-                const mult = getCellTempoMultiplier(b, i);
+                const cellTempoMultiplier = pres.cellTempoMultiplier;
                 cell.className = 'cell'
-                    + (barStates[b].checks[i] ? ' rhythm-note-on' : '')
+                    + (pres.rhythmOn ? ' rhythm-note-on' : '')
                     + (cellTempoMultiplier > 1 ? ' tempo-boost' : '')
                     + (cellTempoMultiplier === 4 ? ' tempo-boost-x3' : '')
                     + (cellTempoMultiplier === 4
@@ -2013,55 +3318,15 @@
                 cell.id = `step-${globalStep}`;
                 cell.setAttribute('role', 'button');
                 cell.setAttribute('tabindex', '0');
-                cell.setAttribute('aria-pressed', barStates[b].checks[i] ? 'true' : 'false');
+                cell.setAttribute('aria-pressed', pres.rhythmOn ? 'true' : 'false');
                 const label = document.createElement('small');
-                const seq = syllables[p] || [];
-                let displaySyllable = s;
-                if (seq.length === 0) {
-                    displaySyllable = s;
-                    lastOriginalSyllable = s;
-                } else {
-                    // Base: x1 follows grid; x2/x4 always start from Ta (index 0).
-                    const defaultStart = (mult === 1) ? (i % seq.length) : 0;
-
-                    let displayStart = defaultStart;
-
-                    // Smart shift: x1 only, not on last beat of bar, only vs previous in same bar (lastOriginal resets each bar).
-                    const isLastBeatInBar = i === p - 1;
-                    if (mult === 1 && !isLastBeatInBar && lastOriginalSyllable != null && seq[defaultStart] === lastOriginalSyllable) {
-                        displayStart = (defaultStart - 1 + seq.length) % seq.length;
-                    }
-
-                    // Build label string (syllable stitching rules).
-                    if (mult === 1) {
-                        displaySyllable = seq[displayStart];
-                    } else if (mult === 2) {
-                        // Two subdivisions: Ta Ka when pattern starts that way.
-                        displaySyllable = `${seq[0]} ${seq[1 % seq.length]}`;
-                    } else if (mult === 4) {
-                        const q = SUBDIV_X3_LABEL_QUAD;
-                        displaySyllable = `${q[0]} ${q[1]}\n${q[2]} ${q[3]}`;
-                    } else {
-                        displaySyllable = s;
-                    }
-
-                    // Remember real last syllable for the next neighbouring cell.
-                    if (mult === 1) {
-                        lastOriginalSyllable = seq[displayStart];
-                    } else if (mult === 2) {
-                        lastOriginalSyllable = seq[1 % seq.length];
-                    } else if (mult === 4) {
-                        lastOriginalSyllable = SUBDIV_X3_LABEL_QUAD[3];
-                    } else {
-                        lastOriginalSyllable = s;
-                    }
-                }
-                label.textContent = displaySyllable;
-                cell.setAttribute('aria-label', `${String(displaySyllable).replace(/\n/g, ', ')}, bar ${b + 1}, beat ${i + 1}`);
+                label.textContent = pres.displaySyllable;
+                const p = barStates[b].pulsation;
                 if (cellTempoMultiplier > 1) {
                     label.classList.add('subdiv-label');
                     if (p > 4) label.classList.add('dense');
                 }
+                cell.setAttribute('aria-label', `${String(pres.displaySyllable).replace(/\n/g, ', ')}, bar ${b + 1}, beat ${i + 1}`);
                 cell.appendChild(label);
                 if (cellTempoMultiplier > 1) {
                     const speedBadge = document.createElement('span');
@@ -2085,8 +3350,9 @@
 
             barBody.appendChild(grid);
             barDiv.appendChild(barBody);
-            container.appendChild(barDiv);
+            fragment.appendChild(barDiv);
         }
+        container.replaceChildren(fragment);
     }
 
     function mapChecksToNewPulsation(oldChecks, oldP, newP) {
@@ -2463,7 +3729,9 @@
     }
 
     /**
-     * Высота области сетки без привязки к window.innerHeight / visualViewport (скачки при скрытии адресной строки Chrome).
+     * Высота области сетки без привязки к window.innerHeight / visualViewport:
+     * при скрытии адресной строки Chrome innerHeight скачет и такты «раздуваются».
+     * Берём короткую сторону screen (стабильнее) и ограничиваем диапазон.
      */
     function getAllowedBarsHeight(container) {
         const rect = container.getBoundingClientRect();
@@ -2527,9 +3795,6 @@
         container.style.setProperty('--bars-gap', `${gap}px`);
         container.style.setProperty('--bar-height', `${barHeight}px`);
         container.style.setProperty('--cell-height', `${cellHeight}px`);
-        // #region agent log
-        fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'pre-fix-1',hypothesisId:'H2',location:'maja/public/konnakol/index.html:applyAdaptiveBarHeights',message:'Computed adaptive sizes',data:{bCount,allowedHeight,rows,totalHeightFor5,totalHeight,gap,freeHeight,barHeight,cellHeight,innerHeight:window.innerHeight},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
     }
 
     function enforceBarsFit(container, bCount) {
@@ -2563,9 +3828,6 @@
                 container.style.setProperty('--cell-height', `${scaledCell}px`);
             }
         }
-        // #region agent log
-        fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'pre-fix-1',hypothesisId:'H3',location:'maja/public/konnakol/index.html:enforceBarsFit',message:'Post-fit measurements',data:{bCount,allowedHeight,beforeScrollHeight,afterScrollHeight:container.scrollHeight,barHeight:container.style.getPropertyValue('--bar-height'),cellHeight:container.style.getPropertyValue('--cell-height'),gap:container.style.getPropertyValue('--bars-gap'),iterations:safety},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
     }
 
     function parsePatternSpec() {
@@ -2754,11 +4016,15 @@
         toggleRandomModeFromButton();
     }
 
-    function playSharpClick(time, isChecked) {
+    function playSharpClick(time, isChecked, syllableKey) {
         if (!accentOnlyEnabled && !isChecked) return;
         if (!audioCtx) audioCtx = new AudioContext();
         if (selectedSoundPreset === 'custom') {
-            const buffer = isChecked ? (customAccentBuffer || customClickBuffer) : (customClickBuffer || customAccentBuffer);
+            const mapKey = dictNormalizeSyllableKey(syllableKey || '');
+            let buffer = (mapKey && customSyllableBuffers[mapKey]) ? customSyllableBuffers[mapKey] : null;
+            if (!buffer) {
+                buffer = isChecked ? (customAccentBuffer || customClickBuffer) : (customClickBuffer || customAccentBuffer);
+            }
             if (buffer) {
                 const src = audioCtx.createBufferSource();
                 const gainNode = audioCtx.createGain();
@@ -2853,14 +4119,16 @@
         const cellMult = getCellTempoMultiplier(meta.barIndex, meta.localIndex);
         const uiDedupKey = `${step}:${time.toFixed(6)}`;
         const metaSnapshot = { barIndex: meta.barIndex, localIndex: meta.localIndex };
+        const pForSyl = barStates[meta.barIndex].pulsation;
+        const syllableKey = (syllables[pForSyl] || [])[meta.localIndex] || '';
 
         if (meta.localIndex === 0) {
             playBarFirstHighClick(time);
         }
 
-        // One cell flag (white = accent / grey = normal) sets timbre for all x2/x4 subdivisions.
         for (let k = 0; k < cellMult; k++) {
-            playSharpClick(time + (k * stepDuration / cellMult), isChecked);
+            const subClickIsAccent = cellMult > 1 ? true : isChecked;
+            playSharpClick(time + (k * stepDuration / cellMult), subClickIsAccent, syllableKey);
         }
 
         const evtSeq = ++playbackUiEventSeq;
@@ -2969,9 +4237,6 @@
         currentStep = 0;
         lastFocusedBarIndex = -1;
         nextNoteTime = audioCtx.currentTime + 0.05;
-        // #region agent log
-        fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'cycle-debug-3',hypothesisId:'H6',location:'maja/public/konnakol/index.html:start',message:'Playback started with mode flags',data:{enableRandomizer,playbackRandomizerEnabled,randomPatternAfterEachBar:Boolean(document.getElementById('randomPatternAfterEachBar')?.checked),randomPulsationAfterEachBar:Boolean(document.getElementById('randomPulsationAfterEachBar')?.checked),barsCount:barStates.length},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
         scheduler();
         document.getElementById('playBtn').style.display = 'none';
         document.getElementById('stopBtn').style.display = 'block';
@@ -2998,9 +4263,6 @@
     }
 
     const savedState = loadSessionState();
-    // #region agent log
-    fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'cycle-debug-2',hypothesisId:'H0',location:'maja/public/konnakol/index.html:bootstrap',message:'Cycle debug instrumentation active',data:{version:'cycle-queue-v2'},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     applySessionStateToControls(savedState);
     updateBarScaleLabel();
     initApp();
@@ -3011,6 +4273,9 @@
     refreshRandomModeToggleButton();
     refreshAccentToggleButton();
     saveSessionState();
+    setupPresetNavUi();
+    setupPresetHistoryNavigation();
+    refreshPresetNavUi();
 
     const topFoldRowEl = document.getElementById('topFoldRow');
     const mainSettingsFoldEl = document.getElementById('mainSettingsFold');
@@ -3244,7 +4509,7 @@
         flushPendingTopFoldsClose();
     }, { passive: true });
 
-    /* Авто-refit по resize / visualViewport отключён: см. getAllowedBarsHeight. */
+    /* Авто-refit по resize / visualViewport отключён: см. getAllowedBarsHeight (стабильная высота). */
     const pulsationDragPanelListEl = document.getElementById('pulsationDragPanelList');
     if (pulsationDragPanelListEl) {
         pulsationDragPanelListEl.addEventListener('click', (event) => {
