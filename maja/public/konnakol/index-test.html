@@ -2144,6 +2144,7 @@
             grid.dataset.pulsation = String(barStates[b].pulsation);
 
             const p = barStates[b].pulsation;
+            lastOriginalSyllable = null;
             syllables[p].forEach((s, i) => {
                 const cell = document.createElement('div');
                 const cellTempoMultiplier = barStates[b].cellTempoMultipliers?.[i] || 1;
@@ -2174,9 +2175,9 @@
 
                     let displayStart = defaultStart;
 
-                    // Smart shift: only for single cells (mult === 1).
-                    // Multipliers (x2, x4) are locked and do not jump.
-                    if (mult === 1 && lastOriginalSyllable != null && seq[defaultStart] === lastOriginalSyllable) {
+                    // Smart shift: x1 only, not on last beat of bar, only vs previous in same bar (lastOriginal resets each bar).
+                    const isLastBeatInBar = i === p - 1;
+                    if (mult === 1 && !isLastBeatInBar && lastOriginalSyllable != null && seq[defaultStart] === lastOriginalSyllable) {
                         displayStart = (defaultStart - 1 + seq.length) % seq.length;
                     }
 
