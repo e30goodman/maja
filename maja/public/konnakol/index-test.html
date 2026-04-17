@@ -256,7 +256,7 @@
             text-transform: uppercase;
             letter-spacing: 0.05em;
         }
-        .snapshot-strip {
+        .preset-nav-strip {
             display: flex;
             flex-wrap: wrap;
             align-items: center;
@@ -266,7 +266,7 @@
             padding: 0 2px;
             box-sizing: border-box;
         }
-        .snapshot-slots {
+        .preset-nav-slots {
             display: flex;
             flex-wrap: nowrap;
             align-items: center;
@@ -277,7 +277,7 @@
             min-width: 0;
             box-sizing: border-box;
         }
-        .snapshot-slot-btn {
+        a.preset-nav-link {
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -299,24 +299,25 @@
             touch-action: none;
             -webkit-tap-highlight-color: transparent;
             outline: none;
+            text-decoration: none;
             transition: transform 0.12s ease, color 0.12s ease, text-shadow 0.12s ease, background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
         }
-        .snapshot-slot-btn:hover {
+        a.preset-nav-link:hover {
             background: rgba(139, 92, 246, 0.24);
             border-color: rgba(196, 181, 253, 0.82);
             color: #e9d5ff;
         }
-        .snapshot-slot-btn:focus,
-        .snapshot-slot-btn:focus-visible {
+        a.preset-nav-link:focus,
+        a.preset-nav-link:focus-visible {
             outline: none;
             box-shadow: none;
         }
-        .snapshot-slot-btn.filled {
+        a.preset-nav-link.filled {
             background: rgba(139, 92, 246, 0.26);
             border-color: rgba(196, 181, 253, 0.72);
             color: #f5f3ff;
         }
-        .snapshot-slot-btn.active {
+        a.preset-nav-link.active {
             color: #fff;
             border-color: rgba(196, 181, 253, 0.95);
             background: rgba(139, 92, 246, 0.34);
@@ -324,7 +325,7 @@
             transform: scale(1.06);
             text-shadow: 0 0 10px rgba(139, 92, 246, 0.55);
         }
-        .snapshot-slot-btn.holding {
+        a.preset-nav-link.holding {
             transform: scale(1.1);
             text-shadow: 0 0 10px rgba(139, 92, 246, 0.5);
             background: rgba(139, 92, 246, 0.3);
@@ -1016,12 +1017,12 @@
                 height: 10px;
                 padding: 0 2px;
             }
-            .snapshot-strip { margin-top: 8px; padding: 0; }
-            .snapshot-slots {
+            .preset-nav-strip { margin-top: 8px; padding: 0; }
+            .preset-nav-slots {
                 gap: clamp(3px, 1vw, 10px);
                 justify-content: space-between;
             }
-            .snapshot-slot-btn {
+            a.preset-nav-link {
                 min-width: 30px;
                 height: 26px;
                 padding: 0 6px;
@@ -1245,18 +1246,18 @@
         <div class="tempo-readout">
             <small id="bpmValue" class="hint-muted">100 BPM</small>
         </div>
-        <div class="snapshot-strip" id="snapshotStrip" aria-label="Пресеты состояния">
-            <div class="snapshot-slots" role="toolbar" aria-label="Слоты 1–8">
-                <button type="button" class="snapshot-slot-btn" data-slot="0" aria-label="Слот 1">1</button>
-                <button type="button" class="snapshot-slot-btn" data-slot="1" aria-label="Слот 2">2</button>
-                <button type="button" class="snapshot-slot-btn" data-slot="2" aria-label="Слот 3">3</button>
-                <button type="button" class="snapshot-slot-btn" data-slot="3" aria-label="Слот 4">4</button>
-                <button type="button" class="snapshot-slot-btn" data-slot="4" aria-label="Слот 5">5</button>
-                <button type="button" class="snapshot-slot-btn" data-slot="5" aria-label="Слот 6">6</button>
-                <button type="button" class="snapshot-slot-btn" data-slot="6" aria-label="Слот 7">7</button>
-                <button type="button" class="snapshot-slot-btn" data-slot="7" aria-label="Слот 8">8</button>
+        <nav class="preset-nav-strip" id="presetNavStrip" aria-label="Восемь отдельных метрономов (пресеты)">
+            <div class="preset-nav-slots" role="toolbar" aria-label="Пресеты 1–8">
+                <a class="preset-nav-link" data-preset="0" href="?preset=1">1</a>
+                <a class="preset-nav-link" data-preset="1" href="?preset=2">2</a>
+                <a class="preset-nav-link" data-preset="2" href="?preset=3">3</a>
+                <a class="preset-nav-link" data-preset="3" href="?preset=4">4</a>
+                <a class="preset-nav-link" data-preset="4" href="?preset=5">5</a>
+                <a class="preset-nav-link" data-preset="5" href="?preset=6">6</a>
+                <a class="preset-nav-link" data-preset="6" href="?preset=7">7</a>
+                <a class="preset-nav-link" data-preset="7" href="?preset=8">8</a>
             </div>
-        </div>
+        </nav>
     </div>
 
     <div id="barsContainer" class="bars-container"></div>
@@ -1356,16 +1357,47 @@
     const ACCENT_HOLD_MS = 420;
     /** Upper bound for Max N dropdown options (independent of current pulsation; cap vs beats in bar is separate). */
     const RAND_NOTES_MENU_MAX = 9;
-    const STORAGE_KEY = 'konnakolSessionStateV1Test';
-    const SNAPSHOT_STORAGE_KEY = 'konnakolSnapshotsV1Test';
-    const SNAPSHOT_SLOT_COUNT = 8;
-    /** Удержание слота для записи текущего состояния (мс). */
-    const SNAPSHOT_HOLD_MS = 550;
-    const snapshotBank = { slots: Array(SNAPSHOT_SLOT_COUNT).fill(null) };
-    let activeLoadedSnapshotSlot = null;
-    let snapshotHoldTimer = null;
-    let snapshotHoldIndex = -1;
-    let snapshotHoldSaveActivated = false;
+    const PRESET_QUERY = 'preset';
+    const PRESET_SLOT_COUNT = 8;
+    const PRESET_HOLD_MS = 550;
+    function parsePresetIndexFromUrl() {
+        try {
+            const n = parseInt(new URLSearchParams(location.search).get(PRESET_QUERY) || '1', 10);
+            if (Number.isFinite(n) && n >= 1 && n <= PRESET_SLOT_COUNT) return n - 1;
+        } catch (_) {}
+        return 0;
+    }
+    const CURRENT_PRESET_INDEX = parsePresetIndexFromUrl();
+    (function ensurePresetIdInUrl() {
+        if (location.search.includes(`${PRESET_QUERY}=`)) return;
+        try {
+            const u = new URL(location.href);
+            u.searchParams.set(PRESET_QUERY, String(CURRENT_PRESET_INDEX + 1));
+            history.replaceState({}, '', `${u.pathname}?${u.searchParams.toString()}${u.hash}`);
+        } catch (_) {}
+    })();
+    function sessionStorageKeyForPreset(slotZero) {
+        return `konnakolSessionStateV1Test_preset${slotZero + 1}`;
+    }
+    /** Полный JSON метронома (акценты, сетки, UI) для пресета — дублирует сессионный ключ при сохранении. */
+    function fullMetronomeJsonStorageKey(slotZero) {
+        return `konnakolMetronomeFullJson_v2_preset${slotZero + 1}`;
+    }
+    function migrateLegacySessionIntoPreset1() {
+        const legacy = 'konnakolSessionStateV1Test';
+        const k1 = sessionStorageKeyForPreset(0);
+        try {
+            if (localStorage.getItem(k1)) return;
+            const raw = localStorage.getItem(legacy);
+            if (!raw) return;
+            localStorage.setItem(k1, raw);
+        } catch (_) {}
+    }
+    migrateLegacySessionIntoPreset1();
+    const STORAGE_KEY = sessionStorageKeyForPreset(CURRENT_PRESET_INDEX);
+    let presetNavHoldTimer = null;
+    let presetNavHoldSlot = -1;
+    let presetNavSuppressClick = false;
 
     const syllables = {
         1: ["Ta"],
@@ -2071,127 +2103,36 @@
         }
     }
 
-    /** Снимок «пустого» пресета как у свежей страницы: 4×4, без акцентов, без рандом-режима. */
-    function getCanonicalEmptySnapshot() {
-        const p = 4;
-        const bCount = 4;
-        const barPulsations = Array.from({ length: bCount }, () => p);
-        const barPolymeter = Array.from({ length: bCount }, () => false);
-        const barTempoMultipliers = Array.from({ length: bCount }, () => 1);
-        const cellTempoMultipliers = Array.from({ length: bCount }, () => Array.from({ length: p }, () => 1));
-        const checksByBar = Array.from({ length: bCount }, () => Array.from({ length: p }, () => false));
-        const checks = checksByBar.flat();
-        return {
-            pulsation: String(p),
-            barsCount: String(bCount),
-            randNotesPerBar: 'random',
-            randomPatternAfterEachBar: true,
-            randomPatternSpeedChange: false,
-            randomPulsationAfterEachBar: false,
-            randomModeEnabled: false,
-            accentOnlySound: true,
-            barFirstSyllableHighEnabled: false,
-            soundPreset: 'classic',
-            tempoDoubleMode: false,
-            bpm: '100',
-            barScaleByCount: defaultBarScaleMap(),
-            barPulsations,
-            barPolymeter,
-            barTempoMultipliers,
-            cellTempoMultipliers,
-            checks,
-            checksByBar,
-            currentStep: 0,
-            lastFocusedBarIndex: -1,
-            snapshotSchema: 2
-        };
-    }
-
-    function loadSnapshotBankFromStorage() {
-        const emptyClone = () => deepCloneState(getCanonicalEmptySnapshot());
-        let needPersist = false;
-        let persistedActiveSlot = null;
+    function presetHasSavedData(slotZero) {
         try {
-            const raw = localStorage.getItem(SNAPSHOT_STORAGE_KEY);
-            if (!raw) {
-                for (let i = 0; i < SNAPSHOT_SLOT_COUNT; i++) {
-                    snapshotBank.slots[i] = emptyClone();
-                }
-                needPersist = true;
-            } else {
-                const o = JSON.parse(raw);
-                if (!o || !Array.isArray(o.slots)) {
-                    for (let i = 0; i < SNAPSHOT_SLOT_COUNT; i++) {
-                        snapshotBank.slots[i] = emptyClone();
-                    }
-                    needPersist = true;
-                } else {
-                    if (typeof o.activeSlot === 'number'
-                        && o.activeSlot >= 0
-                        && o.activeSlot < SNAPSHOT_SLOT_COUNT) {
-                        persistedActiveSlot = o.activeSlot;
-                    }
-                    for (let i = 0; i < SNAPSHOT_SLOT_COUNT; i++) {
-                        if (o.slots[i]) {
-                            snapshotBank.slots[i] = deepCloneState(o.slots[i]);
-                        } else {
-                            snapshotBank.slots[i] = emptyClone();
-                            needPersist = true;
-                        }
-                    }
-                }
-            }
+            return Boolean(
+                localStorage.getItem(sessionStorageKeyForPreset(slotZero))
+                || localStorage.getItem(fullMetronomeJsonStorageKey(slotZero))
+            );
         } catch (_) {
-            for (let i = 0; i < SNAPSHOT_SLOT_COUNT; i++) {
-                snapshotBank.slots[i] = emptyClone();
-            }
-            needPersist = true;
+            return false;
         }
-        if (needPersist) persistSnapshotBank();
-        return persistedActiveSlot;
     }
 
-    function persistSnapshotBank() {
+    /** Записать полное состояние текущего метронома в localStorage выбранного пресета (сессия + JSON-копия). */
+    function writeFullMetronomeStateToPreset(slotZero) {
+        const i = Math.min(PRESET_SLOT_COUNT - 1, Math.max(0, parseInt(slotZero, 10) || 0));
+        saveSessionState();
+        const snap = deepCloneState(getCurrentSessionState());
+        if (!snap) return;
+        snap.presetMeta = {
+            preset: i + 1,
+            savedAt: Date.now(),
+            format: 'konnakolMetronomeFullJson_v2',
+            sourcePreset: CURRENT_PRESET_INDEX + 1
+        };
+        const json = JSON.stringify(snap);
         try {
-            localStorage.setItem(SNAPSHOT_STORAGE_KEY, JSON.stringify({
-                v: 2,
-                slots: snapshotBank.slots,
-                activeSlot: activeLoadedSnapshotSlot
-            }));
+            localStorage.setItem(sessionStorageKeyForPreset(i), json);
+            localStorage.setItem(fullMetronomeJsonStorageKey(i), json);
         } catch (_) {}
-    }
-
-    function buildFullSnapshotForSlot() {
-        return deepCloneState(getCurrentSessionState());
-    }
-
-    function applyState(snapshot, applyOpts = {}) {
-        if (!snapshot || typeof snapshot !== 'object') return;
-        const data = deepCloneState(snapshot);
-        if (!data) return;
-        data.currentStep = 0;
-        data.lastFocusedBarIndex = -1;
-        stop();
-        try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-        } catch (_) {}
-        applySessionStateToControls(data);
-        initApp({ reloadBarStatesFromSession: true });
-        restoreSelectState(data);
-        syncBpmSliderLastStable();
-        updateBarScaleLabel();
-        currentStep = 0;
-        lastFocusedBarIndex = -1;
-        lastKnownRandomPatternEnabled = Boolean(document.getElementById('randomPatternAfterEachBar')?.checked);
-        playbackRandomizerEnabled = false;
-        updateTempoLabel();
-        if (typeof applyOpts.activeSlotIndex === 'number'
-            && applyOpts.activeSlotIndex >= 0
-            && applyOpts.activeSlotIndex < SNAPSHOT_SLOT_COUNT) {
-            activeLoadedSnapshotSlot = applyOpts.activeSlotIndex;
-        }
-        refreshSnapshotSlotsUi();
-        persistSnapshotBank();
+        showSnapshotSavedToast();
+        refreshPresetNavUi();
     }
 
     function showSnapshotSavedToast() {
@@ -2210,96 +2151,70 @@
         el.classList.add('is-animating');
     }
 
-    function saveCurrentStateIntoSlot(slotIndex) {
-        const i = Math.min(SNAPSHOT_SLOT_COUNT - 1, Math.max(0, parseInt(slotIndex, 10) || 0));
-        saveSessionState();
-        const snap = buildFullSnapshotForSlot();
-        if (!snap) return;
-        snapshotBank.slots[i] = snap;
-        activeLoadedSnapshotSlot = i;
-        persistSnapshotBank();
-        refreshSnapshotSlotsUi();
-        showSnapshotSavedToast();
-    }
-
-    function cancelSnapshotSlotHold() {
-        if (snapshotHoldTimer !== null) {
-            clearTimeout(snapshotHoldTimer);
-            snapshotHoldTimer = null;
+    function cancelPresetNavHold() {
+        if (presetNavHoldTimer !== null) {
+            clearTimeout(presetNavHoldTimer);
+            presetNavHoldTimer = null;
         }
-        snapshotHoldIndex = -1;
-        snapshotHoldSaveActivated = false;
+        presetNavHoldSlot = -1;
     }
 
-    function onSnapshotSlotPointerDown(ev, slotIndex) {
-        if (ev.button !== undefined && ev.button !== 0) return;
-        const i = Math.min(SNAPSHOT_SLOT_COUNT - 1, Math.max(0, slotIndex));
-        cancelSnapshotSlotHold();
-        snapshotHoldSaveActivated = false;
-        snapshotHoldIndex = i;
-        ev.currentTarget.classList.add('holding');
-        snapshotHoldTimer = setTimeout(() => {
-            snapshotHoldTimer = null;
-            snapshotHoldSaveActivated = true;
-            saveCurrentStateIntoSlot(i);
-        }, SNAPSHOT_HOLD_MS);
-        try {
-            ev.currentTarget.setPointerCapture(ev.pointerId);
-        } catch (_) {}
-    }
-
-    function onSnapshotSlotPointerEnd(ev, slotIndex) {
-        const i = Math.min(SNAPSHOT_SLOT_COUNT - 1, Math.max(0, slotIndex));
-        ev.currentTarget.classList.remove('holding');
-        const hadTimer = snapshotHoldTimer !== null;
-        if (snapshotHoldTimer !== null) {
-            clearTimeout(snapshotHoldTimer);
-            snapshotHoldTimer = null;
-        }
-        if (hadTimer && snapshotHoldIndex === i && !snapshotHoldSaveActivated) {
-            applyState(snapshotBank.slots[i], { activeSlotIndex: i });
-        }
-        snapshotHoldIndex = -1;
-        snapshotHoldSaveActivated = false;
-        try {
-            if (ev.currentTarget.hasPointerCapture && ev.currentTarget.hasPointerCapture(ev.pointerId)) {
-                ev.currentTarget.releasePointerCapture(ev.pointerId);
-            }
-        } catch (_) {}
-        refreshSnapshotSlotsUi();
-    }
-
-    function refreshSnapshotSlotsUi() {
-        const row = document.querySelector('.snapshot-slots');
-        if (!row) return;
-        row.querySelectorAll('.snapshot-slot-btn').forEach((btn) => {
-            const i = parseInt(btn.dataset.slot, 10);
+    function refreshPresetNavUi() {
+        const strip = document.getElementById('presetNavStrip');
+        if (!strip) return;
+        const msHint = Math.round(PRESET_HOLD_MS / 100) / 10;
+        strip.querySelectorAll('a.preset-nav-link').forEach((a) => {
+            const i = parseInt(a.dataset.preset, 10);
             if (!Number.isFinite(i)) return;
-            btn.classList.toggle('filled', Boolean(snapshotBank.slots[i]));
-            btn.classList.toggle('active', activeLoadedSnapshotSlot === i);
-            btn.title = `Слот ${i + 1}: тап — загрузить; удерживать ~${Math.round(SNAPSHOT_HOLD_MS / 100) / 10} с — записать`;
+            a.classList.toggle('filled', presetHasSavedData(i));
+            a.classList.toggle('active', i === CURRENT_PRESET_INDEX);
+            a.title = `Пресет ${i + 1}: клик — отдельный метроном; удерживать ~${msHint} с — записать сюда полное состояние (JSON)`;
         });
     }
 
-    function setupSnapshotSlotsUi() {
-        const row = document.querySelector('.snapshot-slots');
-        if (!row || row.dataset.snapshotUiBound === '1') return;
-        row.dataset.snapshotUiBound = '1';
-        row.querySelectorAll('.snapshot-slot-btn').forEach((btn) => {
-            const i = parseInt(btn.dataset.slot, 10);
+    function setupPresetNavUi() {
+        const strip = document.getElementById('presetNavStrip');
+        if (!strip || strip.dataset.presetNavBound === '1') return;
+        strip.dataset.presetNavBound = '1';
+        strip.querySelectorAll('a.preset-nav-link').forEach((a) => {
+            const i = parseInt(a.dataset.preset, 10);
             if (!Number.isFinite(i)) return;
-            btn.addEventListener('pointerdown', (ev) => onSnapshotSlotPointerDown(ev, i));
-            btn.addEventListener('pointerup', (ev) => onSnapshotSlotPointerEnd(ev, i));
-            btn.addEventListener('pointercancel', (ev) => {
-                ev.currentTarget.classList.remove('holding');
-                cancelSnapshotSlotHold();
+            a.addEventListener('pointerdown', (ev) => {
+                if (ev.button !== undefined && ev.button !== 0) return;
+                cancelPresetNavHold();
+                presetNavHoldSlot = i;
+                a.classList.add('holding');
+                presetNavHoldTimer = setTimeout(() => {
+                    presetNavHoldTimer = null;
+                    presetNavSuppressClick = true;
+                    writeFullMetronomeStateToPreset(i);
+                }, PRESET_HOLD_MS);
                 try {
-                    if (ev.currentTarget.hasPointerCapture && ev.currentTarget.hasPointerCapture(ev.pointerId)) {
-                        ev.currentTarget.releasePointerCapture(ev.pointerId);
+                    a.setPointerCapture(ev.pointerId);
+                } catch (_) {}
+            });
+            const onPointerEnd = (ev) => {
+                a.classList.remove('holding');
+                if (presetNavHoldTimer !== null) {
+                    clearTimeout(presetNavHoldTimer);
+                    presetNavHoldTimer = null;
+                }
+                presetNavHoldSlot = -1;
+                try {
+                    if (a.hasPointerCapture && a.hasPointerCapture(ev.pointerId)) {
+                        a.releasePointerCapture(ev.pointerId);
                     }
                 } catch (_) {}
-                refreshSnapshotSlotsUi();
-            });
+            };
+            a.addEventListener('pointerup', onPointerEnd);
+            a.addEventListener('pointercancel', onPointerEnd);
+            a.addEventListener('click', (ev) => {
+                if (presetNavSuppressClick) {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    presetNavSuppressClick = false;
+                }
+            }, true);
         });
     }
 
@@ -3795,13 +3710,8 @@
     refreshRandomModeToggleButton();
     refreshAccentToggleButton();
     saveSessionState();
-    const snapshotBootActive = loadSnapshotBankFromStorage();
-    setupSnapshotSlotsUi();
-    if (snapshotBootActive !== null && snapshotBank.slots[snapshotBootActive]) {
-        applyState(deepCloneState(snapshotBank.slots[snapshotBootActive]), { activeSlotIndex: snapshotBootActive });
-    } else {
-        refreshSnapshotSlotsUi();
-    }
+    setupPresetNavUi();
+    refreshPresetNavUi();
 
     const topFoldRowEl = document.getElementById('topFoldRow');
     const mainSettingsFoldEl = document.getElementById('mainSettingsFold');
