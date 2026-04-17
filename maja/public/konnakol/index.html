@@ -1802,8 +1802,8 @@
             barBody.className = 'bar-body';
             const controlsStack = document.createElement('div');
             controlsStack.className = 'bar-controls-stack';
-            // Keep controls column no wider than one "cell" of (pulsation + 1) equal columns.
-            controlsStack.style.width = `calc((100% - (${barStates[b].pulsation} * var(--bar-cell-gap))) / ${barStates[b].pulsation + 1})`;
+            // Make controls column ~half of a syllable cell width for current pulsation.
+            controlsStack.style.width = `calc((100% - (${barStates[b].pulsation} * var(--bar-cell-gap))) / ${(barStates[b].pulsation * 2) + 1})`;
             controlsStack.innerHTML = `<span class="bar-tempo-handle${tempoMultiplier === 4 ? ' x3' : ''}" id="bar-tempo-handle-${b}" onpointerdown="startBarTempoHold(event, ${b})" onpointerup="endBarTempoHold(event, ${b})" onpointercancel="endBarTempoHold(event, ${b})">x${barTempoLabel}</span><span class="pulsation-handle${barStates[b].polymeter ? ' polymeter' : ''}" id="pulsation-handle-${b}" onpointerdown="startPulsationMenuHold(event, ${b})" onpointerup="endPulsationMenuHold(event, ${b})" onpointercancel="endPulsationMenuHold(event, ${b})" onclick="togglePulsationMenu(event, ${b})">${barStates[b].pulsation}</span>`;
             barBody.appendChild(controlsStack);
 
