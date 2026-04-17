@@ -734,7 +734,12 @@
             .app-container {
                 padding: 14px 12px;
                 border-radius: 18px;
-                max-width: none;
+                /* Avoid horizontal stretch when dynamic browser chrome changes layout viewport (e.g. dragging slider near bottom). */
+                max-width: min(600px, 100vw);
+                max-width: min(600px, 100svw);
+                width: 100%;
+                box-sizing: border-box;
+                margin-inline: auto;
             }
             .back-link { margin-bottom: 14px; font-size: 0.88rem; }
             h2 { font-size: 1.15rem; margin-bottom: 14px; line-height: 1.25; }
@@ -1946,8 +1951,7 @@
             barBody.className = 'bar-body';
             const controlsStack = document.createElement('div');
             controlsStack.className = 'bar-controls-stack';
-            // Make controls column ~half of a syllable cell width for current pulsation.
-            controlsStack.style.width = `calc((100% - (${barStates[b].pulsation} * var(--bar-cell-gap))) / ${(barStates[b].pulsation * 2) + 1})`;
+            /* Width from CSS (based on --total-cell-height), not % of row — avoids stretching when viewport width jitters. */
             controlsStack.innerHTML = `<span class="bar-tempo-handle${tempoMultiplier === 4 ? ' x3' : ''}" id="bar-tempo-handle-${b}" onpointerdown="startBarTempoHold(event, ${b})" onpointerup="endBarTempoHold(event, ${b})" onpointercancel="endBarTempoHold(event, ${b})">x${barTempoLabel}</span><span class="pulsation-handle${barStates[b].polymeter ? ' polymeter' : ''}" id="pulsation-handle-${b}" onpointerdown="startPulsationMenuHold(event, ${b})" onpointerup="endPulsationMenuHold(event, ${b})" onpointercancel="endPulsationMenuHold(event, ${b})" onclick="togglePulsationMenu(event, ${b})">${barStates[b].pulsation}</span>`;
             barBody.appendChild(controlsStack);
 
