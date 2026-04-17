@@ -780,7 +780,12 @@
                 text-overflow: ellipsis;
                 white-space: nowrap;
             }
-            /* Пульсации 8–9: узкие ячейки — без многоточия; меньший кегль (9 плотнее). */
+            /* Пульсации 7–9: узкие ячейки — без многоточия; меньший кегль (9 плотнее). */
+            .rhythm-grid[data-pulsation="7"] .cell small {
+                font-size: calc(0.58rem * var(--bar-scale));
+                letter-spacing: -0.03em;
+                text-overflow: clip;
+            }
             .rhythm-grid[data-pulsation="8"] .cell small {
                 font-size: calc(0.54rem * var(--bar-scale));
                 letter-spacing: -0.04em;
