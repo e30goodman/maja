@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Konnakol (test)</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Press+Start+2P&display=swap" rel="stylesheet">
     <style>
         /* Palette aligned with Espace Maja (Tailwind slate + violet + blue) */
         :root {
@@ -314,6 +314,41 @@
         .snapshot-slot-btn.holding {
             opacity: 0.88;
             transform: scale(0.96);
+        }
+        .snapshot-saved-toast {
+            position: fixed;
+            left: 50%;
+            top: 36%;
+            z-index: 10000;
+            padding: 0.55rem 0.85rem;
+            border-radius: 4px;
+            border: 2px solid #34d399;
+            background: rgba(15, 23, 42, 0.92);
+            box-shadow: 0 0 24px rgba(52, 211, 153, 0.35), inset 0 0 0 1px rgba(167, 139, 250, 0.2);
+            font-family: 'Press Start 2P', ui-monospace, monospace;
+            font-size: 0.58rem;
+            line-height: 1.6;
+            letter-spacing: 0.04em;
+            color: #6ee7b7;
+            text-transform: lowercase;
+            text-shadow: 0 0 10px rgba(52, 211, 153, 0.9), 2px 2px 0 #064e3b;
+            pointer-events: none;
+            user-select: none;
+            -webkit-user-select: none;
+            opacity: 0;
+            visibility: hidden;
+            transform: translate(-50%, -50%) scale(0.94);
+            image-rendering: pixelated;
+        }
+        .snapshot-saved-toast.is-animating {
+            visibility: visible;
+            animation: snapshot-saved-toast-anim 1.45s ease forwards;
+        }
+        @keyframes snapshot-saved-toast-anim {
+            0% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+            14% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+            58% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+            100% { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
         }
         label { display: block; margin-bottom: 8px; font-weight: 600; font-size: 0.85rem; color: var(--text-muted); }
         label .hint-muted { font-weight: 400; color: var(--text-dim); }
@@ -972,6 +1007,11 @@
                 width: 26px;
                 height: 26px;
                 font-size: 0.65rem;
+            }
+            .snapshot-saved-toast {
+                font-size: 0.48rem;
+                padding: 0.45rem 0.65rem;
+                top: 32%;
             }
             label.rand-cycle { font-size: 0.8rem; gap: 10px; }
             .bars-container {
@@ -2113,6 +2153,22 @@
         refreshSnapshotSlotsUi();
     }
 
+    function showSnapshotSavedToast() {
+        let el = document.getElementById('snapshotSavedToast');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'snapshotSavedToast';
+            el.className = 'snapshot-saved-toast';
+            el.setAttribute('role', 'status');
+            el.setAttribute('aria-live', 'polite');
+            el.textContent = 'saved';
+            document.body.appendChild(el);
+        }
+        el.classList.remove('is-animating');
+        void el.offsetWidth;
+        el.classList.add('is-animating');
+    }
+
     function saveCurrentStateIntoSlot(slotIndex) {
         const i = Math.min(SNAPSHOT_SLOT_COUNT - 1, Math.max(0, parseInt(slotIndex, 10) || 0));
         const snap = buildFullSnapshotForSlot();
@@ -2121,6 +2177,7 @@
         activeLoadedSnapshotSlot = i;
         persistSnapshotBank();
         refreshSnapshotSlotsUi();
+        showSnapshotSavedToast();
     }
 
     function cancelSnapshotSlotHold() {
