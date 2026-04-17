@@ -319,8 +319,26 @@
                 inset 0 1px 0 rgba(148, 163, 184, 0.07);
             box-sizing: border-box;
             cursor: grab;
-            display: block;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             transition: background 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
+        }
+        .bpm-tactile-handle-bpm {
+            font-size: 0.56rem;
+            font-weight: 800;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: -0.03em;
+            line-height: 1;
+            color: rgba(15, 23, 42, 0.92);
+            text-shadow: 0 1px 0 rgba(255, 255, 255, 0.12);
+            pointer-events: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .control-group.tempo-x2 .bpm-tactile-handle-bpm {
+            color: rgba(69, 10, 10, 0.88);
+            text-shadow: 0 1px 0 rgba(255, 255, 255, 0.08);
         }
         .bpm-tactile-handle:hover {
             border-color: rgba(100, 116, 139, 0.95);
@@ -1354,7 +1372,9 @@
             <div class="bpm-tactile-wrap" id="bpmTactileWrap" role="group" aria-label="Tempo">
                 <div class="bpm-tactile-track" aria-hidden="true"></div>
                 <div class="bpm-tactile-handle-wrap" id="bpmTactileHandleWrap">
-                    <div class="bpm-tactile-handle" id="bpmTactileHandle" role="slider" aria-valuemin="20" aria-valuemax="480" aria-valuenow="100" aria-label="Tempo" tabindex="0"></div>
+                    <div class="bpm-tactile-handle" id="bpmTactileHandle" role="slider" aria-valuemin="20" aria-valuemax="480" aria-valuenow="100" aria-label="Tempo" tabindex="0">
+                        <span class="bpm-tactile-handle-bpm" id="bpmTactileHandleBpm" aria-hidden="true">100</span>
+                    </div>
                 </div>
                 <span class="bpm-tactile-hint" id="bpmTactileHint" aria-hidden="true"></span>
             </div>
@@ -2113,6 +2133,7 @@
         const safeBpm = Math.max(20, Math.min(480, bpm));
         bpmSlider.value = String(safeBpm);
         syncBpmSliderLastStable();
+        syncBpmTactileHandleLabel();
         updateTempoLabel();
     }
 
@@ -2121,6 +2142,18 @@
         if (!el) return;
         const v = parseInt(el.value, 10);
         bpmSliderLastStable = Number.isFinite(v) ? Math.max(20, Math.min(480, v)) : 100;
+    }
+
+    /** BPM на овальной ручке тактильного слайдера (дублирует #bpm). */
+    function syncBpmTactileHandleLabel() {
+        const bpmEl = document.getElementById('bpm');
+        const label = document.getElementById('bpmTactileHandleBpm');
+        const handle = document.getElementById('bpmTactileHandle');
+        if (!bpmEl || !label) return;
+        const v = parseInt(bpmEl.value, 10);
+        const n = Number.isFinite(v) ? Math.max(20, Math.min(480, v)) : 100;
+        label.textContent = String(n);
+        if (handle) handle.setAttribute('aria-valuenow', String(n));
     }
 
     function refreshTapTempoBpmReadout() {
@@ -2187,9 +2220,7 @@
         let lastPulseMs = 0;
 
         function syncTactileAria() {
-            const v = parseInt(bpmSlider.value, 10);
-            const n = Number.isFinite(v) ? Math.max(T_MIN, Math.min(T_MAX, v)) : 100;
-            handle.setAttribute('aria-valuenow', String(n));
+            syncBpmTactileHandleLabel();
         }
 
         function updateTactileHint() {
@@ -2330,13 +2361,8 @@
         syncBpmSliderLastStable();
         bpmSlider.addEventListener('input', () => {
             syncBpmSliderLastStable();
+            syncBpmTactileHandleLabel();
             updateTempoLabel();
-            const h = document.getElementById('bpmTactileHandle');
-            if (h) {
-                const v = parseInt(bpmSlider.value, 10);
-                const n = Number.isFinite(v) ? Math.max(20, Math.min(480, v)) : 100;
-                h.setAttribute('aria-valuenow', String(n));
-            }
         });
         setupBpmTactileSlider();
     }
@@ -2737,6 +2763,7 @@
         refreshTempoModeUi();
         lastKnownRandomPatternEnabled = Boolean(document.getElementById('randomPatternAfterEachBar')?.checked);
         onSoundPresetChange();
+        syncBpmTactileHandleLabel();
     }
 
 
@@ -2744,6 +2771,7 @@
         const bpmEl = document.getElementById('bpm');
         const bpm = parseInt(bpmEl?.value, 10);
         if (isNaN(bpm)) return;
+        syncBpmTactileHandleLabel();
         if (tapTempoBpmReadoutActive) {
             refreshTapTempoBpmReadout();
         }
