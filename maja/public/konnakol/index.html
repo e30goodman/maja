@@ -144,25 +144,58 @@
         .control-group.tempo-x2 input[type="range"] {
             accent-color: var(--rose-500);
         }
+        .tempo-slider-row {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+        }
+        .tempo-slider-row input[type="range"] {
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+        .tempo-slider-row .tempo-x2-badge {
+            flex: 0 0 auto;
+            white-space: nowrap;
+        }
         .tempo-readout {
             display: flex;
-            justify-content: space-between;
+            justify-content: flex-start;
             align-items: center;
         }
         #tempoControl.control-group {
-            margin: 6px 0 10px;
+            margin: 4px 0 8px;
+            padding: 4px 8px;
+        }
+        #tempoControl.tempo-bpm-show-readout.control-group {
             padding: 6px 10px 8px;
         }
-        #tempoControl input[type="range"] {
-            width: 100%;
+        #tempoControl .tempo-slider-row input[type="range"] {
+            width: auto;
             padding: 0 2px;
             height: 10px;
-            margin: 0 0 2px;
+            margin: 0;
             box-sizing: border-box;
         }
+        #tempoControl.tempo-bpm-show-readout .tempo-slider-row input[type="range"] {
+            margin: 0 0 2px;
+        }
         #tempoControl .tempo-readout {
-            margin-top: 0;
+            max-height: 0;
+            opacity: 0;
+            overflow: hidden;
+            margin: 0;
+            padding: 0;
             min-height: 0;
+            pointer-events: none;
+            transition: max-height 0.2s ease, opacity 0.15s ease, margin 0.15s ease;
+        }
+        #tempoControl.tempo-bpm-show-readout .tempo-readout {
+            max-height: 2.5rem;
+            opacity: 1;
+            margin-top: 4px;
+            pointer-events: auto;
         }
         #tempoControl .tempo-readout .hint-muted {
             font-size: 0.8rem;
@@ -657,10 +690,13 @@
             .control-group label { font-size: 0.82rem; margin-bottom: 6px; }
             .control-group input[type="range"] { height: 1.35rem; }
             #tempoControl.control-group {
-                margin: 4px 0 8px;
+                margin: 3px 0 6px;
+                padding: 3px 6px;
+            }
+            #tempoControl.tempo-bpm-show-readout.control-group {
                 padding: 5px 8px 6px;
             }
-            #tempoControl.control-group input[type="range"] {
+            #tempoControl .tempo-slider-row input[type="range"] {
                 height: 10px;
                 padding: 0 2px;
             }
@@ -859,10 +895,12 @@
     </div>
 
     <div id="tempoControl" class="control-group">
-        <input type="range" id="bpm" min="20" max="480" value="100" aria-label="BPM">
+        <div class="tempo-slider-row">
+            <input type="range" id="bpm" min="20" max="480" value="100" aria-label="BPM">
+            <span id="tempoX2Badge" class="tempo-x2-badge" hidden>x2</span>
+        </div>
         <div class="tempo-readout">
             <small id="bpmValue" class="hint-muted">100 BPM</small>
-            <small id="tempoX2Badge" class="tempo-x2-badge" hidden>x2</small>
         </div>
     </div>
 
@@ -1195,9 +1233,17 @@
 
     function setupBpmSliderUi() {
         const bpmSlider = document.getElementById('bpm');
+        const tempoControl = document.getElementById('tempoControl');
         if (!bpmSlider || bpmSlider.dataset.bpmUiSetup === '1') return;
         bpmSlider.dataset.bpmUiSetup = '1';
         syncBpmSliderLastStable();
+
+        function showBpmReadout() {
+            if (tempoControl) tempoControl.classList.add('tempo-bpm-show-readout');
+        }
+        function hideBpmReadout() {
+            if (tempoControl) tempoControl.classList.remove('tempo-bpm-show-readout');
+        }
 
         bpmSlider.addEventListener('dblclick', (event) => {
             event.preventDefault();
@@ -1223,7 +1269,10 @@
         });
         bpmSlider.addEventListener('pointermove', (e) => {
             if (!pointerDown || e.pointerId !== downPid) return;
-            if (Math.hypot(e.clientX - downX, e.clientY - downY) > 2) movedSinceDown = true;
+            if (Math.hypot(e.clientX - downX, e.clientY - downY) > 2) {
+                movedSinceDown = true;
+                showBpmReadout();
+            }
         });
         const endPointer = (e) => {
             if (!pointerDown) return;
@@ -1236,6 +1285,7 @@
             pointerDown = false;
             movedSinceDown = false;
             downPid = null;
+            hideBpmReadout();
         };
         bpmSlider.addEventListener('pointerup', endPointer);
         bpmSlider.addEventListener('pointercancel', endPointer);
@@ -1248,6 +1298,7 @@
             }
             syncBpmSliderLastStable();
             updateTempoLabel();
+            if (pointerDown) showBpmReadout();
         });
     }
 
