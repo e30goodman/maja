@@ -3215,6 +3215,19 @@
         }
     };
 
+    const forceCloseTopFoldsImmediately = () => {
+        // User changed a setting: drop all close guards/cooldowns and close folds right away.
+        settingsOpenedAtMs = 0;
+        settingsInteractionGuardUntilMs = 0;
+        if (barScalerAutoCloseTimer !== null) {
+            clearTimeout(barScalerAutoCloseTimer);
+            barScalerAutoCloseTimer = null;
+        }
+        barScalerSliderHeld = false;
+        if (mainSettingsFoldEl && mainSettingsFoldEl.open) mainSettingsFoldEl.open = false;
+        if (barScalerFoldEl && barScalerFoldEl.open) barScalerFoldEl.open = false;
+    };
+
     if (mainSettingsFoldEl) {
         mainSettingsFoldEl.addEventListener('toggle', () => {
             if (mainSettingsFoldEl.open) settingsOpenedAtMs = performance.now();
@@ -3278,6 +3291,18 @@
         barScaleSliderEl.addEventListener('pointercancel', onRelease);
     }
     syncTopFoldRowState();
+
+    if (topFoldRowEl) {
+        const handleSettingsMutation = (event) => {
+            const t = event.target;
+            if (!t || !t.closest) return;
+            if (!t.closest('#mainSettingsFold, #barScalerFold')) return;
+            if (!t.matches('input, select, textarea, button')) return;
+            forceCloseTopFoldsImmediately();
+        };
+        topFoldRowEl.addEventListener('input', handleSettingsMutation, true);
+        topFoldRowEl.addEventListener('change', handleSettingsMutation, true);
+    }
 
     const closeTopFoldsByOutsideTarget = (target) => {
         if (mainSettingsFoldEl && mainSettingsFoldEl.open) {
