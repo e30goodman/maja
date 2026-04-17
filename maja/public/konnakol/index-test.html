@@ -2162,19 +2162,30 @@
         }
     }
 
-    /** Ручной снимок (удержание кнопки пресета): в JSON есть presetMeta от writeFullMetronomeStateToPreset. Автосохранение слотов не используется. */
+    /** Ручной снимок (удержание): оба ключа localStorage; старый автосейв мог писать session-ключ без presetMeta — тогда не терять признак «сохранён» по полному ключу. */
+    function parsedHasManualPresetMeta(parsed) {
+        return Boolean(parsed && parsed.presetMeta && parsed.presetMeta.format === 'konnakolMetronomeFullJson_v2');
+    }
+
     function presetHasManualSnapshot(slotZero) {
         const i = Math.min(PRESET_SLOT_COUNT - 1, Math.max(0, parseInt(slotZero, 10) || 0));
         const presetIdStr = String(i + 1);
+        let rawSession = null;
+        let rawFull = null;
         try {
-            let raw = localStorage.getItem(sessionStorageKeyForPresetId(presetIdStr));
-            if (!raw) raw = localStorage.getItem(fullMetronomeJsonStorageKeyForPresetId(presetIdStr));
-            if (!raw) return false;
-            const parsed = JSON.parse(raw);
-            return Boolean(parsed && parsed.presetMeta && parsed.presetMeta.format === 'konnakolMetronomeFullJson_v2');
+            rawSession = localStorage.getItem(sessionStorageKeyForPresetId(presetIdStr));
+            rawFull = localStorage.getItem(fullMetronomeJsonStorageKeyForPresetId(presetIdStr));
         } catch (_) {
             return false;
         }
+        for (const raw of [rawSession, rawFull]) {
+            if (!raw) continue;
+            try {
+                const parsed = JSON.parse(raw);
+                if (parsedHasManualPresetMeta(parsed)) return true;
+            } catch (_) {}
+        }
+        return false;
     }
 
     /** Слоты пресетов в DOM — один цикл, без дублирования разметки. */
@@ -2200,8 +2211,32 @@
         if (!isAppReady) return;
         const i = Math.min(PRESET_SLOT_COUNT - 1, Math.max(0, parseInt(targetSlotZero, 10) || 0));
         const targetPresetId = String(i + 1);
+
+        function stripPresetMetaForCompare(obj) {
+            const c = deepCloneState(obj);
+            if (!c || typeof c !== 'object') return null;
+            delete c.presetMeta;
+            return c;
+        }
+
+        let existingParsed = null;
+        try {
+            const er = localStorage.getItem(fullMetronomeJsonStorageKeyForPresetId(targetPresetId));
+            if (er) existingParsed = JSON.parse(er);
+        } catch (_) {}
+
         const snap = deepCloneState(getCurrentSessionState());
         if (!snap) return;
+
+        if (existingParsed && parsedHasManualPresetMeta(existingParsed)) {
+            const nextStripped = stripPresetMetaForCompare(snap);
+            const prevStripped = stripPresetMetaForCompare(existingParsed);
+            if (nextStripped && prevStripped && JSON.stringify(nextStripped) === JSON.stringify(prevStripped)) {
+                refreshPresetNavUi();
+                return;
+            }
+        }
+
         snap.presetMeta = {
             preset: parseInt(targetPresetId, 10),
             savedAt: Date.now(),
@@ -2357,9 +2392,29 @@
 
     function loadSessionState() {
         try {
-            const raw = localStorage.getItem(getSessionStorageKey());
-            if (!raw) return null;
-            return JSON.parse(raw);
+            const presetId = getCurrentPresetId();
+            const sessionKey = getSessionStorageKey();
+            const fullKey = fullMetronomeJsonStorageKeyForPresetId(presetId);
+
+            function tryParse(raw) {
+                if (!raw) return null;
+                try {
+                    return JSON.parse(raw);
+                } catch (_) {
+                    return null;
+                }
+            }
+
+            const rawSession = localStorage.getItem(sessionKey);
+            const rawFull = localStorage.getItem(fullKey);
+            const sessionParsed = tryParse(rawSession);
+            const fullParsed = tryParse(rawFull);
+
+            if (parsedHasManualPresetMeta(sessionParsed)) return sessionParsed;
+            if (parsedHasManualPresetMeta(fullParsed)) return fullParsed;
+            if (sessionParsed) return sessionParsed;
+            if (fullParsed) return fullParsed;
+            return null;
         } catch (e) {
             return null;
         }
