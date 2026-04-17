@@ -1222,11 +1222,13 @@
 
     function computePlaybackRandomizerEnabled() {
         const flags = getPlaybackRandomizerFlags();
-        const pulsationIndependent = flags.randomPulsationAfterEachBar;
-        const gatedByRandomMode = randomModeEnabled
-            && (flags.randomPatternAfterEachBar || flags.randomPatternSpeedChange);
+        if (!randomModeEnabled) {
+            return false;
+        }
         return Boolean(
-            pulsationIndependent || gatedByRandomMode
+            flags.randomPulsationAfterEachBar
+            || flags.randomPatternAfterEachBar
+            || flags.randomPatternSpeedChange
         );
     }
 
