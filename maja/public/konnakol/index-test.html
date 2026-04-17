@@ -2167,6 +2167,32 @@
         return Boolean(parsed && parsed.presetMeta && parsed.presetMeta.format === 'konnakolMetronomeFullJson_v2');
     }
 
+    function tryParsePresetStorageJson(raw) {
+        if (!raw) return null;
+        try {
+            return JSON.parse(raw);
+        } catch (_) {
+            return null;
+        }
+    }
+
+    /** Активный слот: приоритет как при загрузке — сначала session с meta, иначе full с meta, иначе «живой» session, иначе full. */
+    function readMergedPresetStateForPresetId(presetIdStr) {
+        try {
+            const rawSession = localStorage.getItem(sessionStorageKeyForPresetId(presetIdStr));
+            const rawFull = localStorage.getItem(fullMetronomeJsonStorageKeyForPresetId(presetIdStr));
+            const sessionParsed = tryParsePresetStorageJson(rawSession);
+            const fullParsed = tryParsePresetStorageJson(rawFull);
+            if (parsedHasManualPresetMeta(sessionParsed)) return sessionParsed;
+            if (parsedHasManualPresetMeta(fullParsed)) return fullParsed;
+            if (sessionParsed) return sessionParsed;
+            if (fullParsed) return fullParsed;
+            return null;
+        } catch (_) {
+            return null;
+        }
+    }
+
     function presetHasManualSnapshot(slotZero) {
         const i = Math.min(PRESET_SLOT_COUNT - 1, Math.max(0, parseInt(slotZero, 10) || 0));
         const presetIdStr = String(i + 1);
@@ -2179,13 +2205,33 @@
             return false;
         }
         for (const raw of [rawSession, rawFull]) {
-            if (!raw) continue;
-            try {
-                const parsed = JSON.parse(raw);
-                if (parsedHasManualPresetMeta(parsed)) return true;
-            } catch (_) {}
+            const parsed = tryParsePresetStorageJson(raw);
+            if (parsedHasManualPresetMeta(parsed)) return true;
         }
         return false;
+    }
+
+    function stripPresetMetaCloneForCompare(obj) {
+        const c = deepCloneState(obj);
+        if (!c || typeof c !== 'object') return null;
+        delete c.presetMeta;
+        return c;
+    }
+
+    function parsePresetJsonFromFullStorageKey(presetIdStr) {
+        try {
+            const raw = localStorage.getItem(fullMetronomeJsonStorageKeyForPresetId(presetIdStr));
+            return tryParsePresetStorageJson(raw);
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function persistPresetSlotDualWrite(presetIdStr, jsonString) {
+        try {
+            localStorage.setItem(sessionStorageKeyForPresetId(presetIdStr), jsonString);
+            localStorage.setItem(fullMetronomeJsonStorageKeyForPresetId(presetIdStr), jsonString);
+        } catch (_) {}
     }
 
     /** Слоты пресетов в DOM — один цикл, без дублирования разметки. */
@@ -2211,26 +2257,13 @@
         if (!isAppReady) return;
         const i = Math.min(PRESET_SLOT_COUNT - 1, Math.max(0, parseInt(targetSlotZero, 10) || 0));
         const targetPresetId = String(i + 1);
-
-        function stripPresetMetaForCompare(obj) {
-            const c = deepCloneState(obj);
-            if (!c || typeof c !== 'object') return null;
-            delete c.presetMeta;
-            return c;
-        }
-
-        let existingParsed = null;
-        try {
-            const er = localStorage.getItem(fullMetronomeJsonStorageKeyForPresetId(targetPresetId));
-            if (er) existingParsed = JSON.parse(er);
-        } catch (_) {}
-
+        const existingParsed = parsePresetJsonFromFullStorageKey(targetPresetId);
         const snap = deepCloneState(getCurrentSessionState());
         if (!snap) return;
 
         if (existingParsed && parsedHasManualPresetMeta(existingParsed)) {
-            const nextStripped = stripPresetMetaForCompare(snap);
-            const prevStripped = stripPresetMetaForCompare(existingParsed);
+            const nextStripped = stripPresetMetaCloneForCompare(snap);
+            const prevStripped = stripPresetMetaCloneForCompare(existingParsed);
             if (nextStripped && prevStripped && JSON.stringify(nextStripped) === JSON.stringify(prevStripped)) {
                 refreshPresetNavUi();
                 return;
@@ -2243,11 +2276,7 @@
             format: 'konnakolMetronomeFullJson_v2',
             sourcePreset: parseInt(getCurrentPresetId(), 10)
         };
-        const json = JSON.stringify(snap);
-        try {
-            localStorage.setItem(sessionStorageKeyForPresetId(targetPresetId), json);
-            localStorage.setItem(fullMetronomeJsonStorageKeyForPresetId(targetPresetId), json);
-        } catch (_) {}
+        persistPresetSlotDualWrite(targetPresetId, JSON.stringify(snap));
         showSnapshotSavedToast();
         refreshPresetNavUi();
     }
@@ -2297,11 +2326,14 @@
     function setupPresetNavUi() {
         const strip = document.getElementById('presetNavStrip');
         if (!strip) return;
+        const slots = strip.querySelector('.preset-nav-slots');
+        if (!slots) return;
         if (strip.dataset.presetNavBound !== '1') {
             renderPresetNavLinks();
         }
         if (strip.dataset.presetNavBound === '1') return;
         strip.dataset.presetNavBound = '1';
+        slots.addEventListener('click', onPresetNavSlotClick, true);
         strip.querySelectorAll('a.preset-nav-link').forEach((a) => {
             const i = parseInt(a.dataset.preset, 10);
             if (!Number.isFinite(i)) return;
@@ -2334,13 +2366,6 @@
             };
             a.addEventListener('pointerup', onPointerEnd);
             a.addEventListener('pointercancel', onPointerEnd);
-            a.addEventListener('click', (ev) => {
-                if (presetNavSuppressClick) {
-                    ev.preventDefault();
-                    ev.stopPropagation();
-                    presetNavSuppressClick = false;
-                }
-            }, true);
         });
     }
 
@@ -2392,29 +2417,7 @@
 
     function loadSessionState() {
         try {
-            const presetId = getCurrentPresetId();
-            const sessionKey = getSessionStorageKey();
-            const fullKey = fullMetronomeJsonStorageKeyForPresetId(presetId);
-
-            function tryParse(raw) {
-                if (!raw) return null;
-                try {
-                    return JSON.parse(raw);
-                } catch (_) {
-                    return null;
-                }
-            }
-
-            const rawSession = localStorage.getItem(sessionKey);
-            const rawFull = localStorage.getItem(fullKey);
-            const sessionParsed = tryParse(rawSession);
-            const fullParsed = tryParse(rawFull);
-
-            if (parsedHasManualPresetMeta(sessionParsed)) return sessionParsed;
-            if (parsedHasManualPresetMeta(fullParsed)) return fullParsed;
-            if (sessionParsed) return sessionParsed;
-            if (fullParsed) return fullParsed;
-            return null;
+            return readMergedPresetStateForPresetId(getCurrentPresetId());
         } catch (e) {
             return null;
         }
@@ -2664,6 +2667,61 @@
         rebuildRandomNotesSelect();
         requestAnimationFrame(() => enforceBarsFit(container, bCount));
         isAppReady = true;
+    }
+
+    function switchPresetSeamlessly() {
+        cancelPresetNavHold();
+        if (isPlaybackRunning()) {
+            stop();
+        }
+        isAppReady = false;
+        const savedState = loadSessionState();
+        applySessionStateToControls(savedState);
+        updateBarScaleLabel();
+        initApp({ reloadBarStatesFromSession: true });
+        restoreSelectState(savedState);
+        updateTempoLabel();
+        refreshTempoModeUi();
+        refreshRandomModeToggleButton();
+        refreshAccentToggleButton();
+        saveSessionState();
+        refreshPresetNavUi();
+    }
+
+    function onPresetNavSlotClick(e) {
+        const link = e.target.closest('a.preset-nav-link');
+        if (!link) return;
+        if (presetNavSuppressClick) {
+            e.preventDefault();
+            e.stopPropagation();
+            presetNavSuppressClick = false;
+            return;
+        }
+        if (e.defaultPrevented) return;
+        if (e.button !== 0) return;
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        let nextUrl;
+        try {
+            nextUrl = new URL(link.getAttribute('href') || '', location.href);
+        } catch (_) {
+            return;
+        }
+        const nextPreset = nextUrl.searchParams.get(PRESET_QUERY) || '1';
+        if (nextPreset === getCurrentPresetId()) {
+            e.preventDefault();
+            return;
+        }
+        e.preventDefault();
+        history.pushState(null, '', `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+        switchPresetSeamlessly();
+    }
+
+    function setupPresetHistoryNavigation() {
+        if (window.__konnakolPresetPopstateBound) return;
+        window.__konnakolPresetPopstateBound = true;
+        window.addEventListener('popstate', () => {
+            switchPresetSeamlessly();
+        });
     }
 
     function cloneBarStatesRowSnapshot() {
@@ -3869,6 +3927,7 @@
     refreshAccentToggleButton();
     saveSessionState();
     setupPresetNavUi();
+    setupPresetHistoryNavigation();
     refreshPresetNavUi();
 
     const topFoldRowEl = document.getElementById('topFoldRow');
