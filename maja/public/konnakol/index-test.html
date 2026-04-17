@@ -237,12 +237,12 @@
             box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.22) inset;
         }
         .control-group.tempo-x2 .bpm-tactile-handle {
-            border-color: #9f1239;
+            border-color: rgba(251, 113, 133, 0.55);
             background: #6b1026;
         }
         .control-group.tempo-x2 .bpm-tactile-handle:hover {
             background: #881337;
-            border-color: #be123c;
+            border-color: rgba(254, 205, 211, 0.78);
         }
         .tempo-slider-row {
             position: relative;
@@ -304,18 +304,20 @@
         .bpm-tactile-handle {
             width: 48px;
             height: 24px;
-            border-radius: 9999px;
-            border: 1px solid #4c1d95;
+            border-radius: 12px;
+            border: 1px solid rgba(139, 92, 246, 0.55);
             background: #2e1065;
             box-shadow: none;
+            box-sizing: border-box;
             cursor: grab;
             display: flex;
             align-items: center;
             justify-content: center;
+            transition: background 0.14s ease, border-color 0.14s ease;
         }
         .bpm-tactile-handle:hover {
             background: #3b0764;
-            border-color: #5b21b6;
+            border-color: rgba(196, 181, 253, 0.78);
         }
         .bpm-tactile-handle:active {
             cursor: grabbing;
