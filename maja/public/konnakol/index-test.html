@@ -1251,15 +1251,7 @@
             <small id="bpmValue" class="hint-muted">100 BPM</small>
         </div>
         <nav class="preset-nav-strip" id="presetNavStrip" aria-label="Семь отдельных метрономов (пресеты)">
-            <div class="preset-nav-slots" role="toolbar" aria-label="Пресеты 1–7">
-                <a class="preset-nav-link" data-preset="0" href="?preset=1">1</a>
-                <a class="preset-nav-link" data-preset="1" href="?preset=2">2</a>
-                <a class="preset-nav-link" data-preset="2" href="?preset=3">3</a>
-                <a class="preset-nav-link" data-preset="3" href="?preset=4">4</a>
-                <a class="preset-nav-link" data-preset="4" href="?preset=5">5</a>
-                <a class="preset-nav-link" data-preset="5" href="?preset=6">6</a>
-                <a class="preset-nav-link" data-preset="6" href="?preset=7">7</a>
-            </div>
+            <div class="preset-nav-slots" role="toolbar" aria-label="Пресеты 1–7"></div>
         </nav>
     </div>
 
@@ -1364,18 +1356,41 @@
     const PRESET_SLOT_COUNT = 7;
     const PRESET_HOLD_MS = 550;
     let barRefitVwLastW = 0;
-    /** When false, saveSessionState must not write — barStates may be empty during bootstrap (applySessionStateToControls / updateBarScaleLabel). */
+    /** When false, saveSessionState must not write — barStates may be empty during bootstrap or mid-initApp. */
     let isAppReady = false;
-    function parsePresetIndexFromUrl() {
+    /** Preset id from URL (?preset=N), clamped 1..PRESET_SLOT_COUNT; default `'1'`. */
+    function getCurrentPresetId() {
         try {
             const n = parseInt(new URLSearchParams(location.search).get(PRESET_QUERY) || '1', 10);
             if (Number.isFinite(n) && n >= 1) {
-                return Math.min(PRESET_SLOT_COUNT, n) - 1;
+                return String(Math.min(PRESET_SLOT_COUNT, n));
             }
         } catch (_) {}
-        return 0;
+        return '1';
     }
-    const CURRENT_PRESET_INDEX = parsePresetIndexFromUrl();
+    function getCurrentPresetIndexZero() {
+        return Math.min(PRESET_SLOT_COUNT - 1, Math.max(0, parseInt(getCurrentPresetId(), 10) - 1));
+    }
+    /** localStorage key for the active preset (same as `konnakolSessionStateV1Test_preset${getCurrentPresetId()}`). */
+    function getSessionStorageKey() {
+        return `konnakolSessionStateV1Test_preset${getCurrentPresetId()}`;
+    }
+    function sessionStorageKeyForPresetId(presetIdStr) {
+        return `konnakolSessionStateV1Test_preset${presetIdStr}`;
+    }
+    /** Полный JSON метронома для слота preset id (строка «1»..«7»). */
+    function fullMetronomeJsonStorageKeyForPresetId(presetIdStr) {
+        return `konnakolMetronomeFullJson_v2_preset${presetIdStr}`;
+    }
+    function hrefForPresetSwitch(presetIdOneBased) {
+        try {
+            const u = new URL(location.href);
+            u.searchParams.set(PRESET_QUERY, String(presetIdOneBased));
+            return `${u.pathname}?${u.searchParams.toString()}${u.hash}`;
+        } catch (_) {
+            return `?${PRESET_QUERY}=${presetIdOneBased}`;
+        }
+    }
     (function normalizeLegacyPresetQueryInUrl() {
         try {
             const params = new URLSearchParams(location.search);
@@ -1393,20 +1408,13 @@
         if (location.search.includes(`${PRESET_QUERY}=`)) return;
         try {
             const u = new URL(location.href);
-            u.searchParams.set(PRESET_QUERY, String(CURRENT_PRESET_INDEX + 1));
+            u.searchParams.set(PRESET_QUERY, getCurrentPresetId());
             history.replaceState({}, '', `${u.pathname}?${u.searchParams.toString()}${u.hash}`);
         } catch (_) {}
     })();
-    function sessionStorageKeyForPreset(slotZero) {
-        return `konnakolSessionStateV1Test_preset${slotZero + 1}`;
-    }
-    /** Полный JSON метронома (акценты, сетки, UI) для пресета — дублирует сессионный ключ при сохранении. */
-    function fullMetronomeJsonStorageKey(slotZero) {
-        return `konnakolMetronomeFullJson_v2_preset${slotZero + 1}`;
-    }
     function migrateLegacySessionIntoPreset1() {
         const legacy = 'konnakolSessionStateV1Test';
-        const k1 = sessionStorageKeyForPreset(0);
+        const k1 = sessionStorageKeyForPresetId('1');
         try {
             if (localStorage.getItem(k1)) return;
             const raw = localStorage.getItem(legacy);
@@ -1415,7 +1423,6 @@
         } catch (_) {}
     }
     migrateLegacySessionIntoPreset1();
-    const STORAGE_KEY = sessionStorageKeyForPreset(CURRENT_PRESET_INDEX);
     let presetNavHoldTimer = null;
     let presetNavHoldSlot = -1;
     let presetNavSuppressClick = false;
@@ -2125,32 +2132,53 @@
     }
 
     function presetHasSavedData(slotZero) {
+        const i = Math.min(PRESET_SLOT_COUNT - 1, Math.max(0, parseInt(slotZero, 10) || 0));
+        const presetIdStr = String(i + 1);
         try {
             return Boolean(
-                localStorage.getItem(sessionStorageKeyForPreset(slotZero))
-                || localStorage.getItem(fullMetronomeJsonStorageKey(slotZero))
+                localStorage.getItem(sessionStorageKeyForPresetId(presetIdStr))
+                || localStorage.getItem(fullMetronomeJsonStorageKeyForPresetId(presetIdStr))
             );
         } catch (_) {
             return false;
         }
     }
 
-    /** Записать полное состояние текущего метронома в localStorage выбранного пресета (сессия + JSON-копия). */
-    function writeFullMetronomeStateToPreset(slotZero) {
-        const i = Math.min(PRESET_SLOT_COUNT - 1, Math.max(0, parseInt(slotZero, 10) || 0));
-        saveSessionState();
+    /** Слоты пресетов в DOM — один цикл, без дублирования разметки. */
+    function renderPresetNavLinks() {
+        const strip = document.getElementById('presetNavStrip');
+        if (!strip) return;
+        const slots = strip.querySelector('.preset-nav-slots');
+        if (!slots) return;
+        slots.innerHTML = '';
+        for (let z = 0; z < PRESET_SLOT_COUNT; z++) {
+            const id = z + 1;
+            const a = document.createElement('a');
+            a.className = 'preset-nav-link';
+            a.dataset.preset = String(z);
+            a.href = hrefForPresetSwitch(id);
+            a.textContent = String(id);
+            slots.appendChild(a);
+        }
+    }
+
+    /** Записать полное состояние метронома (из getCurrentSessionState) в ключи целевого слота; без лишнего save в текущий ключ до готовности. */
+    function writeFullMetronomeStateToPreset(targetSlotZero) {
+        if (!isAppReady) return;
+        const i = Math.min(PRESET_SLOT_COUNT - 1, Math.max(0, parseInt(targetSlotZero, 10) || 0));
+        const targetPresetId = String(i + 1);
         const snap = deepCloneState(getCurrentSessionState());
         if (!snap) return;
         snap.presetMeta = {
-            preset: i + 1,
+            preset: parseInt(targetPresetId, 10),
             savedAt: Date.now(),
             format: 'konnakolMetronomeFullJson_v2',
-            sourcePreset: CURRENT_PRESET_INDEX + 1
+            sourcePreset: parseInt(getCurrentPresetId(), 10)
         };
         const json = JSON.stringify(snap);
         try {
-            localStorage.setItem(sessionStorageKeyForPreset(i), json);
-            localStorage.setItem(fullMetronomeJsonStorageKey(i), json);
+            localStorage.setItem(sessionStorageKeyForPresetId(targetPresetId), json);
+            localStorage.setItem(fullMetronomeJsonStorageKeyForPresetId(targetPresetId), json);
         } catch (_) {}
         showSnapshotSavedToast();
         refreshPresetNavUi();
@@ -2188,14 +2216,18 @@
             const i = parseInt(a.dataset.preset, 10);
             if (!Number.isFinite(i)) return;
             a.classList.toggle('filled', presetHasSavedData(i));
-            a.classList.toggle('active', i === CURRENT_PRESET_INDEX);
+            a.classList.toggle('active', i === getCurrentPresetIndexZero());
             a.title = `Пресет ${i + 1}: клик — отдельный метроном; удерживать ~${msHint} с — записать сюда полное состояние (JSON)`;
         });
     }
 
     function setupPresetNavUi() {
         const strip = document.getElementById('presetNavStrip');
-        if (!strip || strip.dataset.presetNavBound === '1') return;
+        if (!strip) return;
+        if (strip.dataset.presetNavBound !== '1') {
+            renderPresetNavLinks();
+        }
+        if (strip.dataset.presetNavBound === '1') return;
         strip.dataset.presetNavBound = '1';
         strip.querySelectorAll('a.preset-nav-link').forEach((a) => {
             const i = parseInt(a.dataset.preset, 10);
@@ -2283,7 +2315,7 @@
             return;
         }
         try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(getCurrentSessionState()));
+            localStorage.setItem(getSessionStorageKey(), JSON.stringify(getCurrentSessionState()));
         } catch (e) {
             // Ignore storage errors (private mode/quota)
         }
@@ -2291,7 +2323,7 @@
 
     function loadSessionState() {
         try {
-            const raw = localStorage.getItem(STORAGE_KEY);
+            const raw = localStorage.getItem(getSessionStorageKey());
             if (!raw) return null;
             return JSON.parse(raw);
         } catch (e) {
@@ -2491,6 +2523,7 @@
     }
 
     function initApp(options = {}) {
+        isAppReady = false;
         const p = parseInt(document.getElementById('pulsation').value);
         const bCount = parseInt(document.getElementById('barsCount').value);
         const container = document.getElementById('barsContainer');
