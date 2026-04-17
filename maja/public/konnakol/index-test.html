@@ -277,7 +277,7 @@
             min-width: 0;
             box-sizing: border-box;
         }
-        /* Empty slot: same gray language as inactive rhythm cells. Saved slot: same as default pulsation-handle (purple = есть сохранение). */
+        /* Пресеты: без подсветки/ореолов; неактивные — фикс. серый; активный — белый; «есть JSON» — только цвет текста (фиолет). */
         a.preset-nav-link {
             display: inline-flex;
             align-items: center;
@@ -289,7 +289,7 @@
             border-radius: 13px;
             border: 2px solid transparent;
             background: var(--slate-800);
-            color: var(--text-muted);
+            color: var(--slate-500);
             font-size: 0.7rem;
             font-weight: 700;
             line-height: 1;
@@ -302,45 +302,30 @@
             outline: none;
             text-decoration: none;
             box-shadow: none;
-            transition: transform 0.12s ease, color 0.12s ease, text-shadow 0.12s ease, background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+            transition: color 0.14s ease;
         }
-        a.preset-nav-link:hover {
-            background: rgba(51, 65, 85, 0.72);
-            border-color: rgba(71, 85, 105, 0.85);
-            color: var(--text-muted);
-        }
+        a.preset-nav-link:hover,
         a.preset-nav-link:focus,
         a.preset-nav-link:focus-visible {
             outline: none;
             box-shadow: none;
+            background: var(--slate-800);
+            border-color: transparent;
         }
-        a.preset-nav-link.filled {
-            border: 1px solid rgba(139, 92, 246, 0.55);
-            background: rgba(124, 58, 237, 0.16);
+        a.preset-nav-link:hover {
+            color: var(--slate-500);
+        }
+        a.preset-nav-link.filled:not(.active) {
             color: #c4b5fd;
         }
-        a.preset-nav-link.filled:hover {
-            background: rgba(139, 92, 246, 0.24);
-            border-color: rgba(196, 181, 253, 0.82);
+        a.preset-nav-link.filled:not(.active):hover {
             color: #c4b5fd;
         }
         a.preset-nav-link.active {
-            box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.55);
-            transform: none;
+            color: #ffffff;
         }
-        a.preset-nav-link.active:not(.filled) {
-            border: 2px solid rgba(100, 116, 139, 0.55);
-            color: var(--text);
-        }
-        a.preset-nav-link.holding {
-            color: #c4b5fd;
-            transform: scale(1.12);
-            text-shadow: 0 0 10px rgba(139, 92, 246, 0.5);
-            background: rgba(139, 92, 246, 0.3);
-            border-color: rgba(196, 181, 253, 0.95);
-        }
-        a.preset-nav-link.filled.holding {
-            border-color: rgba(196, 181, 253, 0.95);
+        a.preset-nav-link.active:hover {
+            color: #ffffff;
         }
         .snapshot-saved-toast {
             position: fixed;
