@@ -2690,7 +2690,13 @@
         return Math.max(180, Math.floor(viewportBottom - rect.top));
     }
 
-    function applyAdaptiveBarHeights(container, bCount) {
+    function getGlobalPulsationForSizing() {
+        const p = parseInt(document.getElementById('pulsation')?.value, 10);
+        if (!Number.isFinite(p)) return 4;
+        return Math.max(1, Math.min(MAX_PULSATION, p));
+    }
+
+    function applyAdaptiveBarHeights(container, bCount, pulsationHint = getGlobalPulsationForSizing()) {
         const allowedHeight = getAllowedBarsHeight(container);
         const totalHeightRatioByCount = {
             1: 0.44,
@@ -2716,6 +2722,13 @@
 
         const totalHeightFor5 = Math.floor(allowedHeight * totalHeightRatioByCount[5]);
         let totalHeight = Math.floor(allowedHeight * (totalHeightRatioByCount[bCount] || totalHeightRatioByCount[5]));
+        // Low pulsation bars (1/2/3) can be visually too compressed; expand them immediately on selection.
+        const lowPulsationBoost = { 1: 0.18, 2: 0.13, 3: 0.08 };
+        const boost = lowPulsationBoost[pulsationHint] || 0;
+        if (boost > 0) {
+            totalHeight = Math.floor(totalHeight * (1 + boost));
+        }
+        totalHeight = Math.min(Math.floor(allowedHeight * 0.96), totalHeight);
         if (bCount === 8) totalHeight = Math.min(totalHeight, totalHeightFor5);
         const gap = gapByCount[bCount] || gapByCount[5];
         const freeHeight = totalHeight - (Math.max(0, rows - 1) * gap);
