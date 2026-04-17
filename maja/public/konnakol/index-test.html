@@ -370,6 +370,13 @@
             background: rgba(139, 92, 246, 0.3);
             border-color: rgba(196, 181, 253, 0.95);
         }
+        .pulsation-handle.polymeter,
+        .bar-controls-stack .pulsation-handle.polymeter {
+            color: #fecdd3;
+            border-color: #f87171;
+            background: rgba(244, 63, 94, 0.34);
+            box-shadow: 0 0 12px rgba(244, 63, 94, 0.38);
+        }
 
         .pulsation-drag-panel {
             position: fixed;
@@ -1133,6 +1140,7 @@
     const MAX_PULSATION = 9;
     const BAR_SCALER_AUTO_CLOSE_MS = 5000;
     const TEMPO_HOLD_MS = 420;
+    const POLYMETER_HOLD_MS = 520;
     /** Upper bound for Max N dropdown options (independent of current pulsation; cap vs beats in bar is separate). */
     const RAND_NOTES_MENU_MAX = 9;
     const STORAGE_KEY = 'konnakolSessionStateV1Test';
@@ -1729,6 +1737,7 @@
         const p = parseInt(document.getElementById('pulsation').value, 10);
         const bCount = parseInt(document.getElementById('barsCount').value, 10);
         const barPulsations = barStates.map(b => b.pulsation);
+        const barPolymeter = barStates.map(b => Boolean(b.polymeter));
         const barTempoMultipliers = barStates.map(b => b.tempoMultiplier || 1);
         const cellTempoMultipliers = barStates.map(b => (Array.isArray(b.cellTempoMultipliers) ? b.cellTempoMultipliers.slice() : Array.from({ length: b.pulsation }, () => 1)));
         const checks = barStates.flatMap(b => b.checks);
@@ -1746,6 +1755,7 @@
             bpm: String(document.getElementById('bpm').value || '100'),
             barScaleByCount: getBarScaleMapForSave(),
             barPulsations,
+            barPolymeter,
             barTempoMultipliers,
             cellTempoMultipliers,
             checks
@@ -2049,6 +2059,7 @@
     function cloneBarStatesRowSnapshot() {
         return barStates.map(b => ({
             pulsation: b.pulsation,
+            polymeter: Boolean(b.polymeter),
             checks: b.checks.slice(),
             tempoMultiplier: b.tempoMultiplier || 1,
             cellTempoMultipliers: Array.isArray(b.cellTempoMultipliers)
@@ -2075,6 +2086,7 @@
             barStates[i].tempoMultiplier = normalizeStepTempoMultiplier(src.tempoMultiplier);
             const arrCells = Array.isArray(src.cellTempoMultipliers) ? src.cellTempoMultipliers : [];
             barStates[i].cellTempoMultipliers = Array.from({ length: p }, (_, j) => normalizeStepTempoMultiplier(arrCells[j]));
+            barStates[i].polymeter = Boolean(src.polymeter);
         }
     }
 
@@ -2082,6 +2094,7 @@
         const state = loadSessionState();
         const defaultBar = () => ({
             pulsation: defaultPulsation,
+            polymeter: false,
             checks: Array.from({ length: defaultPulsation }, () => false),
             tempoMultiplier: 1,
             cellTempoMultipliers: Array.from({ length: defaultPulsation }, () => 1)
@@ -2110,6 +2123,7 @@
                 const safeP = syllables[p] ? p : defaultPulsation;
                 barStates[i] = {
                     pulsation: safeP,
+                    polymeter: false,
                     checks: Array.from({ length: safeP }, () => false),
                     tempoMultiplier: 1,
                     cellTempoMultipliers: Array.from({ length: safeP }, () => 1)
@@ -2153,6 +2167,12 @@
             }
         }
 
+        if (state && Array.isArray(state.barPolymeter) && state.barPolymeter.length === bCount) {
+            for (let i = 0; i < bCount; i++) {
+                barStates[i].polymeter = Boolean(state.barPolymeter[i]);
+            }
+        }
+
         recalcStepMeta();
     }
 
@@ -2192,7 +2212,7 @@
             barBody.className = 'bar-body';
             const controlsStack = document.createElement('div');
             controlsStack.className = 'bar-controls-stack';
-            controlsStack.innerHTML = `<span class="bar-tempo-handle${tempoMultiplier === 4 ? ' x3' : ''}" id="bar-tempo-handle-${b}" onpointerdown="startBarTempoHold(event, ${b})" onpointerup="endBarTempoHold(event, ${b})" onpointercancel="endBarTempoHold(event, ${b})">x${barTempoLabel}</span><span class="pulsation-handle" id="pulsation-handle-${b}" onpointerdown="startPulsationMenuHold(event, ${b})" onpointerup="endPulsationMenuHold(event, ${b})" onpointercancel="endPulsationMenuHold(event, ${b})" onclick="togglePulsationMenu(event, ${b})">${barStates[b].pulsation}</span>`;
+            controlsStack.innerHTML = `<span class="bar-tempo-handle${tempoMultiplier === 4 ? ' x3' : ''}" id="bar-tempo-handle-${b}" onpointerdown="startBarTempoHold(event, ${b})" onpointerup="endBarTempoHold(event, ${b})" onpointercancel="endBarTempoHold(event, ${b})">x${barTempoLabel}</span><span class="pulsation-handle${barStates[b].polymeter ? ' polymeter' : ''}" id="pulsation-handle-${b}" onpointerdown="startPulsationMenuHold(event, ${b})" onpointerup="endPulsationMenuHold(event, ${b})" onpointercancel="endPulsationMenuHold(event, ${b})" onclick="togglePulsationMenu(event, ${b})">${barStates[b].pulsation}</span>`;
             barBody.appendChild(controlsStack);
 
             const grid = document.createElement('div');
@@ -2554,10 +2574,16 @@
         pulsationHoldTimer = setTimeout(() => {
             pulsationHoldTimer = null;
             if (pulsationHoldBar !== barIndex) return;
-            const syntheticEvent = { preventDefault() {}, stopPropagation() {} };
-            togglePulsationMenu(syntheticEvent, barIndex);
+            if (!barStates[barIndex]) return;
+            const next = !barStates[barIndex].polymeter;
+            barStates[barIndex].polymeter = next;
+            pulsationHoldBar = -1;
             suppressPulsationClickBar = barIndex;
-        }, TEMPO_HOLD_MS);
+            const container = document.getElementById('barsContainer');
+            renderBars(container);
+            saveSessionState();
+            if (navigator.vibrate) navigator.vibrate(next ? [18, 50, 18] : 14);
+        }, POLYMETER_HOLD_MS);
     }
 
     function endPulsationMenuHold(event, barIndex) {
@@ -2605,6 +2631,7 @@
 
     function getBarPulseBpm(barIndex, baseBpm) {
         if (!barStates[barIndex]) return baseBpm;
+        if (barStates[barIndex].polymeter) return baseBpm;
         const barPulsation = barStates[barIndex].pulsation || BASE_PULSATION_FOR_BPM;
         return baseBpm * (barPulsation / BASE_PULSATION_FOR_BPM);
     }
