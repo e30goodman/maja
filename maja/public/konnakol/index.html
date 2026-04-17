@@ -737,7 +737,12 @@
                 text-overflow: ellipsis;
                 white-space: nowrap;
             }
-            /* Пульсация 9: девять узких ячеек — без «D..»; уменьшаем кегль, чтобы «Dhi» помещалось целиком. */
+            /* Пульсации 8–9: узкие ячейки — без многоточия; меньший кегль (9 плотнее). */
+            .rhythm-grid[data-pulsation="8"] .cell small {
+                font-size: calc(0.54rem * var(--bar-scale));
+                letter-spacing: -0.04em;
+                text-overflow: clip;
+            }
             .rhythm-grid[data-pulsation="9"] .cell small {
                 font-size: calc(0.5rem * var(--bar-scale));
                 letter-spacing: -0.05em;
