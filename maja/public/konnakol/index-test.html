@@ -47,7 +47,7 @@
             display: flex;
             justify-content: center;
             align-items: flex-start;
-            padding: 20px;
+            padding: 20px 20px max(10px, env(safe-area-inset-bottom, 0px));
             box-sizing: border-box;
             position: relative;
             user-select: none;
@@ -81,7 +81,7 @@
             z-index: 1;
             background: var(--panel);
             border: 1px solid var(--slate-700);
-            padding: 30px;
+            padding: 30px 30px max(10px, env(safe-area-inset-bottom, 0px));
             border-radius: 1rem;
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(139, 92, 246, 0.08) inset;
             width: 100%;
@@ -399,7 +399,7 @@
             display: grid;
             grid-template-columns: 1fr;
             gap: calc(var(--bars-gap) * var(--bar-scale));
-            margin: 25px 0;
+            margin: 25px 0 8px;
         }
         .bars-container.many-bars { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .bar {
@@ -712,6 +712,10 @@
         .btn:focus-visible { outline: none; box-shadow: none; }
         .action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
         .action-row .btn { margin-bottom: 0; }
+        #playBtn,
+        #stopBtn {
+            margin-bottom: 0;
+        }
         .btn-icon { font-size: 1.15rem; padding: 12px; }
         .btn-icon-img {
             width: 20px;
@@ -981,11 +985,11 @@
          */
         @media (max-width: 600px) {
             body {
-                padding: 10px;
+                padding: 10px 10px max(8px, env(safe-area-inset-bottom, 0px));
                 align-items: stretch;
             }
             .app-container {
-                padding: 14px 12px;
+                padding: 14px 12px max(8px, env(safe-area-inset-bottom, 0px));
                 border-radius: 18px;
                 max-width: min(600px, 100vw);
                 max-width: min(600px, 100svw);
@@ -1042,7 +1046,7 @@
             .bars-container {
                 grid-template-columns: 1fr !important;
                 gap: var(--bars-gap);
-                margin: 16px 0;
+                margin: 16px 0 6px;
                 overflow: visible;
                 padding: 0;
                 margin-inline: 0;
