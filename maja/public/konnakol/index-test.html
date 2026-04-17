@@ -1187,7 +1187,7 @@
                     </select>
                 </div>
                 <div>
-                    <select id="barsCount" onchange="initApp(); saveSessionState()">
+                    <select id="barsCount" onchange="initApp()">
                         <option value="1">1 Bar</option>
                         <option value="2">2 Bars</option>
                         <option value="3">3 Bars</option>
@@ -1202,7 +1202,7 @@
                 </div>
                 <div class="randomizer-block">
                     <div>
-                        <select id="randNotesPerBar" onchange="saveSessionState()"></select>
+                        <select id="randNotesPerBar"></select>
                     </div>
                     <label class="rand-cycle">
                         <input type="checkbox" id="randomPatternAfterEachBar" onchange="onRandomizationFlagsChanged()" checked>
@@ -1262,8 +1262,8 @@
         <div class="tempo-readout">
             <small id="bpmValue" class="hint-muted">100 BPM</small>
         </div>
-        <nav class="preset-nav-strip" id="presetNavStrip" aria-label="Семь отдельных метрономов (пресеты)">
-            <div class="preset-nav-slots" role="toolbar" aria-label="Пресеты 1–7"></div>
+        <nav class="preset-nav-strip" id="presetNavStrip" aria-label="Пресеты 1–7: сохранение только удержанием кнопки">
+            <div class="preset-nav-slots" role="toolbar" aria-label="Слоты 1–7, статус «сохранён» одинаков для каждого"></div>
         </nav>
     </div>
 
@@ -1368,7 +1368,7 @@
     const PRESET_SLOT_COUNT = 7;
     const PRESET_HOLD_MS = 550;
     let barRefitVwLastW = 0;
-    /** When false, saveSessionState must not write — barStates may be empty during bootstrap or mid-initApp. */
+    /** When false, initApp ещё не завершил загрузку barStates (защита от гонок при будущих писателях). */
     let isAppReady = false;
     /** Preset id from URL (?preset=N), clamped 1..PRESET_SLOT_COUNT; default `'1'`. */
     function getCurrentPresetId() {
@@ -2143,35 +2143,8 @@
         }
     }
 
-    /** Слияние сохранённого JSON с полем заводского эталона — стабильное сравнение (без «дыр» от undefined). */
-    function normalizedSessionForPresetCompare(parsed) {
-        const ref = getFactoryDefaultSessionState();
-        const out = JSON.parse(JSON.stringify(ref));
-        if (!parsed || typeof parsed !== 'object') return out;
-        for (const k of Object.keys(ref)) {
-            if (Object.prototype.hasOwnProperty.call(parsed, k) && parsed[k] !== undefined) {
-                out[k] = parsed[k];
-            }
-        }
-        return out;
-    }
-
-    function presetStoredJsonDiffersFromFactory(rawJson) {
-        try {
-            const parsed = JSON.parse(rawJson);
-            if (!parsed || typeof parsed !== 'object') return false;
-            const a = normalizedSessionForPresetCompare(parsed);
-            const b = getFactoryDefaultSessionState();
-            return JSON.stringify(a) !== JSON.stringify(b);
-        } catch (_) {
-            return false;
-        }
-    }
-
-    /**
-     * Фиолетовая заливка: long-press снимок (presetMeta) — всегда; авто-сейв сессии — только если отличается от factory.
-     */
-    function presetHasSavedData(slotZero) {
+    /** Ручной снимок (удержание кнопки пресета): в JSON есть presetMeta от writeFullMetronomeStateToPreset. Автосохранение слотов не используется. */
+    function presetHasManualSnapshot(slotZero) {
         const i = Math.min(PRESET_SLOT_COUNT - 1, Math.max(0, parseInt(slotZero, 10) || 0));
         const presetIdStr = String(i + 1);
         try {
@@ -2179,11 +2152,7 @@
             if (!raw) raw = localStorage.getItem(fullMetronomeJsonStorageKeyForPresetId(presetIdStr));
             if (!raw) return false;
             const parsed = JSON.parse(raw);
-            if (!parsed || typeof parsed !== 'object') return false;
-            if (parsed.presetMeta && parsed.presetMeta.format === 'konnakolMetronomeFullJson_v2') {
-                return true;
-            }
-            return presetStoredJsonDiffersFromFactory(raw);
+            return Boolean(parsed && parsed.presetMeta && parsed.presetMeta.format === 'konnakolMetronomeFullJson_v2');
         } catch (_) {
             return false;
         }
@@ -2260,9 +2229,14 @@
         strip.querySelectorAll('a.preset-nav-link').forEach((a) => {
             const i = parseInt(a.dataset.preset, 10);
             if (!Number.isFinite(i)) return;
-            a.classList.toggle('filled', presetHasSavedData(i));
+            const saved = presetHasManualSnapshot(i);
+            a.classList.toggle('filled', saved);
             a.classList.toggle('active', i === getCurrentPresetIndexZero());
-            a.title = `Пресет ${i + 1}: клик — отдельный метроном; удерживать ~${msHint} с — записать сюда полное состояние (JSON)`;
+            a.dataset.manualSave = saved ? '1' : '0';
+            a.title = saved
+                ? `Пресет ${i + 1}: сохранён (удерж. ${msHint}s — перезаписать)`
+                : `Пресет ${i + 1}: не сохранён · удерж. ${msHint}s — записать`;
+            a.setAttribute('aria-label', saved ? `Пресет ${i + 1}, сохранён` : `Пресет ${i + 1}, не сохранён`);
         });
     }
 
@@ -2337,45 +2311,6 @@
         };
     }
 
-    /**
-     * «Заводской» снимок как у свежей страницы: HTML-дефолты (pulsation 4, 4 bars, BPM 100, …)
-     * и пустая сетка. Используется только для индикатора пресета: фиолет, если сохранение отличается от этого.
-     */
-    function getFactoryDefaultSessionState() {
-        const p = 4;
-        const bCount = 4;
-        const barPulsations = Array.from({ length: bCount }, () => p);
-        const barPolymeter = Array.from({ length: bCount }, () => false);
-        const barTempoMultipliers = Array.from({ length: bCount }, () => 1);
-        const cellTempoMultipliers = Array.from({ length: bCount }, () => Array.from({ length: p }, () => 1));
-        const checksByBar = Array.from({ length: bCount }, () => Array.from({ length: p }, () => false));
-        const checks = checksByBar.flat();
-        return {
-            pulsation: String(p),
-            barsCount: String(bCount),
-            randNotesPerBar: '2',
-            randomPatternAfterEachBar: true,
-            randomPatternSpeedChange: false,
-            randomPulsationAfterEachBar: false,
-            randomModeEnabled: false,
-            accentOnlySound: true,
-            barFirstSyllableHighEnabled: false,
-            soundPreset: 'classic',
-            tempoDoubleMode: false,
-            bpm: '100',
-            barScaleByCount: defaultBarScaleMap(),
-            barPulsations,
-            barPolymeter,
-            barTempoMultipliers,
-            cellTempoMultipliers,
-            checks,
-            checksByBar,
-            currentStep: 0,
-            lastFocusedBarIndex: -1,
-            snapshotSchema: 2
-        };
-    }
-
     function getBarScaleMapForSave() {
         const state = loadSessionState();
         const map = defaultBarScaleMap();
@@ -2394,16 +2329,11 @@
         return map;
     }
 
+    /** Автосохранение в localStorage отключено: слот пишется только через удержание пресета (writeFullMetronomeStateToPreset). Вызовы в коде оставлены как no-op. */
     function saveSessionState() {
         if (!isAppReady) {
             return;
         }
-        try {
-            localStorage.setItem(getSessionStorageKey(), JSON.stringify(getCurrentSessionState()));
-        } catch (e) {
-            // Ignore storage errors (private mode/quota)
-        }
-        refreshPresetNavUi();
     }
 
     function loadSessionState() {
