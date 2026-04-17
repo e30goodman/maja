@@ -1477,6 +1477,8 @@
     const PRESET_HOLD_MS = 550;
     /** When false, initApp ещё не завершил загрузку barStates (защита от гонок при будущих писателях). */
     let isAppReady = false;
+    /** Во время программного применения пресета блокирует saveSessionState даже после isAppReady=true внутри initApp. */
+    let suppressSessionWritesDepth = 0;
     /** Preset id from URL (?preset=N), clamped 1..PRESET_SLOT_COUNT; default `'1'`. */
     function getCurrentPresetId() {
         try {
@@ -2650,7 +2652,7 @@
 
     /** Автосохранение в localStorage отключено: слот пишется только через удержание пресета (writeFullMetronomeStateToPreset). Вызовы в коде оставлены как no-op. */
     function saveSessionState() {
-        if (!isAppReady) {
+        if (!isAppReady || suppressSessionWritesDepth > 0) {
             return;
         }
     }
@@ -2663,6 +2665,10 @@
         }
     }
 
+    /**
+     * Пишет значения контролов из JSON пресета (без пересборки сетки).
+     * Сохранение в слот: saveSessionState (no-op пока !isAppReady или suppressSessionWritesDepth).
+     */
     function applySessionStateToControls(state) {
         if (!state) {
             randomModeEnabled = false;
@@ -2869,7 +2875,10 @@
         container.classList.toggle('many-bars', bCount >= 6);
         applyAdaptiveBarHeights(container, bCount);
         initializeBarStates(p, bCount, options);
-        renderBars(container);
+        const patched = tryPatchBarsDomFromBarStates(container, { forceFullGridRebuild: Boolean(options.forceFullGridRebuild) });
+        if (!patched) {
+            renderBars(container);
+        }
         const tryKeepPlayback = Boolean(options.preservePlaybackDuringGridRebuild && isPlaybackRunning());
         if (tryKeepPlayback && options.playbackAnchor) {
             hidePlaybackFatalError();
@@ -2912,15 +2921,20 @@
             stop();
         }
         isAppReady = false;
-        const savedState = loadSessionState();
-        applySessionStateToControls(savedState);
-        updateBarScaleLabel();
-        initApp({ reloadBarStatesFromSession: true });
-        restoreSelectState(savedState);
-        updateTempoLabel();
-        refreshTempoModeUi();
-        refreshRandomModeToggleButton();
-        refreshAccentToggleButton();
+        suppressSessionWritesDepth += 1;
+        try {
+            const savedState = loadSessionState();
+            applySessionStateToControls(savedState);
+            updateBarScaleLabel();
+            initApp({ reloadBarStatesFromSession: true });
+            restoreSelectState(savedState);
+            updateTempoLabel();
+            refreshTempoModeUi();
+            refreshRandomModeToggleButton();
+            refreshAccentToggleButton();
+        } finally {
+            suppressSessionWritesDepth -= 1;
+        }
         saveSessionState();
         refreshPresetNavUi();
     }
@@ -3113,10 +3127,161 @@
         }
     }
 
+    /**
+     * Модели отображения ячеек такта (логика совпадает с прежним renderBars); общая для полной пересборки и patch DOM.
+     */
+    function computeBarRhythmCellPresentations(b) {
+        const row = barStates[b];
+        const p = row.pulsation;
+        const seq = syllables[p] || [];
+        const out = [];
+        let lastOriginalSyllable = null;
+        for (let i = 0; i < p; i++) {
+            const s = seq[i] !== undefined ? seq[i] : '';
+            const cellTempoMultiplier = row.cellTempoMultipliers?.[i] || 1;
+            const mult = getCellTempoMultiplier(b, i);
+            let displaySyllable = s;
+            if (seq.length === 0) {
+                displaySyllable = s;
+                lastOriginalSyllable = s;
+            } else {
+                const defaultStart = (mult === 1) ? (i % seq.length) : 0;
+                let displayStart = defaultStart;
+                const isLastBeatInBar = i === p - 1;
+                if (mult === 1 && !isLastBeatInBar && lastOriginalSyllable != null && seq[defaultStart] === lastOriginalSyllable) {
+                    displayStart = (defaultStart - 1 + seq.length) % seq.length;
+                }
+                if (mult === 1) {
+                    displaySyllable = seq[displayStart];
+                } else if (mult === 2) {
+                    displaySyllable = `${seq[0]} ${seq[1 % seq.length]}`;
+                } else if (mult === 4) {
+                    const q = SUBDIV_X3_LABEL_QUAD;
+                    displaySyllable = `${q[0]} ${q[1]}\n${q[2]} ${q[3]}`;
+                } else {
+                    displaySyllable = s;
+                }
+                if (mult === 1) {
+                    lastOriginalSyllable = seq[displayStart];
+                } else if (mult === 2) {
+                    lastOriginalSyllable = seq[1 % seq.length];
+                } else if (mult === 4) {
+                    lastOriginalSyllable = SUBDIV_X3_LABEL_QUAD[3];
+                } else {
+                    lastOriginalSyllable = s;
+                }
+            }
+            out.push({
+                displaySyllable,
+                cellTempoMultiplier,
+                mult,
+                rhythmOn: Boolean(row.checks[i])
+            });
+        }
+        return out;
+    }
+
+    function domRhythmStructureMatchesBarStates(container, states) {
+        if (!container || !Array.isArray(states) || states.length === 0) return false;
+        const barEls = container.querySelectorAll(':scope > .bar');
+        if (barEls.length !== states.length) return false;
+        for (let b = 0; b < states.length; b++) {
+            const grid = barEls[b].querySelector(':scope > .bar-body > .rhythm-grid');
+            if (!grid) return false;
+            const n = grid.querySelectorAll(':scope > .cell').length;
+            if (n !== states[b].pulsation) return false;
+        }
+        return true;
+    }
+
+    function patchRhythmCellFromPresentation(cell, b, beatIndex, pres, globalStep) {
+        const p = barStates[b].pulsation;
+        const cellTempoMultiplier = pres.cellTempoMultiplier;
+        const rhythmOn = pres.rhythmOn;
+        cell.className = 'cell'
+            + (rhythmOn ? ' rhythm-note-on' : '')
+            + (cellTempoMultiplier > 1 ? ' tempo-boost' : '')
+            + (cellTempoMultiplier === 4 ? ' tempo-boost-x3' : '')
+            + (cellTempoMultiplier === 4
+                ? ' cell-profile-x3'
+                : (cellTempoMultiplier === 2 ? ' cell-profile-x2' : ' cell-profile-default'));
+        cell.dataset.barIndex = String(b);
+        cell.dataset.localIndex = String(beatIndex);
+        cell.dataset.tempoMultiplier = String(cellTempoMultiplier);
+        cell.id = `step-${globalStep}`;
+        cell.setAttribute('aria-pressed', rhythmOn ? 'true' : 'false');
+        cell.setAttribute('aria-label', `${String(pres.displaySyllable).replace(/\n/g, ', ')}, bar ${b + 1}, beat ${beatIndex + 1}`);
+        let label = cell.querySelector('small');
+        if (!label) {
+            label = document.createElement('small');
+            const badge = cell.querySelector('.cell-speed-badge');
+            if (badge) cell.insertBefore(label, badge);
+            else cell.appendChild(label);
+        }
+        label.textContent = pres.displaySyllable;
+        label.classList.toggle('subdiv-label', cellTempoMultiplier > 1);
+        label.classList.toggle('dense', cellTempoMultiplier > 1 && p > 4);
+        let badge = cell.querySelector('.cell-speed-badge');
+        if (cellTempoMultiplier > 1) {
+            if (!badge) {
+                badge = document.createElement('span');
+                cell.appendChild(badge);
+            }
+            badge.className = 'cell-speed-badge' + (cellTempoMultiplier === 4 ? ' x3' : '');
+            badge.textContent = cellTempoMultiplier === 4 ? 'x3' : 'x2';
+        } else if (badge) {
+            badge.remove();
+        }
+    }
+
+    function patchBarsDomFromBarStates(container) {
+        let globalStep = 0;
+        const barEls = container.querySelectorAll(':scope > .bar');
+        for (let b = 0; b < barStates.length; b++) {
+            const barEl = barEls[b];
+            const tempoMultiplier = barStates[b].tempoMultiplier || 1;
+            barEl.className = 'bar'
+                + (tempoMultiplier > 1 ? ' tempo-boost' : '')
+                + (tempoMultiplier === 4 ? ' tempo-boost-x3' : '');
+            barEl.dataset.barIndex = String(b);
+            const barTempoLabel = tempoMultiplier === 4 ? 3 : tempoMultiplier;
+            const tempoHandle = document.getElementById(`bar-tempo-handle-${b}`);
+            if (tempoHandle) {
+                tempoHandle.textContent = `x${barTempoLabel}`;
+                tempoHandle.classList.toggle('x3', tempoMultiplier === 4);
+            }
+            const pulseHandle = document.getElementById(`pulsation-handle-${b}`);
+            if (pulseHandle) {
+                pulseHandle.textContent = String(barStates[b].pulsation);
+                pulseHandle.classList.toggle('polymeter', barStates[b].polymeter);
+            }
+            const grid = barEl.querySelector(':scope > .bar-body > .rhythm-grid');
+            if (grid) {
+                grid.dataset.pulsation = String(barStates[b].pulsation);
+            }
+            const presentations = computeBarRhythmCellPresentations(b);
+            const cells = barEl.querySelectorAll(':scope > .bar-body > .rhythm-grid > .cell');
+            for (let i = 0; i < cells.length; i++) {
+                patchRhythmCellFromPresentation(cells[i], b, i, presentations[i], globalStep);
+                globalStep += 1;
+            }
+        }
+    }
+
+    /**
+     * Если число тактов и долей в каждом такте совпадает с уже отрисованной сеткой — обновляем классы/тексты без replaceChildren.
+     */
+    function tryPatchBarsDomFromBarStates(container, options = {}) {
+        if (options.forceFullGridRebuild) return false;
+        if (!container || !barStates.length) return false;
+        if (!domRhythmStructureMatchesBarStates(container, barStates)) return false;
+        patchBarsDomFromBarStates(container);
+        return true;
+    }
+
     function renderBars(container) {
         recalcStepMeta();
         const fragment = document.createDocumentFragment();
-        let lastOriginalSyllable = null;
         let globalStep = 0;
         for (let b = 0; b < barStates.length; b++) {
             const barDiv = document.createElement('div');
@@ -3138,14 +3303,12 @@
             grid.className = 'rhythm-grid';
             grid.dataset.pulsation = String(barStates[b].pulsation);
 
-            const p = barStates[b].pulsation;
-            lastOriginalSyllable = null;
-            syllables[p].forEach((s, i) => {
+            const presentations = computeBarRhythmCellPresentations(b);
+            presentations.forEach((pres, i) => {
                 const cell = document.createElement('div');
-                const cellTempoMultiplier = barStates[b].cellTempoMultipliers?.[i] || 1;
-                const mult = getCellTempoMultiplier(b, i);
+                const cellTempoMultiplier = pres.cellTempoMultiplier;
                 cell.className = 'cell'
-                    + (barStates[b].checks[i] ? ' rhythm-note-on' : '')
+                    + (pres.rhythmOn ? ' rhythm-note-on' : '')
                     + (cellTempoMultiplier > 1 ? ' tempo-boost' : '')
                     + (cellTempoMultiplier === 4 ? ' tempo-boost-x3' : '')
                     + (cellTempoMultiplier === 4
@@ -3157,55 +3320,15 @@
                 cell.id = `step-${globalStep}`;
                 cell.setAttribute('role', 'button');
                 cell.setAttribute('tabindex', '0');
-                cell.setAttribute('aria-pressed', barStates[b].checks[i] ? 'true' : 'false');
+                cell.setAttribute('aria-pressed', pres.rhythmOn ? 'true' : 'false');
                 const label = document.createElement('small');
-                const seq = syllables[p] || [];
-                let displaySyllable = s;
-                if (seq.length === 0) {
-                    displaySyllable = s;
-                    lastOriginalSyllable = s;
-                } else {
-                    // Base: x1 follows grid; x2/x4 always start from Ta (index 0).
-                    const defaultStart = (mult === 1) ? (i % seq.length) : 0;
-
-                    let displayStart = defaultStart;
-
-                    // Smart shift: x1 only, not on last beat of bar, only vs previous in same bar (lastOriginal resets each bar).
-                    const isLastBeatInBar = i === p - 1;
-                    if (mult === 1 && !isLastBeatInBar && lastOriginalSyllable != null && seq[defaultStart] === lastOriginalSyllable) {
-                        displayStart = (defaultStart - 1 + seq.length) % seq.length;
-                    }
-
-                    // Build label string (syllable stitching rules).
-                    if (mult === 1) {
-                        displaySyllable = seq[displayStart];
-                    } else if (mult === 2) {
-                        // Two subdivisions: Ta Ka when pattern starts that way.
-                        displaySyllable = `${seq[0]} ${seq[1 % seq.length]}`;
-                    } else if (mult === 4) {
-                        const q = SUBDIV_X3_LABEL_QUAD;
-                        displaySyllable = `${q[0]} ${q[1]}\n${q[2]} ${q[3]}`;
-                    } else {
-                        displaySyllable = s;
-                    }
-
-                    // Remember real last syllable for the next neighbouring cell.
-                    if (mult === 1) {
-                        lastOriginalSyllable = seq[displayStart];
-                    } else if (mult === 2) {
-                        lastOriginalSyllable = seq[1 % seq.length];
-                    } else if (mult === 4) {
-                        lastOriginalSyllable = SUBDIV_X3_LABEL_QUAD[3];
-                    } else {
-                        lastOriginalSyllable = s;
-                    }
-                }
-                label.textContent = displaySyllable;
-                cell.setAttribute('aria-label', `${String(displaySyllable).replace(/\n/g, ', ')}, bar ${b + 1}, beat ${i + 1}`);
+                label.textContent = pres.displaySyllable;
+                const p = barStates[b].pulsation;
                 if (cellTempoMultiplier > 1) {
                     label.classList.add('subdiv-label');
                     if (p > 4) label.classList.add('dense');
                 }
+                cell.setAttribute('aria-label', `${String(pres.displaySyllable).replace(/\n/g, ', ')}, bar ${b + 1}, beat ${i + 1}`);
                 cell.appendChild(label);
                 if (cellTempoMultiplier > 1) {
                     const speedBadge = document.createElement('span');
