@@ -615,6 +615,10 @@
             border-color: var(--violet-500);
             box-shadow: 0 0 14px rgba(139, 92, 246, 0.3);
         }
+        .btn-accent.third-sound-on {
+            border-color: #fb7185;
+            box-shadow: 0 0 0 1px rgba(251, 113, 133, 0.35) inset, 0 0 12px rgba(244, 63, 94, 0.35);
+        }
         .custom-sound-wrap {
             display: flex;
             flex-direction: column;
@@ -949,7 +953,7 @@
 
     <div class="action-row">
         <button id="randomModeToggleBtn" class="btn btn-rand btn-icon" onclick="toggleRandomModeFromButton()" title="Random mode">🎲</button>
-        <button id="accentToggleBtn" class="btn btn-accent btn-icon" onclick="toggleAccentOnlyFromButton()"><img src="drum0.png" alt="" class="btn-icon-img"></button>
+        <button id="accentToggleBtn" class="btn btn-accent btn-icon" onclick="toggleAccentOnlyFromButton()" onpointerdown="startAccentHold(event)" onpointerup="endAccentHold(event)" onpointercancel="endAccentHold(event)"><img src="drum0.png" alt="" class="btn-icon-img"></button>
     </div>
     <button id="playBtn" class="btn btn-play" onclick="start(false)">▶ PLAY</button>
     <button id="stopBtn" class="btn btn-stop" onclick="stop()">■ STOP</button>
@@ -991,6 +995,9 @@
     /** Last accepted BPM (revert track click without drag). */
     let bpmSliderLastStable = 100;
     let tapTempoTimestamps = [];
+    let barFirstSyllableHighEnabled = false;
+    let accentHoldTimer = null;
+    let suppressAccentClick = false;
     let randomModeEnabled = false;
     let selectedSoundPreset = 'classic';
     let customClickBuffer = null;
@@ -1004,6 +1011,7 @@
     const POLYMETER_HOLD_MS = 520;
     const TAP_TEMPO_RESET_MS = 2000;
     const TAP_TEMPO_MAX_TAPS = 8;
+    const ACCENT_HOLD_MS = 420;
     /** Upper bound for Max N dropdown options (independent of current pulsation; cap vs beats in bar is separate). */
     const RAND_NOTES_MENU_MAX = 9;
     const STORAGE_KEY = 'konnakolSessionStateV1';
@@ -1169,6 +1177,7 @@
         if (!btn) return;
         const playAllEnabled = accentOnlyEnabled;
         btn.classList.toggle('active', playAllEnabled);
+        btn.classList.toggle('third-sound-on', barFirstSyllableHighEnabled);
         btn.setAttribute('aria-pressed', playAllEnabled ? 'true' : 'false');
         btn.title = '';
     }
@@ -1218,9 +1227,36 @@
     }
 
     function toggleAccentOnlyFromButton() {
+        if (suppressAccentClick) {
+            suppressAccentClick = false;
+            return;
+        }
         accentOnlyEnabled = !accentOnlyEnabled;
         refreshAccentToggleButton();
         saveSessionState();
+    }
+
+    function startAccentHold(event) {
+        if (event.button !== undefined && event.button !== 0) return;
+        if (accentHoldTimer !== null) {
+            clearTimeout(accentHoldTimer);
+            accentHoldTimer = null;
+        }
+        accentHoldTimer = setTimeout(() => {
+            accentHoldTimer = null;
+            barFirstSyllableHighEnabled = !barFirstSyllableHighEnabled;
+            suppressAccentClick = true;
+            refreshAccentToggleButton();
+            saveSessionState();
+            if (navigator.vibrate) navigator.vibrate(barFirstSyllableHighEnabled ? [16, 40, 16] : 12);
+        }, ACCENT_HOLD_MS);
+    }
+
+    function endAccentHold() {
+        if (accentHoldTimer !== null) {
+            clearTimeout(accentHoldTimer);
+            accentHoldTimer = null;
+        }
     }
 
     function onSoundPresetChange() {
@@ -1397,6 +1433,7 @@
             randomPulsationAfterEachBar: document.getElementById('randomPulsationAfterEachBar').checked,
             randomModeEnabled,
             accentOnlySound: accentOnlyEnabled,
+            barFirstSyllableHighEnabled,
             soundPreset: selectedSoundPreset,
             tempoDoubleMode,
             bpm: String(document.getElementById('bpm').value || '100'),
@@ -1530,6 +1567,7 @@
         accentOnlyEnabled = state.accentOnlySound === undefined
             ? true
             : Boolean(state.accentOnlySound);
+        barFirstSyllableHighEnabled = Boolean(state.barFirstSyllableHighEnabled);
         tempoDoubleMode = Boolean(state.tempoDoubleMode);
         refreshRandomModeToggleButton();
         refreshAccentToggleButton();
@@ -2667,6 +2705,43 @@
         osc.stop(time + Math.max(0.05, decay + 0.01));
     }
 
+    function playBarFirstHighClick(time) {
+        if (!barFirstSyllableHighEnabled) return;
+        if (!audioCtx) audioCtx = new AudioContext();
+        if (selectedSoundPreset === 'custom' && customAccentBuffer) {
+            const src = audioCtx.createBufferSource();
+            const gainNode = audioCtx.createGain();
+            src.buffer = customAccentBuffer;
+            src.playbackRate.setValueAtTime(1.65, time);
+            gainNode.gain.setValueAtTime(0.78, time);
+            src.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            src.start(time);
+            return;
+        }
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        if (selectedSoundPreset === 'konnakol_metronome') {
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(920, time);
+            osc.frequency.exponentialRampToValueAtTime(210, time + 0.03);
+            gain.gain.setValueAtTime(0, time);
+            gain.gain.linearRampToValueAtTime(0.78, time + 0.002);
+            gain.gain.exponentialRampToValueAtTime(0.001, time + 0.035);
+        } else {
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(1550, time);
+            osc.frequency.exponentialRampToValueAtTime(520, time + 0.035);
+            gain.gain.setValueAtTime(0, time);
+            gain.gain.linearRampToValueAtTime(0.30, time + 0.002);
+            gain.gain.exponentialRampToValueAtTime(0.001, time + 0.042);
+        }
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(time);
+        osc.stop(time + 0.06);
+    }
+
     function scheduler() {
         while (nextNoteTime < audioCtx.currentTime + 0.1) {
             scheduleNote(currentStep, nextNoteTime);
@@ -2685,6 +2760,10 @@
         const cellMult = getCellTempoMultiplier(meta.barIndex, meta.localIndex);
         const uiDedupKey = `${step}:${time.toFixed(6)}`;
         const metaSnapshot = { barIndex: meta.barIndex, localIndex: meta.localIndex };
+
+        if (meta.localIndex === 0) {
+            playBarFirstHighClick(time);
+        }
 
         // One cell flag (white = accent / grey = normal) sets timbre for all x2/x4 subdivisions.
         for (let k = 0; k < cellMult; k++) {
