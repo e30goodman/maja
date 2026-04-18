@@ -2713,7 +2713,8 @@
         const T_MIN = 20;
         const T_MAX = 480;
         const SPRING_ALPHA = 0.32;
-        const BPM_TACTILE_DOUBLE_TAP_GAP_MS = 750;
+        /** Макс. пауза между двумя тапами (отпускание→отпускание), «тон-тон». */
+        const BPM_TACTILE_DOUBLE_TAP_GAP_MS = 360;
         /** Радиус «тапа» (px) от точки касания: двойной тап не должен срываться из‑за дрожи пальца. */
         const BPM_TACTILE_TAP_MAX_MOVE_PX = 32;
         const BPM_TACTILE_TAP_MAX_DURATION_MS = 520;
