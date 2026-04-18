@@ -861,6 +861,32 @@
             box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.34) inset, 0 0 18px rgba(244, 63, 94, 0.34);
             background: rgba(244, 63, 94, 0.18);
         }
+        /* Удержание x2/x3 по такту: весь такт подсветка; при уже включённом ускорении — плотнее + штриховка */
+        .bar.bar-tempo-hold-active {
+            border-color: rgba(248, 113, 113, 0.72);
+            box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.45) inset, 0 0 18px rgba(239, 68, 68, 0.32);
+            background: rgba(244, 63, 94, 0.16);
+        }
+        .bar.bar-tempo-hold-active.tempo-boost {
+            border-color: #fb7185;
+            box-shadow: 0 0 0 2px rgba(251, 113, 133, 0.55) inset, 0 0 22px rgba(239, 68, 68, 0.42);
+            background:
+                repeating-linear-gradient(
+                    -36deg,
+                    rgba(244, 63, 94, 0.28),
+                    rgba(244, 63, 94, 0.28) 5px,
+                    rgba(30, 41, 59, 0.42) 5px,
+                    rgba(30, 41, 59, 0.42) 10px
+                ),
+                rgba(244, 63, 94, 0.12);
+        }
+        .bar.bar-tempo-hold-active.tempo-boost-x3 {
+            border-color: #fda4af;
+            box-shadow: 0 0 0 2px rgba(253, 164, 175, 0.5) inset, 0 0 24px rgba(239, 68, 68, 0.48);
+        }
+        #barsContainer.bar-tempo-pointer-capture {
+            touch-action: none;
+        }
         /* Test layout: tempo + pulsation stacked in one column beside the syllable row. */
         .bar-body {
             --bar-cell-gap: calc(clamp(5px, calc(10px - (var(--bars-count) * 0.4px)), 8px) * var(--bar-scale));
@@ -4317,7 +4343,7 @@
             barBody.className = 'bar-body';
             const controlsStack = document.createElement('div');
             controlsStack.className = 'bar-controls-stack';
-            controlsStack.innerHTML = `<span class="bar-tempo-handle${tempoMultiplier === 4 ? ' x3' : ''}" id="bar-tempo-handle-${b}" onpointerdown="startBarTempoHold(event, ${b})" onpointerup="endBarTempoHold(event, ${b})" onpointercancel="endBarTempoHold(event, ${b})">x${barTempoLabel}</span><span class="pulsation-handle${barStates[b].polymeter ? ' polymeter' : ''}" id="pulsation-handle-${b}" onpointerdown="startPulsationMenuHold(event, ${b})" onpointerup="endPulsationMenuHold(event, ${b})" onpointercancel="endPulsationMenuHold(event, ${b})" onclick="togglePulsationMenu(event, ${b})">${barStates[b].pulsation}</span>`;
+            controlsStack.innerHTML = `<span class="bar-tempo-handle${tempoMultiplier === 4 ? ' x3' : ''}" id="bar-tempo-handle-${b}" onpointerdown="startBarTempoHold(event, ${b})">x${barTempoLabel}</span><span class="pulsation-handle${barStates[b].polymeter ? ' polymeter' : ''}" id="pulsation-handle-${b}" onpointerdown="startPulsationMenuHold(event, ${b})" onpointerup="endPulsationMenuHold(event, ${b})" onpointercancel="endPulsationMenuHold(event, ${b})" onclick="togglePulsationMenu(event, ${b})">${barStates[b].pulsation}</span>`;
             barBody.appendChild(controlsStack);
 
             const grid = document.createElement('div');
@@ -4468,17 +4494,27 @@
         saveSessionState();
     }
 
+    /** pointerup/cancel приходят на #barsContainer: захват на контейнере, span ручки может исчезнуть при renderBars. */
+    function onBarsContainerBarTempoPointerEnd(ev) {
+        if (barTempoHoldTarget < 0 || barTempoHoldPointerId === null) return;
+        if (ev.pointerId !== barTempoHoldPointerId) return;
+        endBarTempoHold(ev, barTempoHoldTarget);
+    }
+
     function startBarTempoHold(event, barIndex) {
         if (event.button !== undefined && event.button !== 0) return;
         event.preventDefault();
         event.stopPropagation();
-        if (event.currentTarget && event.currentTarget.setPointerCapture && event.pointerId !== undefined) {
+        const barsRoot = document.getElementById('barsContainer');
+        if (barsRoot && barsRoot.setPointerCapture && event.pointerId !== undefined) {
             try {
-                event.currentTarget.setPointerCapture(event.pointerId);
+                barsRoot.setPointerCapture(event.pointerId);
             } catch (_) {
                 // ignore capture errors on unsupported browsers/devices
             }
         }
+        barsRoot?.classList.add('bar-tempo-pointer-capture');
+        document.getElementById(`bar-${barIndex}`)?.classList.add('bar-tempo-hold-active');
         if (barTempoHoldTimer !== null) {
             clearTimeout(barTempoHoldTimer);
             barTempoHoldTimer = null;
@@ -4490,9 +4526,9 @@
         barTempoHoldTimer = setTimeout(() => {
             barTempoHoldTimer = null;
             if (barTempoHoldTarget !== barIndex) return;
-            const h = document.getElementById(`bar-tempo-handle-${barIndex}`);
-            const synth = h && barTempoHoldPointerId !== undefined && barTempoHoldPointerId !== null
-                ? { currentTarget: h, pointerId: barTempoHoldPointerId, preventDefault() {}, stopPropagation() {} }
+            const bc = document.getElementById('barsContainer');
+            const synth = bc && barTempoHoldPointerId !== undefined && barTempoHoldPointerId !== null
+                ? { currentTarget: bc, pointerId: barTempoHoldPointerId, preventDefault() {}, stopPropagation() {} }
                 : null;
             endBarTempoHold(synth, barIndex);
             cycleBarTempoMultiplier(barIndex);
@@ -4504,18 +4540,20 @@
             event.preventDefault();
             event.stopPropagation();
         }
+        const barsRoot = document.getElementById('barsContainer');
         const handle = document.getElementById(`bar-tempo-handle-${barIndex}`);
-        const releaseEl = (event && event.currentTarget) ? event.currentTarget : handle;
         const pid = (event && event.pointerId !== undefined) ? event.pointerId : barTempoHoldPointerId;
-        if (releaseEl && pid !== undefined && pid !== null && releaseEl.releasePointerCapture && releaseEl.hasPointerCapture) {
+        if (barsRoot && pid !== undefined && pid !== null && barsRoot.releasePointerCapture && barsRoot.hasPointerCapture) {
             try {
-                if (releaseEl.hasPointerCapture(pid)) {
-                    releaseEl.releasePointerCapture(pid);
+                if (barsRoot.hasPointerCapture(pid)) {
+                    barsRoot.releasePointerCapture(pid);
                 }
             } catch (_) {
                 // ignore release errors on unsupported browsers/devices
             }
         }
+        barsRoot?.classList.remove('bar-tempo-pointer-capture');
+        document.getElementById(`bar-${barIndex}`)?.classList.remove('bar-tempo-hold-active');
         barTempoHoldPointerId = null;
         if (handle) handle.classList.remove('hold-active');
         if (barTempoHoldTimer !== null) {
@@ -5373,7 +5411,14 @@
             appRootEl.addEventListener('change', markVioletMaybe, true);
         }
         const barsEl = document.getElementById('barsContainer');
-        if (barsEl) barsEl.addEventListener('pointerdown', markVioletMaybe, true);
+        if (barsEl) {
+            barsEl.addEventListener('pointerdown', markVioletMaybe, true);
+            if (barsEl.dataset.barTempoHoldEndWired !== '1') {
+                barsEl.dataset.barTempoHoldEndWired = '1';
+                barsEl.addEventListener('pointerup', onBarsContainerBarTempoPointerEnd);
+                barsEl.addEventListener('pointercancel', onBarsContainerBarTempoPointerEnd);
+            }
+        }
         const bpmEl = document.getElementById('bpmTactileWrap');
         if (bpmEl) bpmEl.addEventListener('pointerdown', markVioletMaybe, true);
         const tapEl = document.getElementById('tapTempoBtn');
