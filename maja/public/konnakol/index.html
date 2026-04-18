@@ -1983,13 +1983,10 @@
     /** Highest supported beat count per bar (must match syllables keys). */
     const MAX_PULSATION = 9;
     const BAR_SCALER_AUTO_CLOSE_MS = 12000;
-    /**
-     * Единый long-press в сетке тактов: x1↔x2↔x4 (ручка такта и ячейка) и polymeter — один тайминг (раньше темп был 840 ms).
-     * Вибрация вызывается в том же тике, что и смена состояния (см. cycleBarTempoMultiplier / cycleCellTempoMultiplier / hold polymeter).
-     */
-    const GRID_LONG_PRESS_MS = 520;
-    const TEMPO_HOLD_MS = GRID_LONG_PRESS_MS;
-    const POLYMETER_HOLD_MS = GRID_LONG_PRESS_MS;
+    /** Единое окно long-press (мс): polymeter и смена x1↔x2↔x4 по такту/ячейке. Вибро в cycle* — сразу после записи next, до renderBars. */
+    const LONG_PRESS_UI_MS = 520;
+    const TEMPO_HOLD_MS = LONG_PRESS_UI_MS;
+    const POLYMETER_HOLD_MS = LONG_PRESS_UI_MS;
     const TAP_TEMPO_RESET_MS = 2000;
     const TAP_TEMPO_MAX_TAPS = 8;
     const ACCENT_HOLD_MS = 420;
@@ -4492,9 +4489,9 @@
         const current = barStates[barIndex].tempoMultiplier || 1;
         const next = current === 1 ? 2 : (current === 2 ? 4 : 1);
         barStates[barIndex].tempoMultiplier = next;
+        if (navigator.vibrate) navigator.vibrate(next === 4 ? [16, 30, 20] : 12);
         const container = document.getElementById('barsContainer');
         renderBars(container);
-        if (navigator.vibrate) navigator.vibrate(next === 3 ? [16, 30, 20] : 12);
         saveSessionState();
     }
 
@@ -4503,9 +4500,9 @@
         const current = barStates[barIndex].cellTempoMultipliers[localIndex] || 1;
         const next = current === 1 ? 2 : (current === 2 ? 4 : 1);
         barStates[barIndex].cellTempoMultipliers[localIndex] = next;
+        if (navigator.vibrate) navigator.vibrate(next === 4 ? [16, 30, 20] : 12);
         const container = document.getElementById('barsContainer');
         renderBars(container);
-        if (navigator.vibrate) navigator.vibrate(next === 3 ? [16, 30, 20] : 12);
         saveSessionState();
     }
 
