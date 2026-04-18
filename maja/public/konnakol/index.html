@@ -897,9 +897,8 @@
         .bars-container {
             --bars-count: 4;
             --bar-height: 96px;
+            /* JS пишет --cell-height при подгонке; высота ячеек = внутренняя высота такта (см. .bar + flex). */
             --cell-height: 62px;
-            /* Fixed cell window height: base from JS + slack; independent of label text */
-            --total-cell-height: calc((var(--cell-height) + 20px) * var(--bar-scale));
             --bars-gap: 16px;
             --bar-scale: 1;
             flex: 1 1 auto;
@@ -922,30 +921,47 @@
             box-sizing: border-box;
         }
         .bar {
-            /* Ширина такта: единицы cqw ниже — при узком такте (много тактов, 2 колонки) ограничиваем ширину колонки xN/пульсации. */
-            container-type: inline-size;
+            /* Рамка такта: height = --bar-height * scale. Ряд сибилянтов и колонка xN/пульсации заполняют .bar-body по высоте 1:1 с внутренней областью. */
+            container-type: size;
             container-name: tact;
+            --bar-pad-x: calc(clamp(10px, calc(19px - (var(--bars-count) * 1px)), 15px) * var(--bar-scale));
+            --bar-pad-y: calc(clamp(10px, calc(19px - (var(--bars-count) * 1px)), 15px) * var(--bar-scale));
+            --bar-pad-y-top: var(--bar-pad-y);
+            --bar-pad-y-bottom: var(--bar-pad-y);
+            --bar-rhythm-block-height: max(
+                0px,
+                calc(var(--bar-height) * var(--bar-scale) - var(--bar-pad-y-top) - var(--bar-pad-y-bottom) - 2px)
+            );
             --control-stack-gap: calc(6px * var(--bar-scale));
-            --syllable-chip: calc((var(--total-cell-height) - var(--control-stack-gap)) / 2);
+            --syllable-chip: max(
+                calc(26px * var(--bar-scale)),
+                min(
+                    calc((var(--bar-rhythm-block-height) - var(--control-stack-gap)) / 2),
+                    40px
+                )
+            );
             display: flex;
             flex-direction: column;
-            justify-content: center;
+            justify-content: stretch;
             align-items: stretch;
             width: 100%;
             min-width: 0;
             background: rgba(30, 41, 59, 0.5);
             border: 1px solid var(--slate-700);
-            padding: calc(clamp(10px, calc(19px - (var(--bars-count) * 1px)), 15px) * var(--bar-scale));
+            padding: var(--bar-pad-y-top) var(--bar-pad-x) var(--bar-pad-y-bottom);
             border-radius: calc(1rem * var(--bar-scale));
+            height: calc(var(--bar-height) * var(--bar-scale));
             min-height: calc(var(--bar-height) * var(--bar-scale));
+            max-height: calc(var(--bar-height) * var(--bar-scale));
             box-sizing: border-box;
+            overflow: clip;
         }
         @supports (width: 1cqw) {
             .bar {
                 --syllable-chip: max(
                     calc(26px * var(--bar-scale)),
                     min(
-                        calc((var(--total-cell-height) - var(--control-stack-gap)) / 2),
+                        calc((var(--bar-rhythm-block-height) - var(--control-stack-gap)) / 2),
                         22cqw
                     )
                 );
@@ -993,7 +1009,8 @@
         /* Test layout: tempo + pulsation stacked in one column beside the syllable row. */
         .bar-body {
             --bar-cell-gap: calc(clamp(5px, calc(10px - (var(--bars-count) * 0.4px)), 8px) * var(--bar-scale));
-            flex: 0 0 auto;
+            flex: 1 1 auto;
+            min-height: 0;
             display: flex;
             flex-direction: row;
             align-items: stretch;
@@ -1011,14 +1028,16 @@
             align-items: stretch;
             gap: var(--control-stack-gap);
             flex: 0 0 auto;
-            height: var(--total-cell-height);
-            min-height: var(--total-cell-height);
-            max-height: var(--total-cell-height);
+            align-self: stretch;
+            height: auto;
+            min-height: 0;
+            max-height: none;
             width: var(--syllable-chip);
         }
         .bar-body .rhythm-grid {
             flex: 1 1 0%;
             min-width: 0;
+            min-height: 0;
             align-self: stretch;
         }
         .bar-tempo-handle {
@@ -1200,9 +1219,9 @@
             background: var(--slate-800);
             padding: calc(clamp(6px, calc(10px - (var(--bars-count) * 0.45px)), 8px) * var(--bar-scale));
             border-radius: calc(0.5rem * var(--bar-scale));
-            height: var(--total-cell-height);
-            min-height: var(--total-cell-height);
-            max-height: var(--total-cell-height);
+            height: auto;
+            min-height: 0;
+            align-self: stretch;
             transition: 0.1s;
             border: 2px solid transparent;
             cursor: pointer;
@@ -1220,9 +1239,9 @@
         .cell.cell-profile-default,
         .cell.cell-profile-x2,
         .cell.cell-profile-x3 {
-            height: var(--total-cell-height);
-            min-height: var(--total-cell-height);
-            max-height: var(--total-cell-height);
+            height: auto;
+            min-height: 0;
+            align-self: stretch;
         }
         .cell.cell-tempo-hold-active {
             border-color: rgba(248, 113, 113, 0.85) !important;
@@ -1748,21 +1767,28 @@
             .bar {
                 display: flex;
                 flex-direction: column;
-                justify-content: center;
+                justify-content: stretch;
                 align-items: stretch;
                 width: 100%;
                 min-width: 0;
                 max-width: none;
                 justify-self: stretch;
+                --bar-pad-x: calc(10px * var(--bar-scale));
+                --bar-pad-y-top: calc(12px * var(--bar-scale));
+                --bar-pad-y-bottom: calc(14px * var(--bar-scale));
                 --control-stack-gap: calc(5px * var(--bar-scale));
-                padding: calc(12px * var(--bar-scale)) calc(10px * var(--bar-scale)) calc(14px * var(--bar-scale));
+                padding: var(--bar-pad-y-top) var(--bar-pad-x) var(--bar-pad-y-bottom);
                 border-radius: 14px;
                 box-sizing: border-box;
+                height: calc(var(--bar-height) * var(--bar-scale));
                 min-height: calc(var(--bar-height) * var(--bar-scale));
+                max-height: calc(var(--bar-height) * var(--bar-scale));
+                overflow: clip;
             }
             .bar-body {
                 --bar-cell-gap: calc(6px * var(--bar-scale));
-                flex: 0 0 auto;
+                flex: 1 1 auto;
+                min-height: 0;
                 align-items: stretch;
                 width: 100%;
                 min-width: 0;
@@ -1782,6 +1808,7 @@
                 align-items: stretch;
                 width: 100%;
                 min-width: 0;
+                min-height: 0;
                 box-sizing: border-box;
             }
             .cell {
@@ -1794,9 +1821,9 @@
                 justify-content: center;
                 gap: 0;
                 padding: calc(12px * var(--bar-scale)) calc(4px * var(--bar-scale)) calc(12px * var(--bar-scale));
-                height: var(--total-cell-height);
-                min-height: var(--total-cell-height);
-                max-height: var(--total-cell-height);
+                height: auto;
+                min-height: 0;
+                align-self: stretch;
                 border-radius: 12px;
                 border-width: 2px;
                 box-sizing: border-box;
@@ -1804,9 +1831,9 @@
             .cell.cell-profile-default,
             .cell.cell-profile-x2,
             .cell.cell-profile-x3 {
-                height: var(--total-cell-height);
-                min-height: var(--total-cell-height);
-                max-height: var(--total-cell-height);
+                height: auto;
+                min-height: 0;
+                align-self: stretch;
             }
             .cell small {
                 font-size: calc(0.78rem * var(--bar-scale));
@@ -3037,7 +3064,6 @@
             if (e.button !== undefined && e.button !== 0) return;
             if (e.target === handle || (handle.contains && handle.contains(e.target))) return;
             e.stopPropagation();
-            tactileFloatHudShown = false;
             dragging = true;
             panPointerId = e.pointerId;
             msUseAnchoredMsDrag = false;
@@ -3056,6 +3082,7 @@
             const curBpm = parseInt(bpmSlider.value, 10);
             const baseBpm = Number.isFinite(curBpm) ? Math.max(T_MIN, Math.min(T_MAX, curBpm)) : 100;
             dragPointerOffsetX = e.clientX - knobCenterXForBpm(baseBpm);
+            showBpmFloatHud();
             try {
                 handle.setPointerCapture(e.pointerId);
             } catch (_) {}
@@ -3113,7 +3140,6 @@
 
         function onPointerDown(e) {
             if (e.button !== undefined && e.button !== 0) return;
-            tactileFloatHudShown = false;
             dragging = true;
             panPointerId = e.pointerId;
             if (msMode) {
@@ -3128,6 +3154,7 @@
                 const baseBpm = Number.isFinite(curBpm) ? Math.max(T_MIN, Math.min(T_MAX, curBpm)) : 100;
                 dragPointerOffsetX = e.clientX - knobCenterXForBpm(baseBpm);
             }
+            showBpmFloatHud();
             try {
                 handle.setPointerCapture(e.pointerId);
             } catch (_) {}
@@ -3136,15 +3163,6 @@
 
         function onPointerMove(e) {
             if (!dragging || e.pointerId !== panPointerId) return;
-            if (!tactileFloatHudShown) {
-                const dragPx = msMode
-                    ? (msUseAnchoredMsDrag ? Math.abs(e.clientX - msDragOriginClientX) : Math.abs(e.clientX - panStartClientX))
-                    : Math.abs(e.clientX - panStartClientX);
-                if (dragPx > BPM_TACTILE_HUD_DRAG_MIN_PX) {
-                    tactileFloatHudShown = true;
-                    showBpmFloatHud();
-                }
-            }
             if (msMode) {
                 const raw = msUseAnchoredMsDrag
                     ? msDragAnchorX + (e.clientX - msDragOriginClientX)
