@@ -2777,22 +2777,6 @@
         return false;
     }
 
-    function stripPresetMetaCloneForCompare(obj) {
-        const c = deepCloneState(obj);
-        if (!c || typeof c !== 'object') return null;
-        delete c.presetMeta;
-        return c;
-    }
-
-    function parsePresetJsonFromFullStorageKey(presetIdStr) {
-        try {
-            const raw = localStorage.getItem(fullMetronomeJsonStorageKeyForPresetId(presetIdStr));
-            return tryParsePresetStorageJson(raw);
-        } catch (_) {
-            return null;
-        }
-    }
-
     function persistPresetSlotDualWrite(presetIdStr, jsonString) {
         try {
             localStorage.setItem(sessionStorageKeyForPresetId(presetIdStr), jsonString);
@@ -2818,43 +2802,13 @@
         }
     }
 
-    /** Записать полное состояние метронома (из getCurrentSessionState) в ключи целевого слота; без лишнего save в текущий ключ до готовности. */
+    /** Записать полное состояние метронома (из getCurrentSessionState) в ключи целевого слота. Удержание только «серый→фиолетовый»; снятия сохранения нет. */
     function writeFullMetronomeStateToPreset(targetSlotZero) {
         if (!isAppReady) return;
         const i = Math.min(PRESET_SLOT_COUNT - 1, Math.max(0, parseInt(targetSlotZero, 10) || 0));
         const targetPresetId = String(i + 1);
-        const existingParsed = parsePresetJsonFromFullStorageKey(targetPresetId);
         const snap = deepCloneState(getCurrentSessionState());
         if (!snap) return;
-
-        const sourceHasManual = presetHasManualSnapshot(getCurrentPresetIndexZero());
-        const targetHadManual = presetHasManualSnapshot(i);
-
-        if (targetHadManual && existingParsed && parsedHasManualPresetMeta(existingParsed)) {
-            const nextStripped = stripPresetMetaCloneForCompare(snap);
-            const prevStripped = stripPresetMetaCloneForCompare(existingParsed);
-            if (nextStripped && prevStripped && JSON.stringify(nextStripped) === JSON.stringify(prevStripped)) {
-                // Снять «сохранён» (серый) только если активный пресет ещё без ручного снимка; иначе — перезапись с фиолетовым.
-                if (!sourceHasManual) {
-                    delete snap.presetMeta;
-                    persistPresetSlotDualWrite(targetPresetId, JSON.stringify(snap));
-                    showSnapshotSavedToast();
-                    refreshPresetNavUi();
-                    return;
-                }
-                delete snap.presetMeta;
-                snap.presetMeta = {
-                    preset: parseInt(targetPresetId, 10),
-                    savedAt: Date.now(),
-                    format: 'konnakolMetronomeFullJson_v2',
-                    sourcePreset: parseInt(getCurrentPresetId(), 10)
-                };
-                persistPresetSlotDualWrite(targetPresetId, JSON.stringify(snap));
-                showSnapshotSavedToast();
-                refreshPresetNavUi();
-                return;
-            }
-        }
 
         delete snap.presetMeta;
         snap.presetMeta = {
@@ -2904,7 +2858,7 @@
             a.classList.toggle('active', i === getCurrentPresetIndexZero());
             a.dataset.manualSave = saved ? '1' : '0';
             a.title = saved
-                ? `Пресет ${i + 1}: сохранён (удерж. ${msHint}s — перезаписать; стереть «сохранён» можно только с незаполненного активного слота, тем же состоянием)`
+                ? `Пресет ${i + 1}: сохранён (удерж. ${msHint}s — перезаписать)`
                 : `Пресет ${i + 1}: не сохранён · удерж. ${msHint}s — записать`;
             a.setAttribute('aria-label', saved ? `Пресет ${i + 1}, сохранён` : `Пресет ${i + 1}, не сохранён`);
         });
