@@ -36,6 +36,8 @@
             --primary: #8b5cf6;
             --primary-dim: #7c3aed;
             --accent: #10b981;
+            /* Same stack as .snapshot-saved-toast (Press Start 2P) */
+            --font-pixel-ui: 'Press Start 2P', ui-monospace, monospace;
         }
         html { min-height: 100%; color-scheme: dark; }
         body {
@@ -116,6 +118,7 @@
             border: 2px solid var(--slate-600);
             background: rgba(51, 65, 85, 0.55);
             color: var(--text-muted);
+            font-family: var(--font-pixel-ui);
             font-weight: 700;
             letter-spacing: 0.04em;
             cursor: pointer;
@@ -145,12 +148,14 @@
             max-width: 100%;
         }
         .tap-tempo-bpm-hint-slot {
-            font-size: 0.58rem;
+            font-family: var(--font-pixel-ui);
+            font-size: 0.42rem;
             font-weight: 700;
             letter-spacing: 0.06em;
             text-transform: uppercase;
             color: var(--violet-400);
             line-height: 1.2;
+            image-rendering: pixelated;
         }
         .tap-tempo-bpm-hint-slot:first-child {
             text-align: right;
@@ -159,12 +164,15 @@
             text-align: left;
         }
         .tap-tempo-bpm-value {
-            font-size: 1.35rem;
+            font-family: var(--font-pixel-ui);
+            font-size: 0.95rem;
             font-weight: 800;
             font-variant-numeric: tabular-nums;
-            letter-spacing: -0.02em;
+            letter-spacing: 0.04em;
             color: var(--text);
             justify-self: center;
+            line-height: 1.6;
+            image-rendering: pixelated;
         }
         .tap-tempo-btn--showing-bpm .tap-tempo-bpm-value {
             color: var(--text);
@@ -205,6 +213,11 @@
         .settings-fold summary {
             cursor: pointer;
             list-style: none;
+            font-family: var(--font-pixel-ui);
+            font-size: 0.55rem;
+            line-height: 1.6;
+            letter-spacing: 0.04em;
+            image-rendering: pixelated;
             font-weight: 700;
             color: var(--text);
             padding: 12px 14px;
@@ -462,7 +475,7 @@
             border: 2px solid #34d399;
             background: rgba(15, 23, 42, 0.92);
             box-shadow: 0 0 24px rgba(52, 211, 153, 0.35), inset 0 0 0 1px rgba(167, 139, 250, 0.2);
-            font-family: 'Press Start 2P', ui-monospace, monospace;
+            font-family: var(--font-pixel-ui);
             font-size: 0.58rem;
             line-height: 1.6;
             letter-spacing: 0.04em;
@@ -844,6 +857,11 @@
         #playBtn,
         #stopBtn {
             margin-bottom: 0;
+            font-family: var(--font-pixel-ui);
+            font-size: 0.52rem;
+            line-height: 1.6;
+            letter-spacing: 0.04em;
+            image-rendering: pixelated;
         }
         .btn-icon { font-size: 1.15rem; padding: 12px; }
         .btn-icon-img {
@@ -1081,6 +1099,28 @@
         }
         label.rand-cycle input { width: auto; height: auto; margin: 0; accent-color: var(--violet-600); flex-shrink: 0; }
 
+        .tap-tempo-idle {
+            font-family: var(--font-pixel-ui);
+            font-size: 0.58rem;
+            line-height: 1.6;
+            letter-spacing: 0.04em;
+            image-rendering: pixelated;
+        }
+        #mainSettingsFold .settings-fold-content label,
+        #barScalerFold .scale-control label,
+        #barScalerFold #barScaleValue {
+            font-family: var(--font-pixel-ui);
+            font-size: 0.5rem;
+            line-height: 1.6;
+            letter-spacing: 0.04em;
+            image-rendering: pixelated;
+        }
+        #barScalerFold #barScaleValue {
+            display: inline-block;
+            margin-top: 6px;
+            font-size: 0.48rem;
+        }
+
         @media (max-width: 860px) {
             .bars-container.many-bars { grid-template-columns: 1fr; }
         }
@@ -1126,6 +1166,13 @@
                 margin-bottom: 14px;
             }
             .settings-grid label { margin-bottom: 6px; font-size: 0.82rem; }
+            #mainSettingsFold .settings-fold-content label {
+                font-size: 0.44rem;
+            }
+            #barScalerFold .scale-control label,
+            #barScalerFold #barScaleValue {
+                font-size: 0.44rem;
+            }
             .settings-grid select,
             .control-group select {
                 padding: 10px 12px;
@@ -1260,6 +1307,22 @@
                 font-size: 0.95rem;
                 margin-bottom: 10px;
                 border-radius: 12px;
+            }
+            #playBtn,
+            #stopBtn {
+                font-size: 0.46rem;
+            }
+            .settings-fold summary {
+                font-size: 0.48rem;
+            }
+            .tap-tempo-idle {
+                font-size: 0.5rem;
+            }
+            .tap-tempo-bpm-value {
+                font-size: 0.82rem;
+            }
+            .tap-tempo-bpm-hint-slot {
+                font-size: 0.38rem;
             }
         }
     </style>
@@ -1554,15 +1617,34 @@
     function migrateLegacySessionIntoPreset1() {
         const k1 = sessionStorageKeyForPresetId('1');
         try {
-            if (localStorage.getItem(k1)) return;
-            const legacyKeys = ['konnakolSessionStateV1', 'konnakolSessionStateV1Test'];
-            for (const legacy of legacyKeys) {
-                const raw = localStorage.getItem(legacy);
-                if (raw) {
-                    localStorage.setItem(k1, raw);
-                    return;
+            if (!localStorage.getItem(k1)) {
+                const legacyKeys = ['konnakolSessionStateV1', 'konnakolSessionStateV1Test'];
+                for (const legacy of legacyKeys) {
+                    const raw = localStorage.getItem(legacy);
+                    if (raw) {
+                        localStorage.setItem(k1, raw);
+                        break;
+                    }
                 }
             }
+            const rawK1 = localStorage.getItem(k1);
+            if (!rawK1) return;
+            const parsed = tryParsePresetStorageJson(rawK1);
+            if (!parsed || typeof parsed !== 'object') return;
+            if (parsedHasManualPresetMeta(parsed)) return;
+            const looksSaved = parsed.pulsation != null
+                || parsed.barsCount != null
+                || Array.isArray(parsed.checks)
+                || Array.isArray(parsed.barPulsations)
+                || Array.isArray(parsed.checksByBar);
+            if (!looksSaved) return;
+            parsed.presetMeta = {
+                preset: 1,
+                savedAt: Date.now(),
+                format: 'konnakolMetronomeFullJson_v2',
+                sourcePreset: 1
+            };
+            persistPresetSlotDualWrite('1', JSON.stringify(parsed));
         } catch (_) {}
     }
     migrateLegacySessionIntoPreset1();
@@ -2689,10 +2771,37 @@
 
     function loadSessionState() {
         try {
+            const slotZero = getCurrentPresetIndexZero();
+            if (!presetHasManualSnapshot(slotZero)) {
+                return null;
+            }
             return readMergedPresetStateForPresetId(getCurrentPresetId());
         } catch (e) {
             return null;
         }
+    }
+
+    /** Дефолты как в разметке Setup: пустой слот пресета не тянет JSON без ручного снапшота. */
+    function getDefaultEmptyPresetControlsState() {
+        return {
+            pulsation: 4,
+            barsCount: 4,
+            bpm: 100,
+            barScale: '100',
+            randomPatternAfterEachBar: true,
+            randomPatternSpeedChange: false,
+            randomPulsationAfterEachBar: false,
+            randomModeEnabled: false,
+            soundPreset: 'classic',
+            accentOnlySound: true,
+            barFirstSyllableHighEnabled: false,
+            tempoDoubleMode: false,
+            randNotesPerBar: '2'
+        };
+    }
+
+    function resolveStateForControls() {
+        return loadSessionState() || getDefaultEmptyPresetControlsState();
     }
 
     /**
@@ -2701,11 +2810,7 @@
      */
     function applySessionStateToControls(state) {
         if (!state) {
-            randomModeEnabled = false;
-            accentOnlyEnabled = true;
-            refreshRandomModeToggleButton();
-            refreshAccentToggleButton();
-            return;
+            state = getDefaultEmptyPresetControlsState();
         }
         const pulsationEl = document.getElementById('pulsation');
         const barsCountEl = document.getElementById('barsCount');
@@ -2952,11 +3057,11 @@
         isAppReady = false;
         suppressSessionWritesDepth += 1;
         try {
-            const savedState = loadSessionState();
-            applySessionStateToControls(savedState);
+            const stateForControls = resolveStateForControls();
+            applySessionStateToControls(stateForControls);
             updateBarScaleLabel();
             initApp({ reloadBarStatesFromSession: true });
-            restoreSelectState(savedState);
+            restoreSelectState(stateForControls);
             updateTempoLabel();
             refreshTempoModeUi();
             refreshRandomModeToggleButton();
@@ -4293,11 +4398,11 @@
         releaseWakeLock();
     }
 
-    const savedState = loadSessionState();
-    applySessionStateToControls(savedState);
+    const stateForControls = resolveStateForControls();
+    applySessionStateToControls(stateForControls);
     updateBarScaleLabel();
     initApp();
-    restoreSelectState(savedState);
+    restoreSelectState(stateForControls);
     setupBpmSliderUi();
     updateTempoLabel();
     refreshTempoModeUi();
