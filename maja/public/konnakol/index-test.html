@@ -382,7 +382,8 @@
             height: 8px;
             border-radius: 9999px;
             background: rgba(255, 255, 255, 0.1);
-            pointer-events: none;
+            pointer-events: auto;
+            cursor: pointer;
         }
         .bpm-tactile-handle-wrap {
             position: absolute;
@@ -440,6 +441,22 @@
         }
         .bpm-tactile-handle:active {
             cursor: grabbing;
+        }
+        @keyframes bpm-tactile-handle-nudge-left {
+            0% { transform: translateX(0); }
+            40% { transform: translateX(-7px); }
+            100% { transform: translateX(0); }
+        }
+        @keyframes bpm-tactile-handle-nudge-right {
+            0% { transform: translateX(0); }
+            40% { transform: translateX(7px); }
+            100% { transform: translateX(0); }
+        }
+        .bpm-tactile-handle.bpm-tactile-handle--nudge-left {
+            animation: bpm-tactile-handle-nudge-left 0.24s ease;
+        }
+        .bpm-tactile-handle.bpm-tactile-handle--nudge-right {
+            animation: bpm-tactile-handle-nudge-right 0.24s ease;
         }
         .bpm-tactile-hint {
             display: none !important;
@@ -2598,7 +2615,8 @@
         const handleWrap = document.getElementById('bpmTactileHandleWrap');
         const hint = document.getElementById('bpmTactileHint');
         const bpmSlider = document.getElementById('bpm');
-        if (!wrap || !handle || !handleWrap || !bpmSlider || wrap.dataset.tactileSetup === '1') return;
+        const track = wrap && wrap.querySelector('.bpm-tactile-track');
+        if (!wrap || !handle || !handleWrap || !bpmSlider || !track || wrap.dataset.tactileSetup === '1') return;
         wrap.dataset.tactileSetup = '1';
 
         const T_MIN = 20;
@@ -2637,6 +2655,35 @@
             bpmSlider.value = String(next);
             bpmSlider.dispatchEvent(new Event('input', { bubbles: true }));
         }
+
+        function playHandleNudgeAnimation(towardSign) {
+            const clsL = 'bpm-tactile-handle--nudge-left';
+            const clsR = 'bpm-tactile-handle--nudge-right';
+            handle.classList.remove(clsL, clsR);
+            void handle.offsetWidth;
+            handle.classList.add(towardSign < 0 ? clsL : clsR);
+            window.setTimeout(() => {
+                handle.classList.remove(clsL, clsR);
+            }, 280);
+        }
+
+        track.addEventListener('click', (e) => {
+            if (e.button !== 0 && e.button !== undefined) return;
+            e.stopPropagation();
+            const tr = track.getBoundingClientRect();
+            if (!tr.width) return;
+            const relX = (e.clientX - tr.left) / tr.width;
+            if (relX < 0 || relX > 1) return;
+            const sign = relX < 0.5 ? -1 : 1;
+            playHandleNudgeAnimation(sign);
+            applyBpmDelta(sign, 5);
+            syncBpmSliderLastStable();
+            syncTactileAria();
+            try {
+                if (navigator.vibrate) navigator.vibrate(10);
+            } catch (_) {}
+            startTactileRaf();
+        });
 
         function pulseFromTactileX() {
             const absX = Math.abs(targetX);
@@ -2967,6 +3014,13 @@
         activatePresetSlotIfDifferentFromCurrent(targetPresetId);
     }
 
+    /** Короткий тактильный отклик при показе saved/erased (Vibration API, мобильные). */
+    function vibrateSnapshotToast() {
+        try {
+            if (navigator.vibrate) navigator.vibrate([12, 42, 14]);
+        } catch (_) {}
+    }
+
     function showSnapshotErasedToast() {
         let el = document.getElementById('snapshotErasedToast');
         if (!el) {
@@ -2983,6 +3037,7 @@
             void el.offsetWidth;
             requestAnimationFrame(() => {
                 el.classList.add('is-animating');
+                vibrateSnapshotToast();
             });
         });
     }
@@ -3027,6 +3082,7 @@
             void el.offsetWidth;
             requestAnimationFrame(() => {
                 el.classList.add('is-animating');
+                vibrateSnapshotToast();
             });
         });
     }
