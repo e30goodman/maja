@@ -2713,11 +2713,13 @@
         const T_MIN = 20;
         const T_MAX = 480;
         const SPRING_ALPHA = 0.32;
-        /** Макс. пауза между двумя тапами (отпускание→отпускание), «тон-тон». */
-        const BPM_TACTILE_DOUBLE_TAP_GAP_MS = 360;
-        /** Радиус «тапа» (px) от точки касания: двойной тап не должен срываться из‑за дрожи пальца. */
-        const BPM_TACTILE_TAP_MAX_MOVE_PX = 32;
-        const BPM_TACTILE_TAP_MAX_DURATION_MS = 520;
+        /** Макс. пауза между двумя тапами (отпускание→отпускание). Шире — реже срывается вторая фаза. */
+        const BPM_TACTILE_DOUBLE_TAP_GAP_MS = 520;
+        /** Радиус «тапа» (px): палец + лёгкий сдвиг ручки от пружины не должны сбивать пару. */
+        const BPM_TACTILE_TAP_MAX_MOVE_PX = 56;
+        const BPM_TACTILE_TAP_MAX_DURATION_MS = 580;
+        /** Сдвиг по X, после которого считаем перетаскивание и показываем верхний BPM (не тап). */
+        const BPM_TACTILE_HUD_DRAG_MIN_PX = 14;
         const BPM_MS_DEAD_PX = 10;
         const BPM_MS_MAX_X = 110;
         const BPM_MS_INTERVAL_MIN = 250;
@@ -2974,7 +2976,7 @@
                 const dragPx = msMode
                     ? (msUseAnchoredMsDrag ? Math.abs(e.clientX - msDragOriginClientX) : Math.abs(e.clientX - panStartClientX))
                     : Math.abs(e.clientX - panStartClientX);
-                if (gestureExceededTapSlop || dragPx > 6) {
+                if (gestureExceededTapSlop || dragPx > BPM_TACTILE_HUD_DRAG_MIN_PX) {
                     tactileFloatHudShown = true;
                     showBpmFloatHud();
                 }
