@@ -713,6 +713,10 @@
         }
         .bars-container.many-bars { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .bar {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: stretch;
             background: rgba(30, 41, 59, 0.5);
             border: 1px solid var(--slate-700);
             padding: calc(clamp(10px, calc(19px - (var(--bars-count) * 1px)), 15px) * var(--bar-scale));
@@ -733,6 +737,7 @@
         /* Test layout: tempo + pulsation stacked in one column beside the syllable row. */
         .bar-body {
             --bar-cell-gap: calc(clamp(5px, calc(10px - (var(--bars-count) * 0.4px)), 8px) * var(--bar-scale));
+            flex: 0 0 auto;
             display: flex;
             flex-direction: row;
             align-items: stretch;
@@ -917,10 +922,7 @@
             justify-content: center;
             position: relative;
             background: var(--slate-800);
-            /* Чуть меньше сверху, больше снизу — силлабл визуально выше (было «прижато» к нижней рамке). */
-            padding: calc((clamp(6px, calc(10px - (var(--bars-count) * 0.45px)), 8px) - 2px) * var(--bar-scale))
-                calc(clamp(6px, calc(10px - (var(--bars-count) * 0.45px)), 8px) * var(--bar-scale))
-                calc((clamp(6px, calc(10px - (var(--bars-count) * 0.45px)), 8px) + 2px) * var(--bar-scale));
+            padding: calc(clamp(6px, calc(10px - (var(--bars-count) * 0.45px)), 8px) * var(--bar-scale));
             border-radius: calc(0.5rem * var(--bar-scale));
             height: var(--total-cell-height);
             min-height: var(--total-cell-height);
@@ -1408,6 +1410,10 @@
                 margin-inline: 0;
             }
             .bar {
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: stretch;
                 width: 100%;
                 max-width: none;
                 padding: calc(12px * var(--bar-scale)) calc(10px * var(--bar-scale)) calc(14px * var(--bar-scale));
@@ -1417,6 +1423,7 @@
             }
             .bar-body {
                 --bar-cell-gap: calc(6px * var(--bar-scale));
+                flex: 0 0 auto;
                 align-items: stretch;
             }
             .bar-controls-stack {
@@ -1445,8 +1452,7 @@
                 align-items: center;
                 justify-content: center;
                 gap: 0;
-                /* Было 12 / 14 — усиливаем смещение вверх: меньше верх, больше низ. */
-                padding: calc(9px * var(--bar-scale)) calc(4px * var(--bar-scale)) calc(17px * var(--bar-scale));
+                padding: calc(12px * var(--bar-scale)) calc(4px * var(--bar-scale)) calc(12px * var(--bar-scale));
                 height: var(--total-cell-height);
                 min-height: var(--total-cell-height);
                 max-height: var(--total-cell-height);
