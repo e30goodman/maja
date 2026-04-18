@@ -371,11 +371,11 @@
             padding: 0;
             margin: 0;
             border-radius: 8px;
-            border: 1px solid var(--slate-600);
-            background: rgba(51, 65, 85, 0.55);
-            color: var(--text);
-            font-size: 1.15rem;
-            font-weight: 800;
+            border: 1px solid var(--slate-700);
+            background: var(--slate-800);
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            font-weight: 700;
             line-height: 1;
             cursor: pointer;
             user-select: none;
@@ -384,37 +384,34 @@
             transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
         }
         .bpm-nudge-btn:hover {
-            border-color: rgba(100, 116, 139, 0.85);
-            background: rgba(51, 65, 85, 0.75);
+            border-color: var(--slate-600);
+            background: var(--slate-700);
+            color: var(--text);
         }
         .bpm-nudge-btn:active {
             transform: translateY(1px);
+            background: var(--slate-900);
+            border-color: var(--slate-600);
         }
         .bpm-nudge-btn:focus:not(:focus-visible) {
             outline: none;
         }
         .bpm-nudge-btn:focus-visible {
-            outline: 2px solid rgba(167, 139, 250, 0.65);
+            outline: 1px solid var(--slate-500);
             outline-offset: 2px;
         }
-        .bpm-nudge-btn.bpm-nudge-btn--holding {
-            border-color: rgba(139, 92, 246, 0.75);
-            background: rgba(124, 58, 237, 0.2);
-            color: #c4b5fd;
-        }
         .control-group.tempo-x2 .bpm-nudge-btn {
-            border-color: rgba(190, 18, 60, 0.45);
-            background: rgba(51, 65, 85, 0.45);
-            color: #fecdd3;
+            border-color: var(--slate-700);
+            background: var(--slate-800);
+            color: var(--text-muted);
         }
         .control-group.tempo-x2 .bpm-nudge-btn:hover {
-            border-color: rgba(251, 113, 133, 0.55);
-            background: rgba(63, 53, 64, 0.65);
+            border-color: var(--slate-600);
+            background: var(--slate-700);
+            color: var(--text);
         }
-        .control-group.tempo-x2 .bpm-nudge-btn.bpm-nudge-btn--holding {
-            border-color: rgba(251, 113, 133, 0.85);
-            background: rgba(127, 29, 29, 0.35);
-            color: #fff1f2;
+        .control-group.tempo-x2 .bpm-nudge-btn:active {
+            background: var(--slate-900);
         }
         .bpm-native-range-hidden {
             position: absolute;
@@ -1997,7 +1994,7 @@
     <div id="tempoControl" class="control-group">
         <div class="tempo-slider-row">
             <input type="range" id="bpm" class="bpm-native-range-hidden" min="20" max="480" value="100" tabindex="-1" aria-hidden="true">
-            <button type="button" class="bpm-nudge-btn bpm-nudge-btn--minus" id="bpmNudgeDown" aria-label="Минус 1 BPM, удержать — минус 5 BPM">−</button>
+            <button type="button" class="bpm-nudge-btn bpm-nudge-btn--minus" id="bpmNudgeDown" aria-label="Минус 1 BPM">−</button>
             <div class="bpm-tactile-wrap" id="bpmTactileWrap" role="group" aria-label="Tempo">
                 <div class="bpm-tactile-track" aria-hidden="true" tabindex="-1"></div>
                 <div class="bpm-tactile-handle-wrap" id="bpmTactileHandleWrap">
@@ -2007,7 +2004,7 @@
                 </div>
                 <span class="bpm-tactile-hint" id="bpmTactileHint" aria-hidden="true"></span>
             </div>
-            <button type="button" class="bpm-nudge-btn bpm-nudge-btn--plus" id="bpmNudgeUp" aria-label="Плюс 1 BPM, удержать — плюс 5 BPM">+</button>
+            <button type="button" class="bpm-nudge-btn bpm-nudge-btn--plus" id="bpmNudgeUp" aria-label="Плюс 1 BPM">+</button>
             <span id="tempoX2Badge" class="tempo-x2-badge" hidden>x2</span>
         </div>
         <div class="tempo-readout" hidden aria-hidden="true">
@@ -3268,88 +3265,23 @@
         setupBpmEdgeNudgeButtons();
     }
 
-    /** Края слайдера: tap ±1 BPM, удержание ~0,42 с затем повтор ±5 BPM. */
+    /** Края слайдера: строго ±1 BPM за одно нажатие (click / активация с клавиатуры). */
     function setupBpmEdgeNudgeButtons() {
         const down = document.getElementById('bpmNudgeDown');
         const up = document.getElementById('bpmNudgeUp');
         if (!down || !up || down.dataset.bpmEdgeBound === '1') return;
         down.dataset.bpmEdgeBound = '1';
         up.dataset.bpmEdgeBound = '1';
-        const HOLD_MS = 420;
-        const REPEAT_MS = 105;
 
         function bind(btn, sign) {
-            let holdApplied5 = false;
-            let blockNextClick = false;
-            let holdTimer = null;
-            let repeatTimer = null;
-
-            function clearLocalTimers() {
-                if (holdTimer !== null) {
-                    clearTimeout(holdTimer);
-                    holdTimer = null;
-                }
-                if (repeatTimer !== null) {
-                    clearInterval(repeatTimer);
-                    repeatTimer = null;
-                }
-            }
-
-            function endHoldVisual() {
-                btn.classList.remove('bpm-nudge-btn--holding');
-            }
-
-            function onPointerDown(e) {
-                if (e.button !== undefined && e.button !== 0) return;
+            btn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                clearLocalTimers();
-                holdApplied5 = false;
-                try {
-                    btn.setPointerCapture(e.pointerId);
-                } catch (_) {}
-                holdTimer = setTimeout(() => {
-                    holdTimer = null;
-                    holdApplied5 = true;
-                    btn.classList.add('bpm-nudge-btn--holding');
-                    nudgeBpmBy(sign * 5);
-                    repeatTimer = setInterval(() => {
-                        nudgeBpmBy(sign * 5);
-                    }, REPEAT_MS);
-                }, HOLD_MS);
-            }
-
-            function onPointerEnd(e) {
-                if (e && e.button !== undefined && e.button !== 0) return;
-                if (e && e.pointerId !== undefined && btn.hasPointerCapture && btn.hasPointerCapture(e.pointerId)) {
-                    try {
-                        btn.releasePointerCapture(e.pointerId);
-                    } catch (_) {}
-                }
-                clearLocalTimers();
-                endHoldVisual();
-                if (!holdApplied5) {
-                    nudgeBpmBy(sign);
-                }
-                blockNextClick = true;
-            }
-
-            btn.addEventListener('pointerdown', onPointerDown);
-            btn.addEventListener('pointerup', onPointerEnd);
-            btn.addEventListener('pointercancel', onPointerEnd);
-            btn.addEventListener('lostpointercapture', onPointerEnd);
+                nudgeBpmBy(sign);
+            });
             btn.addEventListener('keydown', (e) => {
                 if (e.key === ' ') {
                     e.preventDefault();
                 }
-            });
-            btn.addEventListener('click', (e) => {
-                if (blockNextClick) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    blockNextClick = false;
-                    return;
-                }
-                nudgeBpmBy(sign);
             });
         }
 
