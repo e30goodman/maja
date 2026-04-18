@@ -902,6 +902,8 @@
             /* JS пишет --cell-height при подгонке; высота ячеек = внутренняя высота такта (см. .bar + flex). */
             --cell-height: 62px;
             --bars-gap: 16px;
+            /* Меньше при большем числе тактов (совместно с JS --bars-gap). */
+            --bars-gap-factor: clamp(0.62, calc(1.18 - var(--bars-count) * 0.05), 1);
             --bar-scale: 1;
             flex: 1 1 auto;
             min-height: 0;
@@ -911,7 +913,7 @@
             overflow-y: auto;
             display: grid;
             grid-template-columns: 1fr;
-            gap: calc(var(--bars-gap) * var(--bar-scale));
+            gap: calc(var(--bars-gap) * var(--bars-gap-factor, 1) * var(--bar-scale));
             margin: 12px 0 6px;
         }
         .bars-container.many-bars { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -931,7 +933,7 @@
             --bar-pad-y-top: var(--bar-pad-y);
             --bar-pad-y-bottom: var(--bar-pad-y);
             --bar-rhythm-block-height: max(
-                0px,
+                12px,
                 calc(var(--bar-height) * var(--bar-scale) - var(--bar-pad-y-top) - var(--bar-pad-y-bottom) - 2px)
             );
             --control-stack-gap: calc(6px * var(--bar-scale));
@@ -956,7 +958,7 @@
             min-height: calc(var(--bar-height) * var(--bar-scale));
             max-height: calc(var(--bar-height) * var(--bar-scale));
             box-sizing: border-box;
-            overflow: clip;
+            overflow: visible;
         }
         @supports (width: 1cqw) {
             .bar {
@@ -1255,6 +1257,8 @@
             outline-offset: 2px;
         }
         .cell small {
+            position: relative;
+            z-index: 2;
             font-size: calc(clamp(0.55rem, calc(0.74rem - (var(--bars-count) * 0.015rem)), 0.65rem) * var(--bar-scale));
             margin-bottom: 0;
             font-weight: 600;
@@ -1271,6 +1275,7 @@
         }
         .cell small.subdiv-label {
             position: absolute;
+            z-index: 2;
             left: 50%;
             top: 50%;
             transform: translate(-50%, -50%);
@@ -1330,6 +1335,7 @@
         }
         .cell-speed-badge {
             position: absolute;
+            z-index: 1;
             right: calc(4px * var(--bar-scale));
             bottom: calc(3px * var(--bar-scale));
             font-size: calc(0.52rem * var(--bar-scale));
@@ -1757,7 +1763,7 @@
             label.rand-cycle { font-size: 0.8rem; gap: 10px; }
             .bars-container {
                 grid-template-columns: 1fr !important;
-                gap: var(--bars-gap);
+                gap: calc(var(--bars-gap) * var(--bars-gap-factor, 1) * var(--bar-scale));
                 margin: 16px 0 6px;
                 overflow-x: hidden;
                 overflow-y: auto;
@@ -1785,7 +1791,7 @@
                 height: calc(var(--bar-height) * var(--bar-scale));
                 min-height: calc(var(--bar-height) * var(--bar-scale));
                 max-height: calc(var(--bar-height) * var(--bar-scale));
-                overflow: clip;
+                overflow: visible;
             }
             .bar-body {
                 --bar-cell-gap: calc(6px * var(--bar-scale));
@@ -4152,7 +4158,6 @@
                 resetInternalPlaybackIndicators();
             }
             rebuildRandomNotesSelect();
-            applyAdaptiveBarHeights(container, bCount);
             enforceBarsFit(container, bCount);
         } finally {
             requestAnimationFrame(() => {
@@ -4161,7 +4166,6 @@
                     const bc = parseInt(document.getElementById('barsCount').value, 10);
                     if (container && Number.isFinite(bc)) {
                         /* After flex lays out #barsStackGrow, repeat sizing so first paint matches post-preset refit. */
-                        applyAdaptiveBarHeights(container, bc);
                         enforceBarsFit(container, bc);
                     }
                 });
@@ -5096,9 +5100,14 @@
         }
         totalHeight = Math.min(Math.floor(allowedHeight * 0.96), totalHeight);
         if (bCount >= 8) totalHeight = Math.min(totalHeight, totalHeightFor5);
-        const gap = gapByCount[bCount] || gapByCount[5];
-        const freeHeight = totalHeight - (Math.max(0, rows - 1) * gap);
-        const barHeight = Math.max(58, Math.floor(freeHeight / Math.max(1, rows)));
+        const gapBase = gapByCount[bCount] || gapByCount[5];
+        let gap = gapBase;
+        let freeHeight = totalHeight - (Math.max(0, rows - 1) * gap);
+        let barHeight = Math.max(58, Math.floor(freeHeight / Math.max(1, rows)));
+        /* Межтактовый зазор пропорционален высоте такта; одна итерация уточнения под число рядов. */
+        gap = Math.max(6, Math.min(24, Math.round(gapBase * (barHeight / 70))));
+        freeHeight = totalHeight - (Math.max(0, rows - 1) * gap);
+        barHeight = Math.max(58, Math.floor(freeHeight / Math.max(1, rows)));
         const cellHeight = Math.max(38, Math.floor(barHeight * 0.62));
 
         container.style.setProperty('--bars-gap', `${gap}px`);
@@ -5107,6 +5116,8 @@
     }
 
     function enforceBarsFit(container, bCount) {
+        /* Всегда сначала целевые размеры для текущего числа тактов (иначе после random/старого refit остаются «ужатые» px). */
+        applyAdaptiveBarHeights(container, bCount);
         const allowedHeight = getAllowedBarsHeight(container);
         const beforeScrollHeight = container.scrollHeight;
         let barHeight = parseInt(container.style.getPropertyValue('--bar-height'), 10);
@@ -5312,7 +5323,9 @@
         }
         const container = document.getElementById('barsContainer');
         renderBars(container);
-        requestAnimationFrame(() => enforceBarsFit(container, barStates.length));
+        const bc = parseInt(document.getElementById('barsCount')?.value, 10);
+        const bFit = Number.isFinite(bc) ? bc : barStates.length;
+        requestAnimationFrame(() => enforceBarsFit(container, bFit));
     }
 
     function randomize() {
