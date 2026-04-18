@@ -872,9 +872,6 @@
             box-sizing: border-box;
         }
         .bar {
-            /* Ширина такта → cqi для min(колонка управления, доля ширины), чтобы ритм-сетка не сжималась ниже сибилянтов */
-            container-type: inline-size;
-            container-name: konn-bar;
             --control-stack-gap: calc(6px * var(--bar-scale));
             --syllable-chip: calc((var(--total-cell-height) - var(--control-stack-gap)) / 2);
             display: flex;
@@ -953,8 +950,7 @@
             height: var(--total-cell-height);
             min-height: var(--total-cell-height);
             max-height: var(--total-cell-height);
-            width: min(var(--syllable-chip), clamp(18px, 11cqi, 58px));
-            max-width: min(var(--syllable-chip), clamp(18px, 11cqi, 58px));
+            width: var(--syllable-chip);
         }
         .bar-body .rhythm-grid {
             flex: 1 1 0%;
@@ -1118,8 +1114,6 @@
             box-sizing: border-box;
         }
         .cell {
-            container-type: size;
-            container-name: beat-cell;
             display: flex;
             flex-direction: column;
             flex: 1 1 0;
@@ -1167,11 +1161,7 @@
             outline-offset: 2px;
         }
         .cell small {
-            box-sizing: border-box;
-            max-width: 100%;
-            overflow: hidden;
-            /* Кегль от реальной ширины/высоты ячейки (10 тактов → узкие cell), не только от --bars-count */
-            font-size: calc(clamp(0.3rem, min(6.8cqi, 15cqb), 0.72rem) * var(--bar-scale));
+            font-size: calc(clamp(0.55rem, calc(0.74rem - (var(--bars-count) * 0.015rem)), 0.65rem) * var(--bar-scale));
             margin-bottom: 0;
             font-weight: 600;
             color: var(--text-muted);
@@ -1182,10 +1172,7 @@
             top: 50%;
             transform: translate(-50%, -50%);
             width: 92%;
-            max-height: 92%;
-            overflow: hidden;
-            word-break: break-word;
-            font-size: calc(clamp(0.28rem, min(5.6cqi, 12cqb), 0.64rem) * var(--bar-scale));
+            font-size: calc(clamp(0.48rem, calc(0.66rem - (var(--bars-count) * 0.015rem)), 0.58rem) * var(--bar-scale));
             letter-spacing: 0.02em;
             line-height: 1.05;
             white-space: pre-line;
@@ -1194,8 +1181,7 @@
             pointer-events: none;
         }
         .cell small.subdiv-label.dense {
-            font-size: calc(clamp(0.26rem, min(4.9cqi, 10cqb), 0.56rem) * var(--bar-scale));
-            line-height: 1.02;
+            font-size: calc(clamp(0.42rem, calc(0.58rem - (var(--bars-count) * 0.015rem)), 0.5rem) * var(--bar-scale));
         }
         .cell.rhythm-note-on {
             border-color: var(--violet-500);
@@ -1730,35 +1716,31 @@
                 max-height: var(--total-cell-height);
             }
             .cell small {
-                font-size: calc(clamp(0.3rem, min(8.2cqi, 17cqb), 0.78rem) * var(--bar-scale));
+                font-size: calc(0.78rem * var(--bar-scale));
                 margin-bottom: 0;
                 text-align: center;
                 line-height: 1.1;
                 font-weight: 700;
                 width: 100%;
-                max-width: 100%;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
             }
-            .cell small.subdiv-label {
-                white-space: pre-line;
-                text-overflow: clip;
-                max-height: 90%;
-                line-height: 1.05;
-            }
-            /* Пульсации 7–9: дополнительно ужимаем буквы (мобильная полоса уже узкая). */
+            /* Пульсации 7–9: узкие ячейки — без многоточия; меньший кегль (9 плотнее). */
             .rhythm-grid[data-pulsation="7"] .cell small {
+                font-size: calc(0.58rem * var(--bar-scale));
                 letter-spacing: -0.03em;
-                font-size: calc(clamp(0.28rem, min(7.2cqi, 15cqb), 0.72rem) * var(--bar-scale));
+                text-overflow: clip;
             }
             .rhythm-grid[data-pulsation="8"] .cell small {
+                font-size: calc(0.54rem * var(--bar-scale));
                 letter-spacing: -0.04em;
-                font-size: calc(clamp(0.26rem, min(6.6cqi, 14cqb), 0.68rem) * var(--bar-scale));
+                text-overflow: clip;
             }
             .rhythm-grid[data-pulsation="9"] .cell small {
+                font-size: calc(0.5rem * var(--bar-scale));
                 letter-spacing: -0.05em;
-                font-size: calc(clamp(0.25rem, min(6cqi, 13cqb), 0.64rem) * var(--bar-scale));
+                text-overflow: clip;
             }
             .cell.playing {
                 transform: scale(1.03);

@@ -857,6 +857,8 @@
             min-width: 0;
             overflow-x: hidden;
             overflow-y: auto;
+            scroll-behavior: smooth;
+            scroll-snap-type: y proximity;
             display: grid;
             grid-template-columns: 1fr;
             gap: calc(var(--bars-gap) * var(--bar-scale));
@@ -869,6 +871,7 @@
             min-width: 0;
             max-width: none;
             box-sizing: border-box;
+            scroll-snap-align: start;
         }
         .bar {
             --control-stack-gap: calc(6px * var(--bar-scale));
@@ -1642,6 +1645,8 @@
                 margin: 16px 0 6px;
                 overflow-x: hidden;
                 overflow-y: auto;
+                scroll-behavior: smooth;
+                scroll-snap-type: y proximity;
                 padding: 0;
                 margin-inline: 0;
                 width: 100%;
@@ -2010,6 +2015,7 @@
     /** Highest supported beat count per bar (must match syllables keys). */
     const MAX_PULSATION = 9;
     const MAX_BARS_COUNT = 100;
+    let lastBarsCountForAutoScroll = null;
     const BAR_SCALER_AUTO_CLOSE_MS = 12000;
     /** Единое окно long-press (мс): polymeter и смена x1↔x2↔x4 по такту/ячейке. Вибро в cycle* — сразу после записи next, до renderBars. */
     const LONG_PRESS_UI_MS = 520;
@@ -2271,6 +2277,32 @@
         }
     }
 
+    function scrollBarsContainerToRevealBar(barIndex, options = {}) {
+        const behavior = options.behavior ?? 'auto';
+        const scroller = document.getElementById('barsContainer');
+        const bar = document.getElementById(`bar-${barIndex}`);
+        if (!scroller || !bar) return;
+        if (scroller.scrollHeight <= scroller.clientHeight + 1) return;
+        const pad = 8;
+        const s = scroller.getBoundingClientRect();
+        const b = bar.getBoundingClientRect();
+        let delta = 0;
+        if (b.top < s.top + pad) delta = b.top - s.top - pad;
+        else if (b.bottom > s.bottom - pad) delta = b.bottom - s.bottom + pad;
+        else return;
+        const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+        const nextTop = Math.min(maxTop, Math.max(0, scroller.scrollTop + delta));
+        scroller.scrollTo({ top: nextTop, behavior });
+    }
+
+    function scrollBarsContainerToMaxBottom(options = {}) {
+        const behavior = options.behavior ?? 'smooth';
+        const scroller = document.getElementById('barsContainer');
+        if (!scroller) return;
+        if (scroller.scrollHeight <= scroller.clientHeight + 1) return;
+        scroller.scrollTo({ top: scroller.scrollHeight - scroller.clientHeight, behavior });
+    }
+
     function setPlayingCellByBarLocal(barIndex, localIndex) {
         const container = document.getElementById('barsContainer');
         if (!container) return false;
@@ -2283,6 +2315,7 @@
         container.querySelectorAll('.cell.playing').forEach(c => c.classList.remove('playing'));
         el.classList.add('playing');
         emitInternalPlaybackStep(barIndex, localIndex);
+        scrollBarsContainerToRevealBar(barIndex, { behavior: 'auto' });
         return true;
     }
 
@@ -3976,6 +4009,10 @@
                         /* After flex lays out #barsStackGrow, repeat sizing so first paint matches post-preset refit. */
                         applyAdaptiveBarHeights(container, bc);
                         enforceBarsFit(container, bc);
+                        if (lastBarsCountForAutoScroll !== null && bc > lastBarsCountForAutoScroll) {
+                            scrollBarsContainerToMaxBottom({ behavior: 'smooth' });
+                        }
+                        lastBarsCountForAutoScroll = bc;
                     }
                 });
             });
