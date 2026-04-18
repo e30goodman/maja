@@ -573,6 +573,39 @@
             58% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
             100% { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
         }
+        .snapshot-erased-toast {
+            position: fixed;
+            left: 50%;
+            top: 36%;
+            z-index: 10000;
+            padding: 0.55rem 0.85rem;
+            border-radius: 4px;
+            border: 2px solid #fb7185;
+            background: rgba(15, 23, 42, 0.92);
+            box-shadow: 0 0 24px rgba(244, 63, 94, 0.35), inset 0 0 0 1px rgba(251, 113, 133, 0.2);
+            font-size: 0.8rem;
+            line-height: 1.5;
+            letter-spacing: 0.06em;
+            color: #fecdd3;
+            text-transform: lowercase;
+            text-shadow: 0 0 10px rgba(251, 113, 133, 0.85), 1px 1px 0 #881337;
+            pointer-events: none;
+            user-select: none;
+            -webkit-user-select: none;
+            opacity: 0;
+            visibility: hidden;
+            transform: translate(-50%, -50%) scale(0.94);
+        }
+        .snapshot-erased-toast.is-animating {
+            visibility: visible;
+            animation: snapshot-erased-toast-anim 1.45s ease forwards;
+        }
+        @keyframes snapshot-erased-toast-anim {
+            0% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+            14% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+            58% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+            100% { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
+        }
         label { display: block; margin-bottom: 8px; font-weight: 600; font-size: 0.85rem; color: var(--text-muted); }
         label .hint-muted { font-weight: 400; color: var(--text-dim); }
         select:not(.pixel-dropdown-native), input[type="range"] {
@@ -1400,6 +1433,11 @@
                 padding: 0.45rem 0.65rem;
                 top: 32%;
             }
+            .snapshot-erased-toast {
+                font-size: 0.72rem;
+                padding: 0.45rem 0.65rem;
+                top: 32%;
+            }
             label.rand-cycle { font-size: 0.8rem; gap: 10px; }
             .bars-container {
                 grid-template-columns: 1fr !important;
@@ -1874,8 +1912,18 @@
     }
     migrateLegacySessionIntoPreset1();
     let presetNavHoldTimer = null;
+    let presetNavHoldPhase2Timer = null;
     let presetNavHoldSlot = -1;
+    /** Ссылка на <a> пресета во время удержания (вторая фаза — стирание своего слота). */
+    let presetNavHoldElement = null;
     let presetNavSuppressClick = false;
+    /** false = «серая группа» (нет правок с момента загрузки снепшота); true = «фиолетовая» (было любое изменение в UI). */
+    let sessionEditGroupViolet = false;
+
+    function markSessionEditGroupVioletFromUserGesture() {
+        if (!isAppReady || suppressSessionWritesDepth > 0) return;
+        sessionEditGroupViolet = true;
+    }
 
     const syllables = {
         1: ["Ta"],
@@ -2802,7 +2850,10 @@
         }
     }
 
-    /** Записать полное состояние метронома (из getCurrentSessionState) в ключи целевого слота. Удержание только «серый→фиолетовый»; снятия сохранения нет. */
+    /**
+     * Удержание на слот: серая группа может записать в «фиолетовый» слот без presetMeta (слот пустеет по UI);
+     * фиолетовая — только с presetMeta (нельзя «серить» чужой слот одной фазой). Стирание только 2‑я фаза на своём слоте.
+     */
     function writeFullMetronomeStateToPreset(targetSlotZero) {
         if (!isAppReady) return;
         const i = Math.min(PRESET_SLOT_COUNT - 1, Math.max(0, parseInt(targetSlotZero, 10) || 0));
@@ -2810,7 +2861,16 @@
         const snap = deepCloneState(getCurrentSessionState());
         if (!snap) return;
 
+        const targetHadManual = presetHasManualSnapshot(i);
         delete snap.presetMeta;
+
+        if (!sessionEditGroupViolet && targetHadManual) {
+            persistPresetSlotDualWrite(targetPresetId, JSON.stringify(snap));
+            showSnapshotSavedToast();
+            refreshPresetNavUi();
+            return;
+        }
+
         snap.presetMeta = {
             preset: parseInt(targetPresetId, 10),
             savedAt: Date.now(),
@@ -2820,6 +2880,51 @@
         persistPresetSlotDualWrite(targetPresetId, JSON.stringify(snap));
         showSnapshotSavedToast();
         refreshPresetNavUi();
+    }
+
+    function showSnapshotErasedToast() {
+        let el = document.getElementById('snapshotErasedToast');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'snapshotErasedToast';
+            el.className = 'snapshot-erased-toast';
+            el.setAttribute('role', 'status');
+            el.setAttribute('aria-live', 'polite');
+            el.textContent = 'erased';
+            document.body.appendChild(el);
+        }
+        el.classList.remove('is-animating');
+        void el.offsetWidth;
+        el.classList.add('is-animating');
+    }
+
+    function eraseCurrentSlotManualSnapshotAndResetUi() {
+        if (isPlaybackRunning()) {
+            stop();
+        }
+        const id = getCurrentPresetId();
+        try {
+            localStorage.removeItem(sessionStorageKeyForPresetId(id));
+            localStorage.removeItem(fullMetronomeJsonStorageKeyForPresetId(id));
+        } catch (_) {}
+        sessionEditGroupViolet = false;
+        suppressSessionWritesDepth += 1;
+        try {
+            const stateForControls = getDefaultEmptyPresetControlsState();
+            applySessionStateToControls(stateForControls);
+            updateBarScaleLabel();
+            initApp({ reloadBarStatesFromSession: true });
+            restoreSelectState(stateForControls);
+            updateTempoLabel();
+            refreshTempoModeUi();
+            refreshRandomModeToggleButton();
+            refreshAccentToggleButton();
+        } finally {
+            suppressSessionWritesDepth -= 1;
+        }
+        saveSessionState();
+        refreshPresetNavUi();
+        showSnapshotErasedToast();
     }
 
     function showSnapshotSavedToast() {
@@ -2843,7 +2948,12 @@
             clearTimeout(presetNavHoldTimer);
             presetNavHoldTimer = null;
         }
+        if (presetNavHoldPhase2Timer !== null) {
+            clearTimeout(presetNavHoldPhase2Timer);
+            presetNavHoldPhase2Timer = null;
+        }
         presetNavHoldSlot = -1;
+        presetNavHoldElement = null;
     }
 
     function refreshPresetNavUi() {
@@ -2854,11 +2964,14 @@
             const i = parseInt(a.dataset.preset, 10);
             if (!Number.isFinite(i)) return;
             const saved = presetHasManualSnapshot(i);
+            const isActive = i === getCurrentPresetIndexZero();
             a.classList.toggle('filled', saved);
-            a.classList.toggle('active', i === getCurrentPresetIndexZero());
+            a.classList.toggle('active', isActive);
             a.dataset.manualSave = saved ? '1' : '0';
             a.title = saved
-                ? `Пресет ${i + 1}: сохранён (удерж. ${msHint}s — перезаписать)`
+                ? (isActive && sessionEditGroupViolet
+                    ? `Пресет ${i + 1}: сохранён (удерж. ${msHint}s — перезапись; ещё ${msHint}s удержания — erased, слот пустой)`
+                    : `Пресет ${i + 1}: сохранён (удерж. ${msHint}s — перезаписать)`)
                 : `Пресет ${i + 1}: не сохранён · удерж. ${msHint}s — записать`;
             a.setAttribute('aria-label', saved ? `Пресет ${i + 1}, сохранён` : `Пресет ${i + 1}, не сохранён`);
         });
@@ -2882,11 +2995,30 @@
                 if (ev.button !== undefined && ev.button !== 0) return;
                 cancelPresetNavHold();
                 presetNavHoldSlot = i;
+                presetNavHoldElement = a;
                 a.classList.add('holding');
                 presetNavHoldTimer = setTimeout(() => {
                     presetNavHoldTimer = null;
                     presetNavSuppressClick = true;
                     writeFullMetronomeStateToPreset(i);
+                    if (
+                        sessionEditGroupViolet
+                        && i === getCurrentPresetIndexZero()
+                        && presetNavHoldElement === a
+                        && a.classList.contains('holding')
+                    ) {
+                        presetNavHoldPhase2Timer = setTimeout(() => {
+                            presetNavHoldPhase2Timer = null;
+                            if (!isAppReady) return;
+                            if (presetNavHoldSlot !== i) return;
+                            if (!a.classList.contains('holding')) return;
+                            if (i !== getCurrentPresetIndexZero()) return;
+                            eraseCurrentSlotManualSnapshotAndResetUi();
+                            presetNavSuppressClick = true;
+                            a.classList.remove('holding');
+                            cancelPresetNavHold();
+                        }, PRESET_HOLD_MS);
+                    }
                 }, PRESET_HOLD_MS);
                 try {
                     a.setPointerCapture(ev.pointerId);
@@ -2894,11 +3026,7 @@
             });
             const onPointerEnd = (ev) => {
                 a.classList.remove('holding');
-                if (presetNavHoldTimer !== null) {
-                    clearTimeout(presetNavHoldTimer);
-                    presetNavHoldTimer = null;
-                }
-                presetNavHoldSlot = -1;
+                cancelPresetNavHold();
                 try {
                     if (a.hasPointerCapture && a.hasPointerCapture(ev.pointerId)) {
                         a.releasePointerCapture(ev.pointerId);
@@ -3387,6 +3515,7 @@
         }
         saveSessionState();
         refreshPresetNavUi();
+        sessionEditGroupViolet = false;
     }
 
     function onPresetNavSlotClick(e) {
@@ -4735,6 +4864,27 @@
     setupPresetNavUi();
     setupPresetHistoryNavigation();
     refreshPresetNavUi();
+    sessionEditGroupViolet = false;
+    (function attachSessionEditGroupVioletListeners() {
+        const markVioletMaybe = (ev) => {
+            if (suppressSessionWritesDepth > 0) return;
+            if (!isAppReady) return;
+            const t = ev.target;
+            if (t && t.closest && t.closest('#presetNavStrip, #pulsationDragPanel')) return;
+            markSessionEditGroupVioletFromUserGesture();
+        };
+        const appRootEl = document.querySelector('.app-container');
+        if (appRootEl) {
+            appRootEl.addEventListener('input', markVioletMaybe, true);
+            appRootEl.addEventListener('change', markVioletMaybe, true);
+        }
+        const barsEl = document.getElementById('barsContainer');
+        if (barsEl) barsEl.addEventListener('pointerdown', markVioletMaybe, true);
+        const bpmEl = document.getElementById('bpmTactileWrap');
+        if (bpmEl) bpmEl.addEventListener('pointerdown', markVioletMaybe, true);
+        const tapEl = document.getElementById('tapTempoBtn');
+        if (tapEl) tapEl.addEventListener('pointerdown', markVioletMaybe, true);
+    })();
     initAllSettingsPixelDropdowns();
 
     const topFoldRowEl = document.getElementById('topFoldRow');
@@ -4980,6 +5130,7 @@
             const p = parseInt(row.getAttribute('data-p'), 10);
             if (!Number.isFinite(p) || p < 1 || p > MAX_PULSATION) return;
             selectPulsationFromMenu(p);
+            markSessionEditGroupVioletFromUserGesture();
         });
     }
     const pulsationDragPanelRoot = document.getElementById('pulsationDragPanel');
