@@ -2739,6 +2739,8 @@
         let gestureDownClientY = 0;
         let gestureDownTime = 0;
         let gestureExceededTapSlop = false;
+        /** Верхний BPM-чип (#tapTempoBtn) — только при реальном перетаскивании, не на каждый тап (иначе мешает двойному тапу). */
+        let tactileFloatHudShown = false;
 
         function syncTactileAria() {
             syncBpmTactileHandleLabel();
@@ -2939,6 +2941,7 @@
             gestureDownClientY = e.clientY;
             gestureDownTime = Date.now();
             gestureExceededTapSlop = false;
+            tactileFloatHudShown = false;
             lastPanClientX = e.clientX;
             lastPanClientY = e.clientY;
             dragging = true;
@@ -2955,7 +2958,6 @@
             try {
                 handle.setPointerCapture(e.pointerId);
             } catch (_) {}
-            showBpmFloatHud();
             startTactileRaf();
         }
 
@@ -2965,6 +2967,15 @@
             lastPanClientY = e.clientY;
             if (Math.hypot(e.clientX - gestureDownClientX, e.clientY - gestureDownClientY) > BPM_TACTILE_TAP_MAX_MOVE_PX) {
                 gestureExceededTapSlop = true;
+            }
+            if (!tactileFloatHudShown) {
+                const dragPx = msMode
+                    ? (msUseAnchoredMsDrag ? Math.abs(e.clientX - msDragOriginClientX) : Math.abs(e.clientX - panStartClientX))
+                    : Math.abs(e.clientX - panStartClientX);
+                if (gestureExceededTapSlop || dragPx > 6) {
+                    tactileFloatHudShown = true;
+                    showBpmFloatHud();
+                }
             }
             let raw;
             if (msMode) {
@@ -2999,7 +3010,8 @@
             dragging = false;
             panPointerId = null;
 
-            if (isTap) {
+            const pt = e && e.pointerType ? e.pointerType : '';
+            if (isTap && pt !== 'mouse') {
                 const now = Date.now();
                 if (msTapLastUpTime > 0 && now - msTapLastUpTime < BPM_TACTILE_DOUBLE_TAP_GAP_MS) {
                     msTapLastUpTime = 0;
@@ -3011,7 +3023,7 @@
                 } else {
                     msTapLastUpTime = now;
                 }
-            } else {
+            } else if (!isTap) {
                 msTapLastUpTime = 0;
             }
 
@@ -3032,6 +3044,13 @@
         handle.addEventListener('pointermove', onPointerMove);
         handle.addEventListener('pointerup', onPointerEnd);
         handle.addEventListener('pointercancel', onPointerEnd);
+
+        handle.addEventListener('dblclick', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            if (msMode) exitBpmTactileLatchedMsMode();
+            else enterBpmTactileMsMode();
+        });
 
         handle.addEventListener('keydown', (e) => {
             if (e.key === 'ArrowUp' || e.key === 'ArrowRight') {
