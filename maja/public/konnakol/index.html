@@ -910,6 +910,9 @@
             user-select: none;
             -webkit-tap-highlight-color: transparent;
         }
+        #barsContainer.bars-dom-patch-suppress-motion .cell {
+            transition: none !important;
+        }
         .cell.cell-profile-default,
         .cell.cell-profile-x2,
         .cell.cell-profile-x3 {
@@ -3303,7 +3306,9 @@
         initApp({
             ignorePerBarPulsationsFromSession: true,
             preservePlaybackDuringGridRebuild: wasPlaying,
-            playbackAnchor
+            playbackAnchor,
+            /* Full grid rebuild: same smooth DOM path as preset/snapshot (no tryPatch + .cell transition jelly). */
+            forceFullGridRebuild: true
         });
         saveSessionState();
     }
@@ -3369,7 +3374,7 @@
             const stateForControls = resolveStateForControls();
             applySessionStateToControls(stateForControls);
             updateBarScaleLabel();
-            initApp({ reloadBarStatesFromSession: true });
+            initApp({ reloadBarStatesFromSession: true, forceFullGridRebuild: true });
             restoreSelectState(stateForControls);
             updateTempoLabel();
             refreshTempoModeUi();
@@ -3718,7 +3723,16 @@
         if (options.forceFullGridRebuild) return false;
         if (!container || !barStates.length) return false;
         if (!domRhythmStructureMatchesBarStates(container, barStates)) return false;
-        patchBarsDomFromBarStates(container);
+        container.classList.add('bars-dom-patch-suppress-motion');
+        try {
+            patchBarsDomFromBarStates(container);
+        } finally {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    container.classList.remove('bars-dom-patch-suppress-motion');
+                });
+            });
+        }
         return true;
     }
 
