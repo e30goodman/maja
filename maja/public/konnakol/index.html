@@ -1800,7 +1800,7 @@
         </div>
     </details>
 
-    <button id="tapTempoBtn" class="tap-tempo-btn" type="button" onclick="onTapTempo()" title="Tap tempo">
+    <button id="tapTempoBtn" class="tap-tempo-btn" type="button" onclick="onTapTempo()" title="Tap tempo · удержание ~0,6 с — Trainer (мс)">
         <span class="tap-tempo-idle" id="tapTempoIdle">Tap</span>
         <span class="tap-tempo-bpm-pane" id="tapTempoBpmPane" hidden>
             <span class="tap-tempo-bpm-row">
@@ -1918,6 +1918,8 @@
     let tapTempoFlashTimer = null;
     /** BPM readout shown inside #tapTempoBtn while dragging tactile tempo. */
     let tapTempoBpmReadoutActive = false;
+    /** Удержание Tap включило/выключило Trainer — следующий синтетический клик не считать за tap-tempo. */
+    let suppressTapTempoClickAfterTrainerHold = false;
     let barFirstSyllableHighEnabled = false;
     let accentHoldTimer = null;
     let suppressAccentClick = false;
@@ -2600,6 +2602,10 @@
     }
 
     function onTapTempo() {
+        if (suppressTapTempoClickAfterTrainerHold) {
+            suppressTapTempoClickAfterTrainerHold = false;
+            return;
+        }
         const tapBtn = document.getElementById('tapTempoBtn');
         if (tapBtn) {
             tapBtn.classList.remove('tapped');
@@ -2699,7 +2705,7 @@
         if (btn) btn.classList.remove('tap-tempo-btn--showing-bpm');
     }
 
-    /** Тактильный BPM: пружина ±1/±5/быстро; двойной тап по ручке — режим «мс» (±1 BPM, интервал от отклонения); ещё двойной тап — выход. Удержание режим не переключает. */
+    /** Тактильный BPM: пружина ±1/±5/быстро; режим «мс» (Trainer) — удержание кнопки Tap ~0,6 с. */
     function setupBpmTactileSlider() {
         const wrap = document.getElementById('bpmTactileWrap');
         const handle = document.getElementById('bpmTactileHandle');
@@ -2713,13 +2719,10 @@
         const T_MIN = 20;
         const T_MAX = 480;
         const SPRING_ALPHA = 0.32;
-        /** Макс. пауза между двумя тапами (отпускание→отпускание). */
-        const BPM_TACTILE_DOUBLE_TAP_GAP_MS = 900;
-        /** Радиус «тапа» (px) от точки касания — широкий, чтобы пара не срывалась от пружины и дрожи. */
-        const BPM_TACTILE_TAP_MAX_MOVE_PX = 96;
-        const BPM_TACTILE_TAP_MAX_DURATION_MS = 800;
-        /** Сдвиг по X, после которого показываем верхний BPM (реальное перетаскивание, не тап). */
+        /** Сдвиг по X, после которого показываем верхний BPM при перетаскивании ручки. */
         const BPM_TACTILE_HUD_DRAG_MIN_PX = 28;
+        /** Удержание #tapTempoBtn — вкл/выкл Trainer (мс). */
+        const BPM_TRAINER_TAP_HOLD_MS = 560;
         const BPM_MS_DEAD_PX = 10;
         const BPM_MS_MAX_X = 110;
         const BPM_MS_INTERVAL_MIN = 250;
@@ -2738,13 +2741,10 @@
         let msUseAnchoredMsDrag = false;
         let msDragAnchorX = 0;
         let msDragOriginClientX = 0;
-        let msTapLastUpTime = 0;
-        let gestureDownClientX = 0;
-        let gestureDownClientY = 0;
-        let gestureDownTime = 0;
-        let gestureExceededTapSlop = false;
-        /** Верхний BPM-чип (#tapTempoBtn) — только при реальном перетаскивании, не на каждый тап (иначе мешает двойному тапу). */
+        /** Верхний BPM-чип (#tapTempoBtn) — только при реальном перетаскивании ручки. */
         let tactileFloatHudShown = false;
+        let trainerTapHoldTimer = null;
+        let trainerTapHoldPointerId = null;
 
         function syncTactileAria() {
             syncBpmTactileHandleLabel();
@@ -2941,10 +2941,6 @@
 
         function onPointerDown(e) {
             if (e.button !== undefined && e.button !== 0) return;
-            gestureDownClientX = e.clientX;
-            gestureDownClientY = e.clientY;
-            gestureDownTime = Date.now();
-            gestureExceededTapSlop = false;
             tactileFloatHudShown = false;
             lastPanClientX = e.clientX;
             lastPanClientY = e.clientY;
@@ -2969,14 +2965,11 @@
             if (!dragging || e.pointerId !== panPointerId) return;
             lastPanClientX = e.clientX;
             lastPanClientY = e.clientY;
-            if (Math.hypot(e.clientX - gestureDownClientX, e.clientY - gestureDownClientY) > BPM_TACTILE_TAP_MAX_MOVE_PX) {
-                gestureExceededTapSlop = true;
-            }
             if (!tactileFloatHudShown) {
                 const dragPx = msMode
                     ? (msUseAnchoredMsDrag ? Math.abs(e.clientX - msDragOriginClientX) : Math.abs(e.clientX - panStartClientX))
                     : Math.abs(e.clientX - panStartClientX);
-                if (gestureExceededTapSlop || dragPx > BPM_TACTILE_HUD_DRAG_MIN_PX) {
+                if (dragPx > BPM_TACTILE_HUD_DRAG_MIN_PX) {
                     tactileFloatHudShown = true;
                     showBpmFloatHud();
                 }
@@ -3003,33 +2996,8 @@
                 }
             } catch (_) {}
 
-            const clientXEnd = (e && Number.isFinite(e.clientX)) ? e.clientX : lastPanClientX;
-            const clientYEnd = (e && Number.isFinite(e.clientY)) ? e.clientY : lastPanClientY;
-            const tapDuration = Date.now() - gestureDownTime;
-            const tapMoved = Math.hypot(clientXEnd - gestureDownClientX, clientYEnd - gestureDownClientY);
-            const isTap = !gestureExceededTapSlop
-                && tapMoved <= BPM_TACTILE_TAP_MAX_MOVE_PX
-                && tapDuration <= BPM_TACTILE_TAP_MAX_DURATION_MS;
-
             dragging = false;
             panPointerId = null;
-
-            const pt = e && e.pointerType ? e.pointerType : '';
-            if (isTap && pt !== 'mouse') {
-                const now = Date.now();
-                if (msTapLastUpTime > 0 && now - msTapLastUpTime < BPM_TACTILE_DOUBLE_TAP_GAP_MS) {
-                    msTapLastUpTime = 0;
-                    if (msMode) {
-                        exitBpmTactileLatchedMsMode();
-                    } else {
-                        enterBpmTactileMsMode();
-                    }
-                } else {
-                    msTapLastUpTime = now;
-                }
-            } else if (!isTap) {
-                msTapLastUpTime = 0;
-            }
 
             if (msMode) {
                 syncBpmSliderLastStable();
@@ -3049,12 +3017,49 @@
         handle.addEventListener('pointerup', onPointerEnd);
         handle.addEventListener('pointercancel', onPointerEnd);
 
-        handle.addEventListener('dblclick', (ev) => {
-            ev.preventDefault();
-            ev.stopPropagation();
-            if (msMode) exitBpmTactileLatchedMsMode();
-            else enterBpmTactileMsMode();
-        });
+        function clearTrainerTapHoldTimer() {
+            if (trainerTapHoldTimer !== null) {
+                clearTimeout(trainerTapHoldTimer);
+                trainerTapHoldTimer = null;
+            }
+        }
+
+        function onTrainerTapBtnPointerDown(ev) {
+            if (ev.button !== undefined && ev.button !== 0) return;
+            clearTrainerTapHoldTimer();
+            trainerTapHoldPointerId = ev.pointerId;
+            trainerTapHoldTimer = setTimeout(() => {
+                trainerTapHoldTimer = null;
+                trainerTapHoldPointerId = null;
+                suppressTapTempoClickAfterTrainerHold = true;
+                if (msMode) exitBpmTactileLatchedMsMode();
+                else enterBpmTactileMsMode();
+                try {
+                    if (navigator.vibrate) navigator.vibrate(18);
+                } catch (_) {}
+            }, BPM_TRAINER_TAP_HOLD_MS);
+        }
+
+        function onTrainerTapBtnPointerEnd(ev) {
+            if (ev && ev.pointerId !== undefined && ev.pointerId !== trainerTapHoldPointerId) return;
+            clearTrainerTapHoldTimer();
+            trainerTapHoldPointerId = null;
+        }
+
+        const tapTempoBtn = document.getElementById('tapTempoBtn');
+        if (tapTempoBtn && tapTempoBtn.dataset.trainerHoldBound !== '1') {
+            tapTempoBtn.dataset.trainerHoldBound = '1';
+            tapTempoBtn.addEventListener('pointerdown', onTrainerTapBtnPointerDown);
+            tapTempoBtn.addEventListener('pointerup', onTrainerTapBtnPointerEnd);
+            tapTempoBtn.addEventListener('pointercancel', onTrainerTapBtnPointerEnd);
+            tapTempoBtn.addEventListener('lostpointercapture', onTrainerTapBtnPointerEnd);
+            tapTempoBtn.addEventListener('click', (cev) => {
+                if (!suppressTapTempoClickAfterTrainerHold) return;
+                cev.preventDefault();
+                cev.stopImmediatePropagation();
+                suppressTapTempoClickAfterTrainerHold = false;
+            }, true);
+        }
 
         handle.addEventListener('keydown', (e) => {
             if (e.key === 'ArrowUp' || e.key === 'ArrowRight') {
