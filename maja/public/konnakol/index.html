@@ -995,18 +995,27 @@
             background: rgba(51, 65, 85, 0.4);
             border-color: rgba(148, 163, 184, 0.9);
         }
-        /* x2 / x3 по такту: та же заливка и рамка, что у .pulsation-handle.polymeter (без отдельного «огня» при удержании) */
-        .bar.tempo-boost .bar-controls-stack .bar-tempo-handle,
-        .bar.tempo-boost-x3 .bar-controls-stack .bar-tempo-handle {
+        /* x2: как polymeter; x3: чуть ярче (как усиление рамки/заливки такта .tempo-boost-x3) */
+        .bar.tempo-boost:not(.tempo-boost-x3) .bar-controls-stack .bar-tempo-handle {
             color: #fecdd3;
             border-color: #f87171;
             background: rgba(244, 63, 94, 0.34);
             box-shadow: 0 0 12px rgba(244, 63, 94, 0.38);
         }
-        .bar.tempo-boost .bar-controls-stack .bar-tempo-handle:hover,
-        .bar.tempo-boost-x3 .bar-controls-stack .bar-tempo-handle:hover {
+        .bar.tempo-boost:not(.tempo-boost-x3) .bar-controls-stack .bar-tempo-handle:hover {
             background: rgba(244, 63, 94, 0.42);
             border-color: #fb7185;
+        }
+        .bar.tempo-boost-x3 .bar-controls-stack .bar-tempo-handle {
+            color: #fff1f2;
+            border-color: #f43f5e;
+            background: rgba(244, 63, 94, 0.46);
+            box-shadow: 0 0 14px rgba(244, 63, 94, 0.48), 0 0 0 1px rgba(251, 113, 133, 0.35) inset;
+        }
+        .bar.tempo-boost-x3 .bar-controls-stack .bar-tempo-handle:hover {
+            background: rgba(244, 63, 94, 0.54);
+            border-color: #fb7185;
+            box-shadow: 0 0 18px rgba(244, 63, 94, 0.55), 0 0 0 1px rgba(254, 202, 202, 0.28) inset;
         }
         .pulsation-handle {
             display: inline-flex;
