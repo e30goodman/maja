@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>Konnakol Multi-Bar Trainer</title>
+    <title>Konnakol Multi-Bar Trainer (test)</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         /* Palette aligned with Espace Maja (Tailwind slate + violet + blue) */
@@ -110,6 +110,19 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
+        }
+        /* Programmatic vertical scroll: viewport clips; track moves with translate3d (no native scroll on #barsContainer). */
+        #barsScrollViewport.bars-scroll-viewport {
+            flex: 1 1 0%;
+            min-height: 0;
+            min-width: 0;
+            width: 100%;
+            overflow: hidden;
+            position: relative;
+        }
+        #barsScrollTrack.bars-scroll-track {
+            width: 100%;
+            will-change: transform;
         }
         h2 { text-align: center; margin-bottom: 25px; color: var(--text); font-weight: 600; letter-spacing: 0.02em; }
 
@@ -418,6 +431,7 @@
         .control-group.tempo-x2 .bpm-nudge-btn:active {
             background: var(--slate-900);
         }
+        /* Тач: браузер держит «липовый» :hover после отпускания — визуально как в покое. */
         @media (hover: none) {
             .bpm-nudge-btn:hover {
                 border-color: var(--slate-700);
@@ -504,7 +518,7 @@
             justify-content: center;
             transition: background 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
         }
-        /* Цифры BPM — как подписи долей (акцент / tempo-x2 / ms) */
+        /* Цифры BPM — в духе подписей долей: «включённая» нота (var(--text)) + фиолетовый акцент сетки */
         .bpm-tactile-handle-bpm {
             font-size: 0.75rem;
             font-weight: 900;
@@ -545,6 +559,7 @@
         .bpm-tactile-handle:active {
             cursor: grabbing;
         }
+        /* Режим «мс»: красный полупрозрачный слой поверх того же серого градиента, что в обычном режиме. */
         .bpm-tactile-handle.bpm-tactile-handle--ms-mode {
             background:
                 linear-gradient(180deg, rgba(254, 165, 165, 0.62), rgba(248, 113, 113, 0.55)),
@@ -913,19 +928,14 @@
         .bars-container {
             --bars-count: 4;
             --bar-height: 96px;
+            /* JS пишет --cell-height при подгонке; высота ячеек = внутренняя высота такта (см. .bar + flex). */
             --cell-height: 62px;
-            /* Fixed cell window height: base from JS + slack; independent of label text */
-            --total-cell-height: calc((var(--cell-height) + 20px) * var(--bar-scale));
             --bars-gap: 16px;
             --bar-scale: 1;
-            flex: 1 1 auto;
-            min-height: 0;
             width: 100%;
             min-width: 0;
             overflow-x: hidden;
-            overflow-y: auto;
-            scroll-behavior: smooth;
-            scroll-snap-type: y proximity;
+            overflow-y: visible;
             display: grid;
             grid-template-columns: 1fr;
             gap: calc(var(--bars-gap) * var(--bar-scale));
@@ -938,23 +948,53 @@
             min-width: 0;
             max-width: none;
             box-sizing: border-box;
-            scroll-snap-align: start;
         }
         .bar {
+            /* Рамка такта: height = --bar-height * scale. Ряд сибилянтов и колонка xN/пульсации заполняют .bar-body по высоте 1:1 с внутренней областью. */
+            container-type: size;
+            container-name: tact;
+            --bar-pad-x: calc(clamp(10px, calc(19px - (min(var(--bars-count), 4) * 1px)), 15px) * var(--bar-scale));
+            --bar-pad-y: calc(clamp(10px, calc(19px - (min(var(--bars-count), 4) * 1px)), 15px) * var(--bar-scale));
+            --bar-pad-y-top: var(--bar-pad-y);
+            --bar-pad-y-bottom: var(--bar-pad-y);
+            --bar-rhythm-block-height: max(
+                12px,
+                calc(var(--bar-height) * var(--bar-scale) - var(--bar-pad-y-top) - var(--bar-pad-y-bottom) - 2px)
+            );
             --control-stack-gap: calc(6px * var(--bar-scale));
-            --syllable-chip: calc((var(--total-cell-height) - var(--control-stack-gap)) / 2);
+            --syllable-chip: max(
+                calc(26px * var(--bar-scale)),
+                min(
+                    calc((var(--bar-rhythm-block-height) - var(--control-stack-gap)) / 2),
+                    40px
+                )
+            );
             display: flex;
             flex-direction: column;
-            justify-content: center;
+            justify-content: stretch;
             align-items: stretch;
             width: 100%;
             min-width: 0;
             background: rgba(30, 41, 59, 0.5);
             border: 1px solid var(--slate-700);
-            padding: calc(clamp(10px, calc(19px - (var(--bars-count) * 1px)), 15px) * var(--bar-scale));
+            padding: var(--bar-pad-y-top) var(--bar-pad-x) var(--bar-pad-y-bottom);
             border-radius: calc(1rem * var(--bar-scale));
+            height: calc(var(--bar-height) * var(--bar-scale));
             min-height: calc(var(--bar-height) * var(--bar-scale));
+            max-height: calc(var(--bar-height) * var(--bar-scale));
             box-sizing: border-box;
+            overflow: visible;
+        }
+        @supports (width: 1cqw) {
+            .bar {
+                --syllable-chip: max(
+                    calc(26px * var(--bar-scale)),
+                    min(
+                        calc((var(--bar-rhythm-block-height) - var(--control-stack-gap)) / 2),
+                        22cqw
+                    )
+                );
+            }
         }
         .bar.tempo-boost {
             border-color: var(--playback-border);
@@ -963,8 +1003,8 @@
         }
         .bar.tempo-boost-x3 {
             border-color: #f43f5e;
-            box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.4) inset, 0 0 22px rgba(244, 63, 94, 0.44);
-            background: rgba(244, 63, 94, 0.24);
+            box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.34) inset, 0 0 18px rgba(244, 63, 94, 0.34);
+            background: rgba(244, 63, 94, 0.18);
         }
         @keyframes tempo-hold-bar-pulse {
             0%, 100% {
@@ -986,6 +1026,7 @@
                 box-shadow: 0 0 0 2px rgba(251, 113, 133, 0.45) inset, 0 0 18px rgba(239, 68, 68, 0.36);
             }
         }
+        /* Удержание множителя по такту: одна и та же пульсация при x1 / x2 / x3 */
         .bar.bar-tempo-hold-active,
         .bar.bar-tempo-hold-active.tempo-boost,
         .bar.bar-tempo-hold-active.tempo-boost-x3 {
@@ -996,8 +1037,9 @@
         }
         /* Test layout: tempo + pulsation stacked in one column beside the syllable row. */
         .bar-body {
-            --bar-cell-gap: calc(clamp(5px, calc(10px - (var(--bars-count) * 0.4px)), 8px) * var(--bar-scale));
-            flex: 0 0 auto;
+            --bar-cell-gap: calc(clamp(5px, calc(10px - (min(var(--bars-count), 3) * 0.4px)), 8px) * var(--bar-scale));
+            flex: 1 1 auto;
+            min-height: 0;
             display: flex;
             flex-direction: row;
             align-items: stretch;
@@ -1006,6 +1048,7 @@
             max-width: 100%;
             min-width: 0;
             box-sizing: border-box;
+            overflow-x: clip;
         }
         .bar-controls-stack {
             display: flex;
@@ -1014,14 +1057,16 @@
             align-items: stretch;
             gap: var(--control-stack-gap);
             flex: 0 0 auto;
-            height: var(--total-cell-height);
-            min-height: var(--total-cell-height);
-            max-height: var(--total-cell-height);
+            align-self: stretch;
+            height: auto;
+            min-height: 0;
+            max-height: none;
             width: var(--syllable-chip);
         }
         .bar-body .rhythm-grid {
             flex: 1 1 0%;
             min-width: 0;
+            min-height: 0;
             align-self: stretch;
         }
         .bar-tempo-handle {
@@ -1064,17 +1109,27 @@
             background: rgba(51, 65, 85, 0.4);
             border-color: rgba(148, 163, 184, 0.9);
         }
-        .bar.tempo-boost .bar-controls-stack .bar-tempo-handle,
-        .bar.tempo-boost-x3 .bar-controls-stack .bar-tempo-handle {
+        /* x2: как polymeter; x3: чуть ярче (как усиление рамки/заливки такта .tempo-boost-x3) */
+        .bar.tempo-boost:not(.tempo-boost-x3) .bar-controls-stack .bar-tempo-handle {
             color: #fecdd3;
             border-color: #f87171;
             background: rgba(244, 63, 94, 0.34);
             box-shadow: 0 0 12px rgba(244, 63, 94, 0.38);
         }
-        .bar.tempo-boost .bar-controls-stack .bar-tempo-handle:hover,
-        .bar.tempo-boost-x3 .bar-controls-stack .bar-tempo-handle:hover {
+        .bar.tempo-boost:not(.tempo-boost-x3) .bar-controls-stack .bar-tempo-handle:hover {
             background: rgba(244, 63, 94, 0.42);
             border-color: #fb7185;
+        }
+        .bar.tempo-boost-x3 .bar-controls-stack .bar-tempo-handle {
+            color: #fff1f2;
+            border-color: #f43f5e;
+            background: rgba(244, 63, 94, 0.46);
+            box-shadow: 0 0 14px rgba(244, 63, 94, 0.48), 0 0 0 1px rgba(251, 113, 133, 0.35) inset;
+        }
+        .bar.tempo-boost-x3 .bar-controls-stack .bar-tempo-handle:hover {
+            background: rgba(244, 63, 94, 0.54);
+            border-color: #fb7185;
+            box-shadow: 0 0 18px rgba(244, 63, 94, 0.55), 0 0 0 1px rgba(254, 202, 202, 0.28) inset;
         }
         .pulsation-handle {
             display: inline-flex;
@@ -1167,12 +1222,12 @@
         .pulsation-drag-panel-list .p-label { font-weight: 700; color: var(--text-muted); }
         .pulsation-drag-panel-list li.active .p-label { color: var(--violet-400); }
 
-        /* Ряд долей: ширина = остаток в .bar-body; ячейки делят поровну. */
+        /* Ряд долей: ширина ряда = остаток в .bar-body; ячейки делят поровну (число долей = число силлабов). */
         .rhythm-grid {
             display: flex;
             flex-direction: row;
             flex-wrap: nowrap;
-            gap: var(--bar-cell-gap, calc(clamp(5px, calc(10px - (var(--bars-count) * 0.4px)), 8px) * var(--bar-scale)));
+            gap: var(--bar-cell-gap, calc(clamp(5px, calc(10px - (min(var(--bars-count), 3) * 0.4px)), 8px) * var(--bar-scale)));
             justify-content: stretch;
             align-items: stretch;
             width: 100%;
@@ -1187,15 +1242,15 @@
             width: auto;
             max-width: none;
             box-sizing: border-box;
-            align-items: center;
+            align-items: stretch;
             justify-content: center;
             position: relative;
             background: var(--slate-800);
-            padding: calc(clamp(6px, calc(10px - (var(--bars-count) * 0.45px)), 8px) * var(--bar-scale));
+            padding: calc(clamp(6px, calc(10px - (min(var(--bars-count), 3) * 0.45px)), 8px) * var(--bar-scale));
             border-radius: calc(0.5rem * var(--bar-scale));
-            height: var(--total-cell-height);
-            min-height: var(--total-cell-height);
-            max-height: var(--total-cell-height);
+            height: auto;
+            min-height: 0;
+            align-self: stretch;
             transition: 0.1s;
             border: 2px solid transparent;
             cursor: pointer;
@@ -1203,6 +1258,7 @@
             -webkit-tap-highlight-color: transparent;
             tap-highlight-color: transparent;
         }
+        /* Тап с клавиатуры/мыши: без синего кольца; клавиатура — :focus-visible ниже */
         .cell:focus:not(:focus-visible) {
             outline: none;
         }
@@ -1212,9 +1268,9 @@
         .cell.cell-profile-default,
         .cell.cell-profile-x2,
         .cell.cell-profile-x3 {
-            height: var(--total-cell-height);
-            min-height: var(--total-cell-height);
-            max-height: var(--total-cell-height);
+            height: auto;
+            min-height: 0;
+            align-self: stretch;
         }
         .cell.cell-tempo-hold-active {
             border-color: rgba(248, 113, 113, 0.85) !important;
@@ -1226,27 +1282,44 @@
             outline-offset: 2px;
         }
         .cell small {
-            font-size: calc(clamp(0.55rem, calc(0.74rem - (var(--bars-count) * 0.015rem)), 0.65rem) * var(--bar-scale));
+            position: relative;
+            z-index: 2;
+            font-size: calc(clamp(0.55rem, calc(0.74rem - (min(var(--bars-count), 3) * 0.015rem)), 0.65rem) * var(--bar-scale));
             margin-bottom: 0;
             font-weight: 600;
             color: var(--text-muted);
+            align-self: center;
+            min-width: 0;
+            max-width: 100%;
+            width: 100%;
+            box-sizing: border-box;
+            text-align: center;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
         .cell small.subdiv-label {
             position: absolute;
+            z-index: 2;
             left: 50%;
             top: 50%;
             transform: translate(-50%, -50%);
             width: 92%;
-            font-size: calc(clamp(0.48rem, calc(0.66rem - (var(--bars-count) * 0.015rem)), 0.58rem) * var(--bar-scale));
+            max-width: 100%;
+            min-width: 0;
+            font-size: calc(clamp(0.48rem, calc(0.66rem - (min(var(--bars-count), 3) * 0.015rem)), 0.58rem) * var(--bar-scale));
             letter-spacing: 0.02em;
             line-height: 1.05;
             white-space: pre-line;
             text-align: center;
             margin: 0;
             pointer-events: none;
+            overflow: hidden;
+            text-overflow: clip;
+            box-sizing: border-box;
         }
         .cell small.subdiv-label.dense {
-            font-size: calc(clamp(0.42rem, calc(0.58rem - (var(--bars-count) * 0.015rem)), 0.5rem) * var(--bar-scale));
+            font-size: calc(clamp(0.42rem, calc(0.58rem - (min(var(--bars-count), 3) * 0.015rem)), 0.5rem) * var(--bar-scale));
         }
         .cell.rhythm-note-on {
             border-color: var(--violet-500);
@@ -1287,6 +1360,7 @@
         }
         .cell-speed-badge {
             position: absolute;
+            z-index: 1;
             right: calc(4px * var(--bar-scale));
             bottom: calc(3px * var(--bar-scale));
             font-size: calc(0.52rem * var(--bar-scale));
@@ -1714,12 +1788,10 @@
             label.rand-cycle { font-size: 0.8rem; gap: 10px; }
             .bars-container {
                 grid-template-columns: 1fr !important;
-                gap: var(--bars-gap);
+                gap: calc(var(--bars-gap) * var(--bar-scale));
                 margin: 16px 0 6px;
                 overflow-x: hidden;
-                overflow-y: auto;
-                scroll-behavior: smooth;
-                scroll-snap-type: y proximity;
+                overflow-y: visible;
                 padding: 0;
                 margin-inline: 0;
                 width: 100%;
@@ -1728,21 +1800,28 @@
             .bar {
                 display: flex;
                 flex-direction: column;
-                justify-content: center;
+                justify-content: stretch;
                 align-items: stretch;
                 width: 100%;
                 min-width: 0;
                 max-width: none;
                 justify-self: stretch;
+                --bar-pad-x: calc(10px * var(--bar-scale));
+                --bar-pad-y-top: calc(12px * var(--bar-scale));
+                --bar-pad-y-bottom: calc(14px * var(--bar-scale));
                 --control-stack-gap: calc(5px * var(--bar-scale));
-                padding: calc(12px * var(--bar-scale)) calc(10px * var(--bar-scale)) calc(14px * var(--bar-scale));
+                padding: var(--bar-pad-y-top) var(--bar-pad-x) var(--bar-pad-y-bottom);
                 border-radius: 14px;
                 box-sizing: border-box;
+                height: calc(var(--bar-height) * var(--bar-scale));
                 min-height: calc(var(--bar-height) * var(--bar-scale));
+                max-height: calc(var(--bar-height) * var(--bar-scale));
+                overflow: visible;
             }
             .bar-body {
                 --bar-cell-gap: calc(6px * var(--bar-scale));
-                flex: 0 0 auto;
+                flex: 1 1 auto;
+                min-height: 0;
                 align-items: stretch;
                 width: 100%;
                 min-width: 0;
@@ -1762,6 +1841,7 @@
                 align-items: stretch;
                 width: 100%;
                 min-width: 0;
+                min-height: 0;
                 box-sizing: border-box;
             }
             .cell {
@@ -1770,13 +1850,13 @@
                 width: auto;
                 max-width: none;
                 flex-direction: column;
-                align-items: center;
+                align-items: stretch;
                 justify-content: center;
                 gap: 0;
                 padding: calc(12px * var(--bar-scale)) calc(4px * var(--bar-scale)) calc(12px * var(--bar-scale));
-                height: var(--total-cell-height);
-                min-height: var(--total-cell-height);
-                max-height: var(--total-cell-height);
+                height: auto;
+                min-height: 0;
+                align-self: stretch;
                 border-radius: 12px;
                 border-width: 2px;
                 box-sizing: border-box;
@@ -1784,9 +1864,9 @@
             .cell.cell-profile-default,
             .cell.cell-profile-x2,
             .cell.cell-profile-x3 {
-                height: var(--total-cell-height);
-                min-height: var(--total-cell-height);
-                max-height: var(--total-cell-height);
+                height: auto;
+                min-height: 0;
+                align-self: stretch;
             }
             .cell small {
                 font-size: calc(0.78rem * var(--bar-scale));
@@ -1794,7 +1874,11 @@
                 text-align: center;
                 line-height: 1.1;
                 font-weight: 700;
+                align-self: center;
+                min-width: 0;
+                max-width: 100%;
                 width: 100%;
+                box-sizing: border-box;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
@@ -1992,7 +2076,11 @@
     </div>
 
     <div id="barsStackGrow" class="bars-stack-grow">
-    <div id="barsContainer" class="bars-container"></div>
+        <div id="barsScrollViewport" class="bars-scroll-viewport">
+            <div id="barsScrollTrack" class="bars-scroll-track">
+                <div id="barsContainer" class="bars-container"></div>
+            </div>
+        </div>
     </div>
 
     <div class="action-row">
@@ -2058,6 +2146,10 @@
     let cellTempoHoldKey = '';
     let cellTempoHoldPointerId = null;
     let suppressCellClickKey = '';
+    /** Vertical offset (px) for programmatic scroll inside #barsScrollViewport (transform on #barsScrollTrack). */
+    let barsScrollY = 0;
+    let barsPanPointerId = null;
+    let barsPanLastY = 0;
     let tempoDoubleMode = false;
     /** Last accepted BPM (revert track click without drag). */
     let bpmSliderLastStable = 100;
@@ -2089,8 +2181,8 @@
     const BASE_PULSATION_FOR_BPM = 4;
     /** Highest supported beat count per bar (must match syllables keys). */
     const MAX_PULSATION = 9;
+    /** Максимум тактов в сетке (селект Setup + сессия). */
     const MAX_BARS_COUNT = 100;
-    let lastBarsCountForAutoScroll = null;
     const BAR_SCALER_AUTO_CLOSE_MS = 12000;
     /** Единое окно long-press (мс): polymeter и смена x1↔x2↔x4 по такту/ячейке. Вибро в cycle* — сразу после записи next, до renderBars. */
     const LONG_PRESS_UI_MS = 520;
@@ -2352,32 +2444,6 @@
         }
     }
 
-    function scrollBarsContainerToRevealBar(barIndex, options = {}) {
-        const behavior = options.behavior ?? 'auto';
-        const scroller = document.getElementById('barsContainer');
-        const bar = document.getElementById(`bar-${barIndex}`);
-        if (!scroller || !bar) return;
-        if (scroller.scrollHeight <= scroller.clientHeight + 1) return;
-        const pad = 8;
-        const s = scroller.getBoundingClientRect();
-        const b = bar.getBoundingClientRect();
-        let delta = 0;
-        if (b.top < s.top + pad) delta = b.top - s.top - pad;
-        else if (b.bottom > s.bottom - pad) delta = b.bottom - s.bottom + pad;
-        else return;
-        const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-        const nextTop = Math.min(maxTop, Math.max(0, scroller.scrollTop + delta));
-        scroller.scrollTo({ top: nextTop, behavior });
-    }
-
-    function scrollBarsContainerToMaxBottom(options = {}) {
-        const behavior = options.behavior ?? 'smooth';
-        const scroller = document.getElementById('barsContainer');
-        if (!scroller) return;
-        if (scroller.scrollHeight <= scroller.clientHeight + 1) return;
-        scroller.scrollTo({ top: scroller.scrollHeight - scroller.clientHeight, behavior });
-    }
-
     function setPlayingCellByBarLocal(barIndex, localIndex) {
         const container = document.getElementById('barsContainer');
         if (!container) return false;
@@ -2390,7 +2456,7 @@
         container.querySelectorAll('.cell.playing').forEach(c => c.classList.remove('playing'));
         el.classList.add('playing');
         emitInternalPlaybackStep(barIndex, localIndex);
-        scrollBarsContainerToRevealBar(barIndex, { behavior: 'auto' });
+        ensurePlayingCellVisibleInBarsViewport(el);
         return true;
     }
 
@@ -3268,6 +3334,7 @@
                 e.stopPropagation();
                 nudgeBpmBy(sign);
                 const el = e.currentTarget;
+                /* Снять фокус после клика мышью/тачем (detail > 0), не забирать фокус с клавиатуры (часто detail === 0). */
                 if (el && typeof el.blur === 'function' && e.detail > 0) {
                     requestAnimationFrame(() => {
                         el.blur();
@@ -3683,6 +3750,7 @@
         return map;
     }
 
+    /** 1…MAX_BARS_COUNT в #barsCount (до bind pixel-dropdown). */
     function ensureBarsCountSelectOptions() {
         const sel = document.getElementById('barsCount');
         if (!sel || sel.dataset.rangeBuilt === '1') return;
@@ -3709,6 +3777,7 @@
                 }
             }
         } else if (state && state.barScale !== undefined) {
+            // Backward compatibility with old single-scale format
             for (let i = 1; i <= MAX_BARS_COUNT; i++) map[i] = normalizeBarScaleValue(state.barScale);
         }
         const currentBars = parseInt(document.getElementById('barsCount').value, 10);
@@ -3852,6 +3921,15 @@
         const scalePercent = parseInt(scaleInput.value, 10);
         if (isNaN(scalePercent)) return;
         container.style.setProperty('--bar-scale', String(Math.max(55, Math.min(100, scalePercent)) / 100));
+        requestAnimationFrame(() => {
+            const c = document.getElementById('barsContainer');
+            const bc = parseInt(document.getElementById('barsCount')?.value, 10);
+            if (c && Number.isFinite(bc)) {
+                enforceBarsFit(c, bc);
+            } else {
+                refreshBarsVirtualScrollMetrics();
+            }
+        });
     }
 
     function updateBarScaleLabel() {
@@ -4124,7 +4202,6 @@
                 resetInternalPlaybackIndicators();
             }
             rebuildRandomNotesSelect();
-            applyAdaptiveBarHeights(container, bCount);
             enforceBarsFit(container, bCount);
         } finally {
             requestAnimationFrame(() => {
@@ -4133,12 +4210,7 @@
                     const bc = parseInt(document.getElementById('barsCount').value, 10);
                     if (container && Number.isFinite(bc)) {
                         /* After flex lays out #barsStackGrow, repeat sizing so first paint matches post-preset refit. */
-                        applyAdaptiveBarHeights(container, bc);
                         enforceBarsFit(container, bc);
-                        if (lastBarsCountForAutoScroll !== null && bc > lastBarsCountForAutoScroll) {
-                            scrollBarsContainerToMaxBottom({ behavior: 'smooth' });
-                        }
-                        lastBarsCountForAutoScroll = bc;
                     }
                 });
             });
@@ -4679,6 +4751,7 @@
         saveSessionState();
     }
 
+    /** pointerup/cancel приходят на #barsContainer: захват на контейнере, span ручки может исчезнуть при renderBars. */
     function onBarsContainerBarTempoPointerEnd(ev) {
         if (barTempoHoldTarget < 0 || barTempoHoldPointerId === null) return;
         if (ev.pointerId !== barTempoHoldPointerId) return;
@@ -5047,17 +5120,18 @@
             9: 0.82,
             10: 0.80
         };
+        /* Компактные зазоры между рамками тактов (px); не масштабировать от высоты такта — иначе зазор раздувается. */
         const gapByCount = {
-            1: 18,
-            2: 17,
-            3: 16,
-            4: 15,
-            5: 14,
-            6: 13,
-            7: 12,
-            8: 11,
-            9: 10,
-            10: 10
+            1: 12,
+            2: 11,
+            3: 10,
+            4: 10,
+            5: 9,
+            6: 9,
+            7: 8,
+            8: 8,
+            9: 8,
+            10: 8
         };
         const { rows } = getBarsLayoutMeta(bCount);
 
@@ -5081,9 +5155,112 @@
         container.style.setProperty('--cell-height', `${cellHeight}px`);
     }
 
+    function getBarsVirtualScrollMax() {
+        const viewport = document.getElementById('barsScrollViewport');
+        const track = document.getElementById('barsScrollTrack');
+        if (!viewport || !track) return 0;
+        const raw = track.scrollHeight - viewport.clientHeight;
+        return raw > 0 ? Math.round(raw) : 0;
+    }
+
+    function applyBarsScrollTransform() {
+        const track = document.getElementById('barsScrollTrack');
+        if (!track) return;
+        track.style.transform = `translate3d(0, ${-barsScrollY}px, 0)`;
+    }
+
+    function refreshBarsVirtualScrollMetrics() {
+        const maxScroll = getBarsVirtualScrollMax();
+        barsScrollY = Math.max(0, Math.min(maxScroll, barsScrollY));
+        applyBarsScrollTransform();
+    }
+
+    function ensurePlayingCellVisibleInBarsViewport(cell) {
+        if (!cell) return;
+        const viewport = document.getElementById('barsScrollViewport');
+        const track = document.getElementById('barsScrollTrack');
+        if (!viewport || !track) return;
+        refreshBarsVirtualScrollMetrics();
+        const maxScroll = getBarsVirtualScrollMax();
+        if (maxScroll <= 0) return;
+        const margin = 10;
+        const vr = viewport.getBoundingClientRect();
+        const cr = cell.getBoundingClientRect();
+        let delta = 0;
+        if (cr.top < vr.top + margin) {
+            delta -= (vr.top + margin - cr.top);
+        }
+        if (cr.bottom > vr.bottom - margin) {
+            delta += (cr.bottom - (vr.bottom - margin));
+        }
+        if (delta === 0) return;
+        barsScrollY = Math.max(0, Math.min(maxScroll, barsScrollY + delta));
+        applyBarsScrollTransform();
+    }
+
+    function onBarsViewportWheel(ev) {
+        const maxScroll = getBarsVirtualScrollMax();
+        if (maxScroll <= 0) return;
+        const dy = ev.deltaY;
+        const atTop = barsScrollY <= 0;
+        const atBottom = barsScrollY >= maxScroll;
+        if (dy < 0 && atTop) return;
+        if (dy > 0 && atBottom) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        barsScrollY = Math.max(0, Math.min(maxScroll, barsScrollY + dy));
+        applyBarsScrollTransform();
+    }
+
+    function onBarsViewportPointerDown(ev) {
+        const vp = document.getElementById('barsScrollViewport');
+        if (!vp || ev.currentTarget !== vp) return;
+        if (getBarsVirtualScrollMax() <= 0) return;
+        if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+        if (ev.target.closest('.cell, button, input, select, textarea, [role="slider"], .pulsation-handle, .bar-tempo-handle')) return;
+        barsPanPointerId = ev.pointerId;
+        barsPanLastY = ev.clientY;
+        try {
+            vp.setPointerCapture(ev.pointerId);
+        } catch (_) {}
+    }
+
+    function onBarsViewportPointerMove(ev) {
+        if (barsPanPointerId === null || ev.pointerId !== barsPanPointerId) return;
+        const dy = barsPanLastY - ev.clientY;
+        barsPanLastY = ev.clientY;
+        const maxScroll = getBarsVirtualScrollMax();
+        if (maxScroll <= 0) return;
+        barsScrollY = Math.max(0, Math.min(maxScroll, barsScrollY + dy));
+        applyBarsScrollTransform();
+    }
+
+    function onBarsViewportPointerUp(ev) {
+        if (barsPanPointerId === null || ev.pointerId !== barsPanPointerId) return;
+        barsPanPointerId = null;
+        const vp = document.getElementById('barsScrollViewport');
+        if (vp && vp.releasePointerCapture) {
+            try {
+                vp.releasePointerCapture(ev.pointerId);
+            } catch (_) {}
+        }
+    }
+
+    function initBarsVirtualScrollUi() {
+        const vp = document.getElementById('barsScrollViewport');
+        if (!vp || vp.dataset.barsVirtualScrollWired === '1') return;
+        vp.dataset.barsVirtualScrollWired = '1';
+        vp.addEventListener('wheel', onBarsViewportWheel, { passive: false });
+        vp.addEventListener('pointerdown', onBarsViewportPointerDown);
+        vp.addEventListener('pointermove', onBarsViewportPointerMove);
+        vp.addEventListener('pointerup', onBarsViewportPointerUp);
+        vp.addEventListener('pointercancel', onBarsViewportPointerUp);
+    }
+
     function enforceBarsFit(container, bCount) {
+        /* Всегда сначала целевые размеры для текущего числа тактов (иначе после random/старого refit остаются «ужатые» px). */
+        applyAdaptiveBarHeights(container, bCount);
         const allowedHeight = getAllowedBarsHeight(container);
-        const beforeScrollHeight = container.scrollHeight;
         let barHeight = parseInt(container.style.getPropertyValue('--bar-height'), 10);
         let cellHeight = parseInt(container.style.getPropertyValue('--cell-height'), 10);
         let gap = parseInt(container.style.getPropertyValue('--bars-gap'), 10);
@@ -5092,6 +5269,7 @@
 
         let safety = 0;
         while (container.scrollHeight > allowedHeight && safety < 18) {
+            if (barHeight <= 52 && cellHeight <= 34 && gap <= 8) break;
             barHeight = Math.max(52, barHeight - 3);
             cellHeight = Math.max(34, cellHeight - 2);
             gap = Math.max(8, gap - 1);
@@ -5101,17 +5279,7 @@
             safety += 1;
         }
 
-        // Keep high bar-count layouts from exceeding 5-bar target total height.
-        if (bCount >= 8) {
-            const expectedFor5 = Math.floor(getAllowedBarsHeight(container) * 0.90);
-            if (container.scrollHeight > expectedFor5) {
-                const scale = expectedFor5 / Math.max(1, container.scrollHeight);
-                const scaledBar = Math.max(52, Math.floor(barHeight * scale));
-                const scaledCell = Math.max(34, Math.floor(cellHeight * scale));
-                container.style.setProperty('--bar-height', `${scaledBar}px`);
-                container.style.setProperty('--cell-height', `${scaledCell}px`);
-            }
-        }
+        refreshBarsVirtualScrollMetrics();
     }
 
     function parsePatternSpec() {
@@ -5287,7 +5455,9 @@
         }
         const container = document.getElementById('barsContainer');
         renderBars(container);
-        requestAnimationFrame(() => enforceBarsFit(container, barStates.length));
+        const bc = parseInt(document.getElementById('barsCount')?.value, 10);
+        const bFit = Number.isFinite(bc) ? bc : barStates.length;
+        requestAnimationFrame(() => enforceBarsFit(container, bFit));
     }
 
     function randomize() {
@@ -5543,10 +5713,13 @@
         document.querySelectorAll('.cell.playing').forEach(c => c.classList.remove('playing'));
         document.getElementById('playBtn').style.display = 'block';
         document.getElementById('stopBtn').style.display = 'none';
+        barsScrollY = 0;
+        refreshBarsVirtualScrollMetrics();
         releaseWakeLock();
     }
 
     ensureBarsCountSelectOptions();
+    initBarsVirtualScrollUi();
     const stateForControls = resolveStateForControls();
     applySessionStateToControls(stateForControls);
     updateBarScaleLabel();
