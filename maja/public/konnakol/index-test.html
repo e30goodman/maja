@@ -225,15 +225,19 @@
         }
         .settings-fold[open] summary { border-bottom-color: var(--slate-700); }
         .settings-fold summary::-webkit-details-marker { display: none; }
-        #mainSettingsFold > summary {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
+        /* Same vertical size as #tapTempoBtn (47px); icon-only strip in top row */
+        #mainSettingsFold > summary,
         #barScalerFold > summary {
             display: flex;
             align-items: center;
             justify-content: center;
+            box-sizing: border-box;
+            height: 47px;
+            min-height: 47px;
+            max-height: 47px;
+            padding: 0 12px;
+            line-height: 0;
+            font-size: 0;
         }
         #barScalerFold > summary .scaler-icon {
             display: inline-flex;
@@ -1442,6 +1446,14 @@
             }
             .settings-fold summary {
                 font-size: 0.8rem;
+            }
+            #mainSettingsFold > summary,
+            #barScalerFold > summary {
+                height: 47px;
+                min-height: 47px;
+                max-height: 47px;
+                padding: 0 10px;
+                font-size: 0;
             }
             .tap-tempo-idle {
                 font-size: 0.72rem;
