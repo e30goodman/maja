@@ -472,7 +472,7 @@
         }
         .bpm-tactile-handle.bpm-tactile-handle--ms-mode {
             background:
-                linear-gradient(180deg, rgba(252, 165, 165, 0.44), rgba(239, 68, 68, 0.38)),
+                linear-gradient(180deg, rgba(254, 165, 165, 0.62), rgba(248, 113, 113, 0.55)),
                 linear-gradient(180deg, #3d4d64 0%, #1e293b 100%) !important;
             border-color: rgba(248, 113, 113, 0.85) !important;
             box-shadow:
@@ -483,7 +483,7 @@
         }
         .control-group.tempo-x2 .bpm-tactile-handle.bpm-tactile-handle--ms-mode {
             background:
-                linear-gradient(180deg, rgba(252, 165, 165, 0.44), rgba(239, 68, 68, 0.38)),
+                linear-gradient(180deg, rgba(254, 165, 165, 0.62), rgba(248, 113, 113, 0.55)),
                 linear-gradient(180deg, #3f3540 0%, #1a1418 100%) !important;
             border-color: rgba(248, 113, 113, 0.88) !important;
             box-shadow:
@@ -494,13 +494,13 @@
         }
         .bpm-tactile-handle.bpm-tactile-handle--ms-mode:hover {
             background:
-                linear-gradient(180deg, rgba(254, 202, 202, 0.48), rgba(248, 113, 113, 0.4)),
+                linear-gradient(180deg, rgba(254, 202, 202, 0.68), rgba(251, 113, 133, 0.6)),
                 linear-gradient(180deg, #475569 0%, #243044 100%) !important;
             border-color: rgba(252, 165, 165, 0.9) !important;
         }
         .control-group.tempo-x2 .bpm-tactile-handle.bpm-tactile-handle--ms-mode:hover {
             background:
-                linear-gradient(180deg, rgba(254, 202, 202, 0.48), rgba(248, 113, 113, 0.4)),
+                linear-gradient(180deg, rgba(254, 202, 202, 0.68), rgba(251, 113, 133, 0.6)),
                 linear-gradient(180deg, #4a3d45 0%, #221a1f 100%) !important;
         }
         @keyframes bpm-tactile-handle-nudge-left {
@@ -2712,6 +2712,7 @@
         const T_MAX = 480;
         const SPRING_ALPHA = 0.32;
         const BPM_TACTILE_MS_MODE_ARM_MS = 520;
+        const BPM_TACTILE_MS_ARM_STILL_MAX_PX = 10;
         const BPM_MS_DEAD_PX = 10;
         const BPM_MS_MAX_X = 110;
         const BPM_MS_INTERVAL_MIN = 250;
@@ -2731,6 +2732,7 @@
         let msUseAnchoredMsDrag = false;
         let msDragAnchorX = 0;
         let msDragOriginClientX = 0;
+        let msExitArmStartX = 0;
 
         function syncTactileAria() {
             syncBpmTactileHandleLabel();
@@ -2767,6 +2769,7 @@
 
         function enterBpmTactileMsMode() {
             if (!dragging || msMode) return;
+            if (Math.abs(lastPanClientX - panStartClientX) > BPM_TACTILE_MS_ARM_STILL_MAX_PX) return;
             msMode = true;
             msUseAnchoredMsDrag = false;
             lastMsStepAt = 0;
@@ -2953,9 +2956,11 @@
                 msUseAnchoredMsDrag = true;
                 msDragAnchorX = targetX;
                 msDragOriginClientX = e.clientX;
+                msExitArmStartX = e.clientX;
                 msExitArmTimer = setTimeout(() => {
                     msExitArmTimer = null;
                     if (!msMode || !dragging) return;
+                    if (Math.abs(lastPanClientX - msExitArmStartX) > BPM_TACTILE_MS_ARM_STILL_MAX_PX) return;
                     const pid = panPointerId;
                     try {
                         if (pid !== null && pid !== undefined && handle.hasPointerCapture && handle.hasPointerCapture(pid)) {
@@ -2976,6 +2981,8 @@
                 panStartClientX = e.clientX;
                 msModeArmTimer = setTimeout(() => {
                     msModeArmTimer = null;
+                    if (!dragging || msMode) return;
+                    if (Math.abs(lastPanClientX - panStartClientX) > BPM_TACTILE_MS_ARM_STILL_MAX_PX) return;
                     enterBpmTactileMsMode();
                 }, BPM_TACTILE_MS_MODE_ARM_MS);
             }
@@ -2989,6 +2996,12 @@
         function onPointerMove(e) {
             if (!dragging || e.pointerId !== panPointerId) return;
             lastPanClientX = e.clientX;
+            if (!msMode && msModeArmTimer !== null && Math.abs(e.clientX - panStartClientX) > BPM_TACTILE_MS_ARM_STILL_MAX_PX) {
+                clearMsModeArmTimer();
+            }
+            if (msMode && msExitArmTimer !== null && Math.abs(e.clientX - msExitArmStartX) > BPM_TACTILE_MS_ARM_STILL_MAX_PX) {
+                clearMsExitArmTimer();
+            }
             let raw;
             if (msMode) {
                 raw = msUseAnchoredMsDrag
