@@ -906,13 +906,15 @@
             width: 100%;
         }
         .cell {
-            display: grid;
-            place-items: center;
+            display: flex;
+            flex-direction: column;
             flex: 1 1 0;
             min-width: 0;
             width: auto;
             max-width: none;
             box-sizing: border-box;
+            align-items: center;
+            justify-content: center;
             position: relative;
             background: var(--slate-800);
             padding: calc(clamp(6px, calc(10px - (var(--bars-count) * 0.45px)), 8px) * var(--bar-scale));
@@ -942,11 +944,14 @@
         }
         .cell small {
             font-size: calc(clamp(0.55rem, calc(0.74rem - (var(--bars-count) * 0.015rem)), 0.65rem) * var(--bar-scale));
-            margin: 0;
-            line-height: 1.2;
-            text-align: center;
+            margin-bottom: 0;
             font-weight: 600;
             color: var(--text-muted);
+        }
+        /* Визуально к нижней рамке: чуть вверх (subdiv по-прежнему absolute по центру). */
+        .cell small:not(.subdiv-label) {
+            position: relative;
+            top: -0.22em;
         }
         .cell small.subdiv-label {
             position: absolute;
@@ -1434,14 +1439,16 @@
                 width: 100%;
             }
             .cell {
-                display: grid;
-                place-items: center;
                 flex: 1 1 0;
                 min-width: 0;
                 width: auto;
                 max-width: none;
-                padding-block: calc(13px * var(--bar-scale));
-                padding-inline: calc(4px * var(--bar-scale));
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 0;
+                /* Больше воздуха сверху, меньше снизу — смещение вверх от нижней рамки (было 12 / 14). */
+                padding: calc(15px * var(--bar-scale)) calc(4px * var(--bar-scale)) calc(10px * var(--bar-scale));
                 height: var(--total-cell-height);
                 min-height: var(--total-cell-height);
                 max-height: var(--total-cell-height);
@@ -1458,14 +1465,17 @@
             }
             .cell small {
                 font-size: calc(0.78rem * var(--bar-scale));
-                margin: 0;
+                margin-bottom: 0;
                 text-align: center;
-                line-height: 1.2;
+                line-height: 1.1;
                 font-weight: 700;
                 width: 100%;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
+            }
+            .cell small:not(.subdiv-label) {
+                top: -0.08em;
             }
             /* Пульсации 7–9: узкие ячейки — без многоточия; меньший кегль (9 плотнее). */
             .rhythm-grid[data-pulsation="7"] .cell small {
