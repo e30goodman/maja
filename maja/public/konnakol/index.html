@@ -896,14 +896,24 @@
         }
         .bar-tempo-handle.hold-active {
             transform: scale(1.08);
-            text-shadow: 0 0 10px rgba(148, 163, 184, 0.28);
-            background: rgba(51, 65, 85, 0.5);
+            color: #fecaca;
+            border-color: rgba(248, 113, 113, 0.92);
+            background: rgba(153, 27, 27, 0.45);
+            text-shadow: 0 0 12px rgba(254, 202, 202, 0.4);
+            box-shadow: 0 0 14px rgba(239, 68, 68, 0.32);
         }
         .bar-tempo-handle.x3 {
             color: var(--text);
             border-color: rgba(226, 232, 240, 0.9);
             background: rgba(51, 65, 85, 0.62);
             box-shadow: 0 0 12px rgba(148, 163, 184, 0.26);
+        }
+        .bar-tempo-handle.x3.hold-active {
+            color: #fecaca;
+            border-color: rgba(248, 113, 113, 0.92);
+            background: rgba(153, 27, 27, 0.45);
+            text-shadow: 0 0 12px rgba(254, 202, 202, 0.4);
+            box-shadow: 0 0 14px rgba(239, 68, 68, 0.32);
         }
         .pulsation-handle {
             display: inline-flex;
@@ -1034,6 +1044,11 @@
             height: var(--total-cell-height);
             min-height: var(--total-cell-height);
             max-height: var(--total-cell-height);
+        }
+        .cell.cell-tempo-hold-active {
+            border-color: rgba(248, 113, 113, 0.85) !important;
+            background: rgba(127, 29, 29, 0.32);
+            box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.35) inset, 0 0 14px rgba(239, 68, 68, 0.22);
         }
         .cell:focus-visible {
             outline: 2px solid var(--violet-400);
@@ -1891,7 +1906,8 @@
     /** Highest supported beat count per bar (must match syllables keys). */
     const MAX_PULSATION = 9;
     const BAR_SCALER_AUTO_CLOSE_MS = 12000;
-    const TEMPO_HOLD_MS = 420;
+    /** Long-press on bar/cell tempo before x1↔x2↔x4 cycle (was 420; doubled for clearer intent). */
+    const TEMPO_HOLD_MS = 840;
     const POLYMETER_HOLD_MS = 520;
     const TAP_TEMPO_RESET_MS = 2000;
     const TAP_TEMPO_MAX_TAPS = 8;
@@ -4288,6 +4304,8 @@
             cellTempoHoldTimer = null;
         }
         cellTempoHoldKey = key;
+        const cellEl = event.currentTarget;
+        if (cellEl && cellEl.classList) cellEl.classList.add('cell-tempo-hold-active');
         cellTempoHoldTimer = setTimeout(() => {
             cellTempoHoldTimer = null;
             if (cellTempoHoldKey !== key) return;
@@ -4297,6 +4315,8 @@
     }
 
     function endCellTempoHold(event, barIndex, localIndex) {
+        const cellEl = event && event.currentTarget;
+        if (cellEl && cellEl.classList) cellEl.classList.remove('cell-tempo-hold-active');
         if (event && event.currentTarget && event.currentTarget.releasePointerCapture && event.pointerId !== undefined) {
             try {
                 if (event.currentTarget.hasPointerCapture && event.currentTarget.hasPointerCapture(event.pointerId)) {
