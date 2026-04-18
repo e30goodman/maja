@@ -1886,15 +1886,15 @@
 
 <div id="pulsationDragPanel" class="pulsation-drag-panel" hidden aria-hidden="true">
     <ul class="pulsation-drag-panel-list" id="pulsationDragPanelList"></ul>
-</div>
+    </div>
 
 <div class="app-container">
     <div id="topFoldRow" class="top-fold-row">
     <details id="mainSettingsFold" class="settings-fold">
         <summary title="Settings"><span class="settings-icon" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg></span></summary>
         <div class="settings-fold-content">
-            <div class="settings-grid">
-                <div>
+    <div class="settings-grid">
+        <div>
                     <div class="pixel-dropdown-wrap">
                         <button type="button" class="pixel-dropdown-toggle" id="pulsationDdBtn" aria-haspopup="listbox" aria-expanded="false" aria-label="Pulsation"></button>
                         <div class="pixel-dropdown-menu" id="pulsationDdMenu" role="listbox" hidden aria-hidden="true"></div>
@@ -1903,33 +1903,33 @@
                         <option value="2">2 (Ta-Ka)</option>
                         <option value="3">3 (Ta-Ki-Ta)</option>
                         <option value="4" selected>4 (Ta-Ka-Dhi-Mi)</option>
-                        <option value="5">5 (Ta-Ka-Ta-Ki-Ta)</option>
-                        <option value="6">6 (Ta-Ka-Dhi-Mi-Ta-Ka)</option>
-                        <option value="7">7 (Ta-Ka-Dhi-Mi-Ta-Ki-Ta)</option>
+                <option value="5">5 (Ta-Ka-Ta-Ki-Ta)</option>
+                <option value="6">6 (Ta-Ka-Dhi-Mi-Ta-Ka)</option>
+                <option value="7">7 (Ta-Ka-Dhi-Mi-Ta-Ki-Ta)</option>
                         <option value="8">8 (Ta-Ka-Dhi-Mi-Ta-Ka-Dju-Na)</option>
                         <option value="9">9 (Ta-Ka-Dhi-Mi-Ta-Ka-Ta-Ki-Ta)</option>
-                    </select>
+            </select>
                     </div>
-                </div>
-                <div>
+        </div>
+        <div>
                     <div class="pixel-dropdown-wrap">
                         <button type="button" class="pixel-dropdown-toggle" id="barsCountDdBtn" aria-haspopup="listbox" aria-expanded="false" aria-label="Bars"></button>
                         <div class="pixel-dropdown-menu" id="barsCountDdMenu" role="listbox" hidden aria-hidden="true"></div>
                     <select id="barsCount" class="pixel-dropdown-native" onchange="initApp()"></select>
                     </div>
-                </div>
-                <div class="randomizer-block">
-                    <div>
+        </div>
+        <div class="randomizer-block">
+            <div>
                         <div class="pixel-dropdown-wrap">
                             <button type="button" class="pixel-dropdown-toggle" id="randNotesDdBtn" aria-haspopup="listbox" aria-expanded="false" aria-label="Max notes"></button>
                             <div class="pixel-dropdown-menu" id="randNotesDdMenu" role="listbox" hidden aria-hidden="true"></div>
                         <select id="randNotesPerBar" class="pixel-dropdown-native" onchange="onRandomizationFlagsChanged()"></select>
                         </div>
-                    </div>
-                    <label class="rand-cycle">
+            </div>
+            <label class="rand-cycle">
                         <input type="checkbox" id="randomPatternAfterEachBar" onchange="onRandomizationFlagsChanged()" checked>
                         Random Pattern
-                    </label>
+            </label>
                     <label class="rand-cycle">
                         <input type="checkbox" id="randomPatternSpeedChange" onchange="onRandomizationFlagsChanged()">
                         Random Speed
@@ -1948,7 +1948,7 @@
                             <option value="konnakol_metronome">Old school</option>
                             <option value="custom">Custom</option>
                         </select>
-                        </div>
+        </div>
                         <div id="customSoundControls" hidden>
                             <button type="button" class="btn btn-accent" style="margin:0;padding:8px 10px;font-size:0.82rem;" onclick="openDictaphoneWizard()">Custom</button>
                             <div id="customSoundPanel" class="custom-sound-panel" hidden>
@@ -1956,8 +1956,8 @@
                                 <input id="customClickFile" type="file" accept="audio/*" onchange="onCustomSoundFileSelected(event, 'click')">
                                 <label for="customAccentFile">Accent sound</label>
                                 <input id="customAccentFile" type="file" accept="audio/*" onchange="onCustomSoundFileSelected(event, 'accent')">
-                            </div>
-                        </div>
+    </div>
+    </div>
                     </div>
                 </div>
             </div>
@@ -1986,7 +1986,7 @@
             <div class="control-group scale-control">
                 <label>
                     Bar scaler
-                </label>
+    </label>
                 <input type="range" id="barScale" min="55" max="100" value="100" oninput="updateBarScaleLabel()">
                 <small id="barScaleValue" class="hint-muted">100%</small>
             </div>
@@ -2245,7 +2245,7 @@
         if (!isAppReady || suppressSessionWritesDepth > 0) return;
         sessionEditGroupViolet = true;
     }
-
+    
     const syllables = {
         1: ["Ta"],
         2: ["Ta", "Ka"],
@@ -4362,7 +4362,7 @@
             }
         }
         if (Array.isArray(state.cellTempoMultipliers) && state.cellTempoMultipliers.length === bCount) {
-            for (let b = 0; b < bCount; b++) {
+        for (let b = 0; b < bCount; b++) {
                 const arr = state.cellTempoMultipliers[b];
                 if (!Array.isArray(arr)) continue;
                 for (let i = 0; i < barStates[b].pulsation; i++) {
@@ -4601,11 +4601,11 @@
             controlsStack.className = 'bar-controls-stack';
             controlsStack.innerHTML = `<span class="bar-tempo-handle${tempoMultiplier === 4 ? ' x3' : ''}" id="bar-tempo-handle-${b}" onpointerdown="startBarTempoHold(event, ${b})">x${barTempoLabel}</span><span class="pulsation-handle${barStates[b].polymeter ? ' polymeter' : ''}" id="pulsation-handle-${b}" onpointerdown="startPulsationMenuHold(event, ${b})" onpointerup="endPulsationMenuHold(event, ${b})" onpointercancel="endPulsationMenuHold(event, ${b})" onclick="togglePulsationMenu(event, ${b})">${barStates[b].pulsation}</span>`;
             barBody.appendChild(controlsStack);
-
+            
             const grid = document.createElement('div');
             grid.className = 'rhythm-grid';
             grid.dataset.pulsation = String(barStates[b].pulsation);
-
+            
             const presentations = computeBarRhythmCellPresentations(b);
             presentations.forEach((pres, i) => {
                 const cell = document.createElement('div');
@@ -5343,7 +5343,7 @@
         const n = Math.min(Math.max(1, spec.n), safeP);
         const targetNotes = 1 + Math.floor(Math.random() * n); // 1..n accents
         const localIdx = Array.from({ length: safeP }, (_, i) => i);
-        shuffleInPlace(localIdx);
+            shuffleInPlace(localIdx);
         const chosen = new Set(localIdx.slice(0, targetNotes));
         for (let i = 0; i < safeP; i++) {
             barStates[barIndex].checks[i] = chosen.has(i);
@@ -5399,8 +5399,8 @@
             osc.frequency.setValueAtTime(isChecked ? 500 : 250, time);
             osc.frequency.exponentialRampToValueAtTime(isChecked ? 120 : 80, time + (isChecked ? 0.04 : 0.02));
         } else {
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(isChecked ? 920 : 800, time);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(isChecked ? 920 : 800, time);
         }
 
         const peak = selectedSoundPreset === 'konnakol_metronome'

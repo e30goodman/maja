@@ -329,6 +329,45 @@
             flex-shrink: 0;
             -webkit-tap-highlight-color: transparent;
         }
+        .test-rhythm-ui-group label {
+            font-size: 0.78rem;
+        }
+        .test-ui-save-row {
+            margin-top: 8px;
+            margin-bottom: 4px;
+        }
+        .btn-test-ui-save {
+            padding: 4px 10px;
+            font-size: 0.68rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            border-radius: 6px;
+            border: 1px solid var(--slate-600);
+            background: rgba(124, 58, 237, 0.28);
+            color: #e9d5ff;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .btn-test-ui-save:hover {
+            background: rgba(124, 58, 237, 0.42);
+        }
+        .test-ui-layout-dump {
+            display: block;
+            margin: 0;
+            margin-top: 6px;
+            max-height: 160px;
+            overflow: auto;
+            padding: 8px;
+            font-size: 0.62rem;
+            line-height: 1.35;
+            text-align: left;
+            white-space: pre-wrap;
+            word-break: break-word;
+            border-radius: 8px;
+            border: 1px solid var(--slate-600);
+            background: rgba(15, 23, 42, 0.88);
+            color: var(--text-muted);
+        }
         #mainSettingsFold > summary .settings-icon {
             display: inline-flex;
             align-items: center;
@@ -932,6 +971,8 @@
             --cell-height: 62px;
             --bars-gap: 16px;
             --bar-scale: 1;
+            /* Test UI: 1 = 100% — высота зоны силлаблов + кнопок пульсации/темпа (index-test). */
+            --tact-h: 1;
             width: 100%;
             min-width: 0;
             overflow-x: hidden;
@@ -961,7 +1002,7 @@
                 12px,
                 calc(var(--bar-height) * var(--bar-scale) - var(--bar-pad-y-top) - var(--bar-pad-y-bottom) - 2px)
             );
-            --control-stack-gap: calc(6px * var(--bar-scale));
+            --control-stack-gap: calc(6px * var(--bar-scale) * var(--tact-h, 1));
             --syllable-chip: max(
                 calc(26px * var(--bar-scale)),
                 min(
@@ -1094,7 +1135,7 @@
         .bar-controls-stack .bar-tempo-handle,
         .bar-controls-stack .pulsation-handle {
             flex: 1 1 0;
-            min-height: 0;
+            min-height: calc(22px * var(--bar-scale) * var(--tact-h, 1));
             width: 100%;
             min-width: 0;
             max-width: none;
@@ -1103,7 +1144,7 @@
             padding: 0;
             box-sizing: border-box;
             border-radius: calc(8px * var(--bar-scale));
-            font-size: calc(0.68rem * var(--bar-scale));
+            font-size: calc(0.68rem * var(--bar-scale) * var(--tact-h, 1));
         }
         .bar-tempo-handle:hover {
             background: rgba(51, 65, 85, 0.4);
@@ -1246,7 +1287,7 @@
             justify-content: center;
             position: relative;
             background: var(--slate-800);
-            padding: calc(clamp(6px, calc(10px - (min(var(--bars-count), 3) * 0.45px)), 8px) * var(--bar-scale));
+            padding: calc(clamp(6px, calc(10px - (min(var(--bars-count), 3) * 0.45px)), 8px) * var(--bar-scale) * var(--tact-h, 1));
             border-radius: calc(0.5rem * var(--bar-scale));
             height: auto;
             min-height: 0;
@@ -1284,7 +1325,7 @@
         .cell small {
             position: relative;
             z-index: 2;
-            font-size: calc(clamp(0.55rem, calc(0.74rem - (min(var(--bars-count), 3) * 0.015rem)), 0.65rem) * var(--bar-scale));
+            font-size: calc(clamp(0.55rem, calc(0.74rem - (min(var(--bars-count), 3) * 0.015rem)), 0.65rem) * var(--bar-scale) * var(--tact-h, 1));
             margin-bottom: 0;
             font-weight: 600;
             color: var(--text-muted);
@@ -1307,7 +1348,7 @@
             width: 92%;
             max-width: 100%;
             min-width: 0;
-            font-size: calc(clamp(0.48rem, calc(0.66rem - (min(var(--bars-count), 3) * 0.015rem)), 0.58rem) * var(--bar-scale));
+            font-size: calc(clamp(0.48rem, calc(0.66rem - (min(var(--bars-count), 3) * 0.015rem)), 0.58rem) * var(--bar-scale) * var(--tact-h, 1));
             letter-spacing: 0.02em;
             line-height: 1.05;
             white-space: pre-line;
@@ -1319,7 +1360,7 @@
             box-sizing: border-box;
         }
         .cell small.subdiv-label.dense {
-            font-size: calc(clamp(0.42rem, calc(0.58rem - (min(var(--bars-count), 3) * 0.015rem)), 0.5rem) * var(--bar-scale));
+            font-size: calc(clamp(0.42rem, calc(0.58rem - (min(var(--bars-count), 3) * 0.015rem)), 0.5rem) * var(--bar-scale) * var(--tact-h, 1));
         }
         .cell.rhythm-note-on {
             border-color: var(--violet-500);
@@ -1646,7 +1687,8 @@
         }
         #mainSettingsFold .settings-fold-content label,
         #barScalerFold .scale-control label,
-        #barScalerFold #barScaleValue {
+        #barScalerFold #barScaleValue,
+        #barScalerFold #testUiTactHeightValue {
             font-size: 0.82rem;
             line-height: 1.45;
             letter-spacing: 0.02em;
@@ -1728,7 +1770,8 @@
                 font-size: 0.74rem;
             }
             #barScalerFold .scale-control label,
-            #barScalerFold #barScaleValue {
+            #barScalerFold #barScaleValue,
+            #barScalerFold #testUiTactHeightValue {
                 font-size: 0.74rem;
             }
             .settings-grid select:not(.pixel-dropdown-native),
@@ -1809,7 +1852,7 @@
                 --bar-pad-x: calc(10px * var(--bar-scale));
                 --bar-pad-y-top: calc(12px * var(--bar-scale));
                 --bar-pad-y-bottom: calc(14px * var(--bar-scale));
-                --control-stack-gap: calc(5px * var(--bar-scale));
+                --control-stack-gap: calc(5px * var(--bar-scale) * var(--tact-h, 1));
                 padding: var(--bar-pad-y-top) var(--bar-pad-x) var(--bar-pad-y-bottom);
                 border-radius: 14px;
                 box-sizing: border-box;
@@ -1829,7 +1872,8 @@
             }
             .bar-controls-stack .bar-tempo-handle,
             .bar-controls-stack .pulsation-handle {
-                font-size: calc(0.64rem * var(--bar-scale));
+                font-size: calc(0.64rem * var(--bar-scale) * var(--tact-h, 1));
+                min-height: calc(20px * var(--bar-scale) * var(--tact-h, 1));
                 border-radius: calc(7px * var(--bar-scale));
             }
             .rhythm-grid {
@@ -1853,7 +1897,7 @@
                 align-items: stretch;
                 justify-content: center;
                 gap: 0;
-                padding: calc(12px * var(--bar-scale)) calc(4px * var(--bar-scale)) calc(12px * var(--bar-scale));
+                padding: calc(12px * var(--bar-scale) * var(--tact-h, 1)) calc(4px * var(--bar-scale) * var(--tact-h, 1)) calc(12px * var(--bar-scale) * var(--tact-h, 1));
                 height: auto;
                 min-height: 0;
                 align-self: stretch;
@@ -1869,7 +1913,7 @@
                 align-self: stretch;
             }
             .cell small {
-                font-size: calc(0.78rem * var(--bar-scale));
+                font-size: calc(0.78rem * var(--bar-scale) * var(--tact-h, 1));
                 margin-bottom: 0;
                 text-align: center;
                 line-height: 1.1;
@@ -2046,6 +2090,15 @@
                 </label>
                 <input type="range" id="barScale" min="55" max="100" value="100" oninput="updateBarScaleLabel()">
                 <small id="barScaleValue" class="hint-muted">100%</small>
+            </div>
+            <div class="control-group scale-control test-rhythm-ui-group">
+                <label for="testUiTactHeight">Test · высота (силлаблы · пульс · tempo)</label>
+                <input type="range" id="testUiTactHeight" min="70" max="150" value="100" oninput="updateTestUiTactHeightFromInput()">
+                <small id="testUiTactHeightValue" class="hint-muted">100%</small>
+                <div class="test-ui-save-row">
+                    <button type="button" class="btn-test-ui-save" id="testUiLayoutSaveBtn" onclick="persistTestUiLayoutSnapshot()">Save</button>
+                </div>
+                <pre id="testUiLayoutDump" class="test-ui-layout-dump" aria-label="JSON раскладки test UI"></pre>
             </div>
         </div>
     </details>
@@ -3389,7 +3442,8 @@
             checksByBar,
             currentStep,
             lastFocusedBarIndex,
-            snapshotSchema: 2
+            snapshotSchema: 2,
+            testUiTactHeightPct: getTestUiTactHeightPct()
         };
     }
 
@@ -3819,7 +3873,8 @@
             accentOnlySound: true,
             barFirstSyllableHighEnabled: false,
             tempoDoubleMode: false,
-            randNotesPerBar: '2'
+            randNotesPerBar: '2',
+            testUiTactHeightPct: 100
         };
     }
 
@@ -3899,6 +3954,22 @@
         lastKnownRandomPatternEnabled = Boolean(document.getElementById('randomPatternAfterEachBar')?.checked);
         onSoundPresetChange();
         syncBpmTactileHandleLabel();
+        const tactEl = document.getElementById('testUiTactHeight');
+        if (tactEl) {
+            let pct = 100;
+            if (state && state.testUiTactHeightPct !== undefined && state.testUiTactHeightPct !== null) {
+                const pv = parseInt(state.testUiTactHeightPct, 10);
+                if (Number.isFinite(pv)) pct = Math.min(150, Math.max(70, pv));
+            } else {
+                const disk = loadTestUiLayoutFromDisk();
+                if (disk && disk.testUiTactHeightPct != null) {
+                    const dv = parseInt(disk.testUiTactHeightPct, 10);
+                    if (Number.isFinite(dv)) pct = Math.min(150, Math.max(70, dv));
+                }
+            }
+            tactEl.value = String(pct);
+        }
+        updateTestUiTactHeightFromInput();
         syncSettingsPixelDropdownsFromSelects();
     }
 
@@ -3929,7 +4000,63 @@
             } else {
                 refreshBarsVirtualScrollMetrics();
             }
+            applyTestUiTactHeightToBarsContainer();
         });
+    }
+
+    const TEST_UI_LAYOUT_STORAGE_KEY = 'konnakolTestUiLayout_v1';
+
+    function getTestUiTactHeightPct() {
+        const el = document.getElementById('testUiTactHeight');
+        const v = el ? parseInt(el.value, 10) : 100;
+        if (!Number.isFinite(v)) return 100;
+        return Math.min(150, Math.max(70, v));
+    }
+
+    function applyTestUiTactHeightToBarsContainer() {
+        const c = document.getElementById('barsContainer');
+        if (!c) return;
+        c.style.setProperty('--tact-h', String(getTestUiTactHeightPct() / 100));
+    }
+
+    function updateTestUiTactHeightFromInput() {
+        const label = document.getElementById('testUiTactHeightValue');
+        if (label) label.textContent = `${getTestUiTactHeightPct()}%`;
+        applyTestUiTactHeightToBarsContainer();
+    }
+
+    function loadTestUiLayoutFromDisk() {
+        try {
+            const raw = localStorage.getItem(TEST_UI_LAYOUT_STORAGE_KEY);
+            if (!raw) return null;
+            return JSON.parse(raw);
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function persistTestUiLayoutSnapshot() {
+        const prev = loadTestUiLayoutFromDisk();
+        const syllableWidthByBarsCount = (prev && typeof prev.syllableWidthByBarsCount === 'object' && prev.syllableWidthByBarsCount !== null)
+            ? prev.syllableWidthByBarsCount
+            : {};
+        const dump = {
+            testUiTactHeightPct: getTestUiTactHeightPct(),
+            barsCount: parseInt(document.getElementById('barsCount')?.value, 10) || 4,
+            syllableWidthByBarsCount
+        };
+        const s = JSON.stringify(dump, null, 2);
+        const pre = document.getElementById('testUiLayoutDump');
+        if (pre) pre.textContent = s;
+        console.log('[konnakol test ui layout]', dump);
+        try {
+            localStorage.setItem(TEST_UI_LAYOUT_STORAGE_KEY, s);
+        } catch (_) {}
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(s);
+            }
+        } catch (_) {}
     }
 
     function updateBarScaleLabel() {
@@ -4212,6 +4339,7 @@
                         /* After flex lays out #barsStackGrow, repeat sizing so first paint matches post-preset refit. */
                         enforceBarsFit(container, bc);
                     }
+                    applyTestUiTactHeightToBarsContainer();
                 });
             });
         }
@@ -5724,6 +5852,12 @@
     applySessionStateToControls(stateForControls);
     updateBarScaleLabel();
     initApp();
+    (function hydrateTestUiLayoutDumpFromDisk() {
+        const pre = document.getElementById('testUiLayoutDump');
+        if (!pre || pre.textContent.trim()) return;
+        const d = loadTestUiLayoutFromDisk();
+        if (d) pre.textContent = JSON.stringify(d, null, 2);
+    })();
     restoreSelectState(stateForControls);
     setupBpmSliderUi();
     updateTempoLabel();
@@ -5876,6 +6010,30 @@
         };
         barScaleSliderEl.addEventListener('pointerup', onRelease);
         barScaleSliderEl.addEventListener('pointercancel', onRelease);
+    }
+
+    const testUiTactSliderEl = document.getElementById('testUiTactHeight');
+    if (testUiTactSliderEl) {
+        testUiTactSliderEl.addEventListener('pointerdown', () => {
+            barScalerSliderHeld = true;
+            if (barScalerAutoCloseTimer !== null) {
+                clearTimeout(barScalerAutoCloseTimer);
+                barScalerAutoCloseTimer = null;
+            }
+        });
+        testUiTactSliderEl.addEventListener('input', () => {
+            if (barScalerAutoCloseTimer !== null) {
+                clearTimeout(barScalerAutoCloseTimer);
+                barScalerAutoCloseTimer = null;
+            }
+        });
+        const onTestTactRelease = () => {
+            if (!barScalerSliderHeld) return;
+            barScalerSliderHeld = false;
+            scheduleBarScalerAutoClose();
+        };
+        testUiTactSliderEl.addEventListener('pointerup', onTestTactRelease);
+        testUiTactSliderEl.addEventListener('pointercancel', onTestTactRelease);
     }
     syncTopFoldRowState();
 
