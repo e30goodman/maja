@@ -372,6 +372,7 @@
             touch-action: none;
             -webkit-user-select: none;
             user-select: none;
+            -webkit-tap-highlight-color: transparent;
         }
         .bpm-tactile-track {
             position: absolute;
@@ -384,6 +385,16 @@
             background: rgba(255, 255, 255, 0.1);
             pointer-events: auto;
             cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            outline: none;
+            box-shadow: none;
+        }
+        .bpm-tactile-track:focus,
+        .bpm-tactile-track:focus-visible,
+        .bpm-tactile-track:active {
+            outline: none;
+            box-shadow: none;
+            background: rgba(255, 255, 255, 0.1);
         }
         .bpm-tactile-handle-wrap {
             position: absolute;
@@ -1739,7 +1750,7 @@
         <div class="tempo-slider-row">
             <input type="range" id="bpm" class="bpm-native-range-hidden" min="20" max="480" value="100" tabindex="-1" aria-hidden="true">
             <div class="bpm-tactile-wrap" id="bpmTactileWrap" role="group" aria-label="Tempo">
-                <div class="bpm-tactile-track" aria-hidden="true"></div>
+                <div class="bpm-tactile-track" aria-hidden="true" tabindex="-1"></div>
                 <div class="bpm-tactile-handle-wrap" id="bpmTactileHandleWrap">
                     <div class="bpm-tactile-handle" id="bpmTactileHandle" role="slider" aria-valuemin="20" aria-valuemax="480" aria-valuenow="100" aria-label="Tempo" tabindex="0">
                         <span class="bpm-tactile-handle-bpm" id="bpmTactileHandleBpm" aria-hidden="true">100</span>
@@ -2667,6 +2678,10 @@
             }, 280);
         }
 
+        track.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
+            e.preventDefault();
+        }, { passive: false });
         track.addEventListener('click', (e) => {
             if (e.button !== 0 && e.button !== undefined) return;
             e.stopPropagation();
