@@ -931,8 +931,6 @@
             /* JS пишет --cell-height при подгонке; высота ячеек = внутренняя высота такта (см. .bar + flex). */
             --cell-height: 62px;
             --bars-gap: 16px;
-            /* Меньше при большем числе тактов (совместно с JS --bars-gap). */
-            --bars-gap-factor: clamp(0.62, calc(1.18 - var(--bars-count) * 0.05), 1);
             --bar-scale: 1;
             width: 100%;
             min-width: 0;
@@ -940,7 +938,7 @@
             overflow-y: visible;
             display: grid;
             grid-template-columns: 1fr;
-            gap: calc(var(--bars-gap) * var(--bars-gap-factor, 1) * var(--bar-scale));
+            gap: calc(var(--bars-gap) * var(--bar-scale));
             margin: 12px 0 6px;
         }
         .bars-container.many-bars { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -955,8 +953,8 @@
             /* Рамка такта: height = --bar-height * scale. Ряд сибилянтов и колонка xN/пульсации заполняют .bar-body по высоте 1:1 с внутренней областью. */
             container-type: size;
             container-name: tact;
-            --bar-pad-x: calc(clamp(10px, calc(19px - (var(--bars-count) * 1px)), 15px) * var(--bar-scale));
-            --bar-pad-y: calc(clamp(10px, calc(19px - (var(--bars-count) * 1px)), 15px) * var(--bar-scale));
+            --bar-pad-x: calc(clamp(10px, calc(19px - (min(var(--bars-count), 4) * 1px)), 15px) * var(--bar-scale));
+            --bar-pad-y: calc(clamp(10px, calc(19px - (min(var(--bars-count), 4) * 1px)), 15px) * var(--bar-scale));
             --bar-pad-y-top: var(--bar-pad-y);
             --bar-pad-y-bottom: var(--bar-pad-y);
             --bar-rhythm-block-height: max(
@@ -1039,7 +1037,7 @@
         }
         /* Test layout: tempo + pulsation stacked in one column beside the syllable row. */
         .bar-body {
-            --bar-cell-gap: calc(clamp(5px, calc(10px - (var(--bars-count) * 0.4px)), 8px) * var(--bar-scale));
+            --bar-cell-gap: calc(clamp(5px, calc(10px - (min(var(--bars-count), 3) * 0.4px)), 8px) * var(--bar-scale));
             flex: 1 1 auto;
             min-height: 0;
             display: flex;
@@ -1229,7 +1227,7 @@
             display: flex;
             flex-direction: row;
             flex-wrap: nowrap;
-            gap: var(--bar-cell-gap, calc(clamp(5px, calc(10px - (var(--bars-count) * 0.4px)), 8px) * var(--bar-scale)));
+            gap: var(--bar-cell-gap, calc(clamp(5px, calc(10px - (min(var(--bars-count), 3) * 0.4px)), 8px) * var(--bar-scale)));
             justify-content: stretch;
             align-items: stretch;
             width: 100%;
@@ -1248,7 +1246,7 @@
             justify-content: center;
             position: relative;
             background: var(--slate-800);
-            padding: calc(clamp(6px, calc(10px - (var(--bars-count) * 0.45px)), 8px) * var(--bar-scale));
+            padding: calc(clamp(6px, calc(10px - (min(var(--bars-count), 3) * 0.45px)), 8px) * var(--bar-scale));
             border-radius: calc(0.5rem * var(--bar-scale));
             height: auto;
             min-height: 0;
@@ -1286,7 +1284,7 @@
         .cell small {
             position: relative;
             z-index: 2;
-            font-size: calc(clamp(0.55rem, calc(0.74rem - (var(--bars-count) * 0.015rem)), 0.65rem) * var(--bar-scale));
+            font-size: calc(clamp(0.55rem, calc(0.74rem - (min(var(--bars-count), 3) * 0.015rem)), 0.65rem) * var(--bar-scale));
             margin-bottom: 0;
             font-weight: 600;
             color: var(--text-muted);
@@ -1309,7 +1307,7 @@
             width: 92%;
             max-width: 100%;
             min-width: 0;
-            font-size: calc(clamp(0.48rem, calc(0.66rem - (var(--bars-count) * 0.015rem)), 0.58rem) * var(--bar-scale));
+            font-size: calc(clamp(0.48rem, calc(0.66rem - (min(var(--bars-count), 3) * 0.015rem)), 0.58rem) * var(--bar-scale));
             letter-spacing: 0.02em;
             line-height: 1.05;
             white-space: pre-line;
@@ -1321,7 +1319,7 @@
             box-sizing: border-box;
         }
         .cell small.subdiv-label.dense {
-            font-size: calc(clamp(0.42rem, calc(0.58rem - (var(--bars-count) * 0.015rem)), 0.5rem) * var(--bar-scale));
+            font-size: calc(clamp(0.42rem, calc(0.58rem - (min(var(--bars-count), 3) * 0.015rem)), 0.5rem) * var(--bar-scale));
         }
         .cell.rhythm-note-on {
             border-color: var(--violet-500);
@@ -1790,7 +1788,7 @@
             label.rand-cycle { font-size: 0.8rem; gap: 10px; }
             .bars-container {
                 grid-template-columns: 1fr !important;
-                gap: calc(var(--bars-gap) * var(--bars-gap-factor, 1) * var(--bar-scale));
+                gap: calc(var(--bars-gap) * var(--bar-scale));
                 margin: 16px 0 6px;
                 overflow-x: hidden;
                 overflow-y: visible;
@@ -2458,6 +2456,7 @@
         container.querySelectorAll('.cell.playing').forEach(c => c.classList.remove('playing'));
         el.classList.add('playing');
         emitInternalPlaybackStep(barIndex, localIndex);
+        ensurePlayingCellVisibleInBarsViewport(el);
         return true;
     }
 
@@ -3922,6 +3921,15 @@
         const scalePercent = parseInt(scaleInput.value, 10);
         if (isNaN(scalePercent)) return;
         container.style.setProperty('--bar-scale', String(Math.max(55, Math.min(100, scalePercent)) / 100));
+        requestAnimationFrame(() => {
+            const c = document.getElementById('barsContainer');
+            const bc = parseInt(document.getElementById('barsCount')?.value, 10);
+            if (c && Number.isFinite(bc)) {
+                enforceBarsFit(c, bc);
+            } else {
+                refreshBarsVirtualScrollMetrics();
+            }
+        });
     }
 
     function updateBarScaleLabel() {
@@ -5112,17 +5120,18 @@
             9: 0.82,
             10: 0.80
         };
+        /* Компактные зазоры между рамками тактов (px); не масштабировать от высоты такта — иначе зазор раздувается. */
         const gapByCount = {
-            1: 18,
-            2: 17,
-            3: 16,
-            4: 15,
-            5: 14,
-            6: 13,
-            7: 12,
-            8: 11,
-            9: 10,
-            10: 10
+            1: 12,
+            2: 11,
+            3: 10,
+            4: 10,
+            5: 9,
+            6: 9,
+            7: 8,
+            8: 8,
+            9: 8,
+            10: 8
         };
         const { rows } = getBarsLayoutMeta(bCount);
 
@@ -5136,14 +5145,9 @@
         }
         totalHeight = Math.min(Math.floor(allowedHeight * 0.96), totalHeight);
         if (bCount >= 8) totalHeight = Math.min(totalHeight, totalHeightFor5);
-        const gapBase = gapByCount[bCount] || gapByCount[5];
-        let gap = gapBase;
-        let freeHeight = totalHeight - (Math.max(0, rows - 1) * gap);
-        let barHeight = Math.max(58, Math.floor(freeHeight / Math.max(1, rows)));
-        /* Межтактовый зазор пропорционален высоте такта; одна итерация уточнения под число рядов. */
-        gap = Math.max(6, Math.min(24, Math.round(gapBase * (barHeight / 70))));
-        freeHeight = totalHeight - (Math.max(0, rows - 1) * gap);
-        barHeight = Math.max(58, Math.floor(freeHeight / Math.max(1, rows)));
+        const gap = gapByCount[bCount] || gapByCount[5];
+        const freeHeight = totalHeight - (Math.max(0, rows - 1) * gap);
+        const barHeight = Math.max(58, Math.floor(freeHeight / Math.max(1, rows)));
         const cellHeight = Math.max(38, Math.floor(barHeight * 0.62));
 
         container.style.setProperty('--bars-gap', `${gap}px`);
@@ -5151,11 +5155,112 @@
         container.style.setProperty('--cell-height', `${cellHeight}px`);
     }
 
+    function getBarsVirtualScrollMax() {
+        const viewport = document.getElementById('barsScrollViewport');
+        const track = document.getElementById('barsScrollTrack');
+        if (!viewport || !track) return 0;
+        const raw = track.scrollHeight - viewport.clientHeight;
+        return raw > 0 ? Math.round(raw) : 0;
+    }
+
+    function applyBarsScrollTransform() {
+        const track = document.getElementById('barsScrollTrack');
+        if (!track) return;
+        track.style.transform = `translate3d(0, ${-barsScrollY}px, 0)`;
+    }
+
+    function refreshBarsVirtualScrollMetrics() {
+        const maxScroll = getBarsVirtualScrollMax();
+        barsScrollY = Math.max(0, Math.min(maxScroll, barsScrollY));
+        applyBarsScrollTransform();
+    }
+
+    function ensurePlayingCellVisibleInBarsViewport(cell) {
+        if (!cell) return;
+        const viewport = document.getElementById('barsScrollViewport');
+        const track = document.getElementById('barsScrollTrack');
+        if (!viewport || !track) return;
+        refreshBarsVirtualScrollMetrics();
+        const maxScroll = getBarsVirtualScrollMax();
+        if (maxScroll <= 0) return;
+        const margin = 10;
+        const vr = viewport.getBoundingClientRect();
+        const cr = cell.getBoundingClientRect();
+        let delta = 0;
+        if (cr.top < vr.top + margin) {
+            delta -= (vr.top + margin - cr.top);
+        }
+        if (cr.bottom > vr.bottom - margin) {
+            delta += (cr.bottom - (vr.bottom - margin));
+        }
+        if (delta === 0) return;
+        barsScrollY = Math.max(0, Math.min(maxScroll, barsScrollY + delta));
+        applyBarsScrollTransform();
+    }
+
+    function onBarsViewportWheel(ev) {
+        const maxScroll = getBarsVirtualScrollMax();
+        if (maxScroll <= 0) return;
+        const dy = ev.deltaY;
+        const atTop = barsScrollY <= 0;
+        const atBottom = barsScrollY >= maxScroll;
+        if (dy < 0 && atTop) return;
+        if (dy > 0 && atBottom) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        barsScrollY = Math.max(0, Math.min(maxScroll, barsScrollY + dy));
+        applyBarsScrollTransform();
+    }
+
+    function onBarsViewportPointerDown(ev) {
+        const vp = document.getElementById('barsScrollViewport');
+        if (!vp || ev.currentTarget !== vp) return;
+        if (getBarsVirtualScrollMax() <= 0) return;
+        if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+        if (ev.target.closest('.cell, button, input, select, textarea, [role="slider"], .pulsation-handle, .bar-tempo-handle')) return;
+        barsPanPointerId = ev.pointerId;
+        barsPanLastY = ev.clientY;
+        try {
+            vp.setPointerCapture(ev.pointerId);
+        } catch (_) {}
+    }
+
+    function onBarsViewportPointerMove(ev) {
+        if (barsPanPointerId === null || ev.pointerId !== barsPanPointerId) return;
+        const dy = barsPanLastY - ev.clientY;
+        barsPanLastY = ev.clientY;
+        const maxScroll = getBarsVirtualScrollMax();
+        if (maxScroll <= 0) return;
+        barsScrollY = Math.max(0, Math.min(maxScroll, barsScrollY + dy));
+        applyBarsScrollTransform();
+    }
+
+    function onBarsViewportPointerUp(ev) {
+        if (barsPanPointerId === null || ev.pointerId !== barsPanPointerId) return;
+        barsPanPointerId = null;
+        const vp = document.getElementById('barsScrollViewport');
+        if (vp && vp.releasePointerCapture) {
+            try {
+                vp.releasePointerCapture(ev.pointerId);
+            } catch (_) {}
+        }
+    }
+
+    function initBarsVirtualScrollUi() {
+        const vp = document.getElementById('barsScrollViewport');
+        if (!vp || vp.dataset.barsVirtualScrollWired === '1') return;
+        vp.dataset.barsVirtualScrollWired = '1';
+        vp.addEventListener('wheel', onBarsViewportWheel, { passive: false });
+        vp.addEventListener('pointerdown', onBarsViewportPointerDown);
+        vp.addEventListener('pointermove', onBarsViewportPointerMove);
+        vp.addEventListener('pointerup', onBarsViewportPointerUp);
+        vp.addEventListener('pointercancel', onBarsViewportPointerUp);
+    }
+
     function enforceBarsFit(container, bCount) {
         /* Всегда сначала целевые размеры для текущего числа тактов (иначе после random/старого refit остаются «ужатые» px). */
         applyAdaptiveBarHeights(container, bCount);
         const allowedHeight = getAllowedBarsHeight(container);
-        const beforeScrollHeight = container.scrollHeight;
         let barHeight = parseInt(container.style.getPropertyValue('--bar-height'), 10);
         let cellHeight = parseInt(container.style.getPropertyValue('--cell-height'), 10);
         let gap = parseInt(container.style.getPropertyValue('--bars-gap'), 10);
@@ -5164,6 +5269,7 @@
 
         let safety = 0;
         while (container.scrollHeight > allowedHeight && safety < 18) {
+            if (barHeight <= 52 && cellHeight <= 34 && gap <= 8) break;
             barHeight = Math.max(52, barHeight - 3);
             cellHeight = Math.max(34, cellHeight - 2);
             gap = Math.max(8, gap - 1);
@@ -5173,17 +5279,7 @@
             safety += 1;
         }
 
-        // Keep high bar-count layouts from exceeding 5-bar target total height.
-        if (bCount >= 8) {
-            const expectedFor5 = Math.floor(getAllowedBarsHeight(container) * 0.90);
-            if (container.scrollHeight > expectedFor5) {
-                const scale = expectedFor5 / Math.max(1, container.scrollHeight);
-                const scaledBar = Math.max(52, Math.floor(barHeight * scale));
-                const scaledCell = Math.max(34, Math.floor(cellHeight * scale));
-                container.style.setProperty('--bar-height', `${scaledBar}px`);
-                container.style.setProperty('--cell-height', `${scaledCell}px`);
-            }
-        }
+        refreshBarsVirtualScrollMetrics();
     }
 
     function parsePatternSpec() {
@@ -5617,10 +5713,13 @@
         document.querySelectorAll('.cell.playing').forEach(c => c.classList.remove('playing'));
         document.getElementById('playBtn').style.display = 'block';
         document.getElementById('stopBtn').style.display = 'none';
+        barsScrollY = 0;
+        refreshBarsVirtualScrollMetrics();
         releaseWakeLock();
     }
 
     ensureBarsCountSelectOptions();
+    initBarsVirtualScrollUi();
     const stateForControls = resolveStateForControls();
     applySessionStateToControls(stateForControls);
     updateBarScaleLabel();
