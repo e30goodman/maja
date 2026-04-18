@@ -1983,9 +1983,13 @@
     /** Highest supported beat count per bar (must match syllables keys). */
     const MAX_PULSATION = 9;
     const BAR_SCALER_AUTO_CLOSE_MS = 12000;
-    /** Long-press on bar/cell tempo before x1↔x2↔x4 cycle (was 420; doubled for clearer intent). После срабатывания множитель пишется в barStates — отпускать можно сразу; во время проигрывания палец держать не нужно. */
-    const TEMPO_HOLD_MS = 840;
-    const POLYMETER_HOLD_MS = 520;
+    /**
+     * Единый long-press в сетке тактов: x1↔x2↔x4 (ручка такта и ячейка) и polymeter — один тайминг (раньше темп был 840 ms).
+     * Вибрация вызывается в том же тике, что и смена состояния (см. cycleBarTempoMultiplier / cycleCellTempoMultiplier / hold polymeter).
+     */
+    const GRID_LONG_PRESS_MS = 520;
+    const TEMPO_HOLD_MS = GRID_LONG_PRESS_MS;
+    const POLYMETER_HOLD_MS = GRID_LONG_PRESS_MS;
     const TAP_TEMPO_RESET_MS = 2000;
     const TAP_TEMPO_MAX_TAPS = 8;
     const ACCENT_HOLD_MS = 420;
