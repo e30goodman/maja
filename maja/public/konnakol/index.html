@@ -2776,6 +2776,10 @@
         const n = Number.isFinite(v) ? Math.max(20, Math.min(480, v)) : 100;
         label.textContent = String(n);
         if (handle) handle.setAttribute('aria-valuenow', String(n));
+        const tw = document.getElementById('bpmTactileWrap');
+        if (tw && typeof tw._syncTactileHandleLayout === 'function') {
+            tw._syncTactileHandleLayout();
+        }
     }
 
     function refreshTapTempoBpmReadout() {
@@ -2820,7 +2824,7 @@
         if (btn) btn.classList.remove('tap-tempo-btn--showing-bpm');
     }
 
-    /** Тактильный BPM: стандарт — ручка без пружины по X (displayX = targetX); ±1/±5/быстро. Режим «мс» (Trainer) — удержание Tap ~0,6 с. */
+    /** Тактильный BPM: обычный слайдер по ширине дорожки (линейно 20–480), только translate3d(x,0,0). Режим «мс» (Trainer) — смещение от центра, удержание Tap ~0,6 с. */
     function setupBpmTactileSlider() {
         const wrap = document.getElementById('bpmTactileWrap');
         const handle = document.getElementById('bpmTactileHandle');
@@ -2847,14 +2851,13 @@
         let dragging = false;
         let panPointerId = null;
         let panStartClientX = 0;
-        let lastPulseMs = 0;
         let msMode = false;
         let lastMsStepAt = 0;
-        let lastPanClientX = 0;
-        let lastPanClientY = 0;
         let msUseAnchoredMsDrag = false;
         let msDragAnchorX = 0;
         let msDragOriginClientX = 0;
+        /** Смещение пальца от центра ручки по экрану X (стандартный режим). */
+        let dragPointerOffsetX = 0;
         /** Верхний BPM-чип (#tapTempoBtn) — только при реальном перетаскивании ручки. */
         let tactileFloatHudShown = false;
         let trainerTapHoldTimer = null;
@@ -2864,19 +2867,54 @@
             syncBpmTactileHandleLabel();
         }
 
-        function updateTactileHint() {
-            if (!hint) return;
+        function trackMetrics() {
+            const wr = wrap.getBoundingClientRect();
+            const tr = track.getBoundingClientRect();
+            const hw = (handleWrap.offsetWidth || 46) / 2;
+            const span = Math.max(0, tr.width - 2 * hw);
+            const trackStart = tr.left + hw;
+            const anchorX = wr.left + wr.width / 2;
+            return { trackStart, span, anchorX };
+        }
+
+        /** Центр ручки по X для текущего BPM (стандартный режим). */
+        function knobCenterXForBpm(bpmVal) {
+            const m = trackMetrics();
+            const n = Math.max(T_MIN, Math.min(T_MAX, bpmVal));
+            const t = (n - T_MIN) / (T_MAX - T_MIN);
+            if (m.span <= 0) return m.anchorX;
+            return m.trackStart + t * m.span;
+        }
+
+        function applyStandardModeHandlePositionFromBpm() {
             if (msMode) return;
-            const absX = Math.abs(targetX);
-            const sign = targetX > 0 ? 1 : -1;
-            let t = '';
-            if (absX > 12) {
-                if (absX <= 40) t = sign > 0 ? '+1' : '-1';
-                else if (absX <= 75) t = sign > 0 ? '+5' : '-5';
-                else t = sign > 0 ? '>>>' : '<<<';
+            const m = trackMetrics();
+            const bpm = parseInt(bpmSlider.value, 10);
+            const n = Number.isFinite(bpm) ? Math.max(T_MIN, Math.min(T_MAX, bpm)) : 100;
+            const t = (n - T_MIN) / (T_MAX - T_MIN);
+            if (m.span <= 0) {
+                handleWrap.style.transform = '';
+                return;
             }
-            hint.textContent = t;
-            refreshTapTempoBpmReadout();
+            const knobCenterX = m.trackStart + t * m.span;
+            const tx = knobCenterX - m.anchorX;
+            handleWrap.style.transform = `translate3d(${tx}px,0,0)`;
+        }
+
+        function syncStandardLayoutIfIdle() {
+            if (msMode || dragging) return;
+            applyStandardModeHandlePositionFromBpm();
+        }
+
+        wrap._syncTactileHandleLayout = syncStandardLayoutIfIdle;
+
+        if (document.documentElement.dataset.konnakolBpmTactileResize !== '1') {
+            document.documentElement.dataset.konnakolBpmTactileResize = '1';
+            window.addEventListener('resize', () => {
+                try {
+                    syncStandardLayoutIfIdle();
+                } catch (_) {}
+            });
         }
 
         function enterBpmTactileMsMode() {
@@ -2884,7 +2922,6 @@
             msMode = true;
             msUseAnchoredMsDrag = false;
             lastMsStepAt = 0;
-            lastPulseMs = 0;
             handle.classList.add('bpm-tactile-handle--ms-mode');
             targetX = 0;
             displayX = 0;
@@ -2909,15 +2946,12 @@
             }
             targetX = 0;
             displayX = 0;
-            handleWrap.style.transform = '';
             lastMsStepAt = 0;
-            lastPulseMs = 0;
             if (hint) hint.textContent = '';
-            updateTactileHint();
             hideBpmFloatHud();
             syncBpmSliderLastStable();
             syncTactileAria();
-            startTactileRaf();
+            applyStandardModeHandlePositionFromBpm();
         }
 
         function applyBpmDelta(sign, amount) {
@@ -2928,64 +2962,37 @@
             bpmSlider.dispatchEvent(new Event('input', { bubbles: true }));
         }
 
-        function playHandleNudgeAnimation(towardSign) {
-            const clsL = 'bpm-tactile-handle--nudge-left';
-            const clsR = 'bpm-tactile-handle--nudge-right';
-            handle.classList.remove(clsL, clsR);
-            void handle.offsetWidth;
-            handle.classList.add(towardSign < 0 ? clsL : clsR);
-            window.setTimeout(() => {
-                handle.classList.remove(clsL, clsR);
-            }, 280);
-        }
-
-        track.addEventListener('click', (e) => {
-            if (e.button !== 0 && e.button !== undefined) return;
-            e.stopPropagation();
-            const tr = track.getBoundingClientRect();
-            if (!tr.width) return;
-            const relX = (e.clientX - tr.left) / tr.width;
-            if (relX < 0 || relX > 1) return;
-            const sign = relX < 0.5 ? -1 : 1;
-            playHandleNudgeAnimation(sign);
-            applyBpmDelta(sign, 5);
-            syncBpmSliderLastStable();
-            syncTactileAria();
-            try {
-                if (navigator.vibrate) navigator.vibrate(10);
-            } catch (_) {}
-            startTactileRaf();
-        });
-
-        function pulseFromTactileX() {
+        track.addEventListener('pointerdown', (e) => {
             if (msMode) return;
-            const absX = Math.abs(targetX);
-            const sign = targetX > 0 ? 1 : -1;
-            if (absX <= 12) {
-                lastPulseMs = 0;
-                updateTactileHint();
-                return;
+            if (e.button !== undefined && e.button !== 0) return;
+            if (e.target === handle || (handle.contains && handle.contains(e.target))) return;
+            e.stopPropagation();
+            tactileFloatHudShown = false;
+            dragging = true;
+            panPointerId = e.pointerId;
+            msUseAnchoredMsDrag = false;
+            lastMsStepAt = 0;
+            panStartClientX = e.clientX;
+            const m = trackMetrics();
+            if (m.span > 0) {
+                const knobX = Math.min(m.trackStart + m.span, Math.max(m.trackStart, e.clientX));
+                const t = (knobX - m.trackStart) / m.span;
+                const next = Math.round(T_MIN + t * (T_MAX - T_MIN));
+                const clamped = Math.max(T_MIN, Math.min(T_MAX, next));
+                bpmSlider.value = String(clamped);
+                bpmSlider.dispatchEvent(new Event('input', { bubbles: true }));
+                applyStandardModeHandlePositionFromBpm();
             }
-            let interval = 400;
-            let amount = 1;
-            if (absX <= 40) {
-                interval = 400;
-                amount = 1;
-            } else if (absX <= 75) {
-                interval = 220;
-                amount = 5;
-            } else {
-                interval = 40;
-                amount = 2;
-            }
-            updateTactileHint();
-            const now = Date.now();
-            if (lastPulseMs === 0 || now - lastPulseMs > interval) {
-                applyBpmDelta(sign, amount);
-                lastPulseMs = now;
-                refreshTapTempoBpmReadout();
-            }
-        }
+            const curBpm = parseInt(bpmSlider.value, 10);
+            const baseBpm = Number.isFinite(curBpm) ? Math.max(T_MIN, Math.min(T_MAX, curBpm)) : 100;
+            dragPointerOffsetX = e.clientX - knobCenterXForBpm(baseBpm);
+            try {
+                handle.setPointerCapture(e.pointerId);
+            } catch (_) {}
+            try {
+                if (navigator.vibrate) navigator.vibrate(8);
+            } catch (_) {}
+        });
 
         function pulseMsMode() {
             const absX = Math.abs(targetX);
@@ -3015,38 +3022,19 @@
         }
 
         function tickTactile() {
-            if (msMode) {
-                displayX = targetX;
-                handleWrap.style.transform = `translate3d(${displayX}px,0,0)`;
-                pulseMsMode();
-                rafId = requestAnimationFrame(tickTactile);
+            if (!msMode) {
+                rafId = null;
                 return;
             }
             displayX = targetX;
             handleWrap.style.transform = `translate3d(${displayX}px,0,0)`;
-            pulseFromTactileX();
-            const moving = dragging || Math.abs(targetX) > 0.02 || Math.abs(displayX) > 0.25;
-            if (moving) {
-                rafId = requestAnimationFrame(tickTactile);
-            } else {
-                rafId = null;
-                displayX = 0;
-                targetX = 0;
-                handleWrap.style.transform = '';
-                lastPulseMs = 0;
-                updateTactileHint();
-            }
+            pulseMsMode();
+            rafId = requestAnimationFrame(tickTactile);
         }
 
         function startTactileRaf() {
-            if (rafId === null) {
-                rafId = requestAnimationFrame(tickTactile);
-            }
-        }
-
-        function applyResistantPan(rawX) {
-            const sign = rawX > 0 ? 1 : -1;
-            targetX = sign * Math.min(Math.pow(Math.abs(rawX), 0.75) * 4, BPM_MS_MAX_X);
+            if (!msMode || rafId !== null) return;
+            rafId = requestAnimationFrame(tickTactile);
         }
 
         function applyLinearMsPan(rawX) {
@@ -3056,8 +3044,6 @@
         function onPointerDown(e) {
             if (e.button !== undefined && e.button !== 0) return;
             tactileFloatHudShown = false;
-            lastPanClientX = e.clientX;
-            lastPanClientY = e.clientY;
             dragging = true;
             panPointerId = e.pointerId;
             if (msMode) {
@@ -3068,6 +3054,9 @@
                 msUseAnchoredMsDrag = false;
                 lastMsStepAt = 0;
                 panStartClientX = e.clientX;
+                const curBpm = parseInt(bpmSlider.value, 10);
+                const baseBpm = Number.isFinite(curBpm) ? Math.max(T_MIN, Math.min(T_MAX, curBpm)) : 100;
+                dragPointerOffsetX = e.clientX - knobCenterXForBpm(baseBpm);
             }
             try {
                 handle.setPointerCapture(e.pointerId);
@@ -3077,8 +3066,6 @@
 
         function onPointerMove(e) {
             if (!dragging || e.pointerId !== panPointerId) return;
-            lastPanClientX = e.clientX;
-            lastPanClientY = e.clientY;
             if (!tactileFloatHudShown) {
                 const dragPx = msMode
                     ? (msUseAnchoredMsDrag ? Math.abs(e.clientX - msDragOriginClientX) : Math.abs(e.clientX - panStartClientX))
@@ -3088,17 +3075,24 @@
                     showBpmFloatHud();
                 }
             }
-            let raw;
             if (msMode) {
-                raw = msUseAnchoredMsDrag
+                const raw = msUseAnchoredMsDrag
                     ? msDragAnchorX + (e.clientX - msDragOriginClientX)
                     : e.clientX - panStartClientX;
                 applyLinearMsPan(raw);
-            } else {
-                raw = e.clientX - panStartClientX;
-                applyResistantPan(raw);
+                startTactileRaf();
+                return;
             }
-            startTactileRaf();
+            const m = trackMetrics();
+            if (m.span <= 0) return;
+            const knobCenterX = e.clientX - dragPointerOffsetX;
+            let t = (knobCenterX - m.trackStart) / m.span;
+            t = Math.max(0, Math.min(1, t));
+            const nextBpm = Math.round(T_MIN + t * (T_MAX - T_MIN));
+            bpmSlider.value = String(nextBpm);
+            bpmSlider.dispatchEvent(new Event('input', { bubbles: true }));
+            applyStandardModeHandlePositionFromBpm();
+            refreshTapTempoBpmReadout();
         }
 
         function onPointerEnd(e) {
@@ -3120,10 +3114,9 @@
                 return;
             }
 
-            targetX = 0;
             syncBpmSliderLastStable();
+            applyStandardModeHandlePositionFromBpm();
             hideBpmFloatHud();
-            startTactileRaf();
         }
 
         handle.addEventListener('pointerdown', onPointerDown);
