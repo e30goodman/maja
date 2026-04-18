@@ -381,7 +381,17 @@
             user-select: none;
             -webkit-user-select: none;
             -webkit-tap-highlight-color: transparent;
-            transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
+            transform: translateY(0);
+            transition:
+                border-color 0.14s ease,
+                background 0.14s ease,
+                color 0.14s ease,
+                transform 0.12s ease;
+        }
+        .bpm-nudge-btn:hover {
+            border-color: var(--slate-600);
+            background: var(--slate-700);
+            color: var(--text);
         }
         .bpm-nudge-btn:active {
             transform: translateY(1px);
@@ -400,19 +410,24 @@
             background: var(--slate-800);
             color: var(--text-muted);
         }
+        .control-group.tempo-x2 .bpm-nudge-btn:hover {
+            border-color: var(--slate-600);
+            background: var(--slate-700);
+            color: var(--text);
+        }
         .control-group.tempo-x2 .bpm-nudge-btn:active {
             background: var(--slate-900);
         }
-        @media (hover: hover) and (pointer: fine) {
+        @media (hover: none) {
             .bpm-nudge-btn:hover {
-                border-color: var(--slate-600);
-                background: var(--slate-700);
-                color: var(--text);
+                border-color: var(--slate-700);
+                background: var(--slate-800);
+                color: var(--text-muted);
             }
             .control-group.tempo-x2 .bpm-nudge-btn:hover {
-                border-color: var(--slate-600);
-                background: var(--slate-700);
-                color: var(--text);
+                border-color: var(--slate-700);
+                background: var(--slate-800);
+                color: var(--text-muted);
             }
         }
         .bpm-native-range-hidden {
@@ -3253,11 +3268,11 @@
                 e.stopPropagation();
                 nudgeBpmBy(sign);
                 const el = e.currentTarget;
-                requestAnimationFrame(() => {
-                    if (el && typeof el.blur === 'function') {
+                if (el && typeof el.blur === 'function' && e.detail > 0) {
+                    requestAnimationFrame(() => {
                         el.blur();
-                    }
-                });
+                    });
+                }
             });
             btn.addEventListener('keydown', (e) => {
                 if (e.key === ' ') {
