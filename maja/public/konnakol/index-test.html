@@ -1788,18 +1788,7 @@
                     <div class="pixel-dropdown-wrap">
                         <button type="button" class="pixel-dropdown-toggle" id="barsCountDdBtn" aria-haspopup="listbox" aria-expanded="false" aria-label="Bars"></button>
                         <div class="pixel-dropdown-menu" id="barsCountDdMenu" role="listbox" hidden aria-hidden="true"></div>
-                    <select id="barsCount" class="pixel-dropdown-native" onchange="initApp()">
-                        <option value="1">1 Bar</option>
-                        <option value="2">2 Bars</option>
-                        <option value="3">3 Bars</option>
-                        <option value="4" selected>4 Bars</option>
-                        <option value="5">5 Bars</option>
-                        <option value="6">6 Bars</option>
-                        <option value="7">7 Bars</option>
-                        <option value="8">8 Bars</option>
-                        <option value="9">9 Bars</option>
-                        <option value="10">10 Bars</option>
-                    </select>
+                    <select id="barsCount" class="pixel-dropdown-native" onchange="initApp()"></select>
                     </div>
                 </div>
                 <div class="randomizer-block">
@@ -1998,6 +1987,7 @@
     const BASE_PULSATION_FOR_BPM = 4;
     /** Highest supported beat count per bar (must match syllables keys). */
     const MAX_PULSATION = 9;
+    const MAX_BARS_COUNT = 100;
     const BAR_SCALER_AUTO_CLOSE_MS = 12000;
     /** Единое окно long-press (мс): polymeter и смена x1↔x2↔x4 по такту/ячейке. Вибро в cycle* — сразу после записи next, до renderBars. */
     const LONG_PRESS_UI_MS = 520;
@@ -3149,7 +3139,9 @@
 
     function getCurrentSessionState() {
         const p = parseInt(document.getElementById('pulsation').value, 10);
-        const bCount = parseInt(document.getElementById('barsCount').value, 10);
+        let bCount = parseInt(document.getElementById('barsCount').value, 10);
+        if (!Number.isFinite(bCount)) bCount = 4;
+        bCount = Math.max(1, Math.min(MAX_BARS_COUNT, bCount));
         const barPulsations = barStates.map(b => b.pulsation);
         const barPolymeter = barStates.map(b => Boolean(b.polymeter));
         const barTempoMultipliers = barStates.map(b => b.tempoMultiplier || 1);
@@ -3534,32 +3526,38 @@
     }
 
     function defaultBarScaleMap() {
-        return {
-            1: '100',
-            2: '100',
-            3: '100',
-            4: '100',
-            5: '100',
-            6: '100',
-            7: '100',
-            8: '100',
-            9: '100',
-            10: '100'
-        };
+        const map = {};
+        for (let i = 1; i <= MAX_BARS_COUNT; i++) map[i] = '100';
+        return map;
+    }
+
+    function ensureBarsCountSelectOptions() {
+        const sel = document.getElementById('barsCount');
+        if (!sel || sel.dataset.rangeBuilt === '1') return;
+        sel.dataset.rangeBuilt = '1';
+        const prev = sel.value || '4';
+        sel.innerHTML = '';
+        for (let n = 1; n <= MAX_BARS_COUNT; n++) {
+            const o = document.createElement('option');
+            o.value = String(n);
+            o.textContent = n === 1 ? '1 bar' : `${n} bars`;
+            sel.appendChild(o);
+        }
+        const pv = parseInt(prev, 10);
+        sel.value = (!isNaN(pv) && pv >= 1 && pv <= MAX_BARS_COUNT) ? String(pv) : '4';
     }
 
     function getBarScaleMapForSave() {
         const state = loadSessionState();
         const map = defaultBarScaleMap();
         if (state && state.barScaleByCount && typeof state.barScaleByCount === 'object') {
-            for (let i = 1; i <= 10; i++) {
+            for (let i = 1; i <= MAX_BARS_COUNT; i++) {
                 if (state.barScaleByCount[i] !== undefined) {
                     map[i] = normalizeBarScaleValue(state.barScaleByCount[i]);
                 }
             }
         } else if (state && state.barScale !== undefined) {
-            // Backward compatibility with old single-scale format
-            for (let i = 1; i <= 10; i++) map[i] = normalizeBarScaleValue(state.barScale);
+            for (let i = 1; i <= MAX_BARS_COUNT; i++) map[i] = normalizeBarScaleValue(state.barScale);
         }
         const currentBars = parseInt(document.getElementById('barsCount').value, 10);
         map[currentBars] = normalizeBarScaleValue(document.getElementById('barScale').value);
@@ -3630,7 +3628,7 @@
         }
         if (state.barsCount) {
             const b = parseInt(state.barsCount, 10);
-            if (!isNaN(b) && b >= 1 && b <= 10) barsCountEl.value = String(b);
+            if (!isNaN(b) && b >= 1) barsCountEl.value = String(Math.min(MAX_BARS_COUNT, b));
         }
         if (state.bpm) {
             const bpm = parseInt(state.bpm, 10);
@@ -3926,7 +3924,11 @@
     function initApp(options = {}) {
         isAppReady = false;
         const p = parseInt(document.getElementById('pulsation').value);
-        const bCount = parseInt(document.getElementById('barsCount').value);
+        let bCount = parseInt(document.getElementById('barsCount').value, 10);
+        if (!Number.isFinite(bCount)) bCount = 4;
+        bCount = Math.max(1, Math.min(MAX_BARS_COUNT, bCount));
+        const bcEl = document.getElementById('barsCount');
+        if (bcEl && bcEl.value !== String(bCount)) bcEl.value = String(bCount);
         const container = document.getElementById('barsContainer');
         setBarScaleForCurrentBarsFromState();
         container.style.setProperty('--bars-count', String(bCount));
@@ -5392,6 +5394,7 @@
         releaseWakeLock();
     }
 
+    ensureBarsCountSelectOptions();
     const stateForControls = resolveStateForControls();
     applySessionStateToControls(stateForControls);
     updateBarScaleLabel();
