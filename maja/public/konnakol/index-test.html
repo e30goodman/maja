@@ -931,6 +931,8 @@
             cursor: pointer;
             user-select: none;
             touch-action: none;
+            -webkit-tap-highlight-color: transparent;
+            tap-highlight-color: transparent;
             font-weight: 700;
             line-height: 1;
             transition: transform 0.12s ease, color 0.12s ease, text-shadow 0.12s ease, background 0.12s ease, border-color 0.12s ease;
@@ -989,6 +991,8 @@
             cursor: pointer;
             user-select: none;
             touch-action: none;
+            -webkit-tap-highlight-color: transparent;
+            tap-highlight-color: transparent;
             font-weight: 700;
             line-height: 1;
             transition: transform 0.12s ease, color 0.12s ease, text-shadow 0.12s ease, background 0.12s ease, border-color 0.12s ease;
@@ -1052,6 +1056,8 @@
             border: 1px solid transparent;
             font-variant-numeric: tabular-nums;
             cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            tap-highlight-color: transparent;
         }
         .pulsation-drag-panel-list li.active {
             border-color: var(--violet-500);
@@ -1093,6 +1099,10 @@
             cursor: pointer;
             user-select: none;
             -webkit-tap-highlight-color: transparent;
+            tap-highlight-color: transparent;
+        }
+        .cell:focus:not(:focus-visible) {
+            outline: none;
         }
         #barsContainer.bars-dom-patch-suppress-motion .cell {
             transition: none !important;
@@ -1970,7 +1980,7 @@
     /** Highest supported beat count per bar (must match syllables keys). */
     const MAX_PULSATION = 9;
     const BAR_SCALER_AUTO_CLOSE_MS = 12000;
-    /** Long-press on bar/cell tempo before x1↔x2↔x4 cycle (was 420; doubled for clearer intent). */
+    /** Long-press on bar/cell tempo before x1↔x2↔x4 cycle (was 420; doubled for clearer intent). После срабатывания множитель пишется в barStates — отпускать можно сразу; во время проигрывания палец держать не нужно. */
     const TEMPO_HOLD_MS = 840;
     const POLYMETER_HOLD_MS = 520;
     const TAP_TEMPO_RESET_MS = 2000;
