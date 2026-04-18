@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=overlays-content">
-    <title>Konnakol (test)</title>
+    <title>Konnakol Multi-Bar Trainer</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         /* Palette aligned with Espace Maja (Tailwind slate + violet + blue) */
@@ -36,7 +36,6 @@
             --primary: #8b5cf6;
             --primary-dim: #7c3aed;
             --accent: #10b981;
-            /* Custom dropdowns: match native select text size (Inter) */
             --pixel-ui-dd-toggle: 0.94rem;
             --pixel-ui-dd-item: 0.88rem;
         }
@@ -1626,7 +1625,7 @@
                 </div>
             </div>
             <div class="settings-version-row">
-                <a href="index.html" class="settings-version-link" title="Stable build (index.html)" aria-label="Open stable build">Stable version</a>
+                <a href="index-test.html" class="settings-version-link">Test version</a>
             </div>
         </div>
     </details>
@@ -1799,12 +1798,12 @@
     function getCurrentPresetIndexZero() {
         return Math.min(PRESET_SLOT_COUNT - 1, Math.max(0, parseInt(getCurrentPresetId(), 10) - 1));
     }
-    /** localStorage key for the active preset (same as `konnakolSessionStateV1Test_preset${getCurrentPresetId()}`). */
+    /** localStorage key for the active preset (same as `konnakolSessionStateV1_preset${getCurrentPresetId()}`). */
     function getSessionStorageKey() {
-        return `konnakolSessionStateV1Test_preset${getCurrentPresetId()}`;
+        return `konnakolSessionStateV1_preset${getCurrentPresetId()}`;
     }
     function sessionStorageKeyForPresetId(presetIdStr) {
-        return `konnakolSessionStateV1Test_preset${presetIdStr}`;
+        return `konnakolSessionStateV1_preset${presetIdStr}`;
     }
     /** Полный JSON метронома для слота preset id (строка «1»..«7»). */
     function fullMetronomeJsonStorageKeyForPresetId(presetIdStr) {
@@ -1841,12 +1840,17 @@
         } catch (_) {}
     })();
     function migrateLegacySessionIntoPreset1() {
-        const legacy = 'konnakolSessionStateV1Test';
         const k1 = sessionStorageKeyForPresetId('1');
         try {
             if (!localStorage.getItem(k1)) {
-                const raw = localStorage.getItem(legacy);
-                if (raw) localStorage.setItem(k1, raw);
+                const legacyKeys = ['konnakolSessionStateV1', 'konnakolSessionStateV1Test'];
+                for (const legacy of legacyKeys) {
+                    const raw = localStorage.getItem(legacy);
+                    if (raw) {
+                        localStorage.setItem(k1, raw);
+                        break;
+                    }
+                }
             }
             const rawK1 = localStorage.getItem(k1);
             if (!rawK1) return;
@@ -4321,9 +4325,6 @@
                 container.style.setProperty('--cell-height', `${scaledCell}px`);
             }
         }
-        // #region agent log
-        fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'pre-fix-1',hypothesisId:'H3',location:'maja/public/konnakol/index.html:enforceBarsFit',message:'Post-fit measurements',data:{bCount,allowedHeight,beforeScrollHeight,afterScrollHeight:container.scrollHeight,barHeight:container.style.getPropertyValue('--bar-height'),cellHeight:container.style.getPropertyValue('--cell-height'),gap:container.style.getPropertyValue('--bars-gap'),iterations:safety},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
     }
 
     function parsePatternSpec() {
@@ -4733,9 +4734,6 @@
         currentStep = 0;
         lastFocusedBarIndex = -1;
         nextNoteTime = audioCtx.currentTime + 0.05;
-        // #region agent log
-        fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'cycle-debug-3',hypothesisId:'H6',location:'maja/public/konnakol/index.html:start',message:'Playback started with mode flags',data:{enableRandomizer,playbackRandomizerEnabled,randomPatternAfterEachBar:Boolean(document.getElementById('randomPatternAfterEachBar')?.checked),randomPulsationAfterEachBar:Boolean(document.getElementById('randomPulsationAfterEachBar')?.checked),barsCount:barStates.length},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
         scheduler();
         document.getElementById('playBtn').style.display = 'none';
         document.getElementById('stopBtn').style.display = 'block';
@@ -4762,9 +4760,6 @@
     }
 
     const stateForControls = resolveStateForControls();
-    // #region agent log
-    fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'cycle-debug-2',hypothesisId:'H0',location:'maja/public/konnakol/index.html:bootstrap',message:'Cycle debug instrumentation active',data:{version:'cycle-queue-v2'},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     applySessionStateToControls(stateForControls);
     updateBarScaleLabel();
     initApp();
