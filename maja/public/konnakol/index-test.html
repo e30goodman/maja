@@ -1904,11 +1904,14 @@
     let barScalerSliderHeld = false;
     let barTempoHoldTimer = null;
     let barTempoHoldTarget = -1;
+    let barTempoHoldPointerId = null;
     let pulsationHoldTimer = null;
     let pulsationHoldBar = -1;
+    let pulsationHoldPointerId = null;
     let suppressPulsationClickBar = -1;
     let cellTempoHoldTimer = null;
     let cellTempoHoldKey = '';
+    let cellTempoHoldPointerId = null;
     let suppressCellClickKey = '';
     let tempoDoubleMode = false;
     /** Last accepted BPM (revert track click without drag). */
@@ -4480,11 +4483,17 @@
             barTempoHoldTimer = null;
         }
         barTempoHoldTarget = barIndex;
+        barTempoHoldPointerId = (event.pointerId !== undefined && event.pointerId !== null) ? event.pointerId : null;
         const handle = document.getElementById(`bar-tempo-handle-${barIndex}`);
         if (handle) handle.classList.add('hold-active');
         barTempoHoldTimer = setTimeout(() => {
             barTempoHoldTimer = null;
             if (barTempoHoldTarget !== barIndex) return;
+            const h = document.getElementById(`bar-tempo-handle-${barIndex}`);
+            const synth = h && barTempoHoldPointerId !== undefined && barTempoHoldPointerId !== null
+                ? { currentTarget: h, pointerId: barTempoHoldPointerId, preventDefault() {}, stopPropagation() {} }
+                : null;
+            endBarTempoHold(synth, barIndex);
             cycleBarTempoMultiplier(barIndex);
         }, TEMPO_HOLD_MS);
     }
@@ -4493,17 +4502,20 @@
         if (event) {
             event.preventDefault();
             event.stopPropagation();
-            if (event.currentTarget && event.currentTarget.releasePointerCapture && event.pointerId !== undefined) {
-                try {
-                    if (event.currentTarget.hasPointerCapture && event.currentTarget.hasPointerCapture(event.pointerId)) {
-                        event.currentTarget.releasePointerCapture(event.pointerId);
-                    }
-                } catch (_) {
-                    // ignore release errors on unsupported browsers/devices
-                }
-            }
         }
         const handle = document.getElementById(`bar-tempo-handle-${barIndex}`);
+        const releaseEl = (event && event.currentTarget) ? event.currentTarget : handle;
+        const pid = (event && event.pointerId !== undefined) ? event.pointerId : barTempoHoldPointerId;
+        if (releaseEl && pid !== undefined && pid !== null && releaseEl.releasePointerCapture && releaseEl.hasPointerCapture) {
+            try {
+                if (releaseEl.hasPointerCapture(pid)) {
+                    releaseEl.releasePointerCapture(pid);
+                }
+            } catch (_) {
+                // ignore release errors on unsupported browsers/devices
+            }
+        }
+        barTempoHoldPointerId = null;
         if (handle) handle.classList.remove('hold-active');
         if (barTempoHoldTimer !== null) {
             clearTimeout(barTempoHoldTimer);
@@ -4517,6 +4529,7 @@
     function startCellTempoHold(event, barIndex, localIndex) {
         if (event.button !== undefined && event.button !== 0) return;
         const key = `${barIndex}:${localIndex}`;
+        cellTempoHoldPointerId = (event.pointerId !== undefined && event.pointerId !== null) ? event.pointerId : null;
         if (event.currentTarget && event.currentTarget.setPointerCapture && event.pointerId !== undefined) {
             try {
                 event.currentTarget.setPointerCapture(event.pointerId);
@@ -4532,22 +4545,34 @@
         cellTempoHoldTimer = setTimeout(() => {
             cellTempoHoldTimer = null;
             if (cellTempoHoldKey !== key) return;
+            const parts = key.split(':');
+            const bi = parseInt(parts[0], 10);
+            const li = parseInt(parts[1], 10);
+            const cellNode = document.querySelector(`.cell[data-bar-index="${bi}"][data-local-index="${li}"]`);
+            const synth = cellNode && cellTempoHoldPointerId !== undefined && cellTempoHoldPointerId !== null
+                ? { currentTarget: cellNode, pointerId: cellTempoHoldPointerId, preventDefault() {}, stopPropagation() {} }
+                : null;
+            endCellTempoHold(synth, bi, li);
             suppressCellClickKey = key;
-            cycleCellTempoMultiplier(barIndex, localIndex);
+            cycleCellTempoMultiplier(bi, li);
         }, TEMPO_HOLD_MS);
     }
 
     function endCellTempoHold(event, barIndex, localIndex) {
-        const cellEl = event && event.currentTarget;
+        const key = `${barIndex}:${localIndex}`;
+        const cellEl = (event && event.currentTarget)
+            ? event.currentTarget
+            : document.querySelector(`.cell[data-bar-index="${barIndex}"][data-local-index="${localIndex}"]`);
         if (cellEl && cellEl.classList) cellEl.classList.remove('cell-tempo-hold-active');
-        if (event && event.currentTarget && event.currentTarget.releasePointerCapture && event.pointerId !== undefined) {
+        const pid = (event && event.pointerId !== undefined) ? event.pointerId : cellTempoHoldPointerId;
+        if (cellEl && pid !== undefined && pid !== null && cellEl.releasePointerCapture && cellEl.hasPointerCapture) {
             try {
-                if (event.currentTarget.hasPointerCapture && event.currentTarget.hasPointerCapture(event.pointerId)) {
-                    event.currentTarget.releasePointerCapture(event.pointerId);
+                if (cellEl.hasPointerCapture(pid)) {
+                    cellEl.releasePointerCapture(pid);
                 }
             } catch (_) {}
         }
-        const key = `${barIndex}:${localIndex}`;
+        cellTempoHoldPointerId = null;
         if (cellTempoHoldTimer !== null) {
             clearTimeout(cellTempoHoldTimer);
             cellTempoHoldTimer = null;
@@ -4625,6 +4650,7 @@
 
     function startPulsationMenuHold(event, barIndex) {
         if (event.button !== undefined && event.button !== 0) return;
+        pulsationHoldPointerId = (event.pointerId !== undefined && event.pointerId !== null) ? event.pointerId : null;
         if (event.currentTarget && event.currentTarget.setPointerCapture && event.pointerId !== undefined) {
             try {
                 event.currentTarget.setPointerCapture(event.pointerId);
@@ -4639,6 +4665,11 @@
             pulsationHoldTimer = null;
             if (pulsationHoldBar !== barIndex) return;
             if (!barStates[barIndex]) return;
+            const h = document.getElementById(`pulsation-handle-${barIndex}`);
+            const synth = h && pulsationHoldPointerId !== undefined && pulsationHoldPointerId !== null
+                ? { currentTarget: h, pointerId: pulsationHoldPointerId, preventDefault() {}, stopPropagation() {} }
+                : null;
+            endPulsationMenuHold(synth, barIndex);
             const wasPlaying = isPlaybackRunning();
             const playbackAnchor = wasPlaying ? capturePlaybackAnchorMeta() : null;
             const next = !barStates[barIndex].polymeter;
@@ -4656,13 +4687,17 @@
     }
 
     function endPulsationMenuHold(event, barIndex) {
-        if (event && event.currentTarget && event.currentTarget.releasePointerCapture && event.pointerId !== undefined) {
+        const handle = document.getElementById(`pulsation-handle-${barIndex}`);
+        const releaseEl = (event && event.currentTarget) ? event.currentTarget : handle;
+        const pid = (event && event.pointerId !== undefined) ? event.pointerId : pulsationHoldPointerId;
+        if (releaseEl && pid !== undefined && pid !== null && releaseEl.releasePointerCapture && releaseEl.hasPointerCapture) {
             try {
-                if (event.currentTarget.hasPointerCapture && event.currentTarget.hasPointerCapture(event.pointerId)) {
-                    event.currentTarget.releasePointerCapture(event.pointerId);
+                if (releaseEl.hasPointerCapture(pid)) {
+                    releaseEl.releasePointerCapture(pid);
                 }
             } catch (_) {}
         }
+        pulsationHoldPointerId = null;
         if (pulsationHoldTimer !== null) {
             clearTimeout(pulsationHoldTimer);
             pulsationHoldTimer = null;
