@@ -3682,6 +3682,12 @@
             requestAnimationFrame(() => {
                 requestAnimationFrame(() => {
                     container.classList.remove('bars-dom-patch-suppress-motion');
+                    const bc = parseInt(document.getElementById('barsCount').value, 10);
+                    if (container && Number.isFinite(bc)) {
+                        /* After flex lays out #barsStackGrow, repeat sizing so first paint matches post-preset refit. */
+                        applyAdaptiveBarHeights(container, bc);
+                        enforceBarsFit(container, bc);
+                    }
                 });
             });
         }
