@@ -2765,7 +2765,7 @@
         if (btn) btn.classList.remove('tap-tempo-btn--showing-bpm');
     }
 
-    /** Тактильный BPM: пружина ±1/±5/быстро; режим «мс» (Trainer) — удержание кнопки Tap ~0,6 с. */
+    /** Тактильный BPM: стандарт — ручка без пружины по X (displayX = targetX); ±1/±5/быстро. Режим «мс» (Trainer) — удержание Tap ~0,6 с. */
     function setupBpmTactileSlider() {
         const wrap = document.getElementById('bpmTactileWrap');
         const handle = document.getElementById('bpmTactileHandle');
@@ -2778,7 +2778,6 @@
 
         const T_MIN = 20;
         const T_MAX = 480;
-        const SPRING_ALPHA = 0.32;
         /** Сдвиг по X, после которого показываем верхний BPM при перетаскивании ручки. */
         const BPM_TACTILE_HUD_DRAG_MIN_PX = 28;
         /** Удержание #tapTempoBtn — вкл/выкл Trainer (мс). */
@@ -2968,7 +2967,7 @@
                 rafId = requestAnimationFrame(tickTactile);
                 return;
             }
-            displayX += (targetX - displayX) * SPRING_ALPHA;
+            displayX = targetX;
             handleWrap.style.transform = `translate3d(${displayX}px,0,0)`;
             pulseFromTactileX();
             const moving = dragging || Math.abs(targetX) > 0.02 || Math.abs(displayX) > 0.25;
