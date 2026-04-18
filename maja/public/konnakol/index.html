@@ -104,14 +104,10 @@
         #barsStackGrow {
             flex: 1 1 0%;
             min-height: 0;
-            min-width: 0;
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            /* Такты на всю ширину панели: компенсация горизонтального padding .app-container */
-            margin-inline: calc(-1 * var(--app-pad-x));
-            width: calc(100% + 2 * var(--app-pad-x));
-            box-sizing: border-box;
+            margin-inline: calc(-1 * var(--app-pad-x, 24px));
         }
         h2 { text-align: center; margin-bottom: 25px; color: var(--text); font-weight: 600; letter-spacing: 0.02em; }
 
@@ -857,23 +853,21 @@
             --bar-scale: 1;
             flex: 1 1 auto;
             min-height: 0;
-            min-width: 0;
             width: 100%;
+            min-width: 0;
             overflow-x: hidden;
             overflow-y: auto;
             display: grid;
             grid-template-columns: 1fr;
             gap: calc(var(--bars-gap) * var(--bar-scale));
             margin: 12px 0 6px;
-            box-sizing: border-box;
         }
         .bars-container.many-bars { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        /* Такт на всю ширину колонки грида; без бокового «воздуха» и без выхода за контейнер */
         .bars-container > .bar {
             justify-self: stretch;
             width: 100%;
             min-width: 0;
-            max-width: 100%;
+            max-width: none;
             box-sizing: border-box;
         }
         .bar {
@@ -883,15 +877,14 @@
             flex-direction: column;
             justify-content: center;
             align-items: stretch;
+            width: 100%;
+            min-width: 0;
             background: rgba(30, 41, 59, 0.5);
             border: 1px solid var(--slate-700);
             padding: calc(clamp(10px, calc(19px - (var(--bars-count) * 1px)), 15px) * var(--bar-scale));
             border-radius: calc(1rem * var(--bar-scale));
             min-height: calc(var(--bar-height) * var(--bar-scale));
             box-sizing: border-box;
-            max-width: 100%;
-            overflow-x: auto;
-            overflow-y: visible;
         }
         .bar.tempo-boost {
             border-color: var(--playback-border);
@@ -970,9 +963,9 @@
             width: var(--syllable-chip);
         }
         .bar-body .rhythm-grid {
-            flex: 0 0 auto;
-            width: calc(var(--grid-beats, 4) * var(--syllable-chip) + (var(--grid-beats, 4) - 1) * var(--bar-cell-gap));
+            flex: 1 1 0%;
             min-width: 0;
+            align-self: stretch;
         }
         .bar-tempo-handle {
             display: inline-flex;
@@ -1120,19 +1113,17 @@
         .pulsation-drag-panel-list .p-label { font-weight: 700; color: var(--text-muted); }
         .pulsation-drag-panel-list li.active .p-label { color: var(--violet-400); }
 
-        /* Desktop: ряд долей; ширина ряда задаётся на .bar-body .rhythm-grid */
+        /* Ряд долей: ширина ряда = остаток в .bar-body; ячейки делят поровну (число долей = число силлабов). */
         .rhythm-grid {
             display: flex;
             flex-direction: row;
             flex-wrap: nowrap;
             gap: var(--bar-cell-gap, calc(clamp(5px, calc(10px - (var(--bars-count) * 0.4px)), 8px) * var(--bar-scale)));
-            justify-content: flex-start;
+            justify-content: stretch;
             align-items: stretch;
-        }
-        .bar-body .rhythm-grid > .cell {
-            flex: 0 0 var(--syllable-chip);
-            width: var(--syllable-chip);
-            max-width: var(--syllable-chip);
+            width: 100%;
+            min-width: 0;
+            box-sizing: border-box;
         }
         .cell {
             display: flex;
@@ -1666,9 +1657,12 @@
                 grid-template-columns: 1fr !important;
                 gap: var(--bars-gap);
                 margin: 16px 0 6px;
-                overflow: visible;
+                overflow-x: hidden;
+                overflow-y: auto;
                 padding: 0;
                 margin-inline: 0;
+                width: 100%;
+                min-width: 0;
             }
             .bar {
                 display: flex;
@@ -1677,7 +1671,7 @@
                 align-items: stretch;
                 width: 100%;
                 min-width: 0;
-                max-width: 100%;
+                max-width: none;
                 justify-self: stretch;
                 --control-stack-gap: calc(5px * var(--bar-scale));
                 padding: calc(12px * var(--bar-scale)) calc(10px * var(--bar-scale)) calc(14px * var(--bar-scale));
@@ -1689,6 +1683,9 @@
                 --bar-cell-gap: calc(6px * var(--bar-scale));
                 flex: 0 0 auto;
                 align-items: stretch;
+                width: 100%;
+                min-width: 0;
+                box-sizing: border-box;
             }
             .bar-controls-stack .bar-tempo-handle,
             .bar-controls-stack .pulsation-handle {
@@ -1700,8 +1697,11 @@
                 flex-direction: row;
                 flex-wrap: nowrap;
                 gap: var(--bar-cell-gap);
-                justify-content: flex-start;
+                justify-content: stretch;
                 align-items: stretch;
+                width: 100%;
+                min-width: 0;
+                box-sizing: border-box;
             }
             .cell {
                 flex: 1 1 0;
@@ -4362,7 +4362,6 @@
                 + (tempoMultiplier > 1 ? ' tempo-boost' : '')
                 + (tempoMultiplier === 4 ? ' tempo-boost-x3' : '');
             barEl.dataset.barIndex = String(b);
-            barEl.style.setProperty('--grid-beats', String(barStates[b].pulsation));
             const barTempoLabel = tempoMultiplier === 4 ? 3 : tempoMultiplier;
             const tempoHandle = document.getElementById(`bar-tempo-handle-${b}`);
             if (tempoHandle) {
@@ -4410,7 +4409,6 @@
                 + (tempoMultiplier === 4 ? ' tempo-boost-x3' : '');
             barDiv.id = `bar-${b}`;
             barDiv.dataset.barIndex = String(b);
-            barDiv.style.setProperty('--grid-beats', String(barStates[b].pulsation));
             const barTempoLabel = tempoMultiplier === 4 ? 3 : tempoMultiplier;
             const barBody = document.createElement('div');
             barBody.className = 'bar-body';
