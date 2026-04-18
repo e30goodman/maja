@@ -1028,10 +1028,17 @@
             pointer-events: none;
             vertical-align: middle;
         }
-        #randomModeToggleBtn .btn-icon-img,
+        #randomModeToggleBtn .btn-icon-img {
+            width: calc(24px * 0.9);
+            height: calc(24px * 0.9);
+        }
+        #accentToggleBtn.btn-icon {
+            padding: 6px 10px;
+        }
         #accentToggleBtn .btn-icon-img {
-            width: 24px;
-            height: 24px;
+            /* +190% к 24px → 24 * (1 + 1.9) */
+            width: calc(24px * 2.9);
+            height: calc(24px * 2.9);
         }
         .btn-rand {
             background: rgba(51, 65, 85, 0.55);
@@ -1649,8 +1656,8 @@
     <div id="barsContainer" class="bars-container"></div>
 
     <div class="action-row">
-        <button id="randomModeToggleBtn" class="btn btn-rand btn-icon" onclick="toggleRandomModeFromButton()" title="Random mode"><img src="dice.png" alt="" class="btn-icon-img" width="24" height="24" decoding="async"></button>
-        <button id="accentToggleBtn" class="btn btn-accent btn-icon" onclick="toggleAccentOnlyFromButton()" onpointerdown="startAccentHold(event)" onpointerup="endAccentHold(event)" onpointercancel="endAccentHold(event)"><img src="drum0.png" alt="" class="btn-icon-img" width="24" height="24" decoding="async"></button>
+        <button id="randomModeToggleBtn" class="btn btn-rand btn-icon" onclick="toggleRandomModeFromButton()" title="Random mode"><img src="dice.png" alt="" class="btn-icon-img" width="22" height="22" decoding="async"></button>
+        <button id="accentToggleBtn" class="btn btn-accent btn-icon" onclick="toggleAccentOnlyFromButton()" onpointerdown="startAccentHold(event)" onpointerup="endAccentHold(event)" onpointercancel="endAccentHold(event)"><img src="drum0.png" alt="" class="btn-icon-img" width="70" height="70" decoding="async"></button>
     </div>
     <button id="playBtn" class="btn btn-play" onclick="start(false)">▶ PLAY</button>
     <button id="stopBtn" class="btn btn-stop" onclick="stop()">■ STOP</button>
