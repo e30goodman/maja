@@ -1844,6 +1844,8 @@
     const PRESET_QUERY = 'preset';
     const PRESET_SLOT_COUNT = 7;
     const PRESET_HOLD_MS = 420;
+    /** Вторая фаза (erase на своём слоте): ~+50% к первой фазе. */
+    const PRESET_HOLD_ERASE_MS = Math.round(PRESET_HOLD_MS * 1.5);
     /** When false, initApp ещё не завершил загрузку barStates (защита от гонок при будущих писателях). */
     let isAppReady = false;
     /** Во время программного применения пресета блокирует saveSessionState даже после isAppReady=true внутри initApp. */
@@ -2876,6 +2878,25 @@
     }
 
     /**
+     * После записи в слот N горячий пресет = N (?preset=N): иначе полоска остаётся на старом номере при сохранении «в другой».
+     */
+    function activatePresetSlotIfDifferentFromCurrent(targetPresetIdStr) {
+        if (!isAppReady) return;
+        if (targetPresetIdStr === getCurrentPresetId()) {
+            refreshPresetNavUi();
+            return;
+        }
+        try {
+            const u = new URL(location.href);
+            u.searchParams.set(PRESET_QUERY, targetPresetIdStr);
+            history.replaceState({}, '', `${u.pathname}?${u.searchParams.toString()}${u.hash}`);
+        } catch (_) {
+            return;
+        }
+        switchPresetSeamlessly();
+    }
+
+    /**
      * Удержание на слот: серая группа может записать в «фиолетовый» слот без presetMeta (слот пустеет по UI);
      * фиолетовая — только с presetMeta (нельзя «серить» чужой слот одной фазой). Стирание только 2‑я фаза на своём слоте.
      */
@@ -2889,10 +2910,11 @@
         const targetHadManual = presetHasManualSnapshot(i);
         delete snap.presetMeta;
 
-        if (!sessionEditGroupViolet && targetHadManual) {
+        /* Серая «сушит» чужой заполненный слот одной фазой. Свой активный слот нельзя: иначе первая фаза холда выглядит как мгновенный erase вместо перезаписи с presetMeta и второй фазы (фиолетовая группа). */
+        if (!sessionEditGroupViolet && targetHadManual && i !== getCurrentPresetIndexZero()) {
             persistPresetSlotDualWrite(targetPresetId, JSON.stringify(snap));
             showSnapshotErasedToast();
-            refreshPresetNavUi();
+            activatePresetSlotIfDifferentFromCurrent(targetPresetId);
             return;
         }
 
@@ -2904,7 +2926,7 @@
         };
         persistPresetSlotDualWrite(targetPresetId, JSON.stringify(snap));
         showSnapshotSavedToast();
-        refreshPresetNavUi();
+        activatePresetSlotIfDifferentFromCurrent(targetPresetId);
     }
 
     function showSnapshotErasedToast() {
@@ -2987,6 +3009,7 @@
         const strip = document.getElementById('presetNavStrip');
         if (!strip) return;
         const msHint = Math.round(PRESET_HOLD_MS / 100) / 10;
+        const msHintErase = Math.round(PRESET_HOLD_ERASE_MS / 100) / 10;
         strip.querySelectorAll('a.preset-nav-link').forEach((a) => {
             const i = parseInt(a.dataset.preset, 10);
             if (!Number.isFinite(i)) return;
@@ -2997,7 +3020,7 @@
             a.dataset.manualSave = saved ? '1' : '0';
             a.title = saved
                 ? (isActive && sessionEditGroupViolet
-                    ? `Пресет ${i + 1}: сохранён (удерж. ${msHint}s — перезапись; ещё ${msHint}s удержания — erased, слот пустой)`
+                    ? `Пресет ${i + 1}: сохранён (удерж. ${msHint}s — перезапись; ещё ${msHintErase}s удержания — erased, слот пустой)`
                     : `Пресет ${i + 1}: сохранён (удерж. ${msHint}s — перезаписать)`)
                 : `Пресет ${i + 1}: не сохранён · удерж. ${msHint}s — записать`;
             a.setAttribute('aria-label', saved ? `Пресет ${i + 1}, сохранён` : `Пресет ${i + 1}, не сохранён`);
@@ -3044,7 +3067,7 @@
                             presetNavSuppressClick = true;
                             a.classList.remove('holding');
                             cancelPresetNavHold();
-                        }, PRESET_HOLD_MS);
+                        }, PRESET_HOLD_ERASE_MS);
                     }
                 }, PRESET_HOLD_MS);
                 try {
