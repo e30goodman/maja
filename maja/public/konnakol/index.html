@@ -1844,8 +1844,8 @@
     const PRESET_QUERY = 'preset';
     const PRESET_SLOT_COUNT = 7;
     const PRESET_HOLD_MS = 420;
-    /** Вторая фаза (erase на своём слоте): ~+50% к первой фазе. */
-    const PRESET_HOLD_ERASE_MS = Math.round(PRESET_HOLD_MS * 1.5);
+    /** Вторая фаза (erase на своём слоте): 3× первая фаза (раньше было 1.5×, +100%). */
+    const PRESET_HOLD_ERASE_MS = Math.round(PRESET_HOLD_MS * 3);
     /** When false, initApp ещё не завершил загрузку barStates (защита от гонок при будущих писателях). */
     let isAppReady = false;
     /** Во время программного применения пресета блокирует saveSessionState даже после isAppReady=true внутри initApp. */
