@@ -83,6 +83,7 @@
             background: rgb(76 29 149);
         }
         .app-container {
+            --app-pad-x: 24px;
             position: relative;
             z-index: 1;
             flex: 1 1 0%;
@@ -95,7 +96,7 @@
             overflow-y: auto;
             background: var(--panel);
             border: 1px solid var(--slate-700);
-            padding: 22px 24px max(6px, env(safe-area-inset-bottom, 0px));
+            padding: 22px var(--app-pad-x) max(6px, env(safe-area-inset-bottom, 0px));
             border-radius: 1rem;
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(139, 92, 246, 0.08) inset;
         }
@@ -103,9 +104,13 @@
         #barsStackGrow {
             flex: 1 1 0%;
             min-height: 0;
+            min-width: 0;
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            margin-inline: calc(-1 * var(--app-pad-x));
+            width: calc(100% + 2 * var(--app-pad-x));
+            box-sizing: border-box;
         }
         h2 { text-align: center; margin-bottom: 25px; color: var(--text); font-weight: 600; letter-spacing: 0.02em; }
 
@@ -850,17 +855,23 @@
             --bar-scale: 1;
             flex: 1 1 auto;
             min-height: 0;
+            min-width: 0;
+            width: 100%;
+            overflow-x: hidden;
             overflow-y: auto;
             display: grid;
             grid-template-columns: 1fr;
             gap: calc(var(--bars-gap) * var(--bar-scale));
             margin: 12px 0 6px;
+            box-sizing: border-box;
         }
         .bars-container.many-bars { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .bars-container > .bar {
-            justify-self: center;
-            width: fit-content;
+            justify-self: stretch;
+            width: 100%;
+            min-width: 0;
             max-width: 100%;
+            box-sizing: border-box;
         }
         .bar {
             --control-stack-gap: calc(6px * var(--bar-scale));
@@ -875,6 +886,9 @@
             border-radius: calc(1rem * var(--bar-scale));
             min-height: calc(var(--bar-height) * var(--bar-scale));
             box-sizing: border-box;
+            max-width: 100%;
+            overflow-x: auto;
+            overflow-y: visible;
         }
         .bar.tempo-boost {
             border-color: var(--playback-border);
@@ -934,9 +948,10 @@
             flex-direction: row;
             align-items: stretch;
             gap: var(--bar-cell-gap);
-            width: auto;
+            width: 100%;
             max-width: 100%;
             min-width: 0;
+            box-sizing: border-box;
         }
         .bar-controls-stack {
             display: flex;
@@ -1569,7 +1584,8 @@
                 align-items: center;
             }
             .app-container {
-                padding: 12px 12px max(6px, env(safe-area-inset-bottom, 0px));
+                --app-pad-x: 12px;
+                padding: 12px var(--app-pad-x) max(6px, env(safe-area-inset-bottom, 0px));
                 border-radius: 18px;
                 max-width: min(600px, 100vw);
                 max-width: min(600px, 100svw);
@@ -1653,9 +1669,10 @@
                 flex-direction: column;
                 justify-content: center;
                 align-items: stretch;
-                width: fit-content;
+                width: 100%;
+                min-width: 0;
                 max-width: 100%;
-                justify-self: center;
+                justify-self: stretch;
                 --control-stack-gap: calc(5px * var(--bar-scale));
                 padding: calc(12px * var(--bar-scale)) calc(10px * var(--bar-scale)) calc(14px * var(--bar-scale));
                 border-radius: 14px;
