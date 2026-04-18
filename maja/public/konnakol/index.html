@@ -2714,6 +2714,13 @@
         let msModeArmTimer = null;
         let lastMsStepAt = 0;
         let lastPanClientX = 0;
+        let msJustArmedRelease = false;
+        let msUseAnchoredMsDrag = false;
+        let msDragAnchorX = 0;
+        let msDragOriginClientX = 0;
+        let msLatchDownAt = 0;
+        let msLatchDownX = 0;
+        let msLatchMoved = false;
 
         function syncTactileAria() {
             syncBpmTactileHandleLabel();
@@ -2744,6 +2751,8 @@
         function enterBpmTactileMsMode() {
             if (!dragging || msMode) return;
             msMode = true;
+            msJustArmedRelease = true;
+            msUseAnchoredMsDrag = false;
             lastMsStepAt = 0;
             lastPulseMs = 0;
             handle.classList.add('bpm-tactile-handle--ms-mode');
@@ -2758,6 +2767,29 @@
             try {
                 if (navigator.vibrate) navigator.vibrate(14);
             } catch (_) {}
+            startTactileRaf();
+        }
+
+        function exitBpmTactileLatchedMsMode() {
+            clearMsModeArmTimer();
+            msMode = false;
+            msJustArmedRelease = false;
+            msUseAnchoredMsDrag = false;
+            handle.classList.remove('bpm-tactile-handle--ms-mode');
+            if (rafId !== null) {
+                cancelAnimationFrame(rafId);
+                rafId = null;
+            }
+            targetX = 0;
+            displayX = 0;
+            handleWrap.style.transform = '';
+            lastMsStepAt = 0;
+            lastPulseMs = 0;
+            if (hint) hint.textContent = '';
+            updateTactileHint();
+            hideBpmFloatHud();
+            syncBpmSliderLastStable();
+            syncTactileAria();
             startTactileRaf();
         }
 
@@ -2842,7 +2874,7 @@
             const intervalMs = Math.round(
                 BPM_MS_INTERVAL_MAX - (BPM_MS_INTERVAL_MAX - BPM_MS_INTERVAL_MIN) * t
             );
-            if (hint) hint.textContent = sign > 0 ? `+ ${intervalMs}ms` : `- ${intervalMs}ms`;
+            if (hint) hint.textContent = '';
             refreshTapTempoBpmReadout();
             const now = Date.now();
             if (lastMsStepAt === 0) lastMsStepAt = now;
@@ -2860,18 +2892,7 @@
                 displayX = targetX;
                 handleWrap.style.transform = `translate3d(${displayX}px,0,0)`;
                 pulseMsMode();
-                if (dragging) {
-                    rafId = requestAnimationFrame(tickTactile);
-                } else {
-                    rafId = null;
-                    displayX = 0;
-                    targetX = 0;
-                    handleWrap.style.transform = '';
-                    lastMsStepAt = 0;
-                    lastPulseMs = 0;
-                    if (hint) hint.textContent = '';
-                    updateTactileHint();
-                }
+                rafId = requestAnimationFrame(tickTactile);
                 return;
             }
             displayX += (targetX - displayX) * SPRING_ALPHA;
@@ -2908,17 +2929,26 @@
         function onPointerDown(e) {
             if (e.button !== undefined && e.button !== 0) return;
             clearMsModeArmTimer();
-            msMode = false;
-            lastMsStepAt = 0;
-            handle.classList.remove('bpm-tactile-handle--ms-mode');
+            lastPanClientX = e.clientX;
             dragging = true;
             panPointerId = e.pointerId;
-            panStartClientX = e.clientX;
-            lastPanClientX = e.clientX;
-            msModeArmTimer = setTimeout(() => {
-                msModeArmTimer = null;
-                enterBpmTactileMsMode();
-            }, BPM_TACTILE_MS_MODE_ARM_MS);
+            if (msMode) {
+                msUseAnchoredMsDrag = true;
+                msDragAnchorX = targetX;
+                msDragOriginClientX = e.clientX;
+                msLatchDownAt = Date.now();
+                msLatchDownX = e.clientX;
+                msLatchMoved = false;
+            } else {
+                msUseAnchoredMsDrag = false;
+                lastMsStepAt = 0;
+                handle.classList.remove('bpm-tactile-handle--ms-mode');
+                panStartClientX = e.clientX;
+                msModeArmTimer = setTimeout(() => {
+                    msModeArmTimer = null;
+                    enterBpmTactileMsMode();
+                }, BPM_TACTILE_MS_MODE_ARM_MS);
+            }
             try {
                 handle.setPointerCapture(e.pointerId);
             } catch (_) {}
@@ -2929,10 +2959,15 @@
         function onPointerMove(e) {
             if (!dragging || e.pointerId !== panPointerId) return;
             lastPanClientX = e.clientX;
-            const raw = e.clientX - panStartClientX;
+            let raw;
             if (msMode) {
+                if (Math.abs(e.clientX - msLatchDownX) > 14) msLatchMoved = true;
+                raw = msUseAnchoredMsDrag
+                    ? msDragAnchorX + (e.clientX - msDragOriginClientX)
+                    : e.clientX - panStartClientX;
                 applyLinearMsPan(raw);
             } else {
+                raw = e.clientX - panStartClientX;
                 applyResistantPan(raw);
             }
             startTactileRaf();
@@ -2947,14 +2982,27 @@
                     handle.releasePointerCapture(e.pointerId);
                 }
             } catch (_) {}
-            if (msMode) {
-                msMode = false;
-                handle.classList.remove('bpm-tactile-handle--ms-mode');
-                lastMsStepAt = 0;
-                if (hint) hint.textContent = '';
-            }
+            const xUp = e && Number.isFinite(e.clientX) ? e.clientX : lastPanClientX;
             dragging = false;
             panPointerId = null;
+
+            if (msMode) {
+                if (msJustArmedRelease) {
+                    msJustArmedRelease = false;
+                } else if (
+                    !msLatchMoved
+                    && Date.now() - msLatchDownAt < 320
+                    && Math.abs(xUp - msLatchDownX) < 14
+                ) {
+                    exitBpmTactileLatchedMsMode();
+                    return;
+                }
+                syncBpmSliderLastStable();
+                hideBpmFloatHud();
+                startTactileRaf();
+                return;
+            }
+
             targetX = 0;
             syncBpmSliderLastStable();
             hideBpmFloatHud();
