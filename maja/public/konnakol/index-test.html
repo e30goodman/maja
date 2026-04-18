@@ -40,20 +40,23 @@
             --pixel-ui-dd-toggle: 0.94rem;
             --pixel-ui-dd-item: 0.88rem;
         }
-        html { min-height: 100%; color-scheme: dark; }
+        html { height: 100%; min-height: 100%; color-scheme: dark; }
         body {
             font-family: 'Inter', system-ui, sans-serif;
             margin: 0;
             min-height: 100vh;
             min-height: 100dvh;
+            height: 100dvh;
+            max-height: 100dvh;
             background-color: var(--slate-900);
             color: var(--text);
             display: flex;
-            justify-content: center;
-            align-items: flex-end;
+            flex-direction: column;
+            align-items: center;
             padding: 12px 16px max(6px, env(safe-area-inset-bottom, 0px));
             box-sizing: border-box;
             position: relative;
+            overflow: hidden;
             user-select: none;
             -webkit-user-select: none;
             -ms-user-select: none;
@@ -83,13 +86,27 @@
         .app-container {
             position: relative;
             z-index: 1;
+            flex: 1 1 0%;
+            min-height: 0;
+            width: 100%;
+            max-width: 600px;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+            overflow-y: auto;
             background: var(--panel);
             border: 1px solid var(--slate-700);
             padding: 22px 24px max(6px, env(safe-area-inset-bottom, 0px));
             border-radius: 1rem;
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(139, 92, 246, 0.08) inset;
-            width: 100%;
-            max-width: 600px;
+        }
+        /* Остаток высоты окна между шапкой/темпо и нижними кнопками — стабильный слот под сетку (без скачков rect.top). */
+        #barsStackGrow {
+            flex: 1 1 0%;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
         h2 { text-align: center; margin-bottom: 25px; color: var(--text); font-weight: 600; letter-spacing: 0.02em; }
 
@@ -687,12 +704,13 @@
             --total-cell-height: calc((var(--cell-height) + 20px) * var(--bar-scale));
             --bars-gap: 16px;
             --bar-scale: 1;
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
             display: grid;
             grid-template-columns: 1fr;
             gap: calc(var(--bars-gap) * var(--bar-scale));
-            margin: 25px 0 8px;
-            /* Preset/initApp: avoid layout collapse while grid DOM is rebuilt (matches JS allowedHeight ~180–520). */
-            min-height: clamp(252px, 36dvh, 520px);
+            margin: 12px 0 6px;
         }
         .bars-container.many-bars { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .bar {
@@ -1310,7 +1328,7 @@
         @media (max-width: 600px) {
             body {
                 padding: 8px 10px max(6px, env(safe-area-inset-bottom, 0px));
-                align-items: flex-end;
+                align-items: center;
             }
             .app-container {
                 padding: 12px 12px max(6px, env(safe-area-inset-bottom, 0px));
@@ -1650,7 +1668,9 @@
         </nav>
     </div>
 
+    <div id="barsStackGrow" class="bars-stack-grow">
     <div id="barsContainer" class="bars-container"></div>
+    </div>
 
     <div class="action-row">
         <button id="randomModeToggleBtn" class="btn btn-rand btn-icon" onclick="toggleRandomModeFromButton()" title="Random mode"><img src="dice.png" alt="" class="btn-icon-img" width="22" height="22" decoding="async"></button>
@@ -3305,9 +3325,7 @@
         initApp({
             ignorePerBarPulsationsFromSession: true,
             preservePlaybackDuringGridRebuild: wasPlaying,
-            playbackAnchor,
-            /* Full grid rebuild: same smooth DOM path as preset/snapshot (no tryPatch + .cell transition jelly). */
-            forceFullGridRebuild: true
+            playbackAnchor
         });
         saveSessionState();
     }
@@ -3320,45 +3338,54 @@
         setBarScaleForCurrentBarsFromState();
         container.style.setProperty('--bars-count', String(bCount));
         container.classList.toggle('many-bars', bCount >= 6);
-        applyAdaptiveBarHeights(container, bCount);
-        initializeBarStates(p, bCount, options);
-        const patched = tryPatchBarsDomFromBarStates(container, { forceFullGridRebuild: Boolean(options.forceFullGridRebuild) });
-        if (!patched) {
-            renderBars(container);
-        }
-        const tryKeepPlayback = Boolean(options.preservePlaybackDuringGridRebuild && isPlaybackRunning());
-        if (tryKeepPlayback && options.playbackAnchor) {
-            hidePlaybackFatalError();
-            playbackCompletedCycles = 0;
-            cycleBoundaryMutations = 0;
-            resyncPlaybackAfterManualBarPulsation(options.playbackAnchor);
-        } else if (tryKeepPlayback) {
-            hidePlaybackFatalError();
-            playbackCompletedCycles = 0;
-            cycleBoundaryMutations = 0;
-            currentStep = 0;
-            if (audioCtx && nextNoteTime < audioCtx.currentTime) {
-                nextNoteTime = audioCtx.currentTime + 0.05;
+        container.classList.add('bars-dom-patch-suppress-motion');
+        try {
+            initializeBarStates(p, bCount, options);
+            const patched = tryPatchBarsDomFromBarStates(container, { forceFullGridRebuild: Boolean(options.forceFullGridRebuild) });
+            if (!patched) {
+                renderBars(container);
             }
-            lastProcessedUiPaintKey = '';
-            lastInternalPlaybackLogKey = '';
-            document.querySelectorAll('.cell.playing').forEach(c => c.classList.remove('playing'));
-            resetInternalPlaybackIndicators();
-        } else {
-            currentStep = 0;
-            lastFocusedBarIndex = -1;
-            lastProcessedUiPaintKey = '';
-            playbackUiEventSeq = 0;
-            lastAppliedPlaybackUiSeq = 0;
-            lastPaintedPlaybackMeta = null;
-            playbackCompletedCycles = 0;
-            cycleBoundaryMutations = 0;
-            hidePlaybackFatalError();
-            document.querySelectorAll('.cell.playing').forEach(c => c.classList.remove('playing'));
-            resetInternalPlaybackIndicators();
+            const tryKeepPlayback = Boolean(options.preservePlaybackDuringGridRebuild && isPlaybackRunning());
+            if (tryKeepPlayback && options.playbackAnchor) {
+                hidePlaybackFatalError();
+                playbackCompletedCycles = 0;
+                cycleBoundaryMutations = 0;
+                resyncPlaybackAfterManualBarPulsation(options.playbackAnchor);
+            } else if (tryKeepPlayback) {
+                hidePlaybackFatalError();
+                playbackCompletedCycles = 0;
+                cycleBoundaryMutations = 0;
+                currentStep = 0;
+                if (audioCtx && nextNoteTime < audioCtx.currentTime) {
+                    nextNoteTime = audioCtx.currentTime + 0.05;
+                }
+                lastProcessedUiPaintKey = '';
+                lastInternalPlaybackLogKey = '';
+                document.querySelectorAll('.cell.playing').forEach(c => c.classList.remove('playing'));
+                resetInternalPlaybackIndicators();
+            } else {
+                currentStep = 0;
+                lastFocusedBarIndex = -1;
+                lastProcessedUiPaintKey = '';
+                playbackUiEventSeq = 0;
+                lastAppliedPlaybackUiSeq = 0;
+                lastPaintedPlaybackMeta = null;
+                playbackCompletedCycles = 0;
+                cycleBoundaryMutations = 0;
+                hidePlaybackFatalError();
+                document.querySelectorAll('.cell.playing').forEach(c => c.classList.remove('playing'));
+                resetInternalPlaybackIndicators();
+            }
+            rebuildRandomNotesSelect();
+            applyAdaptiveBarHeights(container, bCount);
+            enforceBarsFit(container, bCount);
+        } finally {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    container.classList.remove('bars-dom-patch-suppress-motion');
+                });
+            });
         }
-        rebuildRandomNotesSelect();
-        requestAnimationFrame(() => enforceBarsFit(container, bCount));
         isAppReady = true;
     }
 
@@ -3373,7 +3400,7 @@
             const stateForControls = resolveStateForControls();
             applySessionStateToControls(stateForControls);
             updateBarScaleLabel();
-            initApp({ reloadBarStatesFromSession: true, forceFullGridRebuild: true });
+            initApp({ reloadBarStatesFromSession: true });
             restoreSelectState(stateForControls);
             updateTempoLabel();
             refreshTempoModeUi();
@@ -3722,16 +3749,7 @@
         if (options.forceFullGridRebuild) return false;
         if (!container || !barStates.length) return false;
         if (!domRhythmStructureMatchesBarStates(container, barStates)) return false;
-        container.classList.add('bars-dom-patch-suppress-motion');
-        try {
-            patchBarsDomFromBarStates(container);
-        } finally {
-            requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                    container.classList.remove('bars-dom-patch-suppress-motion');
-                });
-            });
-        }
+        patchBarsDomFromBarStates(container);
         return true;
     }
 
@@ -4192,6 +4210,13 @@
      * Берём короткую сторону screen (стабильнее) и ограничиваем диапазон.
      */
     function getAllowedBarsHeight(container) {
+        const slot = document.getElementById('barsStackGrow');
+        if (slot) {
+            const slotH = Math.floor(slot.getBoundingClientRect().height);
+            if (slotH >= 96) {
+                return Math.max(180, Math.min(520, slotH - 8));
+            }
+        }
         const rect = container.getBoundingClientRect();
         const sh = Number(window.screen?.height);
         const sw = Number(window.screen?.width);
@@ -4253,9 +4278,6 @@
         container.style.setProperty('--bars-gap', `${gap}px`);
         container.style.setProperty('--bar-height', `${barHeight}px`);
         container.style.setProperty('--cell-height', `${cellHeight}px`);
-        // #region agent log
-        fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2e9cf4'},body:JSON.stringify({sessionId:'2e9cf4',runId:'pre-fix-1',hypothesisId:'H2',location:'maja/public/konnakol/index.html:applyAdaptiveBarHeights',message:'Computed adaptive sizes',data:{bCount,allowedHeight,rows,totalHeightFor5,totalHeight,gap,freeHeight,barHeight,cellHeight,innerHeight:window.innerHeight},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
     }
 
     function enforceBarsFit(container, bCount) {
