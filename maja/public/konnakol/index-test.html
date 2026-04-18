@@ -2834,11 +2834,21 @@
             const nextStripped = stripPresetMetaCloneForCompare(snap);
             const prevStripped = stripPresetMetaCloneForCompare(existingParsed);
             if (nextStripped && prevStripped && JSON.stringify(nextStripped) === JSON.stringify(prevStripped)) {
-                if (sourceHasManual) {
+                // Снять «сохранён» (серый) только если активный пресет ещё без ручного снимка; иначе — перезапись с фиолетовым.
+                if (!sourceHasManual) {
+                    delete snap.presetMeta;
+                    persistPresetSlotDualWrite(targetPresetId, JSON.stringify(snap));
+                    showSnapshotSavedToast();
                     refreshPresetNavUi();
                     return;
                 }
                 delete snap.presetMeta;
+                snap.presetMeta = {
+                    preset: parseInt(targetPresetId, 10),
+                    savedAt: Date.now(),
+                    format: 'konnakolMetronomeFullJson_v2',
+                    sourcePreset: parseInt(getCurrentPresetId(), 10)
+                };
                 persistPresetSlotDualWrite(targetPresetId, JSON.stringify(snap));
                 showSnapshotSavedToast();
                 refreshPresetNavUi();
@@ -2847,14 +2857,12 @@
         }
 
         delete snap.presetMeta;
-        if (sourceHasManual || !targetHadManual) {
-            snap.presetMeta = {
-                preset: parseInt(targetPresetId, 10),
-                savedAt: Date.now(),
-                format: 'konnakolMetronomeFullJson_v2',
-                sourcePreset: parseInt(getCurrentPresetId(), 10)
-            };
-        }
+        snap.presetMeta = {
+            preset: parseInt(targetPresetId, 10),
+            savedAt: Date.now(),
+            format: 'konnakolMetronomeFullJson_v2',
+            sourcePreset: parseInt(getCurrentPresetId(), 10)
+        };
         persistPresetSlotDualWrite(targetPresetId, JSON.stringify(snap));
         showSnapshotSavedToast();
         refreshPresetNavUi();
@@ -2896,7 +2904,7 @@
             a.classList.toggle('active', i === getCurrentPresetIndexZero());
             a.dataset.manualSave = saved ? '1' : '0';
             a.title = saved
-                ? `Пресет ${i + 1}: сохранён (удерж. ${msHint}s — перезаписать)`
+                ? `Пресет ${i + 1}: сохранён (удерж. ${msHint}s — перезаписать; стереть «сохранён» можно только с незаполненного активного слота, тем же состоянием)`
                 : `Пресет ${i + 1}: не сохранён · удерж. ${msHint}s — записать`;
             a.setAttribute('aria-label', saved ? `Пресет ${i + 1}, сохранён` : `Пресет ${i + 1}, не сохранён`);
         });
