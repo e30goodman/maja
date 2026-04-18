@@ -267,6 +267,19 @@
             background: rgba(51, 65, 85, 0.55);
             color: var(--text-muted);
             transition: border-color 0.12s ease, background 0.12s ease;
+            -webkit-tap-highlight-color: transparent;
+            outline: none;
+        }
+        #mainSettingsFold > summary:focus:not(:focus-visible),
+        #barScalerFold > summary:focus:not(:focus-visible) {
+            outline: none;
+            box-shadow: none;
+        }
+        #mainSettingsFold > summary:focus-visible,
+        #barScalerFold > summary:focus-visible {
+            outline: 2px solid rgba(167, 139, 250, 0.65);
+            outline-offset: 2px;
+            box-shadow: none;
         }
         #mainSettingsFold > summary:hover,
         #barScalerFold > summary:hover {
@@ -298,6 +311,8 @@
             transform-origin: center;
             image-rendering: pixelated;
             image-rendering: crisp-edges;
+            pointer-events: none;
+            -webkit-tap-highlight-color: transparent;
         }
         #mainSettingsFold > summary .settings-icon {
             display: inline-flex;
@@ -311,6 +326,8 @@
             display: block;
             image-rendering: pixelated;
             image-rendering: crisp-edges;
+            pointer-events: none;
+            -webkit-tap-highlight-color: transparent;
         }
         .settings-fold-content { padding: 14px 14px 6px; }
         .control-group {
@@ -478,6 +495,20 @@
         #tempoControl.control-group {
             margin: 4px 0 8px;
             padding: 4px 8px;
+            -webkit-tap-highlight-color: transparent;
+        }
+        #tempoControl,
+        #tempoControl * {
+            -webkit-tap-highlight-color: transparent;
+        }
+        #tempoControl .bpm-tactile-handle:focus:not(:focus-visible) {
+            outline: none;
+            box-shadow: none;
+        }
+        #tempoControl .bpm-tactile-handle:focus-visible {
+            outline: 2px solid rgba(167, 139, 250, 0.65);
+            outline-offset: 2px;
+            box-shadow: none;
         }
         .tempo-x2-badge {
             color: var(--rose-400);
@@ -2678,10 +2709,6 @@
             }, 280);
         }
 
-        track.addEventListener('pointerdown', (e) => {
-            if (e.button !== undefined && e.button !== 0) return;
-            e.preventDefault();
-        }, { passive: false });
         track.addEventListener('click', (e) => {
             if (e.button !== 0 && e.button !== undefined) return;
             e.stopPropagation();
