@@ -2712,15 +2712,12 @@
         let lastPulseMs = 0;
         let msMode = false;
         let msModeArmTimer = null;
+        let msExitArmTimer = null;
         let lastMsStepAt = 0;
         let lastPanClientX = 0;
-        let msJustArmedRelease = false;
         let msUseAnchoredMsDrag = false;
         let msDragAnchorX = 0;
         let msDragOriginClientX = 0;
-        let msLatchDownAt = 0;
-        let msLatchDownX = 0;
-        let msLatchMoved = false;
 
         function syncTactileAria() {
             syncBpmTactileHandleLabel();
@@ -2748,10 +2745,16 @@
             }
         }
 
+        function clearMsExitArmTimer() {
+            if (msExitArmTimer !== null) {
+                clearTimeout(msExitArmTimer);
+                msExitArmTimer = null;
+            }
+        }
+
         function enterBpmTactileMsMode() {
             if (!dragging || msMode) return;
             msMode = true;
-            msJustArmedRelease = true;
             msUseAnchoredMsDrag = false;
             lastMsStepAt = 0;
             lastPulseMs = 0;
@@ -2772,8 +2775,8 @@
 
         function exitBpmTactileLatchedMsMode() {
             clearMsModeArmTimer();
+            clearMsExitArmTimer();
             msMode = false;
-            msJustArmedRelease = false;
             msUseAnchoredMsDrag = false;
             handle.classList.remove('bpm-tactile-handle--ms-mode');
             if (rafId !== null) {
@@ -2929,6 +2932,7 @@
         function onPointerDown(e) {
             if (e.button !== undefined && e.button !== 0) return;
             clearMsModeArmTimer();
+            clearMsExitArmTimer();
             lastPanClientX = e.clientX;
             dragging = true;
             panPointerId = e.pointerId;
@@ -2936,9 +2940,22 @@
                 msUseAnchoredMsDrag = true;
                 msDragAnchorX = targetX;
                 msDragOriginClientX = e.clientX;
-                msLatchDownAt = Date.now();
-                msLatchDownX = e.clientX;
-                msLatchMoved = false;
+                msExitArmTimer = setTimeout(() => {
+                    msExitArmTimer = null;
+                    if (!msMode || !dragging) return;
+                    const pid = panPointerId;
+                    try {
+                        if (pid !== null && pid !== undefined && handle.hasPointerCapture && handle.hasPointerCapture(pid)) {
+                            handle.releasePointerCapture(pid);
+                        }
+                    } catch (_) {}
+                    dragging = false;
+                    panPointerId = null;
+                    try {
+                        if (navigator.vibrate) navigator.vibrate(14);
+                    } catch (_) {}
+                    exitBpmTactileLatchedMsMode();
+                }, BPM_TACTILE_MS_MODE_ARM_MS);
             } else {
                 msUseAnchoredMsDrag = false;
                 lastMsStepAt = 0;
@@ -2961,7 +2978,6 @@
             lastPanClientX = e.clientX;
             let raw;
             if (msMode) {
-                if (Math.abs(e.clientX - msLatchDownX) > 14) msLatchMoved = true;
                 raw = msUseAnchoredMsDrag
                     ? msDragAnchorX + (e.clientX - msDragOriginClientX)
                     : e.clientX - panStartClientX;
@@ -2977,26 +2993,16 @@
             if (!dragging) return;
             if (e && e.pointerId !== undefined && e.pointerId !== panPointerId) return;
             clearMsModeArmTimer();
+            clearMsExitArmTimer();
             try {
                 if (e && handle.hasPointerCapture && handle.hasPointerCapture(e.pointerId)) {
                     handle.releasePointerCapture(e.pointerId);
                 }
             } catch (_) {}
-            const xUp = e && Number.isFinite(e.clientX) ? e.clientX : lastPanClientX;
             dragging = false;
             panPointerId = null;
 
             if (msMode) {
-                if (msJustArmedRelease) {
-                    msJustArmedRelease = false;
-                } else if (
-                    !msLatchMoved
-                    && Date.now() - msLatchDownAt < 320
-                    && Math.abs(xUp - msLatchDownX) < 14
-                ) {
-                    exitBpmTactileLatchedMsMode();
-                    return;
-                }
                 syncBpmSliderLastStable();
                 hideBpmFloatHud();
                 startTactileRaf();
