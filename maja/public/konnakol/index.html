@@ -2934,8 +2934,6 @@
 
         const T_MIN = 20;
         const T_MAX = 480;
-        /** Сдвиг по X, после которого показываем верхний BPM при перетаскивании ручки. */
-        const BPM_TACTILE_HUD_DRAG_MIN_PX = 28;
         /** Удержание #tapTempoBtn — вкл/выкл Trainer (мс). */
         const BPM_TRAINER_TAP_HOLD_MS = 560;
         const BPM_MS_DEAD_PX = 10;
@@ -2955,8 +2953,6 @@
         let msDragOriginClientX = 0;
         /** Смещение пальца от центра ручки по экрану X (стандартный режим). */
         let dragPointerOffsetX = 0;
-        /** Верхний BPM-чип (#tapTempoBtn) — только при реальном перетаскивании ручки. */
-        let tactileFloatHudShown = false;
         let trainerTapHoldTimer = null;
         let trainerTapHoldPointerId = null;
 

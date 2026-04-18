@@ -2893,8 +2893,6 @@
 
         const T_MIN = 20;
         const T_MAX = 480;
-        /** Сдвиг по X, после которого показываем верхний BPM при перетаскивании ручки. */
-        const BPM_TACTILE_HUD_DRAG_MIN_PX = 28;
         /** Удержание #tapTempoBtn — вкл/выкл Trainer (мс). */
         const BPM_TRAINER_TAP_HOLD_MS = 560;
         const BPM_MS_DEAD_PX = 10;
@@ -2914,8 +2912,6 @@
         let msDragOriginClientX = 0;
         /** Смещение пальца от центра ручки по экрану X (стандартный режим). */
         let dragPointerOffsetX = 0;
-        /** Верхний BPM-чип (#tapTempoBtn) — только при реальном перетаскивании ручки. */
-        let tactileFloatHudShown = false;
         let trainerTapHoldTimer = null;
         let trainerTapHoldPointerId = null;
 
@@ -3023,7 +3019,6 @@
             if (e.button !== undefined && e.button !== 0) return;
             if (e.target === handle || (handle.contains && handle.contains(e.target))) return;
             e.stopPropagation();
-            tactileFloatHudShown = false;
             dragging = true;
             panPointerId = e.pointerId;
             msUseAnchoredMsDrag = false;
@@ -3042,6 +3037,7 @@
             const curBpm = parseInt(bpmSlider.value, 10);
             const baseBpm = Number.isFinite(curBpm) ? Math.max(T_MIN, Math.min(T_MAX, curBpm)) : 100;
             dragPointerOffsetX = e.clientX - knobCenterXForBpm(baseBpm);
+            showBpmFloatHud();
             try {
                 handle.setPointerCapture(e.pointerId);
             } catch (_) {}
@@ -3099,7 +3095,6 @@
 
         function onPointerDown(e) {
             if (e.button !== undefined && e.button !== 0) return;
-            tactileFloatHudShown = false;
             dragging = true;
             panPointerId = e.pointerId;
             if (msMode) {
@@ -3114,6 +3109,7 @@
                 const baseBpm = Number.isFinite(curBpm) ? Math.max(T_MIN, Math.min(T_MAX, curBpm)) : 100;
                 dragPointerOffsetX = e.clientX - knobCenterXForBpm(baseBpm);
             }
+            showBpmFloatHud();
             try {
                 handle.setPointerCapture(e.pointerId);
             } catch (_) {}
@@ -3122,15 +3118,6 @@
 
         function onPointerMove(e) {
             if (!dragging || e.pointerId !== panPointerId) return;
-            if (!tactileFloatHudShown) {
-                const dragPx = msMode
-                    ? (msUseAnchoredMsDrag ? Math.abs(e.clientX - msDragOriginClientX) : Math.abs(e.clientX - panStartClientX))
-                    : Math.abs(e.clientX - panStartClientX);
-                if (dragPx > BPM_TACTILE_HUD_DRAG_MIN_PX) {
-                    tactileFloatHudShown = true;
-                    showBpmFloatHud();
-                }
-            }
             if (msMode) {
                 const raw = msUseAnchoredMsDrag
                     ? msDragAnchorX + (e.clientX - msDragOriginClientX)
