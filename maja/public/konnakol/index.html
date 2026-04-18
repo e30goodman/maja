@@ -410,14 +410,15 @@
         }
         .bpm-tactile-handle-wrap {
             position: absolute;
-            left: 50%;
+            left: 17.3913%;
             top: 50%;
             width: 46px;
             height: 22px;
             margin-top: -11px;
-            margin-left: -23px;
+            margin-left: 0;
             z-index: 2;
-            will-change: transform;
+            will-change: left, transform;
+            transform: translate(-50%, -50%);
         }
         .bpm-tactile-handle {
             width: 46px;
@@ -871,6 +872,9 @@
             box-sizing: border-box;
         }
         .bar {
+            /* Ширина такта → cqi для min(колонка управления, доля ширины), чтобы ритм-сетка не сжималась ниже сибилянтов */
+            container-type: inline-size;
+            container-name: konn-bar;
             --control-stack-gap: calc(6px * var(--bar-scale));
             --syllable-chip: calc((var(--total-cell-height) - var(--control-stack-gap)) / 2);
             display: flex;
@@ -949,7 +953,8 @@
             height: var(--total-cell-height);
             min-height: var(--total-cell-height);
             max-height: var(--total-cell-height);
-            width: var(--syllable-chip);
+            width: min(var(--syllable-chip), clamp(18px, 11cqi, 58px));
+            max-width: min(var(--syllable-chip), clamp(18px, 11cqi, 58px));
         }
         .bar-body .rhythm-grid {
             flex: 1 1 0%;
@@ -1113,6 +1118,8 @@
             box-sizing: border-box;
         }
         .cell {
+            container-type: size;
+            container-name: beat-cell;
             display: flex;
             flex-direction: column;
             flex: 1 1 0;
@@ -1160,7 +1167,11 @@
             outline-offset: 2px;
         }
         .cell small {
-            font-size: calc(clamp(0.55rem, calc(0.74rem - (var(--bars-count) * 0.015rem)), 0.65rem) * var(--bar-scale));
+            box-sizing: border-box;
+            max-width: 100%;
+            overflow: hidden;
+            /* Кегль от реальной ширины/высоты ячейки (10 тактов → узкие cell), не только от --bars-count */
+            font-size: calc(clamp(0.3rem, min(6.8cqi, 15cqb), 0.72rem) * var(--bar-scale));
             margin-bottom: 0;
             font-weight: 600;
             color: var(--text-muted);
@@ -1171,7 +1182,10 @@
             top: 50%;
             transform: translate(-50%, -50%);
             width: 92%;
-            font-size: calc(clamp(0.48rem, calc(0.66rem - (var(--bars-count) * 0.015rem)), 0.58rem) * var(--bar-scale));
+            max-height: 92%;
+            overflow: hidden;
+            word-break: break-word;
+            font-size: calc(clamp(0.28rem, min(5.6cqi, 12cqb), 0.64rem) * var(--bar-scale));
             letter-spacing: 0.02em;
             line-height: 1.05;
             white-space: pre-line;
@@ -1180,7 +1194,8 @@
             pointer-events: none;
         }
         .cell small.subdiv-label.dense {
-            font-size: calc(clamp(0.42rem, calc(0.58rem - (var(--bars-count) * 0.015rem)), 0.5rem) * var(--bar-scale));
+            font-size: calc(clamp(0.26rem, min(4.9cqi, 10cqb), 0.56rem) * var(--bar-scale));
+            line-height: 1.02;
         }
         .cell.rhythm-note-on {
             border-color: var(--violet-500);
@@ -1715,31 +1730,35 @@
                 max-height: var(--total-cell-height);
             }
             .cell small {
-                font-size: calc(0.78rem * var(--bar-scale));
+                font-size: calc(clamp(0.3rem, min(8.2cqi, 17cqb), 0.78rem) * var(--bar-scale));
                 margin-bottom: 0;
                 text-align: center;
                 line-height: 1.1;
                 font-weight: 700;
                 width: 100%;
+                max-width: 100%;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
             }
-            /* Пульсации 7–9: узкие ячейки — без многоточия; меньший кегль (9 плотнее). */
-            .rhythm-grid[data-pulsation="7"] .cell small {
-                font-size: calc(0.58rem * var(--bar-scale));
-                letter-spacing: -0.03em;
+            .cell small.subdiv-label {
+                white-space: pre-line;
                 text-overflow: clip;
+                max-height: 90%;
+                line-height: 1.05;
+            }
+            /* Пульсации 7–9: дополнительно ужимаем буквы (мобильная полоса уже узкая). */
+            .rhythm-grid[data-pulsation="7"] .cell small {
+                letter-spacing: -0.03em;
+                font-size: calc(clamp(0.28rem, min(7.2cqi, 15cqb), 0.72rem) * var(--bar-scale));
             }
             .rhythm-grid[data-pulsation="8"] .cell small {
-                font-size: calc(0.54rem * var(--bar-scale));
                 letter-spacing: -0.04em;
-                text-overflow: clip;
+                font-size: calc(clamp(0.26rem, min(6.6cqi, 14cqb), 0.68rem) * var(--bar-scale));
             }
             .rhythm-grid[data-pulsation="9"] .cell small {
-                font-size: calc(0.5rem * var(--bar-scale));
                 letter-spacing: -0.05em;
-                text-overflow: clip;
+                font-size: calc(clamp(0.25rem, min(6cqi, 13cqb), 0.64rem) * var(--bar-scale));
             }
             .cell.playing {
                 transform: scale(1.03);
@@ -2735,6 +2754,10 @@
         const n = Number.isFinite(v) ? Math.max(20, Math.min(480, v)) : 100;
         label.textContent = String(n);
         if (handle) handle.setAttribute('aria-valuenow', String(n));
+        const wrap = document.getElementById('bpmTactileWrap');
+        if (wrap && typeof wrap._bpmTactileSyncThumbLayout === 'function') {
+            wrap._bpmTactileSyncThumbLayout();
+        }
     }
 
     function refreshTapTempoBpmReadout() {
@@ -2779,7 +2802,7 @@
         if (btn) btn.classList.remove('tap-tempo-btn--showing-bpm');
     }
 
-    /** Тактильный BPM: стандарт — ручка без пружины по X (displayX = targetX); ±1/±5/быстро. Режим «мс» (Trainer) — удержание Tap ~0,6 с. */
+    /** Тактильный BPM: обычный слайдер — ручка по всей длине трека (BPM 20–480). Режим «мс» (Trainer) — удержание Tap ~0,6 с, сдвиг относительно позиции ручки. */
     function setupBpmTactileSlider() {
         const wrap = document.getElementById('bpmTactileWrap');
         const handle = document.getElementById('bpmTactileHandle');
@@ -2792,21 +2815,18 @@
 
         const T_MIN = 20;
         const T_MAX = 480;
-        /** Сдвиг по X, после которого показываем верхний BPM при перетаскивании ручки. */
+        const BPM_RANGE = T_MAX - T_MIN;
         const BPM_TACTILE_HUD_DRAG_MIN_PX = 28;
-        /** Удержание #tapTempoBtn — вкл/выкл Trainer (мс). */
         const BPM_TRAINER_TAP_HOLD_MS = 560;
         const BPM_MS_DEAD_PX = 10;
         const BPM_MS_MAX_X = 110;
         const BPM_MS_INTERVAL_MIN = 250;
         const BPM_MS_INTERVAL_MAX = 1000;
         let targetX = 0;
-        let displayX = 0;
         let rafId = null;
         let dragging = false;
         let panPointerId = null;
         let panStartClientX = 0;
-        let lastPulseMs = 0;
         let msMode = false;
         let lastMsStepAt = 0;
         let lastPanClientX = 0;
@@ -2814,10 +2834,24 @@
         let msUseAnchoredMsDrag = false;
         let msDragAnchorX = 0;
         let msDragOriginClientX = 0;
-        /** Верхний BPM-чип (#tapTempoBtn) — только при реальном перетаскивании ручки. */
         let tactileFloatHudShown = false;
         let trainerTapHoldTimer = null;
         let trainerTapHoldPointerId = null;
+
+        function syncThumbLayout() {
+            const cur = parseInt(bpmSlider.value, 10);
+            const bpm = Number.isFinite(cur) ? Math.max(T_MIN, Math.min(T_MAX, cur)) : 100;
+            const pct = BPM_RANGE > 0 ? (bpm - T_MIN) / BPM_RANGE : 0;
+            handleWrap.style.left = `${pct * 100}%`;
+            if (msMode) {
+                handleWrap.style.transform = `translate(calc(-50% + ${targetX}px), -50%)`;
+            } else {
+                targetX = 0;
+                handleWrap.style.transform = 'translate(-50%, -50%)';
+            }
+        }
+
+        wrap._bpmTactileSyncThumbLayout = syncThumbLayout;
 
         function syncTactileAria() {
             syncBpmTactileHandleLabel();
@@ -2826,15 +2860,7 @@
         function updateTactileHint() {
             if (!hint) return;
             if (msMode) return;
-            const absX = Math.abs(targetX);
-            const sign = targetX > 0 ? 1 : -1;
-            let t = '';
-            if (absX > 12) {
-                if (absX <= 40) t = sign > 0 ? '+1' : '-1';
-                else if (absX <= 75) t = sign > 0 ? '+5' : '-5';
-                else t = sign > 0 ? '>>>' : '<<<';
-            }
-            hint.textContent = t;
+            hint.textContent = '';
             refreshTapTempoBpmReadout();
         }
 
@@ -2843,11 +2869,9 @@
             msMode = true;
             msUseAnchoredMsDrag = false;
             lastMsStepAt = 0;
-            lastPulseMs = 0;
             handle.classList.add('bpm-tactile-handle--ms-mode');
             targetX = 0;
-            displayX = 0;
-            handleWrap.style.transform = 'translate3d(0,0,0)';
+            syncThumbLayout();
             if (hint) {
                 hint.textContent = '';
             }
@@ -2867,16 +2891,13 @@
                 rafId = null;
             }
             targetX = 0;
-            displayX = 0;
-            handleWrap.style.transform = '';
+            syncThumbLayout();
             lastMsStepAt = 0;
-            lastPulseMs = 0;
             if (hint) hint.textContent = '';
             updateTactileHint();
             hideBpmFloatHud();
             syncBpmSliderLastStable();
             syncTactileAria();
-            startTactileRaf();
         }
 
         function applyBpmDelta(sign, amount) {
@@ -2887,63 +2908,20 @@
             bpmSlider.dispatchEvent(new Event('input', { bubbles: true }));
         }
 
-        function playHandleNudgeAnimation(towardSign) {
-            const clsL = 'bpm-tactile-handle--nudge-left';
-            const clsR = 'bpm-tactile-handle--nudge-right';
-            handle.classList.remove(clsL, clsR);
-            void handle.offsetWidth;
-            handle.classList.add(towardSign < 0 ? clsL : clsR);
-            window.setTimeout(() => {
-                handle.classList.remove(clsL, clsR);
-            }, 280);
+        function bpmFromClientX(clientX) {
+            const tr = track.getBoundingClientRect();
+            if (!tr.width) return null;
+            const t = (clientX - tr.left) / tr.width;
+            const clamped = Math.max(0, Math.min(1, t));
+            return Math.round(T_MIN + clamped * BPM_RANGE);
         }
 
-        track.addEventListener('click', (e) => {
-            if (e.button !== 0 && e.button !== undefined) return;
-            e.stopPropagation();
-            const tr = track.getBoundingClientRect();
-            if (!tr.width) return;
-            const relX = (e.clientX - tr.left) / tr.width;
-            if (relX < 0 || relX > 1) return;
-            const sign = relX < 0.5 ? -1 : 1;
-            playHandleNudgeAnimation(sign);
-            applyBpmDelta(sign, 5);
-            syncBpmSliderLastStable();
-            syncTactileAria();
-            try {
-                if (navigator.vibrate) navigator.vibrate(10);
-            } catch (_) {}
-            startTactileRaf();
-        });
-
-        function pulseFromTactileX() {
-            if (msMode) return;
-            const absX = Math.abs(targetX);
-            const sign = targetX > 0 ? 1 : -1;
-            if (absX <= 12) {
-                lastPulseMs = 0;
-                updateTactileHint();
-                return;
-            }
-            let interval = 400;
-            let amount = 1;
-            if (absX <= 40) {
-                interval = 400;
-                amount = 1;
-            } else if (absX <= 75) {
-                interval = 220;
-                amount = 5;
-            } else {
-                interval = 40;
-                amount = 2;
-            }
-            updateTactileHint();
-            const now = Date.now();
-            if (lastPulseMs === 0 || now - lastPulseMs > interval) {
-                applyBpmDelta(sign, amount);
-                lastPulseMs = now;
-                refreshTapTempoBpmReadout();
-            }
+        function applyBpmFromClientX(clientX) {
+            const next = bpmFromClientX(clientX);
+            if (next === null) return;
+            bpmSlider.value = String(next);
+            bpmSlider.dispatchEvent(new Event('input', { bubbles: true }));
+            syncThumbLayout();
         }
 
         function pulseMsMode() {
@@ -2969,51 +2947,45 @@
                 lastMsStepAt = now;
                 refreshTapTempoBpmReadout();
                 syncBpmSliderLastStable();
+                syncThumbLayout();
                 syncTactileAria();
             }
         }
 
         function tickTactile() {
-            if (msMode) {
-                displayX = targetX;
-                handleWrap.style.transform = `translate3d(${displayX}px,0,0)`;
-                pulseMsMode();
-                rafId = requestAnimationFrame(tickTactile);
+            if (!msMode) {
+                rafId = null;
                 return;
             }
-            displayX = targetX;
-            handleWrap.style.transform = `translate3d(${displayX}px,0,0)`;
-            pulseFromTactileX();
-            const moving = dragging || Math.abs(targetX) > 0.02 || Math.abs(displayX) > 0.25;
+            syncThumbLayout();
+            pulseMsMode();
+            const moving = dragging || Math.abs(targetX) > BPM_MS_DEAD_PX + 0.5;
             if (moving) {
                 rafId = requestAnimationFrame(tickTactile);
             } else {
                 rafId = null;
-                displayX = 0;
-                targetX = 0;
-                handleWrap.style.transform = '';
-                lastPulseMs = 0;
-                updateTactileHint();
             }
         }
 
         function startTactileRaf() {
-            if (rafId === null) {
+            if (rafId === null && msMode) {
                 rafId = requestAnimationFrame(tickTactile);
             }
-        }
-
-        function applyResistantPan(rawX) {
-            const sign = rawX > 0 ? 1 : -1;
-            targetX = sign * Math.min(Math.pow(Math.abs(rawX), 0.75) * 4, BPM_MS_MAX_X);
         }
 
         function applyLinearMsPan(rawX) {
             targetX = Math.max(-BPM_MS_MAX_X, Math.min(BPM_MS_MAX_X, rawX));
         }
 
-        function onPointerDown(e) {
-            if (e.button !== undefined && e.button !== 0) return;
+        function releaseWrapCapture(e) {
+            try {
+                if (e && wrap.hasPointerCapture && wrap.hasPointerCapture(e.pointerId)) {
+                    wrap.releasePointerCapture(e.pointerId);
+                }
+            } catch (_) {}
+        }
+
+        function beginDrag(e) {
             tactileFloatHudShown = false;
             lastPanClientX = e.clientX;
             lastPanClientY = e.clientY;
@@ -3029,9 +3001,28 @@
                 panStartClientX = e.clientX;
             }
             try {
-                handle.setPointerCapture(e.pointerId);
+                wrap.setPointerCapture(e.pointerId);
             } catch (_) {}
-            startTactileRaf();
+            if (!msMode && e.currentTarget === track) {
+                applyBpmFromClientX(e.clientX);
+            }
+            if (msMode) {
+                startTactileRaf();
+            }
+        }
+
+        function onHandlePointerDown(e) {
+            if (e.button !== undefined && e.button !== 0) return;
+            beginDrag(e);
+        }
+
+        function onTrackPointerDown(e) {
+            if (e.button !== undefined && e.button !== 0) return;
+            if (e.target === handle || (handle.contains && handle.contains(e.target))) return;
+            beginDrag(e);
+            try {
+                if (navigator.vibrate) navigator.vibrate(8);
+            } catch (_) {}
         }
 
         function onPointerMove(e) {
@@ -3047,27 +3038,21 @@
                     showBpmFloatHud();
                 }
             }
-            let raw;
             if (msMode) {
-                raw = msUseAnchoredMsDrag
+                const raw = msUseAnchoredMsDrag
                     ? msDragAnchorX + (e.clientX - msDragOriginClientX)
                     : e.clientX - panStartClientX;
                 applyLinearMsPan(raw);
+                startTactileRaf();
             } else {
-                raw = e.clientX - panStartClientX;
-                applyResistantPan(raw);
+                applyBpmFromClientX(e.clientX);
             }
-            startTactileRaf();
         }
 
         function onPointerEnd(e) {
             if (!dragging) return;
             if (e && e.pointerId !== undefined && e.pointerId !== panPointerId) return;
-            try {
-                if (e && handle.hasPointerCapture && handle.hasPointerCapture(e.pointerId)) {
-                    handle.releasePointerCapture(e.pointerId);
-                }
-            } catch (_) {}
+            releaseWrapCapture(e);
 
             dragging = false;
             panPointerId = null;
@@ -3079,16 +3064,21 @@
                 return;
             }
 
-            targetX = 0;
             syncBpmSliderLastStable();
             hideBpmFloatHud();
-            startTactileRaf();
+            syncThumbLayout();
         }
 
-        handle.addEventListener('pointerdown', onPointerDown);
-        handle.addEventListener('pointermove', onPointerMove);
-        handle.addEventListener('pointerup', onPointerEnd);
-        handle.addEventListener('pointercancel', onPointerEnd);
+        track.addEventListener('pointerdown', onTrackPointerDown);
+        handle.addEventListener('pointerdown', onHandlePointerDown);
+        wrap.addEventListener('pointermove', onPointerMove);
+        wrap.addEventListener('pointerup', onPointerEnd);
+        wrap.addEventListener('pointercancel', onPointerEnd);
+
+        if (typeof ResizeObserver !== 'undefined') {
+            const ro = new ResizeObserver(() => syncThumbLayout());
+            ro.observe(wrap);
+        }
 
         function clearTrainerTapHoldTimer() {
             if (trainerTapHoldTimer !== null) {
