@@ -452,6 +452,39 @@
             margin: 4px 0 8px;
             padding: 4px 8px;
         }
+        /* Временно: ручная центровка слайдера темпа по Y + localStorage; потом удалить блок и JS. */
+        .tempo-slider-y-dev {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 8px;
+            margin-top: 6px;
+            width: 100%;
+            font-size: 0.72rem;
+            color: var(--text-dim);
+        }
+        .tempo-slider-y-dev-label {
+            flex: 0 0 auto;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+        }
+        .tempo-slider-y-dev input[type="range"] {
+            flex: 1 1 auto;
+            min-width: 0;
+            height: 1.1rem;
+        }
+        .tempo-slider-y-dev-value {
+            flex: 0 0 2.25rem;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+            font-weight: 700;
+            color: var(--text-muted);
+        }
+        .tempo-slider-y-dev-unit {
+            flex: 0 0 auto;
+            color: var(--text-dim);
+            font-size: 0.68rem;
+        }
         .tempo-x2-badge {
             color: var(--rose-400);
             font-weight: 700;
@@ -1381,6 +1414,11 @@
                 margin: 3px 0 6px;
                 padding: 3px 6px;
             }
+            .tempo-slider-y-dev {
+                margin-top: 4px;
+                font-size: 0.66rem;
+                gap: 6px;
+            }
             .bpm-tactile-wrap {
                 height: 2.75rem;
             }
@@ -1669,6 +1707,11 @@
             </div>
             <span id="tempoX2Badge" class="tempo-x2-badge" hidden>x2</span>
         </div>
+        <div class="tempo-slider-y-dev" id="tempoSliderYDevWrap" title="Временно: смещение слайдера темпа по Y. Сохраняется в localStorage (konnakolDev_tempoSliderOffsetYPx).">
+            <span class="tempo-slider-y-dev-label" id="tempoSliderYDevLabel">Tempo Y</span>
+            <input type="range" id="tempoSliderOffsetY" min="-60" max="60" value="0" step="1" oninput="onTempoSliderOffsetYInput()" aria-label="Смещение слайдера темпа по вертикали в пикселях">
+            <span id="tempoSliderOffsetYValue" class="tempo-slider-y-dev-value">0</span><span class="tempo-slider-y-dev-unit" aria-hidden="true">px</span>
+        </div>
         <div class="tempo-readout" hidden aria-hidden="true">
             <small id="bpmValue"></small>
         </div>
@@ -1758,6 +1801,8 @@
     /** Six unique clips; pulsation 8 reuses Ta/Ka from slots 1–2 for beats 5–6 (same buffers in playback). */
     const DICT_SYLLABLES = ['Ta', 'Ka', 'Dhi', 'Mi', 'Dju', 'Na'];
     const customSyllableBuffers = {};
+    /** Временно: смещение #bpmTactileWrap по Y (px), автосохранение в localStorage. */
+    const KONNAKOL_DEV_TEMPO_SLIDER_OFFSET_Y_KEY = 'konnakolDev_tempoSliderOffsetYPx';
     let dictMediaRecorder = null;
     let dictMediaChunks = [];
     let dictMediaStream = null;
@@ -2663,11 +2708,58 @@
         syncTactileAria();
     }
 
+    function clampTempoSliderOffsetYPx(raw) {
+        const n = typeof raw === 'number' ? raw : parseInt(String(raw), 10);
+        if (!Number.isFinite(n)) return 0;
+        return Math.max(-60, Math.min(60, Math.round(n)));
+    }
+
+    function readTempoSliderOffsetYPxFromStorage() {
+        try {
+            return clampTempoSliderOffsetYPx(localStorage.getItem(KONNAKOL_DEV_TEMPO_SLIDER_OFFSET_Y_KEY));
+        } catch (_) {
+            return 0;
+        }
+    }
+
+    function applyTempoSliderOffsetYPx(px) {
+        const wrap = document.getElementById('bpmTactileWrap');
+        if (!wrap) return;
+        const v = clampTempoSliderOffsetYPx(px);
+        if (v === 0) {
+            wrap.style.removeProperty('transform');
+        } else {
+            wrap.style.transform = `translateY(${v}px)`;
+        }
+    }
+
+    function onTempoSliderOffsetYInput() {
+        const input = document.getElementById('tempoSliderOffsetY');
+        const out = document.getElementById('tempoSliderOffsetYValue');
+        const px = clampTempoSliderOffsetYPx(input ? input.value : 0);
+        try {
+            localStorage.setItem(KONNAKOL_DEV_TEMPO_SLIDER_OFFSET_Y_KEY, String(px));
+        } catch (_) {}
+        applyTempoSliderOffsetYPx(px);
+        if (input && String(input.value) !== String(px)) input.value = String(px);
+        if (out) out.textContent = String(px);
+    }
+
+    function initTempoSliderOffsetYDevControl() {
+        const px = readTempoSliderOffsetYPxFromStorage();
+        applyTempoSliderOffsetYPx(px);
+        const input = document.getElementById('tempoSliderOffsetY');
+        const out = document.getElementById('tempoSliderOffsetYValue');
+        if (input) input.value = String(px);
+        if (out) out.textContent = String(px);
+    }
+
     function setupBpmSliderUi() {
         const bpmSlider = document.getElementById('bpm');
         if (!bpmSlider || bpmSlider.dataset.bpmUiSetup === '1') return;
         bpmSlider.dataset.bpmUiSetup = '1';
         syncBpmSliderLastStable();
+        initTempoSliderOffsetYDevControl();
         bpmSlider.addEventListener('input', () => {
             syncBpmSliderLastStable();
             syncBpmTactileHandleLabel();
