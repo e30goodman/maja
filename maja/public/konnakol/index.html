@@ -2713,13 +2713,13 @@
         const T_MIN = 20;
         const T_MAX = 480;
         const SPRING_ALPHA = 0.32;
-        /** Макс. пауза между двумя тапами (отпускание→отпускание). Шире — реже срывается вторая фаза. */
-        const BPM_TACTILE_DOUBLE_TAP_GAP_MS = 520;
-        /** Радиус «тапа» (px): палец + лёгкий сдвиг ручки от пружины не должны сбивать пару. */
-        const BPM_TACTILE_TAP_MAX_MOVE_PX = 56;
-        const BPM_TACTILE_TAP_MAX_DURATION_MS = 580;
-        /** Сдвиг по X, после которого считаем перетаскивание и показываем верхний BPM (не тап). */
-        const BPM_TACTILE_HUD_DRAG_MIN_PX = 14;
+        /** Макс. пауза между двумя тапами (отпускание→отпускание). */
+        const BPM_TACTILE_DOUBLE_TAP_GAP_MS = 900;
+        /** Радиус «тапа» (px) от точки касания — широкий, чтобы пара не срывалась от пружины и дрожи. */
+        const BPM_TACTILE_TAP_MAX_MOVE_PX = 96;
+        const BPM_TACTILE_TAP_MAX_DURATION_MS = 800;
+        /** Сдвиг по X, после которого показываем верхний BPM (реальное перетаскивание, не тап). */
+        const BPM_TACTILE_HUD_DRAG_MIN_PX = 28;
         const BPM_MS_DEAD_PX = 10;
         const BPM_MS_MAX_X = 110;
         const BPM_MS_INTERVAL_MIN = 250;
