@@ -266,6 +266,11 @@ export default function App() {
   const [isPanelExpanded, setIsPanelExpanded] = useState(true);
   const holdTimerRef = useRef<number | null>(null);
   const isHoldingRef = useRef(false);
+  /** Long-press square (syllable playback): mute all clicks + cyan ring while held. */
+  const squareHoldTimerRef = useRef<number | null>(null);
+  const syllableReadMuteRef = useRef(false);
+  const squareHoldAteClickRef = useRef(false);
+  const [syllableReadMuteHoldUi, setSyllableReadMuteHoldUi] = useState(false);
   const tapTimesRef = useRef<number[]>([]);
 
   const handleTap = () => {
@@ -565,6 +570,11 @@ export default function App() {
   useEffect(() => {
     return () => {
       if (timerIDRef.current) clearTimeout(timerIDRef.current);
+      if (squareHoldTimerRef.current !== null) {
+        window.clearTimeout(squareHoldTimerRef.current);
+        squareHoldTimerRef.current = null;
+      }
+      syllableReadMuteRef.current = false;
       if (audioCtxRef.current) audioCtxRef.current.close().catch(() => {});
     };
   }, []);
@@ -741,17 +751,20 @@ export default function App() {
     const stepDuration = 60.0 / effectiveBpm;
     const subDuration = stepDuration / subdivs;
 
+    const readOnlyMute = syllableReadMuteRef.current;
     for (let sub = 0; sub < subdivs; sub++) {
       const subTime = time + sub * subDuration;
       const isFirstOfBar = cIdx === 0 && sub === 0;
-      
-      if (isFirstOfBar && firstBeatAccentRef.current) {
-        playBarFirstHighClick(audioCtxRef.current, subTime, clickSoundRef.current);
-      }
 
-      const shouldPlayBeat = !onlyAccentsRef.current || isAccent;
-      if (shouldPlayBeat) {
-        playSharpClick(audioCtxRef.current, subTime, isAccent && sub === 0, clickSoundRef.current);
+      if (!readOnlyMute) {
+        if (isFirstOfBar && firstBeatAccentRef.current) {
+          playBarFirstHighClick(audioCtxRef.current, subTime, clickSoundRef.current);
+        }
+
+        const shouldPlayBeat = !onlyAccentsRef.current || isAccent;
+        if (shouldPlayBeat) {
+          playSharpClick(audioCtxRef.current, subTime, isAccent && sub === 0, clickSoundRef.current);
+        }
       }
     }
 
@@ -779,6 +792,13 @@ export default function App() {
       setActivePos({ r: -1, c: -1, absR: -1 });
       currentStepRef.current = 0; // Reset pattern position to start
       if (timerIDRef.current) clearTimeout(timerIDRef.current);
+      if (squareHoldTimerRef.current !== null) {
+        window.clearTimeout(squareHoldTimerRef.current);
+        squareHoldTimerRef.current = null;
+      }
+      syllableReadMuteRef.current = false;
+      setSyllableReadMuteHoldUi(false);
+      squareHoldAteClickRef.current = false;
     } else {
       setIsPlaying(true);
       isPlayingRef.current = true;
@@ -1366,17 +1386,68 @@ export default function App() {
             <span className="font-bold text-[22px] tracking-wide">Ta</span>
           </button>
 
-          {/* All beats vs accent-only (square): purple = accent-only, gray = full grid audible */}
+          {/* All beats vs accent-only (square): purple = accent-only, gray = full grid; long-press = read-only mute + ring */}
           <button 
-            onClick={() => setOnlyAccents(!onlyAccents)}
+            onPointerDown={() => {
+              squareHoldAteClickRef.current = false;
+              if (squareHoldTimerRef.current !== null) {
+                window.clearTimeout(squareHoldTimerRef.current);
+                squareHoldTimerRef.current = null;
+              }
+              squareHoldTimerRef.current = window.setTimeout(() => {
+                squareHoldTimerRef.current = null;
+                syllableReadMuteRef.current = true;
+                squareHoldAteClickRef.current = true;
+                setSyllableReadMuteHoldUi(true);
+              }, 400);
+            }}
+            onPointerUp={() => {
+              if (squareHoldTimerRef.current !== null) {
+                window.clearTimeout(squareHoldTimerRef.current);
+                squareHoldTimerRef.current = null;
+              }
+              syllableReadMuteRef.current = false;
+              setSyllableReadMuteHoldUi(false);
+            }}
+            onPointerLeave={() => {
+              if (squareHoldTimerRef.current !== null) {
+                window.clearTimeout(squareHoldTimerRef.current);
+                squareHoldTimerRef.current = null;
+              }
+              syllableReadMuteRef.current = false;
+              setSyllableReadMuteHoldUi(false);
+            }}
+            onPointerCancel={() => {
+              if (squareHoldTimerRef.current !== null) {
+                window.clearTimeout(squareHoldTimerRef.current);
+                squareHoldTimerRef.current = null;
+              }
+              syllableReadMuteRef.current = false;
+              setSyllableReadMuteHoldUi(false);
+            }}
+            onClick={() => {
+              if (squareHoldAteClickRef.current) {
+                squareHoldAteClickRef.current = false;
+                return;
+              }
+              setOnlyAccents(!onlyAccents);
+            }}
             onContextMenu={(e) => e.preventDefault()}
             className={`flex-1 rounded-xl flex justify-center items-center transition-all touch-none select-none relative ${
-              onlyAccents
-                ? 'bg-purple-700/30 hover:bg-purple-700/40 active:bg-purple-700/20 text-purple-200 border border-purple-500/40' 
-                : 'bg-[#161f33] border border-[#23314f] hover:bg-[#1a253c] active:bg-[#131b2c] text-slate-400 hover:text-slate-200'
+              syllableReadMuteHoldUi
+                ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-[#0b101e] border border-cyan-500/60'
+                : onlyAccents
+                  ? 'bg-purple-700/30 hover:bg-purple-700/40 active:bg-purple-700/20 text-purple-200 border border-purple-500/40'
+                  : 'bg-[#161f33] border border-[#23314f] hover:bg-[#1a253c] active:bg-[#131b2c] text-slate-400 hover:text-slate-200'
             }`}
             type="button"
-            aria-label={onlyAccents ? 'Accent-only playback' : 'Play all beats'}
+            aria-label={
+              syllableReadMuteHoldUi
+                ? 'Read-only: sound muted (release)'
+                : onlyAccents
+                  ? 'Accent-only playback'
+                  : 'Play all beats'
+            }
           >
             <span
               className={`block w-6 h-6 rounded-sm border-2 border-current transition-all duration-300 ${
