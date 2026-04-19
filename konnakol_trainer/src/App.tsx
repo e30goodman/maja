@@ -1850,18 +1850,11 @@ export default function App() {
                     activeEditRow === rIdx
                       ? 'ring-2 ring-purple-500 shadow-purple-500/30'
                       : pulseMeterUnlinked[rIdx]
-                        ? 'ring-1 ring-amber-400/90 shadow-[inset_0_0_0_1px_rgba(251,191,36,0.2)]'
+                        ? 'ring-1 ring-emerald-400/90 border-emerald-500/45 shadow-[0_0_14px_rgba(16,185,129,0.28)]'
                         : ''
                   }`}
                 >
-                  <span className="relative flex flex-col items-center leading-none">
-                    {pulseMeterUnlinked[rIdx] ? (
-                      <span className="absolute -top-1.5 text-[6px] font-black uppercase tracking-tighter text-amber-300/90">
-                        4
-                      </span>
-                    ) : null}
-                    {rowSylls}
-                  </span>
+                  {rowSylls}
                 </button>
               </div>
 
