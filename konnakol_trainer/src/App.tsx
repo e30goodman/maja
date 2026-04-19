@@ -636,10 +636,17 @@ export default function App() {
   };
 
   const clearSequencer = () => {
-    setAccents(new Set());
+    const emptyAcc = new Set<string>();
+    setAccents(emptyAcc);
+    accentsRef.current = emptyAcc;
+    setSyllables(PULSE_METER_BASE_SYLLABLES);
+    syllablesRef.current = PULSE_METER_BASE_SYLLABLES;
     setCustomSyllables({});
+    customSyllablesRef.current = {};
     setCustomMultipliers({});
+    customMultipliersRef.current = {};
     setCustomSubdivisions({});
+    customSubdivisionsRef.current = {};
   };
 
   const toggleRandomFeature = (feature: 'pulsation' | 'pattern' | 'speed' | 'barSpeed') => {
