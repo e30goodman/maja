@@ -1799,7 +1799,7 @@ export default function App() {
     const stepDuration = 60.0 / effectiveBpm;
     const subDuration = stepDuration / subdivs;
 
-    /** Long-press квадрата: `full` — без щелчков по сетке; `no_accent_sharp` — без главного щелчка на акценте, пассивы играют. */
+    /** Long-press квадрата: `full` — тишина по сетке; `no_accent_sharp` — акцентные доли со звуком пассивных. */
     const muteMode = syllableReadMuteModeRef.current;
     for (let sub = 0; sub < subdivs; sub++) {
       const subTime = time + sub * subDuration;
@@ -1813,19 +1813,20 @@ export default function App() {
       if (muteMode === 'full') {
         continue;
       }
-      if (muteMode === 'no_accent_sharp' && mainAccentClick) {
+      const shouldPlayBeat = !onlyAccentsRef.current || isAccent;
+      if (!shouldPlayBeat) {
         continue;
       }
-      const shouldPlayBeat = !onlyAccentsRef.current || isAccent;
-      if (shouldPlayBeat) {
-        playSharpClick(
-          audioCtxRef.current,
-          subTime,
-          mainAccentClick,
-          clickSoundRef.current,
-          onlyAccentsRef.current,
-        );
-      }
+      /** В `no_accent_sharp` главный щелчок на акцентной клетке — тембр пассивной доли (`isChecked` false). */
+      const sharpAsChecked =
+        muteMode === 'no_accent_sharp' && mainAccentClick ? false : mainAccentClick;
+      playSharpClick(
+        audioCtxRef.current,
+        subTime,
+        sharpAsChecked,
+        clickSoundRef.current,
+        onlyAccentsRef.current,
+      );
     }
 
     insertPlayheadSorted(playheadQueueRef.current, {
@@ -2487,10 +2488,10 @@ export default function App() {
               syllableReadMuteMode === 'full'
                 ? 'Тишина по щелчкам сетки (вкл. только акценты). Долгое — выключить'
                 : syllableReadMuteMode === 'no_accent_sharp'
-                  ? 'Пассивные доли звучат, акцентные нет. Долгое — выключить'
+                  ? 'Пассивные как обычно; на акцентах звук как у пассивных. Долгое — выключить'
                   : onlyAccents
                     ? 'Только выделенные доли; долгое при вкл. — полная тишина по сетке'
-                    : 'Все доли; долгое без вкл. только акценты — без щелчков на акцентах'
+                    : 'Все доли; долгое без «только акценты» — акценты со звуком пассивных'
             }
           >
             <span
