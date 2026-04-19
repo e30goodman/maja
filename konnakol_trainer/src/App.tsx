@@ -1,5 +1,17 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Settings, Minus, Plus, Dices, Play, Snowflake, ChevronUp, ChevronDown, Eraser } from 'lucide-react';
+import {
+	Settings,
+	Minus,
+	Plus,
+	Dices,
+	Play,
+	Snowflake,
+	ChevronUp,
+	ChevronDown,
+	Eraser,
+	Copy,
+	ClipboardPaste,
+} from 'lucide-react';
 
 const KONNAKOL_PYRAMID: Record<number, string[]> = {
   1: ["Ta"],
@@ -86,7 +98,8 @@ const SNAPSHOT_STORAGE_KEY = 'konnakolTrainerSnapshotsV1';
 const METRONOME_CONFIG_PREFIX = 'METRONOME_CONFIG:';
 /** Старые ссылки с чистым JSON после двоеточия — по-прежнему читаем. */
 const SNAPSHOT_CLIPBOARD_PREFIX_LEGACY = 'konnakolTrainerSnapshotV1:';
-const SNAPSHOT_HOLD_MS = 800;
+/** Удержание слота — открыть меню Copy / Paste. */
+const SNAPSHOT_MENU_HOLD_MS = 520;
 
 function utf8ToBase64Json(json: string): string {
 	const bytes = new TextEncoder().encode(json);
@@ -440,6 +453,12 @@ export default function App() {
   const snapshotHoldTimerRef = useRef<number | null>(null);
   const snapshotHoldSlotRef = useRef<number | null>(null);
   const snapshotHoldAteClickRef = useRef(false);
+  const snapshotSlotButtonRefs = useRef<Record<number, HTMLButtonElement | null>>({});
+  const [snapshotClipMenu, setSnapshotClipMenu] = useState<{
+    slot: number;
+    x: number;
+    y: number;
+  } | null>(null);
 
   const persistSnapshotsTimerRef = useRef<number | null>(null);
   const clipboardToastTimerRef = useRef<number | null>(null);
@@ -593,6 +612,38 @@ export default function App() {
     panelExpanded: isPanelExpandedRef.current,
   });
 
+  const getSnapshotPayloadForSlotExport = (slot: number): ReturnType<typeof createEmptySnapshot> => {
+    if (activeSnapshotRef.current === slot) {
+      return buildLiveSnapshotFromRefs();
+    }
+    const raw = snapshotsRef.current[slot] ?? createEmptySnapshot();
+    const acc = raw.accents;
+    const accentsArr =
+      acc instanceof Set
+        ? [...acc]
+        : Array.isArray(acc)
+          ? acc.filter((x): x is string => typeof x === 'string')
+          : [];
+    return parseSnapshotRow({
+      tempo: raw.tempo,
+      bars: raw.bars,
+      syllables: raw.syllables,
+      accents: accentsArr,
+      sequencerCells: raw.sequencerCells,
+      customSyllables: raw.customSyllables,
+      customMultipliers: raw.customMultipliers,
+      customSubdivisions: raw.customSubdivisions,
+      randomModeEnabled: raw.randomModeEnabled,
+      randomPulsation: raw.randomPulsation,
+      randomPattern: raw.randomPattern,
+      randomSpeed: raw.randomSpeed,
+      randomBarSpeed: raw.randomBarSpeed,
+      chaosLevel: raw.chaosLevel,
+      clickSound: raw.clickSound,
+      panelExpanded: raw.panelExpanded,
+    });
+  };
+
   /** All pattern rows fit in the phone frame: no virtual strip, no playhead autoscroll. */
   const allBarsFitViewport = frozenScale === null && bars <= 10;
 
@@ -741,36 +792,71 @@ export default function App() {
     panelExpanded: s.panelExpanded === true,
   });
 
-  /** Smart Snapshot: сначала readText; валидный METRONOME_CONFIG (или legacy) → применить; иначе → копировать живое состояние. */
-  const runSnapshotSlotHold = async (slot: number) => {
+  const closeSnapshotClipMenu = () => setSnapshotClipMenu(null);
+
+  const copySnapshotSlotToClipboard = async (slot: number) => {
+    try {
+      const payload = getSnapshotPayloadForSlotExport(slot);
+      await navigator.clipboard.writeText(encodeSnapshotClipboard(payload));
+      showClipboardToast('Настройки скопированы в буфер!');
+      closeSnapshotClipMenu();
+    } catch (e) {
+      console.warn('[konnakol_trainer] clipboard write failed', e);
+      showClipboardToast('Не удалось записать в буфер обмена');
+      closeSnapshotClipMenu();
+    }
+  };
+
+  const pasteSnapshotFromClipboard = async (slot: number) => {
     let text = '';
     try {
       text = await navigator.clipboard.readText();
     } catch (e) {
       console.warn('[konnakol_trainer] clipboard read failed', e);
+      showClipboardToast('Нет доступа к буферу обмена');
+      closeSnapshotClipMenu();
+      return;
     }
     const parsed = tryDecodeSnapshotClipboard(text);
-    if (parsed) {
-      try {
-        const stored = normalizeSnapshotForStorage(parsed);
-        setActiveSnapshot(slot);
-        applySnapshotDataToUi(stored, { preservePanel: true });
-        showClipboardToast('Пресет применен!');
-      } catch (e) {
-        console.warn('[konnakol_trainer] apply preset failed', e);
-        showClipboardToast('Не удалось применить пресет');
-      }
+    if (!parsed) {
+      showClipboardToast('В буфере нет пресета METRONOME_CONFIG');
+      closeSnapshotClipMenu();
       return;
     }
     try {
-      const payload = buildLiveSnapshotFromRefs();
-      await navigator.clipboard.writeText(encodeSnapshotClipboard(payload));
-      showClipboardToast('Настройки скопированы в буфер!');
+      const stored = normalizeSnapshotForStorage(parsed);
+      setActiveSnapshot(slot);
+      applySnapshotDataToUi(stored, { preservePanel: true });
+      showClipboardToast('Пресет применен!');
     } catch (e) {
-      console.warn('[konnakol_trainer] clipboard write failed', e);
-      showClipboardToast('Не удалось записать в буфер обмена');
+      console.warn('[konnakol_trainer] apply preset failed', e);
+      showClipboardToast('Не удалось применить пресет');
     }
+    closeSnapshotClipMenu();
   };
+
+  const openSnapshotClipMenu = (slot: number) => {
+    const el = snapshotSlotButtonRefs.current[slot];
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const margin = 52;
+    const x = Math.min(window.innerWidth - margin, Math.max(margin, cx));
+    setSnapshotClipMenu({
+      slot,
+      x,
+      y: r.bottom + 8,
+    });
+  };
+
+  useEffect(() => {
+    if (!snapshotClipMenu) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSnapshotClipMenu(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [snapshotClipMenu]);
 
   // Ensure currentStepRef bounds are respected if grid shrinks
   useEffect(() => {
@@ -1354,7 +1440,10 @@ export default function App() {
                           <button
                             key={num}
                             type="button"
-                            title="Коротко: выбрать слот. Удержание ~0.8 с: Smart Snapshot — если в буфере METRONOME_CONFIG, применить пресет; иначе скопировать текущие настройки"
+                            ref={(el) => {
+                              snapshotSlotButtonRefs.current[num] = el;
+                            }}
+                            title="Коротко: выбрать слот. Удержание: меню копировать / вставить пресет"
                             className={`w-8 h-8 flex items-center justify-center rounded-full text-[13px] font-bold transition-all touch-none select-none ${
                               isActive
                                 ? 'bg-[#1e2a45] text-white shadow-sm ring-1 ring-[#3a5080] scale-110'
@@ -1362,13 +1451,7 @@ export default function App() {
                                   ? 'text-slate-300 bg-[#1e2a45]/30 hover:bg-[#1e2a45]/60 hover:text-white'
                                   : 'text-slate-600 hover:text-slate-400'
                             }`}
-                            onPointerDown={(e) => {
-                              const el = e.currentTarget;
-                              try {
-                                el.setPointerCapture(e.pointerId);
-                              } catch {
-                                /* ignore */
-                              }
+                            onPointerDown={() => {
                               snapshotHoldAteClickRef.current = false;
                               snapshotHoldSlotRef.current = num;
                               if (snapshotHoldTimerRef.current !== null) {
@@ -1381,43 +1464,16 @@ export default function App() {
                                 snapshotHoldSlotRef.current = null;
                                 if (s == null) return;
                                 snapshotHoldAteClickRef.current = true;
-                                void runSnapshotSlotHold(s);
-                              }, SNAPSHOT_HOLD_MS);
+                                openSnapshotClipMenu(s);
+                              }, SNAPSHOT_MENU_HOLD_MS);
                             }}
-                            onPointerUp={(e) => {
-                              try {
-                                if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-                                  e.currentTarget.releasePointerCapture(e.pointerId);
-                                }
-                              } catch {
-                                /* ignore */
-                              }
+                            onPointerUp={() => {
                               if (snapshotHoldTimerRef.current !== null) {
                                 window.clearTimeout(snapshotHoldTimerRef.current);
                                 snapshotHoldTimerRef.current = null;
                               }
                             }}
-                            onPointerLeave={(e) => {
-                              try {
-                                if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-                                  e.currentTarget.releasePointerCapture(e.pointerId);
-                                }
-                              } catch {
-                                /* ignore */
-                              }
-                              if (snapshotHoldTimerRef.current !== null) {
-                                window.clearTimeout(snapshotHoldTimerRef.current);
-                                snapshotHoldTimerRef.current = null;
-                              }
-                            }}
-                            onPointerCancel={(e) => {
-                              try {
-                                if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-                                  e.currentTarget.releasePointerCapture(e.pointerId);
-                                }
-                              } catch {
-                                /* ignore */
-                              }
+                            onPointerCancel={() => {
                               if (snapshotHoldTimerRef.current !== null) {
                                 window.clearTimeout(snapshotHoldTimerRef.current);
                                 snapshotHoldTimerRef.current = null;
@@ -1881,6 +1937,48 @@ export default function App() {
         </div>
 
       </div>
+
+      {snapshotClipMenu ? (
+        <>
+          <div
+            className="fixed inset-0 z-[200] bg-black/50 backdrop-blur-[1px]"
+            aria-hidden
+            onPointerDown={closeSnapshotClipMenu}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Пресет: копировать или вставить"
+            className="fixed z-[201] flex items-center gap-1 rounded-xl border border-[#2f4066] bg-[#161f33] p-1.5 shadow-2xl ring-1 ring-black/30"
+            style={{
+              left: snapshotClipMenu.x,
+              top: snapshotClipMenu.y,
+              transform: 'translate(-50%, 0)',
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#23314f] text-slate-200 transition-colors hover:bg-[#2c3d63] active:bg-[#1b253b] ring-1 ring-[#2f4066]/40"
+              title="Копировать пресет слота в буфер"
+              aria-label="Копировать пресет слота в буфер"
+              onClick={() => void copySnapshotSlotToClipboard(snapshotClipMenu.slot)}
+            >
+              <Copy size={20} strokeWidth={2.25} />
+            </button>
+            <div className="h-8 w-px shrink-0 bg-[#2f4066]/70" aria-hidden />
+            <button
+              type="button"
+              className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#23314f] text-slate-200 transition-colors hover:bg-[#2c3d63] active:bg-[#1b253b] ring-1 ring-[#2f4066]/40"
+              title="Вставить пресет из буфера в слот"
+              aria-label="Вставить пресет из буфера в слот"
+              onClick={() => void pasteSnapshotFromClipboard(snapshotClipMenu.slot)}
+            >
+              <ClipboardPaste size={20} strokeWidth={2.25} />
+            </button>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
