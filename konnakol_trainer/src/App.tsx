@@ -127,11 +127,12 @@ function normalizeSyllableReadMuteModeFromSnapshot(modeRaw: unknown, legacyLatch
 	return 'off';
 }
 
-/** Long-press по клетке: три скорости Ta (1) → Ta Ka (2) → Ta Ka Dhi Mi (4) → снова Ta. */
+/** Long-press по клетке: Ta (1) → Ta Ka (2) → триоль Ta Ki Ta (3) → Ta Ka Dhi Mi (4) → снова Ta. */
 function nextSubdivLongPress(current: number): number {
 	const c = current >= 1 && current <= 9 ? current : 1;
 	if (c === 1) return 2;
-	if (c === 2) return 4;
+	if (c === 2) return 3;
+	if (c === 3) return 4;
 	if (c === 4) return 1;
 	return 2;
 }
