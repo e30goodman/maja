@@ -1206,7 +1206,7 @@ export default function App() {
                   className={`overflow-hidden flex flex-col transition-all duration-300 ${isPanelExpanded ? 'px-2.5 pb-2 pt-0' : 'px-2.5 py-0'}`}
                 >
                   <div className="flex flex-col">
-                    <div className="flex justify-between items-center px-1">
+                    <div className="flex justify-between items-center px-1 translate-y-[3px]">
                       {[1, 2, 3, 4, 5, 6, 7].map((num) => {
                         const isActive = activeSnapshot === num;
                         const hasData =
