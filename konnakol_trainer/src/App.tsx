@@ -25,6 +25,30 @@ const KONNAKOL_PYRAMID: Record<number, string[]> = {
   9: ["Ta", "Ka", "Dhi", "Mi", "Ta", "Ka", "Ta", "Ki", "Ta"]
 };
 
+/** Подписи долей в ряду: как в maja `computeBarRhythmCellPresentations` — не подряд два одинаковых слога (кроме последней доли такта). */
+function buildRowDisplaySyllables(rowSyllCount: number): string[] {
+	const seq = KONNAKOL_PYRAMID[rowSyllCount] ?? KONNAKOL_PYRAMID[1]!;
+	const out: string[] = [];
+	let lastDisplayed: string | null = null;
+	for (let i = 0; i < rowSyllCount; i++) {
+		if (seq.length === 0) {
+			out.push('Ta');
+			lastDisplayed = 'Ta';
+			continue;
+		}
+		const defaultStart = i % seq.length;
+		let displayStart = defaultStart;
+		const isLastBeatInBar = i === rowSyllCount - 1;
+		if (!isLastBeatInBar && lastDisplayed != null && seq[defaultStart] === lastDisplayed) {
+			displayStart = (defaultStart - 1 + seq.length) % seq.length;
+		}
+		const text = seq[displayStart] ?? 'Ta';
+		out.push(text);
+		lastDisplayed = text;
+	}
+	return out;
+}
+
 const CHAOS_SLIDER_MAX = 100;
 /** При «отвязке» пульса от числа долей такта длительность шага считается как при 4 долях (квартальная сетка). */
 const PULSE_METER_BASE_SYLLABLES = 4;
@@ -1761,6 +1785,7 @@ export default function App() {
           }).map((_, absR) => {
             const rIdx = absR % bars;
             const rowSylls = customSyllables[rIdx] !== undefined ? customSyllables[rIdx] : syllables;
+            const rowSyllLabels = buildRowDisplaySyllables(rowSylls);
             const rowMult = customMultipliers[rIdx] || 1;
             const effectiveUseFixedFlex =
               useFixedFlex || (isPlaying && !allBarsFitViewport);
@@ -1936,7 +1961,9 @@ export default function App() {
                               (isActive || isAccent) ? 'drop-shadow-md' : 'text-slate-300'
                             } ${subdivs > 1 ? 'border-[0.5px] border-[#2f4066]/50' : ''}`}
                           >
-                            {subdivs > 1 ? (KONNAKOL_PYRAMID[subdivs]?.[i] || "Ta") : (KONNAKOL_PYRAMID[rowSylls]?.[cIdx] || "Ta")}
+                            {subdivs > 1
+                              ? KONNAKOL_PYRAMID[subdivs]?.[i] || 'Ta'
+                              : rowSyllLabels[cIdx] ?? 'Ta'}
                           </span>
                         ))}
                       </div>
