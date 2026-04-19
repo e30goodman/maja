@@ -117,18 +117,10 @@ function normalizeSyllableReadMuteModeFromSnapshot(modeRaw: unknown, legacyLatch
 	return 'off';
 }
 
-/** Long-press по клетке: 1…9 только при развёрнутой основной панели (Bars+Syllbs); иначе — только 1, 2, 4. */
-function nextSubdivLongPress(current: number, allowFullSubdivRange: boolean): number {
-	if (allowFullSubdivRange) {
-		const c = current >= 1 && current <= 9 ? current : 1;
-		return c >= 9 ? 1 : c + 1;
-	}
+/** Long-press по клетке: всегда только Ta Ka (2) ↔ Ta Ka Dhi Mi (4), независимо от панели слайдеров. */
+function nextSubdivLongPress(current: number): number {
 	const c = current >= 1 && current <= 9 ? current : 1;
-	if (c === 1) return 2;
-	if (c === 2) return 4;
-	if (c === 4) return 1;
-	if (c === 3) return 4;
-	return 2;
+	return c === 2 ? 4 : 2;
 }
 
 function normalizePulseMeterUnlinked(raw: unknown): Record<number, boolean> {
@@ -859,10 +851,7 @@ const SequencerGridRow = React.memo(
 										a.isHoldingRef.current = true;
 										a.setCustomSubdivisions((prev) => {
 											const current = prev[checkKey] || 1;
-											const next = nextSubdivLongPress(
-												current,
-												a.isPanelExpandedRef.current && !a.showRandomSettingsRef.current,
-											);
+											const next = nextSubdivLongPress(current);
 											return { ...prev, [checkKey]: next };
 										});
 										if (a.isPanelExpandedRef.current && !a.showRandomSettingsRef.current) {
