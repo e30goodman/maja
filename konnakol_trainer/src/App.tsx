@@ -49,12 +49,14 @@ function normalizePulseMeterUnlinked(raw: unknown): Record<number, boolean> {
 	}
 	return out;
 }
-/** Random pulsation: пул по chaos; Ta (1) с сильно пониженным весом относительно 2–9. */
+/** Random pulsation: пул по chaos; пульсации 1 и 2 (Ta) с сильно пониженным весом к 3–9. */
 const RANDOM_PULSE_POOL_LE_30 = [1, 2, 3, 4, 5] as const;
 const RANDOM_PULSE_POOL_LE_70 = [1, 2, 3, 4, 5, 6, 7] as const;
 const RANDOM_PULSE_POOL_FULL = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
-/** Вес «1» vs вес каждого из остальных (=1). ~0.06 → P(Ta) порядка 1–2% в полном пуле. */
-const RANDOM_PULSE_TA_WEIGHT = 0.06;
+/** Вес пульсации 1 vs остальные (=1), кроме 2 — отдельно. */
+const RANDOM_PULSE_1_WEIGHT = 0.06;
+/** Вес пульсации 2 (Ta): как у 1 — редко относительно 3–9. */
+const RANDOM_PULSE_2_WEIGHT = 0.06;
 
 function pickRandomPulsationMeter(chaos: number): number {
 	const c = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
@@ -63,7 +65,7 @@ function pickRandomPulsationMeter(chaos: number): number {
 	let sum = 0;
 	const w: number[] = [];
 	for (const v of pool) {
-		const wi = v === 1 ? RANDOM_PULSE_TA_WEIGHT : 1;
+		const wi = v === 1 ? RANDOM_PULSE_1_WEIGHT : v === 2 ? RANDOM_PULSE_2_WEIGHT : 1;
 		w.push(wi);
 		sum += wi;
 	}
@@ -84,7 +86,7 @@ function accentFillRatioFromChaos(c: number): number {
 	return 0.75 + (x - 75) * (0.15 / 25);
 }
 
-/** Random pulsation (длина такта / поддоли): chaos≤30 → 1–5; 31–70 → 1–7; >70 → 1–9; единица редкая. */
+/** Random pulsation (длина такта / поддоли): chaos≤30 → 1–5; 31–70 → 1–7; >70 → 1–9; 1 и 2 редки. */
 function pickWeightedMeter2to9(chaos: number): number {
 	return pickRandomPulsationMeter(chaos);
 }
