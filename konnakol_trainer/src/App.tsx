@@ -667,6 +667,8 @@ export default function App() {
   };
 
   const clearSequencer = () => {
+    setActiveEditCell(null);
+    setActiveEditRow(null);
     const defaults = createEmptySnapshot();
     const emptyAcc = new Set<string>();
     setAccents(emptyAcc);
