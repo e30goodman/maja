@@ -29,6 +29,7 @@ const KONNAKOL_PYRAMID: Record<number, string[]> = {
  * Подписи по клеткам: при **subdivs === 1** — паттерн такта + anti-repeat по хвосту (как в legacy).
  * При **subdivs > 1** — только фиксированная пирамида по числу поддолей (`Ta Ka`, `Ta Ka Dhi Mi`, …),
  * логика сдвига по такту **не** влияет на разбивку клетки.
+ * После клетки **4** (Ta Ka Dhi Mi → хвост Mi) следующая клетка с **subdivs === 1** не показывает одну Mi — сразу **Ta**.
  */
 function buildRowCellSyllableLabels(
 	rowSyllCount: number,
@@ -45,6 +46,8 @@ function buildRowCellSyllableLabels(
 	}
 
 	let lastTail: string | null = null;
+	/** Предыдущая клетка была именно 4 поддоли (Ta Ka Dhi Mi), хвост Mi. */
+	let prevCellWasFourPulse = false;
 	for (let cIdx = 0; cIdx < rowSyllCount; cIdx++) {
 		const raw = customSubdivs[`${rowIdx}-${cIdx}`];
 		const subdivs = Math.min(9, Math.max(1, typeof raw === 'number' && raw >= 1 ? raw : 1));
@@ -57,8 +60,12 @@ function buildRowCellSyllableLabels(
 			}
 			out.push(labels);
 			lastTail = labels[labels.length - 1] ?? 'Ta';
+			prevCellWasFourPulse = subdivs === 4;
 			continue;
 		}
+
+		const afterTaKaDhiMiCell = prevCellWasFourPulse;
+		prevCellWasFourPulse = false;
 
 		const isLastBeat = cIdx === rowSyllCount - 1;
 		let start = cIdx % seq.length;
@@ -66,7 +73,10 @@ function buildRowCellSyllableLabels(
 		if (!isLastBeat && lastTail != null && firstSyll === lastTail) {
 			start = (start - 1 + seq.length) % seq.length;
 		}
-		const t = seq[start] ?? 'Ta';
+		let t = seq[start] ?? 'Ta';
+		if (afterTaKaDhiMiCell && t === 'Mi') {
+			t = 'Ta';
+		}
 		out.push([t]);
 		lastTail = t;
 	}
