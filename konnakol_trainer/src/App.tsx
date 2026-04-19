@@ -26,6 +26,18 @@ const KONNAKOL_PYRAMID: Record<number, string[]> = {
 };
 
 const CHAOS_SLIDER_MAX = 100;
+/** При «отвязке» пульса от числа долей такта длительность шага считается как при 4 долях (квартальная сетка). */
+const PULSE_METER_BASE_SYLLABLES = 4;
+
+function normalizePulseMeterUnlinked(raw: unknown): Record<number, boolean> {
+	if (!raw || typeof raw !== 'object') return {};
+	const out: Record<number, boolean> = {};
+	for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+		const ri = parseInt(k, 10);
+		if (Number.isFinite(ri) && ri >= 0) out[ri] = Boolean(v);
+	}
+	return out;
+}
 /** chaos≤30: только 2–4; веса — 2 реже, 3 и 4 чаще (сумма весов = 7). */
 const LOW_CHAOS_METERS = [2, 3, 4] as const;
 const LOW_CHAOS_WEIGHTS = [1, 3, 3] as const;
@@ -173,6 +185,8 @@ function createEmptySnapshot() {
 		clickSound: 'modern' as 'modern' | 'oldschool',
 		/** Верхняя панель: темп + слайдеры (Chevron) развёрнута. */
 		panelExpanded: false,
+		/** Ряд r: длительность клетки от PULSE_METER_BASE_SYLLABLES, не от customSyllables[r]. */
+		pulseMeterUnlinked: {} as Record<number, boolean>,
 	};
 }
 
@@ -230,6 +244,15 @@ function parseSnapshotRow(raw: unknown) {
 	if (o.sequencerCells && typeof o.sequencerCells === 'object') {
 		hydrateSequencerFromCells(o.sequencerCells, d);
 	}
+	const pu = o.pulseMeterUnlinked;
+	if (pu && typeof pu === 'object') {
+		const next: Record<number, boolean> = {};
+		for (const [k, v] of Object.entries(pu as Record<string, unknown>)) {
+			const ri = parseInt(k, 10);
+			if (Number.isFinite(ri) && ri >= 0) next[ri] = Boolean(v);
+		}
+		d.pulseMeterUnlinked = next;
+	}
 	return d;
 }
 
@@ -243,6 +266,7 @@ function snapSlotLooksUsed(s: ReturnType<typeof createEmptySnapshot>) {
 	if (s.chaosLevel !== 0) return true;
 	if (s.clickSound !== 'modern') return true;
 	if (s.panelExpanded === true) return true;
+	if (s.pulseMeterUnlinked && Object.values(s.pulseMeterUnlinked).some(Boolean)) return true;
 	return false;
 }
 
@@ -264,6 +288,9 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		chaosLevel: s.chaosLevel,
 		clickSound: s.clickSound,
 		panelExpanded: s.panelExpanded,
+		pulseMeterUnlinked: Object.fromEntries(
+			Object.entries(s.pulseMeterUnlinked || {}).filter(([, v]) => v),
+		) as Record<string, boolean>,
 	};
 }
 
@@ -405,6 +432,9 @@ export default function App() {
   const [customSyllables, setCustomSyllables] = useState<Record<number, number>>(() => ({ ...seed.customSyllables }));
   const [customMultipliers, setCustomMultipliers] = useState<Record<number, number>>(() => ({ ...seed.customMultipliers }));
   const [customSubdivisions, setCustomSubdivisions] = useState<Record<string, number>>(() => ({ ...seed.customSubdivisions }));
+  const [pulseMeterUnlinked, setPulseMeterUnlinked] = useState<Record<number, boolean>>(() =>
+    normalizePulseMeterUnlinked(seed.pulseMeterUnlinked),
+  );
 
   // Metronome Sound Toggles
   const [onlyAccents, setOnlyAccents] = useState(false);
@@ -441,6 +471,7 @@ export default function App() {
         customMultipliers: { ...s.customMultipliers },
         customSubdivisions: { ...s.customSubdivisions },
         panelExpanded: s.panelExpanded === true,
+        pulseMeterUnlinked: { ...(s.pulseMeterUnlinked || {}) },
       };
     }
     return out;
@@ -565,6 +596,7 @@ export default function App() {
   const customSyllablesRef = useRef(customSyllables);
   const customMultipliersRef = useRef(customMultipliers);
   const customSubdivisionsRef = useRef(customSubdivisions);
+  const pulseMeterUnlinkedRef = useRef(pulseMeterUnlinked);
   const onlyAccentsRef = useRef(onlyAccents);
   const firstBeatAccentRef = useRef(firstBeatAccent);
   const randomModeEnabledRef = useRef(randomModeEnabled);
@@ -582,6 +614,9 @@ export default function App() {
   useEffect(() => { accentsRef.current = new Set(accents); }, [accents]);
   useEffect(() => { customMultipliersRef.current = { ...customMultipliers }; }, [customMultipliers]);
   useEffect(() => { customSubdivisionsRef.current = { ...customSubdivisions }; }, [customSubdivisions]);
+  useEffect(() => {
+    pulseMeterUnlinkedRef.current = { ...pulseMeterUnlinked };
+  }, [pulseMeterUnlinked]);
   useEffect(() => { customSyllablesRef.current = { ...customSyllables }; }, [customSyllables]);
   useEffect(() => { onlyAccentsRef.current = onlyAccents; }, [onlyAccents]);
   useEffect(() => { firstBeatAccentRef.current = firstBeatAccent; }, [firstBeatAccent]);
@@ -610,6 +645,7 @@ export default function App() {
     chaosLevel: chaosLevelRef.current,
     clickSound: clickSoundRef.current,
     panelExpanded: isPanelExpandedRef.current,
+    pulseMeterUnlinked: { ...pulseMeterUnlinkedRef.current },
   });
 
   const getSnapshotPayloadForSlotExport = (slot: number): ReturnType<typeof createEmptySnapshot> => {
@@ -641,8 +677,24 @@ export default function App() {
       chaosLevel: raw.chaosLevel,
       clickSound: raw.clickSound,
       panelExpanded: raw.panelExpanded,
+      pulseMeterUnlinked: raw.pulseMeterUnlinked,
     });
   };
+
+  useEffect(() => {
+    setPulseMeterUnlinked((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const k of Object.keys(next)) {
+        const ri = Number(k);
+        if (ri >= bars) {
+          delete next[ri];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [bars]);
 
   /** All pattern rows fit in the phone frame: no virtual strip, no playhead autoscroll. */
   const allBarsFitViewport = frozenScale === null && bars <= 10;
@@ -681,6 +733,7 @@ export default function App() {
         chaosLevel,
         clickSound,
         panelExpanded: isPanelExpanded,
+        pulseMeterUnlinked: { ...pulseMeterUnlinked },
       },
     }));
   }, [
@@ -691,6 +744,7 @@ export default function App() {
     customSyllables,
     customMultipliers,
     customSubdivisions,
+    pulseMeterUnlinked,
     activeSnapshot,
     randomModeEnabled,
     randomPulsation,
@@ -770,6 +824,7 @@ export default function App() {
         : 0,
     );
     setClickSound(snap.clickSound === 'oldschool' ? 'oldschool' : 'modern');
+    setPulseMeterUnlinked(normalizePulseMeterUnlinked(snap.pulseMeterUnlinked));
     if (!options?.preservePanel) {
       setIsPanelExpanded(snap.panelExpanded === true);
     }
@@ -790,6 +845,7 @@ export default function App() {
     customMultipliers: { ...s.customMultipliers },
     customSubdivisions: { ...s.customSubdivisions },
     panelExpanded: s.panelExpanded === true,
+    pulseMeterUnlinked: { ...(s.pulseMeterUnlinked || {}) },
   });
 
   const closeSnapshotClipMenu = () => setSnapshotClipMenu(null);
@@ -1036,10 +1092,14 @@ export default function App() {
         return; 
       }
 
+      const rowR = currentSeqItem.r;
       const effectiveSyllables = currentSeqItem.activeSyllables || syllablesRef.current;
-      const mult = customMultipliersRef.current[currentSeqItem.r] || 1;
-      
-      const effectiveBpm = tempoRef.current * (effectiveSyllables / 4) * mult;
+      const pulseSyllables = pulseMeterUnlinkedRef.current[rowR]
+        ? PULSE_METER_BASE_SYLLABLES
+        : effectiveSyllables;
+      const mult = customMultipliersRef.current[rowR] || 1;
+
+      const effectiveBpm = tempoRef.current * (pulseSyllables / 4) * mult;
       if (effectiveBpm > 0) {
         nextNoteTimeRef.current += 60.0 / effectiveBpm;
       } else {
@@ -1087,7 +1147,9 @@ export default function App() {
     
     const subdivs = customSubdivisionsRef.current[`${rIdx}-${cIdx}`] || 1;
     const mult = customMultipliersRef.current[rIdx] || 1;
-    const effectiveBpm = tempoRef.current * (currentSeqItem.activeSyllables / 4) * mult;
+    const rowSyl = currentSeqItem.activeSyllables || syllablesRef.current;
+    const pulseSyllables = pulseMeterUnlinkedRef.current[rIdx] ? PULSE_METER_BASE_SYLLABLES : rowSyl;
+    const effectiveBpm = tempoRef.current * (pulseSyllables / 4) * mult;
     const stepDuration = 60.0 / effectiveBpm;
     const subDuration = stepDuration / subdivs;
 
@@ -1689,18 +1751,17 @@ export default function App() {
                   x{rowMult}
                 </button>
                 <button 
-                  onPointerDown={(e) => {
+                  onPointerDown={() => {
                     isHoldingRef.current = false;
                     if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
                     holdTimerRef.current = window.setTimeout(() => {
                       isHoldingRef.current = true;
                       setActiveEditCell(null);
                       setActiveEditRow(null);
-                      setCustomSyllables(prev => {
-                        const copy = { ...prev };
-                        delete copy[rIdx];
-                        return copy;
-                      });
+                      setPulseMeterUnlinked((prev) => ({
+                        ...prev,
+                        [rIdx]: !prev[rIdx],
+                      }));
                     }, 400);
                   }}
                   onPointerUp={() => {
@@ -1722,19 +1783,38 @@ export default function App() {
                   }}
                   onContextMenu={(e) => {
                     e.preventDefault();
-                    setCustomSyllables(prev => {
+                    setCustomSyllables((prev) => {
+                      const copy = { ...prev };
+                      delete copy[rIdx];
+                      return copy;
+                    });
+                    setPulseMeterUnlinked((prev) => {
                       const copy = { ...prev };
                       delete copy[rIdx];
                       return copy;
                     });
                   }}
+                  title="Tap: +1 syllable in bar. Hold: unlink bar length from pulse (timing uses 4 base). Right-click: reset bar to global syllables."
                   className={`flex-1 rounded-md border flex items-center justify-center text-[10px] font-extrabold shadow-[inset_0_1px_3px_rgba(0,0,0,0.1)] min-h-[50%] transition-colors ${
                     isCustom
                       ? 'bg-purple-900/40 border-purple-500/50 shadow-[inset_0_1px_4px_rgba(168,85,247,0.2)] hover:bg-purple-900/50 text-purple-100' 
                       : 'bg-[#1e2a45] border-[#2f4066] text-slate-400 hover:bg-[#253353] active:bg-[#1a253c]'
-                  } ${activeEditRow === rIdx ? 'ring-2 ring-purple-500 shadow-purple-500/30' : ''}`}
+                  } ${
+                    activeEditRow === rIdx
+                      ? 'ring-2 ring-purple-500 shadow-purple-500/30'
+                      : pulseMeterUnlinked[rIdx]
+                        ? 'ring-1 ring-amber-400/90 shadow-[inset_0_0_0_1px_rgba(251,191,36,0.2)]'
+                        : ''
+                  }`}
                 >
-                  {rowSylls}
+                  <span className="relative flex flex-col items-center leading-none">
+                    {pulseMeterUnlinked[rIdx] ? (
+                      <span className="absolute -top-1.5 text-[6px] font-black uppercase tracking-tighter text-amber-300/90">
+                        4
+                      </span>
+                    ) : null}
+                    {rowSylls}
+                  </span>
                 </button>
               </div>
 
