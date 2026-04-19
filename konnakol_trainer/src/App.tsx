@@ -1084,10 +1084,13 @@ export default function App() {
   };
 
   const clearSequencer = () => {
+    const defaults = createEmptySnapshot();
     const emptyAcc = new Set<string>();
     setAccents(emptyAcc);
     accentsRef.current = emptyAcc;
-    const defaultBars = createEmptySnapshot().bars;
+    setTempo(defaults.tempo);
+    tempoRef.current = defaults.tempo;
+    const defaultBars = defaults.bars;
     setBars(defaultBars);
     barsRef.current = defaultBars;
     setSyllables(PULSE_METER_BASE_SYLLABLES);
