@@ -76,22 +76,16 @@ function normalizePulseMeterUnlinked(raw: unknown): Record<number, boolean> {
 	}
 	return out;
 }
-/** Cell speed при chaos ≤ 70: только 2, 3, 4; тройка существенно реже двойки и четвёрки. */
-const CELL_SPEED_METERS_LOW_CHAOS = [2, 3, 4] as const;
-const CELL_SPEED_WEIGHTS_LOW_CHAOS = [10, 1, 10] as const;
-const CELL_SPEED_POOL_HIGH_CHAOS = [2, 3, 4, 5, 6, 7, 8, 9] as const;
+/** Random pulsation: пул пульсов по ручке chaos (равномерный выбор внутри пула). */
+const RANDOM_PULSE_POOL_LE_30 = [1, 2, 3, 4, 5] as const;
+const RANDOM_PULSE_POOL_LE_70 = [1, 2, 3, 4, 5, 6, 7] as const;
+const RANDOM_PULSE_POOL_FULL = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
 
-function pickCellSpeedMeter(chaos: number): number {
+function pickRandomPulsationMeter(chaos: number): number {
 	const c = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
-	if (c <= 70) {
-		let r = Math.random() * CELL_SPEED_WEIGHTS_LOW_CHAOS.reduce((a, b) => a + b, 0);
-		for (let i = 0; i < CELL_SPEED_WEIGHTS_LOW_CHAOS.length; i++) {
-			r -= CELL_SPEED_WEIGHTS_LOW_CHAOS[i];
-			if (r <= 0) return CELL_SPEED_METERS_LOW_CHAOS[i];
-		}
-		return CELL_SPEED_METERS_LOW_CHAOS[CELL_SPEED_METERS_LOW_CHAOS.length - 1];
-	}
-	return CELL_SPEED_POOL_HIGH_CHAOS[Math.floor(Math.random() * CELL_SPEED_POOL_HIGH_CHAOS.length)]!;
+	if (c <= 30) return RANDOM_PULSE_POOL_LE_30[Math.floor(Math.random() * RANDOM_PULSE_POOL_LE_30.length)]!;
+	if (c <= 70) return RANDOM_PULSE_POOL_LE_70[Math.floor(Math.random() * RANDOM_PULSE_POOL_LE_70.length)]!;
+	return RANDOM_PULSE_POOL_FULL[Math.floor(Math.random() * RANDOM_PULSE_POOL_FULL.length)]!;
 }
 
 /** Доля акцентуемых долей: 0→0, 25→25%, 50→50%, 75→75%, 100→90% (кусочно-линейно). */
@@ -103,9 +97,9 @@ function accentFillRatioFromChaos(c: number): number {
 	return 0.75 + (x - 75) * (0.15 / 25);
 }
 
-/** Пульсация / cell speed: при chaos ≤ 70 — только 2–4 (3 редко); при > 70 — равномерно 2…9. */
+/** Random pulsation (длина такта / поддоли): chaos≤30 → 1–5; 31–70 → 1–7; >70 → 1–9. */
 function pickWeightedMeter2to9(chaos: number): number {
-	return pickCellSpeedMeter(chaos);
+	return pickRandomPulsationMeter(chaos);
 }
 
 function pickAccentCountForBar(chaos: number, curSyl: number): number {
