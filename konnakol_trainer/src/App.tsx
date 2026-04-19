@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Settings, AudioLines, Minus, Plus, Dices, Play, Snowflake, ChevronUp, ChevronDown, Eraser } from 'lucide-react';
+import { Settings, Minus, Plus, Dices, Play, Snowflake, ChevronUp, ChevronDown, Eraser } from 'lucide-react';
 
 const KONNAKOL_PYRAMID: Record<number, string[]> = {
   1: ["Ta"],
@@ -1100,7 +1100,7 @@ export default function App() {
             <span className="font-bold text-[22px] tracking-wide">Ta</span>
           </button>
 
-          {/* Djembe (Syllables / Global Fill) */}
+          {/* All beats vs accent-only (square marker, original-style) */}
           <button 
             onClick={() => setOnlyAccents(!onlyAccents)}
             onContextMenu={(e) => e.preventDefault()}
@@ -1109,8 +1109,14 @@ export default function App() {
                 ? 'bg-purple-700/30 hover:bg-purple-700/40 active:bg-purple-700/20 text-purple-200 border border-purple-500/40' 
                 : 'bg-[#161f33] border border-[#23314f] hover:bg-[#1a253c] active:bg-[#131b2c] text-slate-400 hover:text-slate-200'
             }`}
+            type="button"
+            aria-label={onlyAccents ? 'Accent-only playback' : 'Play all beats'}
           >
-            <span className={`text-2xl drop-shadow-md transition-all duration-300 ${!onlyAccents ? 'opacity-100 scale-110' : 'opacity-70 grayscale-[30%] scale-100'}`}>🪘</span>
+            <span
+              className={`block w-6 h-6 rounded-sm border-2 border-current transition-all duration-300 ${
+                !onlyAccents ? 'opacity-100 scale-110 bg-current/25' : 'opacity-55 scale-100 bg-transparent'
+              }`}
+            />
           </button>
         </div>
 
