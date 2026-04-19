@@ -153,6 +153,8 @@ const METRONOME_CONFIG_PREFIX = 'METRONOME_CONFIG:';
 const SNAPSHOT_CLIPBOARD_PREFIX_LEGACY = 'konnakolTrainerSnapshotV1:';
 /** Hold snapshot slot to open Copy / Paste menu. */
 const SNAPSHOT_MENU_HOLD_MS = 520;
+/** Hold кнопку «кости»: заполнить все такты по включённым опциям рандомайзера. */
+const RANDOM_DICE_PREFILL_HOLD_MS = 520;
 
 function utf8ToBase64Json(json: string): string {
 	const bytes = new TextEncoder().encode(json);
@@ -811,6 +813,110 @@ export default function App() {
   useEffect(() => { clickSoundRef.current = clickSound; }, [clickSound]);
   useEffect(() => { frozenScaleRef.current = frozenScale; }, [frozenScale]);
 
+  const randomDiceHoldTimerRef = useRef<number | null>(null);
+  const randomDiceHoldAteClickRef = useRef(false);
+  const [randomDiceMintFlash, setRandomDiceMintFlash] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (randomDiceHoldTimerRef.current !== null) {
+        window.clearTimeout(randomDiceHoldTimerRef.current);
+        randomDiceHoldTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  /** Одна строка такта: те же правила, что при смене такта во время PLAY. */
+  function mutateBarWithRandomFeatures(prevBar: number, chaos: number): boolean {
+    let didChange = false;
+    if (randomPulsationRef.current) {
+      customSyllablesRef.current[prevBar] = pickWeightedMeter2to9(chaos);
+      didChange = true;
+    }
+    if (randomPatternRef.current) {
+      const curSyl = customSyllablesRef.current[prevBar] ?? syllablesRef.current;
+      for (let i = 0; i < 9; i++) accentsRef.current.delete(`${prevBar}-${i}`);
+      const candidates = Array.from({ length: curSyl }, (_, i) => i).sort(() => Math.random() - 0.5);
+      const fillCount = pickAccentCountForBar(chaos, curSyl);
+      for (let i = 0; i < fillCount; i++) {
+        accentsRef.current.add(`${prevBar}-${candidates[i]}`);
+      }
+      didChange = true;
+    }
+    if (randomSpeedRef.current) {
+      const curSyl = customSyllablesRef.current[prevBar] ?? syllablesRef.current;
+      const candidates = onlyAccentsRef.current
+        ? Array.from({ length: curSyl }, (_, i) => i).filter((i) =>
+            accentsRef.current.has(`${prevBar}-${i}`),
+          )
+        : Array.from({ length: curSyl }, (_, i) => i);
+      for (let i = 0; i < 9; i++) delete customSubdivisionsRef.current[`${prevBar}-${i}`];
+      if (chaos <= 25) {
+        const pOne = chaos <= 0 ? 0 : chaos / 25;
+        if (candidates.length > 0 && Math.random() < pOne) {
+          const pick = candidates[Math.floor(Math.random() * candidates.length)]!;
+          customSubdivisionsRef.current[`${prevBar}-${pick}`] = pickRandomCellSpeedSubdiv();
+        }
+      } else {
+        const cellSpeedHitP = cellSpeedFillFractionFromChaos(chaos);
+        candidates.forEach((i) => {
+          if (Math.random() < cellSpeedHitP) {
+            customSubdivisionsRef.current[`${prevBar}-${i}`] = pickRandomCellSpeedSubdiv();
+          }
+        });
+      }
+      didChange = true;
+    }
+    if (randomBarSpeedRef.current) {
+      customMultipliersRef.current[prevBar] = pickBarSpeedMultiplier(chaos);
+      didChange = true;
+    }
+    return didChange;
+  }
+
+  function runRandomPrefillAllBars() {
+    const anyFeature =
+      randomPulsationRef.current ||
+      randomPatternRef.current ||
+      randomSpeedRef.current ||
+      randomBarSpeedRef.current;
+    if (!anyFeature) {
+      setRandomDiceMintFlash(true);
+      window.setTimeout(() => setRandomDiceMintFlash(false), 220);
+      return;
+    }
+    const chaos = chaosLevelRef.current;
+    let touched = false;
+    for (let b = 0; b < barsRef.current; b++) {
+      if (mutateBarWithRandomFeatures(b, chaos)) touched = true;
+    }
+    if (!touched) {
+      setRandomDiceMintFlash(true);
+      window.setTimeout(() => setRandomDiceMintFlash(false), 220);
+      return;
+    }
+    const newSeq: { r: number; c: number; activeSyllables: number }[] = [];
+    for (let r = 0; r < barsRef.current; r++) {
+      const syls =
+        customSyllablesRef.current[r] !== undefined ? customSyllablesRef.current[r]! : syllablesRef.current;
+      for (let c = 0; c < syls; c++) {
+        newSeq.push({ r, c, activeSyllables: syls });
+      }
+    }
+    sequenceRef.current = newSeq;
+    if (currentStepRef.current >= newSeq.length) {
+      currentStepRef.current = Math.max(0, newSeq.length - 1);
+    }
+    startTransition(() => {
+      if (randomPulsationRef.current) setCustomSyllables({ ...customSyllablesRef.current });
+      if (randomPatternRef.current) setAccents(new Set(accentsRef.current));
+      if (randomSpeedRef.current) setCustomSubdivisions({ ...customSubdivisionsRef.current });
+      if (randomBarSpeedRef.current) setCustomMultipliers({ ...customMultipliersRef.current });
+    });
+    setRandomDiceMintFlash(true);
+    window.setTimeout(() => setRandomDiceMintFlash(false), 320);
+  }
+
   const buildLiveSnapshotFromRefs = (): ReturnType<typeof createEmptySnapshot> => ({
     tempo: tempoRef.current,
     bars: barsRef.current,
@@ -1391,58 +1497,8 @@ export default function App() {
         } else if (randomModeEnabledRef.current) {
           const targetR = currentSeqItem.r;
           const prevBar = (targetR - 1 + barsRef.current) % barsRef.current;
-          let didChange = false;
-
           const chaos = chaosLevelRef.current;
-
-          if (randomPulsationRef.current) {
-            customSyllablesRef.current[prevBar] = pickWeightedMeter2to9(chaos);
-            didChange = true;
-          }
-
-          if (randomPatternRef.current) {
-            const curSyl = customSyllablesRef.current[prevBar] ?? syllablesRef.current;
-            
-            for (let i = 0; i < 9; i++) accentsRef.current.delete(`${prevBar}-${i}`);
-            
-            const candidates = Array.from({length: curSyl}, (_, i) => i).sort(() => Math.random() - 0.5);
-            const fillCount = pickAccentCountForBar(chaos, curSyl);
-            for (let i = 0; i < fillCount; i++) {
-               accentsRef.current.add(`${prevBar}-${candidates[i]}`);
-            }
-            didChange = true;
-          }
-
-          if (randomSpeedRef.current) {
-            const curSyl = customSyllablesRef.current[prevBar] ?? syllablesRef.current;
-            const candidates = onlyAccentsRef.current 
-              ? Array.from({length: curSyl}, (_, i) => i).filter(i => accentsRef.current.has(`${prevBar}-${i}`))
-              : Array.from({length: curSyl}, (_, i) => i);
-              
-            for (let i = 0; i < 9; i++) delete customSubdivisionsRef.current[`${prevBar}-${i}`];
-
-            if (chaos <= 25) {
-              /** 0–25: только 0 или 1 ячейка с поддолью 2/3/4; P(ровно одна) = chaos/25 (при chaos=0 — никогда). */
-              const pOne = chaos <= 0 ? 0 : chaos / 25;
-              if (candidates.length > 0 && Math.random() < pOne) {
-                const pick = candidates[Math.floor(Math.random() * candidates.length)]!;
-                customSubdivisionsRef.current[`${prevBar}-${pick}`] = pickRandomCellSpeedSubdiv();
-              }
-            } else {
-              const cellSpeedHitP = cellSpeedFillFractionFromChaos(chaos);
-              candidates.forEach(i => {
-                if (Math.random() < cellSpeedHitP) {
-                  customSubdivisionsRef.current[`${prevBar}-${i}`] = pickRandomCellSpeedSubdiv();
-                }
-              });
-            }
-            didChange = true;
-          }
-
-          if (randomBarSpeedRef.current) {
-            customMultipliersRef.current[prevBar] = pickBarSpeedMultiplier(chaos);
-            didChange = true;
-          }
+          const didChange = mutateBarWithRandomFeatures(prevBar, chaos);
 
           if (didChange) {
             const newSeq = [];
@@ -2138,13 +2194,47 @@ export default function App() {
 
         {/* Bottom Actions */}
         <div className="flex gap-3 mt-1 shrink-0 h-[60px]">
-          {/* Randomizer */}
+          {/* Randomizer: тап — вкл/выкл во время PLAY; удержание — префилл всех тактов по включённым опциям + мятная вспышка. */}
           <button 
-            onClick={() => setRandomModeEnabled(prev => !prev)}
-            className={`flex-1 rounded-xl border flex justify-center items-center transition-colors relative ${
-              randomModeEnabled
-                ? 'bg-blue-600/30 border-blue-400/60 shadow-[0_0_15px_rgba(59,130,246,0.3)] text-blue-200'
-                : 'bg-[#161f33] border-[#23314f] text-slate-400 hover:text-slate-200 hover:bg-[#1a253c]'
+            type="button"
+            title="Tap: random on/off while playing. Hold: fill all bars (Randomizer settings)."
+            onPointerDown={() => {
+              randomDiceHoldAteClickRef.current = false;
+              if (randomDiceHoldTimerRef.current !== null) {
+                window.clearTimeout(randomDiceHoldTimerRef.current);
+                randomDiceHoldTimerRef.current = null;
+              }
+              randomDiceHoldTimerRef.current = window.setTimeout(() => {
+                randomDiceHoldTimerRef.current = null;
+                randomDiceHoldAteClickRef.current = true;
+                runRandomPrefillAllBars();
+              }, RANDOM_DICE_PREFILL_HOLD_MS);
+            }}
+            onPointerUp={() => {
+              if (randomDiceHoldTimerRef.current !== null) {
+                window.clearTimeout(randomDiceHoldTimerRef.current);
+                randomDiceHoldTimerRef.current = null;
+              }
+            }}
+            onPointerCancel={() => {
+              if (randomDiceHoldTimerRef.current !== null) {
+                window.clearTimeout(randomDiceHoldTimerRef.current);
+                randomDiceHoldTimerRef.current = null;
+              }
+            }}
+            onClick={() => {
+              if (randomDiceHoldAteClickRef.current) {
+                randomDiceHoldAteClickRef.current = false;
+                return;
+              }
+              setRandomModeEnabled((prev) => !prev);
+            }}
+            className={`flex-1 rounded-xl border flex justify-center items-center transition-all duration-200 relative touch-none select-none ${
+              randomDiceMintFlash
+                ? 'bg-teal-400/25 border-teal-300/90 text-teal-50 shadow-[0_0_22px_rgba(110,231,183,0.65)] ring-2 ring-teal-200/70 scale-[1.02]'
+                : randomModeEnabled
+                  ? 'bg-blue-600/30 border-blue-400/60 shadow-[0_0_15px_rgba(59,130,246,0.3)] text-blue-200'
+                  : 'bg-[#161f33] border-[#23314f] text-slate-400 hover:text-slate-200 hover:bg-[#1a253c]'
             }`}
           >
             <Dices size={24} />
