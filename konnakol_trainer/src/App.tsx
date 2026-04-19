@@ -14,9 +14,20 @@ const KONNAKOL_PYRAMID: Record<number, string[]> = {
 };
 
 const CHAOS_SLIDER_MAX = 100;
-const METER_POOL_LOW = [2, 4] as const;
+/** chaos≤30: только 2–4; веса — 2 реже, 3 и 4 чаще (сумма весов = 7). */
+const LOW_CHAOS_METERS = [2, 3, 4] as const;
+const LOW_CHAOS_WEIGHTS = [1, 3, 3] as const;
 const METER_POOL_MID = [3, 5] as const;
 const METER_POOL_FULL = [2, 3, 4, 5, 6, 7, 8, 9] as const;
+
+function pickLowChaosMeter(): number {
+	let r = Math.random() * LOW_CHAOS_WEIGHTS.reduce((a, b) => a + b, 0);
+	for (let i = 0; i < LOW_CHAOS_WEIGHTS.length; i++) {
+		r -= LOW_CHAOS_WEIGHTS[i];
+		if (r <= 0) return LOW_CHAOS_METERS[i];
+	}
+	return LOW_CHAOS_METERS[LOW_CHAOS_METERS.length - 1];
+}
 
 /** Доля акцентуемых долей: 0→0, 25→25%, 50→50%, 75→75%, 100→90% (кусочно-линейно). */
 function accentFillRatioFromChaos(c: number): number {
@@ -27,11 +38,12 @@ function accentFillRatioFromChaos(c: number): number {
 	return 0.75 + (x - 75) * (0.15 / 25);
 }
 
-/** Пульсация / cell speed: chaos≤30 → только 2 или 4; 30<chaos≤70 → 3 или 5; >70 → 2…9. */
+/** Пульсация / cell speed: chaos≤30 → взвешенно 2–4; 30<chaos≤70 → 3 или 5; >70 → 2…9. */
 function pickWeightedMeter2to9(chaos: number): number {
 	const c = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
-	const pool = c <= 30 ? METER_POOL_LOW : c <= 70 ? METER_POOL_MID : METER_POOL_FULL;
-	return pool[Math.floor(Math.random() * pool.length)]!;
+	if (c <= 30) return pickLowChaosMeter();
+	if (c <= 70) return METER_POOL_MID[Math.floor(Math.random() * METER_POOL_MID.length)]!;
+	return METER_POOL_FULL[Math.floor(Math.random() * METER_POOL_FULL.length)]!;
 }
 
 function pickAccentCountForBar(chaos: number, curSyl: number): number {
