@@ -353,7 +353,7 @@ export default function App() {
   isPanelExpandedRef.current = isPanelExpanded;
   const holdTimerRef = useRef<number | null>(null);
   const isHoldingRef = useRef(false);
-  /** Long-press square: each completed hold toggles read-only (all syllables muted). */
+  /** Long-press square: toggle «без щелчков по клеткам»; ding такта Ta не мьютится. */
   const squareHoldTimerRef = useRef<number | null>(null);
   const syllableReadMuteRef = useRef(false);
   const squareHoldAteClickRef = useRef(false);
@@ -894,16 +894,17 @@ export default function App() {
     const stepDuration = 60.0 / effectiveBpm;
     const subDuration = stepDuration / subdivs;
 
+    /** Long-press square: mute sharp clicks (ручные акценты + пассивные доли). Акцент такта «Ta» = playBarFirstHighClick — не мьютится. */
     const readOnlyMute = syllableReadMuteRef.current;
     for (let sub = 0; sub < subdivs; sub++) {
       const subTime = time + sub * subDuration;
       const isFirstOfBar = cIdx === 0 && sub === 0;
 
-      if (!readOnlyMute) {
-        if (isFirstOfBar && firstBeatAccentRef.current) {
-          playBarFirstHighClick(audioCtxRef.current, subTime, clickSoundRef.current);
-        }
+      if (isFirstOfBar && firstBeatAccentRef.current) {
+        playBarFirstHighClick(audioCtxRef.current, subTime, clickSoundRef.current);
+      }
 
+      if (!readOnlyMute) {
         const shouldPlayBeat = !onlyAccentsRef.current || isAccent;
         if (shouldPlayBeat) {
           playSharpClick(audioCtxRef.current, subTime, isAccent && sub === 0, clickSoundRef.current);
@@ -1578,7 +1579,7 @@ export default function App() {
             <span className="font-bold text-[22px] tracking-wide">Ta</span>
           </button>
 
-          {/* All beats vs accent-only (square); long-press toggles read-only mute (same border style as Ta). */}
+          {/* All beats vs accent-only (square); long-press: mute sharp (клетки), не трогать ding такта «Ta». */}
           <button 
             onPointerDown={() => {
               squareHoldAteClickRef.current = false;
@@ -1630,7 +1631,7 @@ export default function App() {
             type="button"
             aria-label={
               syllableReadMuteLatched
-                ? 'Read-only: silent (long-press to turn off)'
+                ? 'Без щелчков по клеткам; акцент такта Ta остаётся. Долгое нажатие — выключить'
                 : onlyAccents
                   ? 'Accent-only playback'
                   : 'Play all beats'
