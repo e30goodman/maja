@@ -1701,6 +1701,8 @@ export default function App() {
     if (isPlaying) {
       setIsPlaying(false);
       isPlayingRef.current = false;
+      setRandomModeEnabled(false);
+      randomModeEnabledRef.current = false;
       clearPlayheadScheduling();
       setActivePos({ r: -1, c: -1, absR: -1 });
       currentStepRef.current = 0; // Reset pattern position to start
