@@ -1502,7 +1502,8 @@ export default function App() {
       const subTime = time + sub * subDuration;
       const isFirstOfBar = cIdx === 0 && sub === 0;
 
-      if (isFirstOfBar && firstBeatAccentRef.current && muteMode !== 'full') {
+      /** Первый удар «Ta»: всегда при включённом first beat, в т.ч. при long-press `full` (сетка дальше глушится отдельно). */
+      if (isFirstOfBar && firstBeatAccentRef.current) {
         playBarFirstHighClick(audioCtxRef.current, subTime, clickSoundRef.current);
       }
 
@@ -1514,9 +1515,12 @@ export default function App() {
       if (!shouldPlayBeat) {
         continue;
       }
-      /** В `no_accent_sharp` главный щелчок на акцентной клетке — тембр пассивной доли (`isChecked` false). */
+      /** В `no_accent_sharp` акценты — пассивный тембр, кроме первой доли с активным «Ta» (не глушить вместе с long-press). */
+      const isTaFirstBeatArticulation = cIdx === 0 && sub === 0 && firstBeatAccentRef.current;
       const sharpAsChecked =
-        muteMode === 'no_accent_sharp' && mainAccentClick ? false : mainAccentClick;
+        muteMode === 'no_accent_sharp' && mainAccentClick && !isTaFirstBeatArticulation
+          ? false
+          : mainAccentClick;
       playSharpClick(
         audioCtxRef.current,
         subTime,
