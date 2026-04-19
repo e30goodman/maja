@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Settings, Minus, Plus, Dices, Play, Snowflake, ChevronUp, ChevronDown, Eraser } from 'lucide-react';
 
 const KONNAKOL_PYRAMID: Record<number, string[]> = {
@@ -12,6 +12,132 @@ const KONNAKOL_PYRAMID: Record<number, string[]> = {
   8: ["Ta", "Ka", "Dhi", "Mi", "Ta", "Ka", "Dju", "Na"],
   9: ["Ta", "Ka", "Dhi", "Mi", "Ta", "Ka", "Ta", "Ki", "Ta"]
 };
+
+const SNAPSHOT_SLOT_COUNT = 7;
+const SNAPSHOT_STORAGE_KEY = 'konnakolTrainerSnapshotsV1';
+
+function createEmptySnapshot() {
+	return {
+		tempo: 100,
+		bars: 4,
+		syllables: 4,
+		accents: new Set<string>(),
+		customSyllables: {} as Record<number, number>,
+		customMultipliers: {} as Record<number, number>,
+		customSubdivisions: {} as Record<string, number>,
+		randomModeEnabled: false,
+		randomPulsation: false,
+		randomPattern: true,
+		randomSpeed: false,
+		randomBarSpeed: false,
+		randomMaxNotes: 0,
+		clickSound: 'modern' as 'modern' | 'oldschool',
+	};
+}
+
+function parseSnapshotRow(raw: unknown) {
+	const d = createEmptySnapshot();
+	if (!raw || typeof raw !== 'object') return d;
+	const o = raw as Record<string, unknown>;
+	const tempo = parseInt(String(o.tempo), 10);
+	const bars = parseInt(String(o.bars), 10);
+	const syllables = parseInt(String(o.syllables), 10);
+	if (Number.isFinite(tempo) && tempo >= 20 && tempo <= 400) d.tempo = tempo;
+	if (Number.isFinite(bars) && bars >= 1 && bars <= 100) d.bars = bars;
+	if (Number.isFinite(syllables) && syllables >= 1 && syllables <= 9) d.syllables = syllables;
+	const acc = o.accents;
+	if (Array.isArray(acc)) d.accents = new Set(acc.filter((x): x is string => typeof x === 'string'));
+	const cs = o.customSyllables;
+	if (cs && typeof cs === 'object') {
+		for (const [k, v] of Object.entries(cs as Record<string, unknown>)) {
+			const ri = parseInt(k, 10);
+			const vi = parseInt(String(v), 10);
+			if (Number.isFinite(ri) && Number.isFinite(vi) && vi >= 1 && vi <= 9) d.customSyllables[ri] = vi;
+		}
+	}
+	const cm = o.customMultipliers;
+	if (cm && typeof cm === 'object') {
+		for (const [k, v] of Object.entries(cm as Record<string, unknown>)) {
+			const ri = parseInt(k, 10);
+			const vi = Number(v);
+			if (Number.isFinite(ri) && Number.isFinite(vi) && vi >= 1 && vi <= 4) d.customMultipliers[ri] = vi;
+		}
+	}
+	const cd = o.customSubdivisions;
+	if (cd && typeof cd === 'object') {
+		for (const [k, v] of Object.entries(cd as Record<string, unknown>)) {
+			const vi = parseInt(String(v), 10);
+			if (typeof k === 'string' && Number.isFinite(vi) && vi >= 1 && vi <= 9) d.customSubdivisions[k] = vi;
+		}
+	}
+	if (typeof o.randomModeEnabled === 'boolean') d.randomModeEnabled = o.randomModeEnabled;
+	if (typeof o.randomPulsation === 'boolean') d.randomPulsation = o.randomPulsation;
+	if (typeof o.randomPattern === 'boolean') d.randomPattern = o.randomPattern;
+	if (typeof o.randomSpeed === 'boolean') d.randomSpeed = o.randomSpeed;
+	if (typeof o.randomBarSpeed === 'boolean') d.randomBarSpeed = o.randomBarSpeed;
+	const rmn = parseInt(String(o.randomMaxNotes), 10);
+	if (Number.isFinite(rmn) && rmn >= 0 && rmn <= 9) d.randomMaxNotes = rmn;
+	if (o.clickSound === 'oldschool') d.clickSound = 'oldschool';
+	return d;
+}
+
+function snapSlotLooksUsed(s: ReturnType<typeof createEmptySnapshot>) {
+	if (s.tempo !== 100 || s.bars !== 4 || s.syllables !== 4) return true;
+	if (s.accents.size > 0) return true;
+	if (Object.keys(s.customSyllables).length > 0) return true;
+	if (Object.keys(s.customMultipliers).length > 0) return true;
+	if (Object.keys(s.customSubdivisions).length > 0) return true;
+	if (s.randomModeEnabled || s.randomPulsation || !s.randomPattern || s.randomSpeed || s.randomBarSpeed) return true;
+	if (s.randomMaxNotes !== 0) return true;
+	if (s.clickSound !== 'modern') return true;
+	return false;
+}
+
+function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
+	return {
+		tempo: s.tempo,
+		bars: s.bars,
+		syllables: s.syllables,
+		accents: [...s.accents],
+		customSyllables: s.customSyllables,
+		customMultipliers: s.customMultipliers,
+		customSubdivisions: s.customSubdivisions,
+		randomModeEnabled: s.randomModeEnabled,
+		randomPulsation: s.randomPulsation,
+		randomPattern: s.randomPattern,
+		randomSpeed: s.randomSpeed,
+		randomBarSpeed: s.randomBarSpeed,
+		randomMaxNotes: s.randomMaxNotes,
+		clickSound: s.clickSound,
+	};
+}
+
+function loadSnapshotStorage(): {
+	activeSnapshot: number;
+	snapshots: Record<number, ReturnType<typeof createEmptySnapshot>>;
+} {
+	const snapshots: Record<number, ReturnType<typeof createEmptySnapshot>> = {};
+	for (let i = 1; i <= SNAPSHOT_SLOT_COUNT; i++) snapshots[i] = createEmptySnapshot();
+	let activeSnapshot = 1;
+	try {
+		const raw = localStorage.getItem(SNAPSHOT_STORAGE_KEY);
+		if (!raw) return { activeSnapshot, snapshots };
+		const data = JSON.parse(raw) as { activeSnapshot?: number; snapshots?: Record<string, unknown> };
+		if (typeof data.activeSnapshot === 'number' && data.activeSnapshot >= 1 && data.activeSnapshot <= SNAPSHOT_SLOT_COUNT) {
+			activeSnapshot = Math.floor(data.activeSnapshot);
+		}
+		const bag = data.snapshots;
+		if (bag && typeof bag === 'object') {
+			for (let i = 1; i <= SNAPSHOT_SLOT_COUNT; i++) {
+				const row = bag[String(i)] ?? (bag as any)[i];
+				if (row) snapshots[i] = parseSnapshotRow(row);
+			}
+		}
+	} catch {
+		/* keep defaults */
+	}
+	return { activeSnapshot, snapshots };
+}
 
 const playSharpClick = (ctx: AudioContext, time: number, isChecked: boolean, soundType: 'modern' | 'oldschool' = 'modern') => {
   // Old school = same as legacy maja `konnakol_metronome` (triangle + pitch sweep).
@@ -80,57 +206,59 @@ const playBarFirstHighClick = (ctx: AudioContext, time: number, soundType: 'mode
 };
 
 export default function App() {
-  const [tempo, setTempo] = useState(100);
-  const [bars, setBars] = useState(4);
-  const [syllables, setSyllables] = useState(4);
+  const initialBoot = useMemo(() => loadSnapshotStorage(), []);
+  const seed = initialBoot.snapshots[initialBoot.activeSnapshot];
+
+  const [tempo, setTempo] = useState(seed.tempo);
+  const [bars, setBars] = useState(seed.bars);
+  const [syllables, setSyllables] = useState(seed.syllables);
 
   // Metronome state
   const [isPlaying, setIsPlaying] = useState(false);
-  const [accents, setAccents] = useState<Set<string>>(new Set());
+  const [accents, setAccents] = useState<Set<string>>(() => new Set(seed.accents));
   const [activePos, setActivePos] = useState({ r: -1, c: -1, absR: -1 });
   const playAbsBarRef = useRef(0);
   const [listOffset, setListOffset] = useState(0);
-  const [customSyllables, setCustomSyllables] = useState<Record<number, number>>({});
-  const [customMultipliers, setCustomMultipliers] = useState<Record<number, number>>({});
-  const [customSubdivisions, setCustomSubdivisions] = useState<Record<string, number>>({});
+  const [customSyllables, setCustomSyllables] = useState<Record<number, number>>(() => ({ ...seed.customSyllables }));
+  const [customMultipliers, setCustomMultipliers] = useState<Record<number, number>>(() => ({ ...seed.customMultipliers }));
+  const [customSubdivisions, setCustomSubdivisions] = useState<Record<string, number>>(() => ({ ...seed.customSubdivisions }));
 
   // Metronome Sound Toggles
   const [onlyAccents, setOnlyAccents] = useState(false);
   const [firstBeatAccent, setFirstBeatAccent] = useState(true);
 
   // Randomizer States
-  const [randomModeEnabled, setRandomModeEnabled] = useState(false);
-  const [randomPulsation, setRandomPulsation] = useState(false);
-  const [randomPattern, setRandomPattern] = useState(true);
-  const [randomSpeed, setRandomSpeed] = useState(false);
-  const [randomBarSpeed, setRandomBarSpeed] = useState(false);
-  const [randomMaxNotes, setRandomMaxNotes] = useState(0);
+  const [randomModeEnabled, setRandomModeEnabled] = useState(seed.randomModeEnabled);
+  const [randomPulsation, setRandomPulsation] = useState(seed.randomPulsation);
+  const [randomPattern, setRandomPattern] = useState(seed.randomPattern);
+  const [randomSpeed, setRandomSpeed] = useState(seed.randomSpeed);
+  const [randomBarSpeed, setRandomBarSpeed] = useState(seed.randomBarSpeed);
+  const [randomMaxNotes, setRandomMaxNotes] = useState(seed.randomMaxNotes);
   const [showRandomSettings, setShowRandomSettings] = useState(false);
   const coldStartRef = useRef(true);
 
   // Click Sound
-  const [clickSound, setClickSound] = useState<'modern' | 'oldschool'>('modern');
+  const [clickSound, setClickSound] = useState<'modern' | 'oldschool'>(seed.clickSound);
 
-  // Preset Snapshot State
-  const [activeSnapshot, setActiveSnapshot] = useState(1);
-  const [snapshots, setSnapshots] = useState<Record<number, any>>({
-    1: {
-      tempo: 100,
-      bars: 4,
-      syllables: 4,
-      accents: new Set(),
-      customSyllables: {},
-      customMultipliers: {},
-      customSubdivisions: {},
-      randomModeEnabled: false,
-      randomPulsation: false,
-      randomPattern: true,
-      randomSpeed: false,
-      randomBarSpeed: false,
-      randomMaxNotes: 0,
-      clickSound: 'modern' as const,
-    },
+  // Preset Snapshot State (7 slots; persisted in localStorage)
+  const [activeSnapshot, setActiveSnapshot] = useState(initialBoot.activeSnapshot);
+  const [snapshots, setSnapshots] = useState<Record<number, any>>(() => {
+    const o = initialBoot.snapshots;
+    const out: Record<number, any> = {};
+    for (let i = 1; i <= SNAPSHOT_SLOT_COUNT; i++) {
+      const s = o[i];
+      out[i] = {
+        ...s,
+        accents: new Set(s.accents),
+        customSyllables: { ...s.customSyllables },
+        customMultipliers: { ...s.customMultipliers },
+        customSubdivisions: { ...s.customSubdivisions },
+      };
+    }
+    return out;
   });
+
+  const persistSnapshotsTimerRef = useRef<number | null>(null);
 
   const [activeEditCell, setActiveEditCell] = useState<string | null>(null);
   const [activeEditRow, setActiveEditRow] = useState<number | null>(null);
@@ -300,6 +428,34 @@ export default function App() {
     clickSound,
   ]);
 
+  useEffect(() => {
+    if (persistSnapshotsTimerRef.current !== null) {
+      window.clearTimeout(persistSnapshotsTimerRef.current);
+    }
+    persistSnapshotsTimerRef.current = window.setTimeout(() => {
+      persistSnapshotsTimerRef.current = null;
+      try {
+        const out: Record<string, ReturnType<typeof snapshotToJSON>> = {};
+        for (let i = 1; i <= SNAPSHOT_SLOT_COUNT; i++) {
+          const s = snapshots[i];
+          if (s) out[String(i)] = snapshotToJSON(s);
+        }
+        localStorage.setItem(
+          SNAPSHOT_STORAGE_KEY,
+          JSON.stringify({ activeSnapshot, snapshots: out }),
+        );
+      } catch (e) {
+        console.warn('[konnakol_trainer] snapshot persist failed', e);
+      }
+    }, 400);
+    return () => {
+      if (persistSnapshotsTimerRef.current !== null) {
+        window.clearTimeout(persistSnapshotsTimerRef.current);
+        persistSnapshotsTimerRef.current = null;
+      }
+    };
+  }, [snapshots, activeSnapshot]);
+
   const loadSnapshot = (id: number) => {
     const snap = snapshots[id];
     setActiveSnapshot(id);
@@ -307,7 +463,15 @@ export default function App() {
       setTempo(snap.tempo);
       setBars(snap.bars);
       setSyllables(snap.syllables);
-      setAccents(new Set(snap.accents));
+      setAccents(
+        new Set(
+          Array.isArray(snap.accents)
+            ? snap.accents
+            : snap.accents instanceof Set
+              ? [...snap.accents]
+              : [],
+        ),
+      );
       setCustomSyllables({ ...snap.customSyllables });
       setCustomMultipliers({ ...(snap.customMultipliers || {}) });
       setCustomSubdivisions({ ...(snap.customSubdivisions || {}) });
@@ -483,7 +647,7 @@ export default function App() {
           }
 
           if (randomBarSpeedRef.current) {
-            const multOptions = [1, 2, 3];
+            const multOptions = [1, 2, 3, 4];
             customMultipliersRef.current[prevBar] = multOptions[Math.floor(Math.random() * multOptions.length)];
             didChange = true;
           }
@@ -837,7 +1001,8 @@ export default function App() {
                     <div className="flex justify-between items-center px-1">
                       {[1, 2, 3, 4, 5, 6, 7].map((num) => {
                         const isActive = activeSnapshot === num;
-                        const hasData = !!snapshots[num] || isActive;
+                        const hasData =
+                          isActive || snapSlotLooksUsed(snapshots[num] ?? createEmptySnapshot());
                         
                         return (
                           <button 
@@ -903,7 +1068,7 @@ export default function App() {
                   onKeyDown={e => {
                     if (e.key === 'Enter') e.currentTarget.blur();
                   }}
-                  className="w-full text-xs font-bold text-slate-300 text-right bg-transparent hover:bg-[#1e2a45] focus:bg-[#1e2a45] rounded outline-none transition-colors py-1 cursor-text"
+                  className="w-full text-xs font-bold text-slate-300 text-right bg-transparent hover:bg-[#1e2a45] focus:bg-[#1e2a45] rounded outline-none transition-colors py-1 cursor-text select-text"
                   title="Click to type a number (up to 100)"
                 />
               </div>
@@ -1021,7 +1186,7 @@ export default function App() {
                   onClick={() => {
                     setCustomMultipliers(prev => {
                       const m = prev[rIdx] || 1;
-                      const next = m === 1 ? 2 : (m === 2 ? 3 : 1);
+                      const next = m === 1 ? 2 : m === 2 ? 3 : m === 3 ? 4 : 1;
                       if (next === 1) {
                         const copy = { ...prev };
                         delete copy[rIdx];
@@ -1043,7 +1208,9 @@ export default function App() {
                       ? 'bg-[#1e2a45] border-[#2f4066] text-slate-300 hover:bg-[#253353] active:bg-[#1a253c]'
                       : rowMult === 2
                         ? 'bg-blue-900/40 border-blue-500/50 text-blue-300 shadow-[inset_0_1px_3px_rgba(59,130,246,0.1)]'
-                        : 'bg-rose-900/40 border-rose-500/50 text-rose-300 shadow-[inset_0_1px_3px_rgba(244,63,94,0.1)]'
+                        : rowMult === 3
+                          ? 'bg-rose-900/40 border-rose-500/50 text-rose-300 shadow-[inset_0_1px_3px_rgba(244,63,94,0.1)]'
+                          : 'bg-amber-900/40 border-amber-500/50 text-amber-200 shadow-[inset_0_1px_3px_rgba(245,158,11,0.12)]'
                   }`}
                 >
                   <span className="absolute top-[2px] left-[3px] text-[7.5px] text-slate-500 font-mono pointer-events-none leading-none opacity-80">{rIdx + 1}</span>
@@ -1055,15 +1222,22 @@ export default function App() {
                     if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
                     holdTimerRef.current = window.setTimeout(() => {
                       isHoldingRef.current = true;
-                      setActiveEditCell(null); // Clear any other active edits
-                      setActiveEditRow(rIdx);
-                      setCustomSyllables(prev => ({...prev, [rIdx]: prev[rIdx] ?? syllables}));
-                    }, 400); // Trigger hold
+                      setActiveEditCell(null);
+                      setActiveEditRow(null);
+                      setCustomSyllables(prev => {
+                        const copy = { ...prev };
+                        delete copy[rIdx];
+                        return copy;
+                      });
+                    }, 400);
                   }}
                   onPointerUp={() => {
                     if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
                   }}
                   onPointerLeave={() => {
+                    if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+                  }}
+                  onPointerCancel={() => {
                     if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
                   }}
                   onClick={() => {

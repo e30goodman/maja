@@ -1,1 +1,9 @@
 @import "tailwindcss";
+
+/* No text selection in trainer UI */
+html,
+body,
+#root {
+	user-select: none;
+	-webkit-user-select: none;
+}
