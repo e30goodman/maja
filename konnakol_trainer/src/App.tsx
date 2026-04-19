@@ -1170,24 +1170,62 @@ export default function App() {
     rowRefs.current[absR] = el;
   }, []);
 
-  // Auto-scroll during playback only when the grid uses a virtual strip (many bars / frozen scale).
+  /**
+   * Автоскролл при воспроизведении.
+   * Если freeze даёт ровно **1** видимый такт (`frozenScale === 1`) и тактов в паттерне > 1:
+   * листаем через 10 ms после **начала** подсветки последней доли такта (следующая строка в ленте).
+   * Иначе — прежняя логика «страниц» по scrollStride и половине такта.
+   */
   useEffect(() => {
+    let tid: number | null = null;
+    const cleanup = () => {
+      if (tid !== null) {
+        window.clearTimeout(tid);
+        tid = null;
+      }
+    };
+
     if (!isPlaying) {
-      lastScrolledPageRef.current = -1; // Reset memory when stopped
+      lastScrolledPageRef.current = -1;
       if (gridRef.current) gridRef.current.scrollTop = 0;
-    } else if (frozenScale === null && bars <= 10) {
-      /* Compact grid: all bars visible — no scrollIntoView, avoid bogus "pages". */
-    } else if (activePos.absR >= 0 && gridRef.current) {
+      return cleanup;
+    }
+
+    const frozenOneBarViewport =
+      frozenScale !== null && Math.min(frozenScale, 10) === 1 && bars > 1;
+
+    if (frozenOneBarViewport) {
+      if (activePos.absR >= 0) {
+        const rowSylls =
+          customSyllables[activePos.r] !== undefined ? customSyllables[activePos.r] : syllables;
+        if (rowSylls >= 1 && activePos.c === rowSylls - 1) {
+          tid = window.setTimeout(() => {
+            tid = null;
+            const nextAbs = activePos.absR + 1;
+            const rowEl = rowRefs.current[nextAbs];
+            if (rowEl) {
+              rowEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+          }, 10);
+        }
+      }
+      return cleanup;
+    }
+
+    if (frozenScale === null && bars <= 10) {
+      return cleanup;
+    }
+
+    if (activePos.absR >= 0 && gridRef.current) {
       let logicalPage = Math.floor(activePos.absR / scrollStride);
-      
-      // Delay turning the page until halfway through the overlap row
+
       if (activePos.absR > 0 && activePos.absR % scrollStride === 0) {
         const rIdx = activePos.absR % bars;
         const rowSylls = customSyllables[rIdx] !== undefined ? customSyllables[rIdx] : syllables;
         const isPastHalfway = activePos.c >= Math.floor(rowSylls / 2);
-        
+
         if (!isPastHalfway) {
-          logicalPage -= 1; // Stay on previous page
+          logicalPage -= 1;
         }
       }
 
@@ -1195,13 +1233,25 @@ export default function App() {
         lastScrolledPageRef.current = logicalPage;
         const pageStartAbsR = logicalPage * scrollStride;
         const rowEl = rowRefs.current[pageStartAbsR];
-        
+
         if (rowEl) {
-           rowEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          rowEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
       }
     }
-  }, [activePos.absR, activePos.c, isPlaying, scrollStride, customSyllables, syllables, bars, frozenScale]);
+
+    return cleanup;
+  }, [
+    activePos.absR,
+    activePos.c,
+    activePos.r,
+    isPlaying,
+    scrollStride,
+    customSyllables,
+    syllables,
+    bars,
+    frozenScale,
+  ]);
 
   useEffect(() => {
     return () => {
