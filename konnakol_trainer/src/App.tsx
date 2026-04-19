@@ -13,41 +13,80 @@ const KONNAKOL_PYRAMID: Record<number, string[]> = {
   9: ["Ta", "Ka", "Dhi", "Mi", "Ta", "Ka", "Ta", "Ki", "Ta"]
 };
 
+const CHAOS_SLIDER_MAX = 100;
+/** До этого значения слайдера (0–100) кривая интенсивности линейна; выше — экспоненциальный хвост. */
+const CHAOS_LINEAR_PHASE_END = 70;
+const METER_SIMPLE = [2, 3, 4] as const;
+const METER_COMPLEX = [5, 6, 7, 8, 9] as const;
+
 /**
- * Взвешенный рандом пульсации (число долей в такте), диапазон 2–9.
- * Группа A {2,3,4}: суммарно PULSATION_GROUP_A_PERCENT %; внутри группы — равновероятно.
- * Группа B {5,6,7,8,9}: суммарно PULSATION_GROUP_B_PERCENT %; внутри — равновероятно.
- * Меняй только проценты (сумма > 0); доля A на границе выбора = A / (A + B).
+ * Коэффициент интенсивности i ∈ [0, 1]: на 0–70% хаоса линейный рост, на 70–100% — экспоненциальный «взрыв».
  */
-const PULSATION_GROUP_A_PERCENT = 85;
-const PULSATION_GROUP_B_PERCENT = 15;
-const PULSATION_SIMPLE_METERS = [2, 3, 4] as const;
-const PULSATION_COMPLEX_METERS = [5, 6, 7, 8, 9] as const;
-
-/** Вероятность одного значения внутри A: (A/100) * (1/|A|). Аналогично B. */
-function pickWeightedRandomPulsation2to9(): number {
-	const wA = PULSATION_GROUP_A_PERCENT;
-	const wB = PULSATION_GROUP_B_PERCENT;
-	const wSum = wA + wB;
-
-	// Защита от нулевой суммы весов: равномерно всё 2..9.
-	if (wSum <= 0) {
-		return 2 + Math.floor(Math.random() * 8);
+function chaosIntensity(chaos: number): number {
+	const x = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
+	if (x <= CHAOS_LINEAR_PHASE_END) {
+		return (x / CHAOS_LINEAR_PHASE_END) * 0.72;
 	}
+	const t = (x - CHAOS_LINEAR_PHASE_END) / (CHAOS_SLIDER_MAX - CHAOS_LINEAR_PHASE_END);
+	const i70 = 0.72;
+	const k = 4.5;
+	const exp01 = (Math.exp(k * t) - 1) / (Math.exp(k) - 1);
+	return i70 + (1 - i70) * exp01;
+}
 
-	// Порог: доля «шанса» попасть в группу A. Один бросок r ∈ [0, 1).
-	const chanceGroupA = wA / wSum;
-	const r = Math.random();
+/** P(группа {5…9}) для пульсации / cell speed: низкий хаос почти только 2–4; после 70% — заметно чаще 5–9. */
+function probComplexMeter52to9(chaos: number): number {
+	const i = chaosIntensity(chaos);
+	const c = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
+	const tail =
+		c > CHAOS_LINEAR_PHASE_END
+			? Math.pow((c - CHAOS_LINEAR_PHASE_END) / (CHAOS_SLIDER_MAX - CHAOS_LINEAR_PHASE_END), 1.8)
+			: 0;
+	return Math.min(0.68, 0.04 + i * 0.22 + tail * 0.42);
+}
 
-	// Если r < chanceGroupA — выпала группа A; иначе — группа B (взаимоисключающие исходы, суммарно 100%).
-	if (r < chanceGroupA) {
-		// Равномерный индекс по длине массива A → каждое из {2,3,4} с вероятностью chanceGroupA / |A|.
-		const idx = Math.floor(Math.random() * PULSATION_SIMPLE_METERS.length);
-		return PULSATION_SIMPLE_METERS[idx];
+/** Взвешенный выбор 2–9: сначала группа A vs B по хаосу, внутри группы — равномерно. */
+function pickWeightedMeter2to9(chaos: number): number {
+	const pB = probComplexMeter52to9(chaos);
+	if (Math.random() < 1 - pB) {
+		return METER_SIMPLE[Math.floor(Math.random() * METER_SIMPLE.length)];
 	}
+	return METER_COMPLEX[Math.floor(Math.random() * METER_COMPLEX.length)];
+}
 
-	const j = Math.floor(Math.random() * PULSATION_COMPLEX_METERS.length);
-	return PULSATION_COMPLEX_METERS[j];
+/** Ожидаемая доля акцентов в такте ≈ 0…90% от числа долей, с лёгким разбросом; на высоком хаосе разброс сильнее. */
+function pickAccentCountForBar(chaos: number, curSyl: number): number {
+	const c = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
+	const cap = Math.floor(curSyl * 0.9 * (c / CHAOS_SLIDER_MAX));
+	if (c < 1) return 0;
+	const i = chaosIntensity(c);
+	const spread = 1 + Math.floor(curSyl * 0.2 * (0.35 + i));
+	const jitter = Math.floor((Math.random() - 0.5) * spread);
+	const n = Math.max(0, Math.min(curSyl, cap + jitter));
+	return Math.min(n, Math.floor(curSyl * 0.9));
+}
+
+/**
+ * Множитель скорости такта: ≤40% хаоса всегда 1×; 40–70 — растущий шанс 2×; >70 — в пуле 3× и 4×.
+ */
+function pickBarSpeedMultiplier(chaos: number): number {
+	const c = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
+	if (c <= 40) return 1;
+	if (c <= 70) {
+		const p2 = ((c - 40) / 30) * 0.5;
+		return Math.random() < p2 ? 2 : 1;
+	}
+	const t = (c - 70) / 30;
+	const w1 = 0.38 * (1 - t) + 0.1;
+	const w2 = 0.32 + 0.06 * t;
+	const w3 = 0.15 * t + 0.05;
+	const w4 = 0.15 * t + 0.05;
+	const tot = w1 + w2 + w3 + w4;
+	let r = Math.random() * tot;
+	if ((r -= w1) <= 0) return 1;
+	if ((r -= w2) <= 0) return 2;
+	if ((r -= w3) <= 0) return 3;
+	return 4;
 }
 
 const SNAPSHOT_SLOT_COUNT = 7;
@@ -70,7 +109,8 @@ function createEmptySnapshot() {
 		randomPattern: true,
 		randomSpeed: false,
 		randomBarSpeed: false,
-		randomMaxNotes: 0,
+		/** 0–100: глобальная «дикость» для всех включённых модулей рандомайзера. */
+		chaosLevel: 0,
 		clickSound: 'modern' as 'modern' | 'oldschool',
 		/** Верхняя панель: темп + слайдеры (Chevron) развёрнута. */
 		panelExpanded: false,
@@ -117,8 +157,15 @@ function parseSnapshotRow(raw: unknown) {
 	if (typeof o.randomPattern === 'boolean') d.randomPattern = o.randomPattern;
 	if (typeof o.randomSpeed === 'boolean') d.randomSpeed = o.randomSpeed;
 	if (typeof o.randomBarSpeed === 'boolean') d.randomBarSpeed = o.randomBarSpeed;
-	const rmn = parseInt(String(o.randomMaxNotes), 10);
-	if (Number.isFinite(rmn) && rmn >= 0 && rmn <= 9) d.randomMaxNotes = rmn;
+	const cl = parseInt(String(o.chaosLevel), 10);
+	if (Number.isFinite(cl) && cl >= 0 && cl <= 100) {
+		d.chaosLevel = cl;
+	} else if (o.randomMaxNotes !== undefined) {
+		const legacy = parseInt(String(o.randomMaxNotes), 10);
+		if (Number.isFinite(legacy) && legacy >= 0 && legacy <= 9) {
+			d.chaosLevel = legacy <= 0 ? 18 : Math.min(100, 12 + legacy * 9);
+		}
+	}
 	if (o.clickSound === 'oldschool') d.clickSound = 'oldschool';
 	if (typeof o.panelExpanded === 'boolean') d.panelExpanded = o.panelExpanded;
 	return d;
@@ -131,7 +178,7 @@ function snapSlotLooksUsed(s: ReturnType<typeof createEmptySnapshot>) {
 	if (Object.keys(s.customMultipliers).length > 0) return true;
 	if (Object.keys(s.customSubdivisions).length > 0) return true;
 	if (s.randomModeEnabled || s.randomPulsation || !s.randomPattern || s.randomSpeed || s.randomBarSpeed) return true;
-	if (s.randomMaxNotes !== 0) return true;
+	if (s.chaosLevel !== 0) return true;
 	if (s.clickSound !== 'modern') return true;
 	if (s.panelExpanded === true) return true;
 	return false;
@@ -151,7 +198,7 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		randomPattern: s.randomPattern,
 		randomSpeed: s.randomSpeed,
 		randomBarSpeed: s.randomBarSpeed,
-		randomMaxNotes: s.randomMaxNotes,
+		chaosLevel: s.chaosLevel,
 		clickSound: s.clickSound,
 		panelExpanded: s.panelExpanded,
 	};
@@ -195,7 +242,7 @@ function snapshotFromSlotState(raw: unknown): ReturnType<typeof createEmptySnaps
 		randomPattern: o.randomPattern,
 		randomSpeed: o.randomSpeed,
 		randomBarSpeed: o.randomBarSpeed,
-		randomMaxNotes: o.randomMaxNotes,
+		chaosLevel: o.chaosLevel,
 		clickSound: o.clickSound,
 		panelExpanded: o.panelExpanded,
 	});
@@ -322,7 +369,11 @@ export default function App() {
   const [randomPattern, setRandomPattern] = useState(seed.randomPattern);
   const [randomSpeed, setRandomSpeed] = useState(seed.randomSpeed);
   const [randomBarSpeed, setRandomBarSpeed] = useState(seed.randomBarSpeed);
-  const [randomMaxNotes, setRandomMaxNotes] = useState(seed.randomMaxNotes);
+  const [chaosLevel, setChaosLevel] = useState(
+    typeof seed.chaosLevel === 'number' && seed.chaosLevel >= 0 && seed.chaosLevel <= 100
+      ? seed.chaosLevel
+      : 0,
+  );
   const [showRandomSettings, setShowRandomSettings] = useState(false);
   const coldStartRef = useRef(true);
 
@@ -455,7 +506,7 @@ export default function App() {
   const randomPatternRef = useRef(randomPattern);
   const randomSpeedRef = useRef(randomSpeed);
   const randomBarSpeedRef = useRef(randomBarSpeed);
-  const randomMaxNotesRef = useRef(randomMaxNotes);
+  const chaosLevelRef = useRef(chaosLevel);
   const clickSoundRef = useRef(clickSound);
   const frozenScaleRef = useRef(frozenScale);
 
@@ -473,7 +524,7 @@ export default function App() {
   useEffect(() => { randomPatternRef.current = randomPattern; }, [randomPattern]);
   useEffect(() => { randomSpeedRef.current = randomSpeed; }, [randomSpeed]);
   useEffect(() => { randomBarSpeedRef.current = randomBarSpeed; }, [randomBarSpeed]);
-  useEffect(() => { randomMaxNotesRef.current = randomMaxNotes; }, [randomMaxNotes]);
+  useEffect(() => { chaosLevelRef.current = chaosLevel; }, [chaosLevel]);
   useEffect(() => { clickSoundRef.current = clickSound; }, [clickSound]);
   useEffect(() => { frozenScaleRef.current = frozenScale; }, [frozenScale]);
 
@@ -490,7 +541,7 @@ export default function App() {
     randomPattern: randomPatternRef.current,
     randomSpeed: randomSpeedRef.current,
     randomBarSpeed: randomBarSpeedRef.current,
-    randomMaxNotes: randomMaxNotesRef.current,
+    chaosLevel: chaosLevelRef.current,
     clickSound: clickSoundRef.current,
     panelExpanded: isPanelExpandedRef.current,
   });
@@ -529,7 +580,7 @@ export default function App() {
         randomPattern,
         randomSpeed,
         randomBarSpeed,
-        randomMaxNotes,
+        chaosLevel,
         clickSound,
         panelExpanded: isPanelExpanded,
       },
@@ -548,7 +599,7 @@ export default function App() {
     randomPattern,
     randomSpeed,
     randomBarSpeed,
-    randomMaxNotes,
+    chaosLevel,
     clickSound,
     isPanelExpanded,
   ]);
@@ -612,9 +663,9 @@ export default function App() {
     setRandomBarSpeed(
       snap.randomBarSpeed !== undefined ? Boolean(snap.randomBarSpeed) : false,
     );
-    setRandomMaxNotes(
-      typeof snap.randomMaxNotes === 'number' && snap.randomMaxNotes >= 0 && snap.randomMaxNotes <= 9
-        ? snap.randomMaxNotes
+    setChaosLevel(
+      typeof snap.chaosLevel === 'number' && snap.chaosLevel >= 0 && snap.chaosLevel <= 100
+        ? snap.chaosLevel
         : 0,
     );
     setClickSound(snap.clickSound === 'oldschool' ? 'oldschool' : 'modern');
@@ -769,9 +820,10 @@ export default function App() {
           const prevBar = (targetR - 1 + barsRef.current) % barsRef.current;
           let didChange = false;
 
+          const chaos = chaosLevelRef.current;
+
           if (randomPulsationRef.current) {
-            const newSyl = pickWeightedRandomPulsation2to9();
-            customSyllablesRef.current[prevBar] = newSyl;
+            customSyllablesRef.current[prevBar] = pickWeightedMeter2to9(chaos);
             didChange = true;
           }
 
@@ -781,15 +833,7 @@ export default function App() {
             for (let i = 0; i < 9; i++) accentsRef.current.delete(`${prevBar}-${i}`);
             
             const candidates = Array.from({length: curSyl}, (_, i) => i).sort(() => Math.random() - 0.5);
-            
-            let fillCount;
-            if (randomMaxNotesRef.current === 0) {
-              // "Auto" mode: Randomly pick 1 or 2 elements maximum to swap
-              fillCount = Math.floor(Math.random() * Math.min(2, curSyl)) + 1;
-            } else {
-              fillCount = Math.min(randomMaxNotesRef.current, curSyl);
-            }
-            
+            const fillCount = pickAccentCountForBar(chaos, curSyl);
             for (let i = 0; i < fillCount; i++) {
                accentsRef.current.add(`${prevBar}-${candidates[i]}`);
             }
@@ -804,17 +848,17 @@ export default function App() {
               
             for (let i = 0; i < 9; i++) delete customSubdivisionsRef.current[`${prevBar}-${i}`];
             
+            const hitRate = 0.12 + (chaos / CHAOS_SLIDER_MAX) * 0.58;
             candidates.forEach(i => {
-              if (Math.random() > 0.6) {
-                customSubdivisionsRef.current[`${prevBar}-${i}`] = Math.random() > 0.5 ? 2 : 4;
+              if (Math.random() < hitRate) {
+                customSubdivisionsRef.current[`${prevBar}-${i}`] = pickWeightedMeter2to9(chaos);
               }
             });
             didChange = true;
           }
 
           if (randomBarSpeedRef.current) {
-            const multOptions = [1, 2, 3, 4];
-            customMultipliersRef.current[prevBar] = multOptions[Math.floor(Math.random() * multOptions.length)];
+            customMultipliersRef.current[prevBar] = pickBarSpeedMultiplier(chaos);
             didChange = true;
           }
 
@@ -1089,27 +1133,36 @@ export default function App() {
                      </button>
                   </div>
 
-                  {randomPulsation ? (
-                    <p className="text-[10px] text-slate-500 leading-snug px-0.5 text-center">
-                      Pulsation:{' '}
-                      <span className="text-slate-400">
-                        {`{2,3,4} — ${PULSATION_GROUP_A_PERCENT}% (равн. внутри); {5…9} — ${PULSATION_GROUP_B_PERCENT}% (равн.)`}
+                  <div className="flex flex-col gap-2 px-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-slate-400 font-bold tracking-wider uppercase">
+                        Chaos level
                       </span>
+                      <span className="text-purple-300 font-mono text-xs font-bold">{chaosLevel}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={chaosLevel}
+                      onChange={(e) => setChaosLevel(parseInt(e.target.value, 10))}
+                      className="w-full h-2 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110"
+                    />
+                    <p className="text-[10px] text-slate-500 leading-snug text-center">
+                      До {CHAOS_LINEAR_PHASE_END}% — линейный рост сложности; выше — экспонента. Один ползунок для
+                      Pulsation, Accents, Cell speed и Bar speed (если модули включены).
                     </p>
-                  ) : null}
+                    <p className="text-[10px] text-slate-600 text-center font-mono">
+                      интенсивность i ≈ {Math.round(chaosIntensity(chaosLevel) * 100)}%
+                    </p>
+                  </div>
 
-                  <div className={`flex flex-col gap-2 transition-all duration-300 ${randomPattern ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                     <div className="flex items-center justify-between px-1">
-                       <span className="text-[11px] text-slate-400 font-bold tracking-wider uppercase">Max Accents: <span className="text-purple-300 ml-1">{randomMaxNotes === 0 ? 'Auto' : randomMaxNotes}</span></span>
-                     </div>
-                     <input 
-                        type="range" 
-                        min="0" 
-                        max="9" 
-                        value={randomMaxNotes} 
-                        onChange={e => setRandomMaxNotes(parseInt(e.target.value))}
-                        className="w-full h-2 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110"
-                      />
+                  <div
+                    className={`flex flex-col gap-1 transition-all duration-300 px-1 ${randomPattern ? 'opacity-100' : 'opacity-40'}`}
+                  >
+                    <p className="text-[10px] text-slate-500 text-center leading-snug">
+                      Accents: доля случайных акцентов в такте растёт с Chaos (потолок ~90% долей).
+                    </p>
                   </div>
 
                   <div className="w-full h-px bg-[#1e2a45]/80 my-0.5"></div>
