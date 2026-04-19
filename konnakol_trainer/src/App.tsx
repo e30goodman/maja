@@ -642,6 +642,9 @@ export default function App() {
     const emptyAcc = new Set<string>();
     setAccents(emptyAcc);
     accentsRef.current = emptyAcc;
+    const defaultBars = createEmptySnapshot().bars;
+    setBars(defaultBars);
+    barsRef.current = defaultBars;
     setSyllables(PULSE_METER_BASE_SYLLABLES);
     syllablesRef.current = PULSE_METER_BASE_SYLLABLES;
     setCustomSyllables({});
@@ -650,6 +653,8 @@ export default function App() {
     customMultipliersRef.current = {};
     setCustomSubdivisions({});
     customSubdivisionsRef.current = {};
+    setPulseMeterUnlinked({});
+    pulseMeterUnlinkedRef.current = {};
   };
 
   const toggleRandomFeature = (feature: 'pulsation' | 'pattern' | 'speed' | 'barSpeed') => {
