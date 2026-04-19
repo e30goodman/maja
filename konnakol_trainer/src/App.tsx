@@ -94,11 +94,11 @@ function pickBarSpeedMultiplier(chaos: number): number {
 
 const SNAPSHOT_SLOT_COUNT = 7;
 const SNAPSHOT_STORAGE_KEY = 'konnakolTrainerSnapshotsV1';
-/** Экспорт в буфер: компактная строка для мессенджеров. */
+/** Clipboard export: compact string for messengers. */
 const METRONOME_CONFIG_PREFIX = 'METRONOME_CONFIG:';
-/** Старые ссылки с чистым JSON после двоеточия — по-прежнему читаем. */
+/** Legacy prefix with raw JSON after colon — still accepted when pasting. */
 const SNAPSHOT_CLIPBOARD_PREFIX_LEGACY = 'konnakolTrainerSnapshotV1:';
-/** Удержание слота — открыть меню Copy / Paste. */
+/** Hold snapshot slot to open Copy / Paste menu. */
 const SNAPSHOT_MENU_HOLD_MS = 520;
 
 function utf8ToBase64Json(json: string): string {
@@ -798,11 +798,11 @@ export default function App() {
     try {
       const payload = getSnapshotPayloadForSlotExport(slot);
       await navigator.clipboard.writeText(encodeSnapshotClipboard(payload));
-      showClipboardToast('Настройки скопированы в буфер!');
+      showClipboardToast('Settings copied to clipboard!');
       closeSnapshotClipMenu();
     } catch (e) {
       console.warn('[konnakol_trainer] clipboard write failed', e);
-      showClipboardToast('Не удалось записать в буфер обмена');
+      showClipboardToast('Could not write to clipboard');
       closeSnapshotClipMenu();
     }
   };
@@ -813,13 +813,13 @@ export default function App() {
       text = await navigator.clipboard.readText();
     } catch (e) {
       console.warn('[konnakol_trainer] clipboard read failed', e);
-      showClipboardToast('Нет доступа к буферу обмена');
+      showClipboardToast('Clipboard access denied');
       closeSnapshotClipMenu();
       return;
     }
     const parsed = tryDecodeSnapshotClipboard(text);
     if (!parsed) {
-      showClipboardToast('В буфере нет пресета METRONOME_CONFIG');
+      showClipboardToast('No METRONOME_CONFIG preset in clipboard');
       closeSnapshotClipMenu();
       return;
     }
@@ -827,10 +827,10 @@ export default function App() {
       const stored = normalizeSnapshotForStorage(parsed);
       setActiveSnapshot(slot);
       applySnapshotDataToUi(stored, { preservePanel: true });
-      showClipboardToast('Пресет применен!');
+      showClipboardToast('Preset applied!');
     } catch (e) {
       console.warn('[konnakol_trainer] apply preset failed', e);
-      showClipboardToast('Не удалось применить пресет');
+      showClipboardToast('Could not apply preset');
     }
     closeSnapshotClipMenu();
   };
@@ -1443,7 +1443,7 @@ export default function App() {
                             ref={(el) => {
                               snapshotSlotButtonRefs.current[num] = el;
                             }}
-                            title="Коротко: выбрать слот. Удержание: меню копировать / вставить пресет"
+                            title="Tap: select slot. Hold: copy / paste preset menu"
                             className={`w-8 h-8 flex items-center justify-center rounded-full text-[13px] font-bold transition-all touch-none select-none ${
                               isActive
                                 ? 'bg-[#1e2a45] text-white shadow-sm ring-1 ring-[#3a5080] scale-110'
@@ -1941,14 +1941,14 @@ export default function App() {
       {snapshotClipMenu ? (
         <>
           <div
-            className="fixed inset-0 z-[200] bg-black/50 backdrop-blur-[1px]"
+            className="fixed inset-0 z-[200] bg-black/50"
             aria-hidden
             onPointerDown={closeSnapshotClipMenu}
           />
           <div
             role="dialog"
             aria-modal="true"
-            aria-label="Пресет: копировать или вставить"
+            aria-label="Preset: copy or paste"
             className="fixed z-[201] flex items-center gap-1 rounded-xl border border-[#2f4066] bg-[#161f33] p-1.5 shadow-2xl ring-1 ring-black/30"
             style={{
               left: snapshotClipMenu.x,
@@ -1960,8 +1960,8 @@ export default function App() {
             <button
               type="button"
               className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#23314f] text-slate-200 transition-colors hover:bg-[#2c3d63] active:bg-[#1b253b] ring-1 ring-[#2f4066]/40"
-              title="Копировать пресет слота в буфер"
-              aria-label="Копировать пресет слота в буфер"
+              title="Copy slot preset to clipboard"
+              aria-label="Copy slot preset to clipboard"
               onClick={() => void copySnapshotSlotToClipboard(snapshotClipMenu.slot)}
             >
               <Copy size={20} strokeWidth={2.25} />
@@ -1970,8 +1970,8 @@ export default function App() {
             <button
               type="button"
               className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#23314f] text-slate-200 transition-colors hover:bg-[#2c3d63] active:bg-[#1b253b] ring-1 ring-[#2f4066]/40"
-              title="Вставить пресет из буфера в слот"
-              aria-label="Вставить пресет из буфера в слот"
+              title="Paste preset from clipboard into slot"
+              aria-label="Paste preset from clipboard into slot"
               onClick={() => void pasteSnapshotFromClipboard(snapshotClipMenu.slot)}
             >
               <ClipboardPaste size={20} strokeWidth={2.25} />
