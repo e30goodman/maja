@@ -50,10 +50,6 @@ function buildRowDisplaySyllables(rowSyllCount: number): string[] {
 }
 
 const CHAOS_SLIDER_MAX = 100;
-/** Oldschool: множитель громкости пассивного щелчка (проценты, 100 = как раньше). */
-const OLDSCHOOL_PASSIVE_GAIN_MIN = 10;
-const OLDSCHOOL_PASSIVE_GAIN_MAX = 150;
-const OLDSCHOOL_PASSIVE_GAIN_DEFAULT = 100;
 /** При «отвязке» пульса от числа долей такта длительность шага считается как при 4 долях (квартальная сетка). */
 const PULSE_METER_BASE_SYLLABLES = 4;
 
@@ -225,7 +221,6 @@ function createEmptySnapshot() {
 		randomBarSpeed: false,
 		chaosLevel: 0,
 		clickSound: 'modern' as 'modern' | 'oldschool',
-		oldschoolPassiveGain: OLDSCHOOL_PASSIVE_GAIN_DEFAULT,
 		/** Верхняя панель: темп + слайдеры (Chevron) развёрнута. */
 		panelExpanded: false,
 		/** Ряд r: длительность клетки от PULSE_METER_BASE_SYLLABLES, не от customSyllables[r]. */
@@ -283,10 +278,6 @@ function parseSnapshotRow(raw: unknown) {
 		}
 	}
 	if (o.clickSound === 'oldschool') d.clickSound = 'oldschool';
-	const og = parseInt(String(o.oldschoolPassiveGain), 10);
-	if (Number.isFinite(og) && og >= OLDSCHOOL_PASSIVE_GAIN_MIN && og <= OLDSCHOOL_PASSIVE_GAIN_MAX) {
-		d.oldschoolPassiveGain = og;
-	}
 	if (typeof o.panelExpanded === 'boolean') d.panelExpanded = o.panelExpanded;
 	if (o.sequencerCells && typeof o.sequencerCells === 'object') {
 		hydrateSequencerFromCells(o.sequencerCells, d);
@@ -312,12 +303,6 @@ function snapSlotLooksUsed(s: ReturnType<typeof createEmptySnapshot>) {
 	if (s.randomModeEnabled || s.randomPulsation || !s.randomPattern || s.randomSpeed || s.randomBarSpeed) return true;
 	if (s.chaosLevel !== 0) return true;
 	if (s.clickSound !== 'modern') return true;
-	if (
-		typeof s.oldschoolPassiveGain === 'number' &&
-		s.oldschoolPassiveGain !== OLDSCHOOL_PASSIVE_GAIN_DEFAULT
-	) {
-		return true;
-	}
 	if (s.panelExpanded === true) return true;
 	if (s.pulseMeterUnlinked && Object.values(s.pulseMeterUnlinked).some(Boolean)) return true;
 	return false;
@@ -340,8 +325,6 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		randomBarSpeed: s.randomBarSpeed,
 		chaosLevel: s.chaosLevel,
 		clickSound: s.clickSound,
-		oldschoolPassiveGain:
-			typeof s.oldschoolPassiveGain === 'number' ? s.oldschoolPassiveGain : OLDSCHOOL_PASSIVE_GAIN_DEFAULT,
 		panelExpanded: s.panelExpanded,
 		pulseMeterUnlinked: Object.fromEntries(
 			Object.entries(s.pulseMeterUnlinked || {}).filter(([, v]) => v),
@@ -414,7 +397,6 @@ const playSharpClick = (
   isChecked: boolean,
   soundType: 'modern' | 'oldschool' = 'modern',
   accentOnlyPlayback = false,
-  oldschoolPassiveGainPct = OLDSCHOOL_PASSIVE_GAIN_DEFAULT,
 ) => {
   // Old school = same as legacy maja `konnakol_metronome` (triangle + pitch sweep).
   if (soundType === 'oldschool') {
@@ -423,11 +405,9 @@ const playSharpClick = (
     osc.type = 'triangle';
     osc.frequency.setValueAtTime(isChecked ? 500 : 250, time);
     osc.frequency.exponentialRampToValueAtTime(isChecked ? 120 : 80, time + (isChecked ? 0.04 : 0.02));
-    const passiveScale = Math.max(
-      OLDSCHOOL_PASSIVE_GAIN_MIN / 100,
-      Math.min(OLDSCHOOL_PASSIVE_GAIN_MAX / 100, oldschoolPassiveGainPct / 100),
-    );
-    const peak = isChecked ? 0.9 : 0.4 * passiveScale;
+    /** Пассивный oldschool: +20% к пику относительно legacy (без UI-слайдера). */
+    const OLDSCHOOL_PASSIVE_PEAK_MUL = 1.2;
+    const peak = isChecked ? 0.9 : 0.4 * OLDSCHOOL_PASSIVE_PEAK_MUL;
     const decay = isChecked ? 0.04 : 0.02;
     gain.gain.setValueAtTime(0, time);
     gain.gain.linearRampToValueAtTime(peak, time + 0.002);
@@ -557,12 +537,6 @@ export default function App() {
 
   // Click Sound
   const [clickSound, setClickSound] = useState<'modern' | 'oldschool'>(seed.clickSound);
-  const [oldschoolPassiveGain, setOldschoolPassiveGain] = useState(() => {
-    const g = seed.oldschoolPassiveGain;
-    return typeof g === 'number' && g >= OLDSCHOOL_PASSIVE_GAIN_MIN && g <= OLDSCHOOL_PASSIVE_GAIN_MAX
-      ? g
-      : OLDSCHOOL_PASSIVE_GAIN_DEFAULT;
-  });
 
   // Preset Snapshot State (7 slots; persisted in localStorage)
   const [activeSnapshot, setActiveSnapshot] = useState(initialBoot.activeSnapshot);
@@ -721,7 +695,6 @@ export default function App() {
   const randomBarSpeedRef = useRef(randomBarSpeed);
   const chaosLevelRef = useRef(chaosLevel);
   const clickSoundRef = useRef(clickSound);
-  const oldschoolPassiveGainRef = useRef(oldschoolPassiveGain);
   const frozenScaleRef = useRef(frozenScale);
 
   useEffect(() => { barsRef.current = bars; }, [bars]);
@@ -743,9 +716,6 @@ export default function App() {
   useEffect(() => { randomBarSpeedRef.current = randomBarSpeed; }, [randomBarSpeed]);
   useEffect(() => { chaosLevelRef.current = chaosLevel; }, [chaosLevel]);
   useEffect(() => { clickSoundRef.current = clickSound; }, [clickSound]);
-  useEffect(() => {
-    oldschoolPassiveGainRef.current = oldschoolPassiveGain;
-  }, [oldschoolPassiveGain]);
   useEffect(() => { frozenScaleRef.current = frozenScale; }, [frozenScale]);
 
   const buildLiveSnapshotFromRefs = (): ReturnType<typeof createEmptySnapshot> => ({
@@ -763,7 +733,6 @@ export default function App() {
     randomBarSpeed: randomBarSpeedRef.current,
     chaosLevel: chaosLevelRef.current,
     clickSound: clickSoundRef.current,
-    oldschoolPassiveGain: oldschoolPassiveGainRef.current,
     panelExpanded: isPanelExpandedRef.current,
     pulseMeterUnlinked: { ...pulseMeterUnlinkedRef.current },
   });
@@ -796,7 +765,6 @@ export default function App() {
       randomBarSpeed: raw.randomBarSpeed,
       chaosLevel: raw.chaosLevel,
       clickSound: raw.clickSound,
-      oldschoolPassiveGain: raw.oldschoolPassiveGain,
       panelExpanded: raw.panelExpanded,
       pulseMeterUnlinked: raw.pulseMeterUnlinked,
     });
@@ -853,7 +821,6 @@ export default function App() {
         randomBarSpeed,
         chaosLevel,
         clickSound,
-        oldschoolPassiveGain,
         panelExpanded: isPanelExpanded,
         pulseMeterUnlinked: { ...pulseMeterUnlinked },
       },
@@ -875,7 +842,6 @@ export default function App() {
     randomBarSpeed,
     chaosLevel,
     clickSound,
-    oldschoolPassiveGain,
     isPanelExpanded,
   ]);
 
@@ -947,12 +913,6 @@ export default function App() {
         : 0,
     );
     setClickSound(snap.clickSound === 'oldschool' ? 'oldschool' : 'modern');
-    const og = snap.oldschoolPassiveGain;
-    setOldschoolPassiveGain(
-      typeof og === 'number' && og >= OLDSCHOOL_PASSIVE_GAIN_MIN && og <= OLDSCHOOL_PASSIVE_GAIN_MAX
-        ? og
-        : OLDSCHOOL_PASSIVE_GAIN_DEFAULT,
-    );
     setPulseMeterUnlinked(normalizePulseMeterUnlinked(snap.pulseMeterUnlinked));
     if (!options?.preservePanel) {
       setIsPanelExpanded(snap.panelExpanded === true);
@@ -1303,7 +1263,6 @@ export default function App() {
             mainAccentClick,
             clickSoundRef.current,
             onlyAccentsRef.current,
-            oldschoolPassiveGainRef.current,
           );
         }
       }
@@ -1557,25 +1516,6 @@ export default function App() {
                        <button onClick={() => setClickSound('oldschool')} className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${clickSound === 'oldschool' ? 'bg-[#364976] text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}>Oldschool</button>
                     </div>
                   </div>
-
-                  {clickSound === 'oldschool' ? (
-                    <div className="flex flex-col gap-2 px-1 pt-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] text-slate-400 font-bold tracking-wider uppercase">
-                          Oldschool passive
-                        </span>
-                        <span className="text-amber-200/90 font-mono text-xs font-bold">{oldschoolPassiveGain}%</span>
-                      </div>
-                      <input
-                        type="range"
-                        min={OLDSCHOOL_PASSIVE_GAIN_MIN}
-                        max={OLDSCHOOL_PASSIVE_GAIN_MAX}
-                        value={oldschoolPassiveGain}
-                        onChange={(e) => setOldschoolPassiveGain(parseInt(e.target.value, 10))}
-                        className="w-full h-2 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-amber-400/90 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110"
-                      />
-                    </div>
-                  ) : null}
                 </div>
               </div>
             </div>
