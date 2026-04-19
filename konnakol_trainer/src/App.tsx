@@ -1543,15 +1543,17 @@ export default function App() {
                         if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
                         holdTimerRef.current = window.setTimeout(() => {
                           isHoldingRef.current = true;
-                          setActiveEditRow(null); // Clear any other active edits
-                          setActiveEditCell(checkKey);
-                          setIsPanelExpanded(true); // Auto-expand panel to show slider
                           setCustomSubdivisions(prev => {
                             const current = prev[checkKey] || 1;
                             const next = current >= 9 ? 1 : current + 1;
                             return {...prev, [checkKey]: next};
                           });
-                        }, 400); // Trigger hold
+                          if (isPanelExpandedRef.current) {
+                            setActiveEditRow(null);
+                            setActiveEditCell(checkKey);
+                            setIsPanelExpanded(true);
+                          }
+                        }, 400);
                       }}
                       onPointerUp={() => {
                         if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
