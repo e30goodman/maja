@@ -14,61 +14,37 @@ const KONNAKOL_PYRAMID: Record<number, string[]> = {
 };
 
 const CHAOS_SLIDER_MAX = 100;
-/** До этого значения слайдера (0–100) кривая интенсивности линейна; выше — экспоненциальный хвост. */
-const CHAOS_LINEAR_PHASE_END = 70;
-const METER_SIMPLE = [2, 3, 4] as const;
-const METER_COMPLEX = [5, 6, 7, 8, 9] as const;
+const METER_POOL_LOW = [2, 4] as const;
+const METER_POOL_MID = [3, 5] as const;
+const METER_POOL_FULL = [2, 3, 4, 5, 6, 7, 8, 9] as const;
 
-/**
- * Коэффициент интенсивности i ∈ [0, 1]: на 0–70% хаоса линейный рост, на 70–100% — экспоненциальный «взрыв».
- */
-function chaosIntensity(chaos: number): number {
-	const x = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
-	if (x <= CHAOS_LINEAR_PHASE_END) {
-		return (x / CHAOS_LINEAR_PHASE_END) * 0.72;
-	}
-	const t = (x - CHAOS_LINEAR_PHASE_END) / (CHAOS_SLIDER_MAX - CHAOS_LINEAR_PHASE_END);
-	const i70 = 0.72;
-	const k = 4.5;
-	const exp01 = (Math.exp(k * t) - 1) / (Math.exp(k) - 1);
-	return i70 + (1 - i70) * exp01;
+/** Доля акцентуемых долей: 0→0, 25→25%, 50→50%, 75→75%, 100→90% (кусочно-линейно). */
+function accentFillRatioFromChaos(c: number): number {
+	const x = Math.max(0, Math.min(CHAOS_SLIDER_MAX, c));
+	if (x <= 25) return 0.25 * (x / 25);
+	if (x <= 50) return 0.25 + (x - 25) * (0.25 / 25);
+	if (x <= 75) return 0.5 + (x - 50) * (0.25 / 25);
+	return 0.75 + (x - 75) * (0.15 / 25);
 }
 
-/** P(группа {5…9}) для пульсации / cell speed: низкий хаос почти только 2–4; после 70% — заметно чаще 5–9. */
-function probComplexMeter52to9(chaos: number): number {
-	const i = chaosIntensity(chaos);
-	const c = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
-	const tail =
-		c > CHAOS_LINEAR_PHASE_END
-			? Math.pow((c - CHAOS_LINEAR_PHASE_END) / (CHAOS_SLIDER_MAX - CHAOS_LINEAR_PHASE_END), 1.8)
-			: 0;
-	return Math.min(0.68, 0.04 + i * 0.22 + tail * 0.42);
-}
-
-/** Взвешенный выбор 2–9: сначала группа A vs B по хаосу, внутри группы — равномерно. */
+/** Пульсация / cell speed: chaos≤30 → только 2 или 4; 30<chaos≤70 → 3 или 5; >70 → 2…9. */
 function pickWeightedMeter2to9(chaos: number): number {
-	const pB = probComplexMeter52to9(chaos);
-	if (Math.random() < 1 - pB) {
-		return METER_SIMPLE[Math.floor(Math.random() * METER_SIMPLE.length)];
-	}
-	return METER_COMPLEX[Math.floor(Math.random() * METER_COMPLEX.length)];
+	const c = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
+	const pool = c <= 30 ? METER_POOL_LOW : c <= 70 ? METER_POOL_MID : METER_POOL_FULL;
+	return pool[Math.floor(Math.random() * pool.length)]!;
 }
 
-/** Ожидаемая доля акцентов в такте ≈ 0…90% от числа долей, с лёгким разбросом; на высоком хаосе разброс сильнее. */
 function pickAccentCountForBar(chaos: number, curSyl: number): number {
-	const c = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
-	const cap = Math.floor(curSyl * 0.9 * (c / CHAOS_SLIDER_MAX));
-	if (c < 1) return 0;
-	const i = chaosIntensity(c);
-	const spread = 1 + Math.floor(curSyl * 0.2 * (0.35 + i));
+	const x = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
+	if (x < 1) return 0;
+	const ratio = accentFillRatioFromChaos(x);
+	const cap = Math.floor(curSyl * ratio);
+	const spread = 1 + Math.floor(curSyl * 0.12);
 	const jitter = Math.floor((Math.random() - 0.5) * spread);
 	const n = Math.max(0, Math.min(curSyl, cap + jitter));
 	return Math.min(n, Math.floor(curSyl * 0.9));
 }
 
-/**
- * Множитель скорости такта: ≤40% хаоса всегда 1×; 40–70 — растущий шанс 2×; >70 — в пуле 3× и 4×.
- */
 function pickBarSpeedMultiplier(chaos: number): number {
 	const c = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
 	if (c <= 40) return 1;
@@ -109,7 +85,6 @@ function createEmptySnapshot() {
 		randomPattern: true,
 		randomSpeed: false,
 		randomBarSpeed: false,
-		/** 0–100: глобальная «дикость» для всех включённых модулей рандомайзера. */
 		chaosLevel: 0,
 		clickSound: 'modern' as 'modern' | 'oldschool',
 		/** Верхняя панель: темп + слайдеры (Chevron) развёрнута. */
@@ -1148,21 +1123,6 @@ export default function App() {
                       onChange={(e) => setChaosLevel(parseInt(e.target.value, 10))}
                       className="w-full h-2 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110"
                     />
-                    <p className="text-[10px] text-slate-500 leading-snug text-center">
-                      До {CHAOS_LINEAR_PHASE_END}% — линейный рост сложности; выше — экспонента. Один ползунок для
-                      Pulsation, Accents, Cell speed и Bar speed (если модули включены).
-                    </p>
-                    <p className="text-[10px] text-slate-600 text-center font-mono">
-                      интенсивность i ≈ {Math.round(chaosIntensity(chaosLevel) * 100)}%
-                    </p>
-                  </div>
-
-                  <div
-                    className={`flex flex-col gap-1 transition-all duration-300 px-1 ${randomPattern ? 'opacity-100' : 'opacity-40'}`}
-                  >
-                    <p className="text-[10px] text-slate-500 text-center leading-snug">
-                      Accents: доля случайных акцентов в такте растёт с Chaos (потолок ~90% долей).
-                    </p>
                   </div>
 
                   <div className="w-full h-px bg-[#1e2a45]/80 my-0.5"></div>
