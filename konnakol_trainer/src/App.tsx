@@ -114,7 +114,22 @@ export default function App() {
   // Preset Snapshot State
   const [activeSnapshot, setActiveSnapshot] = useState(1);
   const [snapshots, setSnapshots] = useState<Record<number, any>>({
-    1: { tempo: 100, bars: 4, syllables: 4, accents: new Set(), customSyllables: {}, customMultipliers: {}, customSubdivisions: {} }
+    1: {
+      tempo: 100,
+      bars: 4,
+      syllables: 4,
+      accents: new Set(),
+      customSyllables: {},
+      customMultipliers: {},
+      customSubdivisions: {},
+      randomModeEnabled: false,
+      randomPulsation: false,
+      randomPattern: true,
+      randomSpeed: false,
+      randomBarSpeed: false,
+      randomMaxNotes: 0,
+      clickSound: 'modern' as const,
+    },
   });
 
   const [activeEditCell, setActiveEditCell] = useState<string | null>(null);
@@ -250,9 +265,40 @@ export default function App() {
   useEffect(() => {
     setSnapshots(prev => ({
       ...prev,
-      [activeSnapshot]: { tempo, bars, syllables, accents, customSyllables, customMultipliers, customSubdivisions }
+      [activeSnapshot]: {
+        tempo,
+        bars,
+        syllables,
+        accents,
+        customSyllables,
+        customMultipliers,
+        customSubdivisions,
+        randomModeEnabled,
+        randomPulsation,
+        randomPattern,
+        randomSpeed,
+        randomBarSpeed,
+        randomMaxNotes,
+        clickSound,
+      },
     }));
-  }, [tempo, bars, syllables, accents, customSyllables, customMultipliers, customSubdivisions, activeSnapshot]);
+  }, [
+    tempo,
+    bars,
+    syllables,
+    accents,
+    customSyllables,
+    customMultipliers,
+    customSubdivisions,
+    activeSnapshot,
+    randomModeEnabled,
+    randomPulsation,
+    randomPattern,
+    randomSpeed,
+    randomBarSpeed,
+    randomMaxNotes,
+    clickSound,
+  ]);
 
   const loadSnapshot = (id: number) => {
     const snap = snapshots[id];
@@ -265,6 +311,27 @@ export default function App() {
       setCustomSyllables({ ...snap.customSyllables });
       setCustomMultipliers({ ...(snap.customMultipliers || {}) });
       setCustomSubdivisions({ ...(snap.customSubdivisions || {}) });
+      setRandomModeEnabled(
+        snap.randomModeEnabled !== undefined ? Boolean(snap.randomModeEnabled) : false,
+      );
+      setRandomPulsation(
+        snap.randomPulsation !== undefined ? Boolean(snap.randomPulsation) : false,
+      );
+      setRandomPattern(
+        snap.randomPattern !== undefined ? Boolean(snap.randomPattern) : true,
+      );
+      setRandomSpeed(
+        snap.randomSpeed !== undefined ? Boolean(snap.randomSpeed) : false,
+      );
+      setRandomBarSpeed(
+        snap.randomBarSpeed !== undefined ? Boolean(snap.randomBarSpeed) : false,
+      );
+      setRandomMaxNotes(
+        typeof snap.randomMaxNotes === 'number' && snap.randomMaxNotes >= 0 && snap.randomMaxNotes <= 9
+          ? snap.randomMaxNotes
+          : 0,
+      );
+      setClickSound(snap.clickSound === 'oldschool' ? 'oldschool' : 'modern');
     } else {
       // Initialize an empty layout for a completely new snapshot
       setTempo(100);
@@ -274,6 +341,13 @@ export default function App() {
       setCustomSyllables({});
       setCustomMultipliers({});
       setCustomSubdivisions({});
+      setRandomModeEnabled(false);
+      setRandomPulsation(false);
+      setRandomPattern(true);
+      setRandomSpeed(false);
+      setRandomBarSpeed(false);
+      setRandomMaxNotes(0);
+      setClickSound('modern');
     }
   };
 
