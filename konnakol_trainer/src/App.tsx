@@ -86,6 +86,46 @@ const SNAPSHOT_STORAGE_KEY = 'konnakolTrainerSnapshotsV1';
 const SNAPSHOT_CLIPBOARD_PREFIX = 'konnakolTrainerSnapshotV1:';
 const SNAPSHOT_HOLD_MS = 450;
 
+type SequencerCellJSON = { accent: boolean; pulsation: number };
+
+function buildSequencerCellsForSnapshot(s: ReturnType<typeof createEmptySnapshot>): Record<string, SequencerCellJSON> {
+	const acc = s.accents instanceof Set ? s.accents : new Set(Array.isArray(s.accents) ? s.accents : []);
+	const out: Record<string, SequencerCellJSON> = {};
+	for (let r = 0; r < s.bars; r++) {
+		const syl = s.customSyllables[r] !== undefined ? s.customSyllables[r] : s.syllables;
+		for (let c = 0; c < syl; c++) {
+			const k = `${r}-${c}`;
+			const p = s.customSubdivisions[k];
+			const pul = typeof p === 'number' && p >= 1 && p <= 9 ? p : 1;
+			out[k] = { accent: acc.has(k), pulsation: pul };
+		}
+	}
+	return out;
+}
+
+/** Восстановление акцентов и поддолей из плотной сетки (имеет приоритет над legacy-полями). */
+function hydrateSequencerFromCells(cellsRaw: unknown, d: ReturnType<typeof createEmptySnapshot>) {
+	if (!cellsRaw || typeof cellsRaw !== 'object') return;
+	const cells = cellsRaw as Record<string, unknown>;
+	const nextAcc = new Set<string>();
+	const nextSub: Record<string, number> = {};
+	for (let r = 0; r < d.bars; r++) {
+		const syl = d.customSyllables[r] !== undefined ? d.customSyllables[r] : d.syllables;
+		for (let c = 0; c < syl; c++) {
+			const k = `${r}-${c}`;
+			const row = cells[k];
+			if (!row || typeof row !== 'object') continue;
+			const o = row as Record<string, unknown>;
+			if (o.accent === true) nextAcc.add(k);
+			const p = parseInt(String(o.pulsation), 10);
+			const pul = Number.isFinite(p) && p >= 1 && p <= 9 ? p : 1;
+			if (pul !== 1) nextSub[k] = pul;
+		}
+	}
+	d.accents = nextAcc;
+	d.customSubdivisions = nextSub;
+}
+
 function createEmptySnapshot() {
 	return {
 		tempo: 100,
@@ -158,6 +198,9 @@ function parseSnapshotRow(raw: unknown) {
 	}
 	if (o.clickSound === 'oldschool') d.clickSound = 'oldschool';
 	if (typeof o.panelExpanded === 'boolean') d.panelExpanded = o.panelExpanded;
+	if (o.sequencerCells && typeof o.sequencerCells === 'object') {
+		hydrateSequencerFromCells(o.sequencerCells, d);
+	}
 	return d;
 }
 
@@ -180,6 +223,7 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		bars: s.bars,
 		syllables: s.syllables,
 		accents: [...s.accents],
+		sequencerCells: buildSequencerCellsForSnapshot(s),
 		customSyllables: s.customSyllables,
 		customMultipliers: s.customMultipliers,
 		customSubdivisions: s.customSubdivisions,
@@ -224,6 +268,7 @@ function snapshotFromSlotState(raw: unknown): ReturnType<typeof createEmptySnaps
 		bars: o.bars,
 		syllables: o.syllables,
 		accents: accentsArr,
+		sequencerCells: o.sequencerCells,
 		customSyllables: o.customSyllables,
 		customMultipliers: o.customMultipliers,
 		customSubdivisions: o.customSubdivisions,
