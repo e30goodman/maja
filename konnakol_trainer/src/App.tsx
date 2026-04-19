@@ -14,25 +14,22 @@ const KONNAKOL_PYRAMID: Record<number, string[]> = {
 };
 
 const playSharpClick = (ctx: AudioContext, time: number, isChecked: boolean, soundType: 'modern' | 'oldschool' = 'modern') => {
+  // Old school = same as legacy maja `konnakol_metronome` (triangle + pitch sweep).
   if (soundType === 'oldschool') {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.type = 'square';
-    osc.frequency.setValueAtTime(isChecked ? 1200 : 800, time);
-    const peak = isChecked ? 0.3 : 0.2;
-    const decay = isChecked ? 0.015 : 0.01;
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(isChecked ? 500 : 250, time);
+    osc.frequency.exponentialRampToValueAtTime(isChecked ? 120 : 80, time + (isChecked ? 0.04 : 0.02));
+    const peak = isChecked ? 0.9 : 0.4;
+    const decay = isChecked ? 0.04 : 0.02;
     gain.gain.setValueAtTime(0, time);
-    gain.gain.linearRampToValueAtTime(peak, time + 0.001);
+    gain.gain.linearRampToValueAtTime(peak, time + 0.002);
     gain.gain.exponentialRampToValueAtTime(0.001, time + decay);
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'bandpass';
-    filter.frequency.value = isChecked ? 2500 : 2000;
-    filter.Q.value = 1.0;
-    osc.connect(filter);
-    filter.connect(gain);
+    osc.connect(gain);
     gain.connect(ctx.destination);
     osc.start(time);
-    osc.stop(time + decay + 0.01);
+    osc.stop(time + Math.max(0.05, decay + 0.01));
     return;
   }
 
@@ -55,22 +52,16 @@ const playBarFirstHighClick = (ctx: AudioContext, time: number, soundType: 'mode
   if (soundType === 'oldschool') {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.type = 'square';
-    osc.frequency.setValueAtTime(2000, time);
-    const peak = 0.4;
-    const decay = 0.02;
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(920, time);
+    osc.frequency.exponentialRampToValueAtTime(210, time + 0.03);
     gain.gain.setValueAtTime(0, time);
-    gain.gain.linearRampToValueAtTime(peak, time + 0.001);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + decay);
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'bandpass';
-    filter.frequency.value = 3500;
-    filter.Q.value = 1.0;
-    osc.connect(filter);
-    filter.connect(gain);
+    gain.gain.linearRampToValueAtTime(0.78, time + 0.002);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.035);
+    osc.connect(gain);
     gain.connect(ctx.destination);
     osc.start(time);
-    osc.stop(time + decay + 0.01);
+    osc.stop(time + 0.06);
     return;
   }
 
