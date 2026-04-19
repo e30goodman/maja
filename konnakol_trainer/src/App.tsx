@@ -632,7 +632,10 @@ export default function App() {
     };
   }, [snapshots, activeSnapshot]);
 
-  const applySnapshotDataToUi = (snap: ReturnType<typeof createEmptySnapshot>) => {
+  const applySnapshotDataToUi = (
+    snap: ReturnType<typeof createEmptySnapshot>,
+    options?: { preservePanel?: boolean },
+  ) => {
     setTempo(snap.tempo);
     setBars(snap.bars);
     setSyllables(snap.syllables);
@@ -669,17 +672,15 @@ export default function App() {
         : 0,
     );
     setClickSound(snap.clickSound === 'oldschool' ? 'oldschool' : 'modern');
-    setIsPanelExpanded(snap.panelExpanded === true);
+    if (!options?.preservePanel) {
+      setIsPanelExpanded(snap.panelExpanded === true);
+    }
   };
 
   const loadSnapshot = (id: number) => {
     setActiveSnapshot(id);
-    const snap = snapshots[id];
-    if (snap) {
-      applySnapshotDataToUi(snap);
-    } else {
-      applySnapshotDataToUi(createEmptySnapshot());
-    }
+    const snap = snapshots[id] ?? createEmptySnapshot();
+    applySnapshotDataToUi(snap, { preservePanel: true });
   };
 
   const normalizeSnapshotForStorage = (
