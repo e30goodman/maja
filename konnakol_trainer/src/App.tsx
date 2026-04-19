@@ -59,6 +59,8 @@ function createEmptySnapshot() {
 		randomBarSpeed: false,
 		randomMaxNotes: 0,
 		clickSound: 'modern' as 'modern' | 'oldschool',
+		/** Верхняя панель: темп + слайдеры (Chevron) развёрнута. */
+		panelExpanded: false,
 	};
 }
 
@@ -105,6 +107,7 @@ function parseSnapshotRow(raw: unknown) {
 	const rmn = parseInt(String(o.randomMaxNotes), 10);
 	if (Number.isFinite(rmn) && rmn >= 0 && rmn <= 9) d.randomMaxNotes = rmn;
 	if (o.clickSound === 'oldschool') d.clickSound = 'oldschool';
+	if (typeof o.panelExpanded === 'boolean') d.panelExpanded = o.panelExpanded;
 	return d;
 }
 
@@ -117,6 +120,7 @@ function snapSlotLooksUsed(s: ReturnType<typeof createEmptySnapshot>) {
 	if (s.randomModeEnabled || s.randomPulsation || !s.randomPattern || s.randomSpeed || s.randomBarSpeed) return true;
 	if (s.randomMaxNotes !== 0) return true;
 	if (s.clickSound !== 'modern') return true;
+	if (s.panelExpanded === true) return true;
 	return false;
 }
 
@@ -136,6 +140,7 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		randomBarSpeed: s.randomBarSpeed,
 		randomMaxNotes: s.randomMaxNotes,
 		clickSound: s.clickSound,
+		panelExpanded: s.panelExpanded,
 	};
 }
 
@@ -179,6 +184,7 @@ function snapshotFromSlotState(raw: unknown): ReturnType<typeof createEmptySnaps
 		randomBarSpeed: o.randomBarSpeed,
 		randomMaxNotes: o.randomMaxNotes,
 		clickSound: o.clickSound,
+		panelExpanded: o.panelExpanded,
 	});
 }
 
@@ -323,6 +329,7 @@ export default function App() {
         customSyllables: { ...s.customSyllables },
         customMultipliers: { ...s.customMultipliers },
         customSubdivisions: { ...s.customSubdivisions },
+        panelExpanded: s.panelExpanded === true,
       };
     }
     return out;
@@ -341,7 +348,9 @@ export default function App() {
   const [activeEditCell, setActiveEditCell] = useState<string | null>(null);
   const [activeEditRow, setActiveEditRow] = useState<number | null>(null);
   const [frozenScale, setFrozenScale] = useState<number | null>(null);
-  const [isPanelExpanded, setIsPanelExpanded] = useState(true);
+  const [isPanelExpanded, setIsPanelExpanded] = useState(() => seed.panelExpanded === true);
+  const isPanelExpandedRef = useRef(seed.panelExpanded === true);
+  isPanelExpandedRef.current = isPanelExpanded;
   const holdTimerRef = useRef<number | null>(null);
   const isHoldingRef = useRef(false);
   /** Long-press square: each completed hold toggles read-only (all syllables muted). */
@@ -470,6 +479,7 @@ export default function App() {
     randomBarSpeed: randomBarSpeedRef.current,
     randomMaxNotes: randomMaxNotesRef.current,
     clickSound: clickSoundRef.current,
+    panelExpanded: isPanelExpandedRef.current,
   });
 
   /** All pattern rows fit in the phone frame: no virtual strip, no playhead autoscroll. */
@@ -508,6 +518,7 @@ export default function App() {
         randomBarSpeed,
         randomMaxNotes,
         clickSound,
+        panelExpanded: isPanelExpanded,
       },
     }));
   }, [
@@ -526,6 +537,7 @@ export default function App() {
     randomBarSpeed,
     randomMaxNotes,
     clickSound,
+    isPanelExpanded,
   ]);
 
   useEffect(() => {
@@ -593,6 +605,7 @@ export default function App() {
         : 0,
     );
     setClickSound(snap.clickSound === 'oldschool' ? 'oldschool' : 'modern');
+    setIsPanelExpanded(snap.panelExpanded === true);
   };
 
   const loadSnapshot = (id: number) => {
@@ -613,6 +626,7 @@ export default function App() {
     customSyllables: { ...s.customSyllables },
     customMultipliers: { ...s.customMultipliers },
     customSubdivisions: { ...s.customSubdivisions },
+    panelExpanded: s.panelExpanded === true,
   });
 
   const runSnapshotSlotHold = async (slot: number) => {
