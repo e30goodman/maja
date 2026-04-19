@@ -286,10 +286,16 @@ export default function App() {
   // Create a scroll stride that overlaps by 1 row
   const scrollStride = Math.max(1, displayScaleBars - 1);
 
+  // Auto-scroll only when the pattern has more bars than fit on screen (displayScaleBars slots).
+  const playbackNeedsBarPaging = bars > displayScaleBars;
+
   // Auto-scroll to active row during playback in pages smoothly
   useEffect(() => {
     if (!isPlaying) {
       lastScrolledPageRef.current = -1; // Reset memory when stopped
+      if (gridRef.current) gridRef.current.scrollTop = 0;
+    } else if (!playbackNeedsBarPaging) {
+      lastScrolledPageRef.current = -1;
       if (gridRef.current) gridRef.current.scrollTop = 0;
     } else if (activePos.absR >= 0 && gridRef.current) {
       let logicalPage = Math.floor(activePos.absR / scrollStride);
@@ -315,7 +321,7 @@ export default function App() {
         }
       }
     }
-  }, [activePos.absR, activePos.c, isPlaying, scrollStride, customSyllables, syllables, bars]);
+  }, [activePos.absR, activePos.c, isPlaying, scrollStride, customSyllables, syllables, bars, playbackNeedsBarPaging, displayScaleBars]);
 
   useEffect(() => {
     return () => {
