@@ -688,6 +688,8 @@ export default function App() {
     customSubdivisionsRef.current = {};
     setPulseMeterUnlinked({});
     pulseMeterUnlinkedRef.current = {};
+    setFrozenScale(null);
+    frozenScaleRef.current = null;
   };
 
   const toggleRandomFeature = (feature: 'pulsation' | 'pattern' | 'speed' | 'barSpeed') => {
