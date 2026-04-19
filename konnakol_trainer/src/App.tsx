@@ -26,10 +26,9 @@ const KONNAKOL_PYRAMID: Record<number, string[]> = {
 };
 
 /**
- * Подписи по клеткам и поддолям: как в maja `computeBarRhythmCellPresentations` —
- * цепочка «хвост» последнего показанного слога; при совпадении первого слога клетки с хвостом
- * сдвигаем старт по кругу seq (кроме последней доли такта). Для subdivs>1 берём subdivs подряд
- * слогов из паттерна такта, начиная с якоря доли cIdx.
+ * Подписи по клеткам: при **subdivs === 1** — паттерн такта + anti-repeat по хвосту (как в legacy).
+ * При **subdivs > 1** — только фиксированная пирамида по числу поддолей (`Ta Ka`, `Ta Ka Dhi Mi`, …),
+ * логика сдвига по такту **не** влияет на разбивку клетки.
  */
 function buildRowCellSyllableLabels(
 	rowSyllCount: number,
@@ -49,20 +48,27 @@ function buildRowCellSyllableLabels(
 	for (let cIdx = 0; cIdx < rowSyllCount; cIdx++) {
 		const raw = customSubdivs[`${rowIdx}-${cIdx}`];
 		const subdivs = Math.min(9, Math.max(1, typeof raw === 'number' && raw >= 1 ? raw : 1));
-		const isLastBeat = cIdx === rowSyllCount - 1;
 
+		if (subdivs > 1) {
+			const inner = KONNAKOL_PYRAMID[subdivs] ?? KONNAKOL_PYRAMID[1]!;
+			const labels: string[] = [];
+			for (let j = 0; j < subdivs; j++) {
+				labels.push(inner[j] ?? inner[inner.length - 1] ?? 'Ta');
+			}
+			out.push(labels);
+			lastTail = labels[labels.length - 1] ?? 'Ta';
+			continue;
+		}
+
+		const isLastBeat = cIdx === rowSyllCount - 1;
 		let start = cIdx % seq.length;
 		const firstSyll = seq[start] ?? 'Ta';
 		if (!isLastBeat && lastTail != null && firstSyll === lastTail) {
 			start = (start - 1 + seq.length) % seq.length;
 		}
-
-		const labels: string[] = [];
-		for (let j = 0; j < subdivs; j++) {
-			labels.push(seq[(start + j) % seq.length] ?? 'Ta');
-		}
-		out.push(labels);
-		lastTail = labels[labels.length - 1] ?? 'Ta';
+		const t = seq[start] ?? 'Ta';
+		out.push([t]);
+		lastTail = t;
 	}
 	return out;
 }
