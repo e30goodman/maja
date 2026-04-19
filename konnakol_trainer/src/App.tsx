@@ -98,7 +98,8 @@ function pickRandomCellSpeedSubdiv(): number {
 
 /**
  * Доля долей такта, в которых random speed выставляет новую поддоль (остальные сбрасываются в дефолт).
- * chaos 0–33 → 33%; 34–66 → 66%; 67–89 → линейно 66%→100%; ≥90 → 100%.
+ * Используется только при chaos > 25: chaos 26–33 → 33%; 34–66 → 66%; 67–89 → линейно 66%→100%; ≥90 → 100%.
+ * При chaos 0–25 см. ветку в планировщике: не более одной ячейки на такт.
  */
 function cellSpeedFillFractionFromChaos(chaos: number): number {
 	const c = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
@@ -1418,12 +1419,21 @@ export default function App() {
               
             for (let i = 0; i < 9; i++) delete customSubdivisionsRef.current[`${prevBar}-${i}`];
 
-            const cellSpeedHitP = cellSpeedFillFractionFromChaos(chaos);
-            candidates.forEach(i => {
-              if (Math.random() < cellSpeedHitP) {
-                customSubdivisionsRef.current[`${prevBar}-${i}`] = pickRandomCellSpeedSubdiv();
+            if (chaos <= 25) {
+              /** 0–25: только 0 или 1 ячейка с поддолью 2/3/4; P(ровно одна) = chaos/25 (при chaos=0 — никогда). */
+              const pOne = chaos <= 0 ? 0 : chaos / 25;
+              if (candidates.length > 0 && Math.random() < pOne) {
+                const pick = candidates[Math.floor(Math.random() * candidates.length)]!;
+                customSubdivisionsRef.current[`${prevBar}-${pick}`] = pickRandomCellSpeedSubdiv();
               }
-            });
+            } else {
+              const cellSpeedHitP = cellSpeedFillFractionFromChaos(chaos);
+              candidates.forEach(i => {
+                if (Math.random() < cellSpeedHitP) {
+                  customSubdivisionsRef.current[`${prevBar}-${i}`] = pickRandomCellSpeedSubdiv();
+                }
+              });
+            }
             didChange = true;
           }
 
