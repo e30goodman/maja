@@ -102,6 +102,15 @@ const CHAOS_SLIDER_MAX = 100;
 /** При «отвязке» пульса от числа долей такта длительность шага считается как при 4 долях (квартальная сетка). */
 const PULSE_METER_BASE_SYLLABLES = 4;
 
+/** Long-press квадрата: off | только акцентные щелчки выкл (пассивы играют) | все щелчки по сетке выкл. */
+type SyllableReadMuteMode = 'off' | 'full' | 'no_accent_sharp';
+
+function normalizeSyllableReadMuteModeFromSnapshot(modeRaw: unknown, legacyLatched: unknown): SyllableReadMuteMode {
+	if (modeRaw === 'full' || modeRaw === 'no_accent_sharp') return modeRaw;
+	if (legacyLatched === true) return 'no_accent_sharp';
+	return 'off';
+}
+
 /** Long-press по клетке: 1…9 только при развёрнутой основной панели (Bars+Syllbs); иначе — только 1, 2, 4. */
 function nextSubdivLongPress(current: number, allowFullSubdivRange: boolean): number {
 	if (allowFullSubdivRange) {
@@ -291,8 +300,7 @@ function createEmptySnapshot() {
 		frozenScale: null as number | null,
 		onlyAccents: false,
 		firstBeatAccent: true,
-		/** Long-press по квадрату: без щелчков на пассивных поддолях (защёлка в UI). */
-		syllableReadMuteLatched: false,
+		syllableReadMuteMode: 'off' as SyllableReadMuteMode,
 	};
 }
 
@@ -361,7 +369,7 @@ function parseSnapshotRow(raw: unknown) {
 	}
 	if (typeof o.onlyAccents === 'boolean') d.onlyAccents = o.onlyAccents;
 	if (typeof o.firstBeatAccent === 'boolean') d.firstBeatAccent = o.firstBeatAccent;
-	if (typeof o.syllableReadMuteLatched === 'boolean') d.syllableReadMuteLatched = o.syllableReadMuteLatched;
+	d.syllableReadMuteMode = normalizeSyllableReadMuteModeFromSnapshot(o.syllableReadMuteMode, o.syllableReadMuteLatched);
 	const fs = o.frozenScale;
 	if (fs === null || fs === undefined) d.frozenScale = null;
 	else {
@@ -385,7 +393,7 @@ function snapSlotLooksUsed(s: ReturnType<typeof createEmptySnapshot>) {
 	if (s.onlyAccents) return true;
 	if (s.firstBeatAccent === false) return true;
 	if (s.frozenScale != null) return true;
-	if (s.syllableReadMuteLatched) return true;
+	if (s.syllableReadMuteMode !== 'off') return true;
 	return false;
 }
 
@@ -413,7 +421,7 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		frozenScale: s.frozenScale ?? null,
 		onlyAccents: s.onlyAccents,
 		firstBeatAccent: s.firstBeatAccent,
-		syllableReadMuteLatched: s.syllableReadMuteLatched,
+		syllableReadMuteMode: s.syllableReadMuteMode,
 	};
 }
 
@@ -974,7 +982,10 @@ export default function App() {
         frozenScale: typeof s.frozenScale === 'number' && s.frozenScale >= 1 ? s.frozenScale : null,
         onlyAccents: s.onlyAccents === true,
         firstBeatAccent: s.firstBeatAccent !== false,
-        syllableReadMuteLatched: s.syllableReadMuteLatched === true,
+        syllableReadMuteMode: normalizeSyllableReadMuteModeFromSnapshot(
+          s.syllableReadMuteMode,
+          (s as { syllableReadMuteLatched?: boolean }).syllableReadMuteLatched,
+        ),
       };
     }
     return out;
@@ -1032,13 +1043,15 @@ export default function App() {
   const isHoldingRef = useRef(false);
   /** Long-press square: toggle «без щелчков по клеткам»; ding такта Ta не мьютится. */
   const squareHoldTimerRef = useRef<number | null>(null);
-  const syllableReadMuteRef = useRef(false);
   const squareHoldAteClickRef = useRef(false);
-  const [syllableReadMuteLatched, setSyllableReadMuteLatched] = useState(
-    () => seed.syllableReadMuteLatched === true,
+  const [syllableReadMuteMode, setSyllableReadMuteMode] = useState<SyllableReadMuteMode>(() =>
+    normalizeSyllableReadMuteModeFromSnapshot(
+      seed.syllableReadMuteMode,
+      (seed as { syllableReadMuteLatched?: boolean }).syllableReadMuteLatched,
+    ),
   );
-  const syllableReadMuteLatchedRef = useRef(syllableReadMuteLatched);
-  syllableReadMuteLatchedRef.current = syllableReadMuteLatched;
+  const syllableReadMuteModeRef = useRef(syllableReadMuteMode);
+  syllableReadMuteModeRef.current = syllableReadMuteMode;
   const tapTimesRef = useRef<number[]>([]);
 
   const handleTap = () => {
@@ -1184,7 +1197,7 @@ export default function App() {
     frozenScale: frozenScaleRef.current,
     onlyAccents: onlyAccentsRef.current,
     firstBeatAccent: firstBeatAccentRef.current,
-    syllableReadMuteLatched: syllableReadMuteLatchedRef.current,
+    syllableReadMuteMode: syllableReadMuteModeRef.current,
   });
 
   const getSnapshotPayloadForSlotExport = (slot: number): ReturnType<typeof createEmptySnapshot> => {
@@ -1220,6 +1233,7 @@ export default function App() {
       frozenScale: raw.frozenScale,
       onlyAccents: raw.onlyAccents,
       firstBeatAccent: raw.firstBeatAccent,
+      syllableReadMuteMode: raw.syllableReadMuteMode,
       syllableReadMuteLatched: raw.syllableReadMuteLatched,
     });
   };
@@ -1280,7 +1294,7 @@ export default function App() {
         frozenScale,
         onlyAccents,
         firstBeatAccent,
-        syllableReadMuteLatched,
+        syllableReadMuteMode,
       },
     }));
   }, [
@@ -1303,7 +1317,7 @@ export default function App() {
     frozenScale,
     onlyAccents,
     firstBeatAccent,
-    syllableReadMuteLatched,
+    syllableReadMuteMode,
   ]);
 
   useEffect(() => {
@@ -1380,8 +1394,12 @@ export default function App() {
     setPulseMeterUnlinked(normalizePulseMeterUnlinked(snap.pulseMeterUnlinked));
     setOnlyAccents(snap.onlyAccents === true);
     setFirstBeatAccent(snap.firstBeatAccent !== false);
-    setSyllableReadMuteLatched(snap.syllableReadMuteLatched === true);
-    syllableReadMuteRef.current = false;
+    const nextMute = normalizeSyllableReadMuteModeFromSnapshot(
+      snap.syllableReadMuteMode,
+      (snap as { syllableReadMuteLatched?: boolean }).syllableReadMuteLatched,
+    );
+    setSyllableReadMuteMode(nextMute);
+    syllableReadMuteModeRef.current = nextMute;
     setFrozenScale(
       typeof snap.frozenScale === 'number' && snap.frozenScale >= 1 ? snap.frozenScale : null,
     );
@@ -1410,7 +1428,7 @@ export default function App() {
     frozenScale: typeof s.frozenScale === 'number' && s.frozenScale >= 1 ? s.frozenScale : null,
     onlyAccents: s.onlyAccents === true,
     firstBeatAccent: s.firstBeatAccent !== false,
-    syllableReadMuteLatched: s.syllableReadMuteLatched === true,
+    syllableReadMuteMode: normalizeSyllableReadMuteModeFromSnapshot(s.syllableReadMuteMode, undefined),
   });
 
   const closeSnapshotClipMenu = () => setSnapshotClipMenu(null);
@@ -1555,8 +1573,8 @@ export default function App() {
         window.clearTimeout(squareHoldTimerRef.current);
         squareHoldTimerRef.current = null;
       }
-      syllableReadMuteRef.current = false;
-      setSyllableReadMuteLatched(false);
+      syllableReadMuteModeRef.current = 'off';
+      setSyllableReadMuteMode('off');
       if (playheadTimerRef.current !== null) {
         window.clearTimeout(playheadTimerRef.current);
         playheadTimerRef.current = null;
@@ -1778,29 +1796,32 @@ export default function App() {
     const stepDuration = 60.0 / effectiveBpm;
     const subDuration = stepDuration / subdivs;
 
-    /** Long-press square: mute sharp clicks for passive syllables / sub-beats. Bar ding (Ta) and main accent click still play. */
-    const readOnlyMute = syllableReadMuteRef.current;
+    /** Long-press квадрата: `full` — без щелчков по сетке; `no_accent_sharp` — без главного щелчка на акценте, пассивы играют. */
+    const muteMode = syllableReadMuteModeRef.current;
     for (let sub = 0; sub < subdivs; sub++) {
       const subTime = time + sub * subDuration;
       const isFirstOfBar = cIdx === 0 && sub === 0;
 
-      if (isFirstOfBar && firstBeatAccentRef.current) {
+      if (isFirstOfBar && firstBeatAccentRef.current && muteMode !== 'full') {
         playBarFirstHighClick(audioCtxRef.current, subTime, clickSoundRef.current);
       }
 
       const mainAccentClick = isAccent && sub === 0;
-      const allowSharpDespiteReadMute = readOnlyMute && mainAccentClick;
-      if (!readOnlyMute || allowSharpDespiteReadMute) {
-        const shouldPlayBeat = !onlyAccentsRef.current || isAccent;
-        if (shouldPlayBeat) {
-          playSharpClick(
-            audioCtxRef.current,
-            subTime,
-            mainAccentClick,
-            clickSoundRef.current,
-            onlyAccentsRef.current,
-          );
-        }
+      if (muteMode === 'full') {
+        continue;
+      }
+      if (muteMode === 'no_accent_sharp' && mainAccentClick) {
+        continue;
+      }
+      const shouldPlayBeat = !onlyAccentsRef.current || isAccent;
+      if (shouldPlayBeat) {
+        playSharpClick(
+          audioCtxRef.current,
+          subTime,
+          mainAccentClick,
+          clickSoundRef.current,
+          onlyAccentsRef.current,
+        );
       }
     }
 
@@ -1832,8 +1853,8 @@ export default function App() {
         window.clearTimeout(squareHoldTimerRef.current);
         squareHoldTimerRef.current = null;
       }
-      syllableReadMuteRef.current = false;
-      setSyllableReadMuteLatched(false);
+      syllableReadMuteModeRef.current = 'off';
+      setSyllableReadMuteMode('off');
       squareHoldAteClickRef.current = false;
     } else {
       setIsPlaying(true);
@@ -2405,7 +2426,7 @@ export default function App() {
             <span className="font-bold text-[22px] tracking-wide">Ta</span>
           </button>
 
-          {/* All beats vs accent-only (square); long-press: mute sharp (клетки), не трогать ding такта «Ta». */}
+          {/* All beats vs accent-only (square); long-press: режим от muteMode (см. aria-label). */}
           <button 
             onPointerDown={() => {
               squareHoldAteClickRef.current = false;
@@ -2415,9 +2436,11 @@ export default function App() {
               }
               squareHoldTimerRef.current = window.setTimeout(() => {
                 squareHoldTimerRef.current = null;
-                const next = !syllableReadMuteRef.current;
-                syllableReadMuteRef.current = next;
-                setSyllableReadMuteLatched(next);
+                const prev = syllableReadMuteModeRef.current;
+                const next: SyllableReadMuteMode =
+                  prev !== 'off' ? 'off' : onlyAccentsRef.current ? 'full' : 'no_accent_sharp';
+                syllableReadMuteModeRef.current = next;
+                setSyllableReadMuteMode(next);
                 squareHoldAteClickRef.current = true;
               }, 400);
             }}
@@ -2448,24 +2471,28 @@ export default function App() {
             }}
             onContextMenu={(e) => e.preventDefault()}
             className={`flex-1 rounded-xl flex justify-center items-center transition-all touch-none select-none relative bg-[#161f33] ${
-              syllableReadMuteLatched
-                ? 'border border-purple-400 shadow-[0_0_15px_rgba(192,132,252,0.4)] text-purple-200'
+              syllableReadMuteMode !== 'off'
+                ? syllableReadMuteMode === 'full'
+                  ? 'border border-amber-400/90 shadow-[0_0_14px_rgba(251,191,36,0.28)] text-amber-100'
+                  : 'border border-purple-400 shadow-[0_0_15px_rgba(192,132,252,0.4)] text-purple-200'
                 : onlyAccents
                   ? 'border border-purple-500/40 bg-purple-700/30 hover:bg-purple-700/40 active:bg-purple-700/20 text-purple-200'
                   : 'border border-[#23314f] hover:bg-[#1a253c] active:bg-[#131b2c] text-slate-400 hover:text-slate-200'
             }`}
             type="button"
             aria-label={
-              syllableReadMuteLatched
-                ? 'Без щелчков по клеткам; акцент такта Ta остаётся. Долгое нажатие — выключить'
-                : onlyAccents
-                  ? 'Accent-only playback'
-                  : 'Play all beats'
+              syllableReadMuteMode === 'full'
+                ? 'Тишина по щелчкам сетки (вкл. только акценты). Долгое — выключить'
+                : syllableReadMuteMode === 'no_accent_sharp'
+                  ? 'Пассивные доли звучат, акцентные нет. Долгое — выключить'
+                  : onlyAccents
+                    ? 'Только выделенные доли; долгое при вкл. — полная тишина по сетке'
+                    : 'Все доли; долгое без вкл. только акценты — без щелчков на акцентах'
             }
           >
             <span
               className={`block w-6 h-6 rounded-sm border-2 border-current transition-all duration-300 ${
-                syllableReadMuteLatched || onlyAccents
+                syllableReadMuteMode !== 'off' || onlyAccents
                   ? 'opacity-100 scale-110 bg-current/25'
                   : 'opacity-55 scale-100 bg-transparent'
               }`}
