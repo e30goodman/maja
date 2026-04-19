@@ -76,18 +76,22 @@ function normalizePulseMeterUnlinked(raw: unknown): Record<number, boolean> {
 	}
 	return out;
 }
-/** Cell speed / пульсация ячейки: только пульсы 2, 3, 4 (взвешенно). */
-const CELL_PULSE_METERS = [2, 3, 4] as const;
-/** Веса: 2 реже, 3 и 4 чаще (сумма = 7). */
-const CELL_PULSE_WEIGHTS = [1, 3, 3] as const;
+/** Cell speed при chaos ≤ 70: только 2, 3, 4; тройка существенно реже двойки и четвёрки. */
+const CELL_SPEED_METERS_LOW_CHAOS = [2, 3, 4] as const;
+const CELL_SPEED_WEIGHTS_LOW_CHAOS = [10, 1, 10] as const;
+const CELL_SPEED_POOL_HIGH_CHAOS = [2, 3, 4, 5, 6, 7, 8, 9] as const;
 
-function pickCellPulse234(): number {
-	let r = Math.random() * CELL_PULSE_WEIGHTS.reduce((a, b) => a + b, 0);
-	for (let i = 0; i < CELL_PULSE_WEIGHTS.length; i++) {
-		r -= CELL_PULSE_WEIGHTS[i];
-		if (r <= 0) return CELL_PULSE_METERS[i];
+function pickCellSpeedMeter(chaos: number): number {
+	const c = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
+	if (c <= 70) {
+		let r = Math.random() * CELL_SPEED_WEIGHTS_LOW_CHAOS.reduce((a, b) => a + b, 0);
+		for (let i = 0; i < CELL_SPEED_WEIGHTS_LOW_CHAOS.length; i++) {
+			r -= CELL_SPEED_WEIGHTS_LOW_CHAOS[i];
+			if (r <= 0) return CELL_SPEED_METERS_LOW_CHAOS[i];
+		}
+		return CELL_SPEED_METERS_LOW_CHAOS[CELL_SPEED_METERS_LOW_CHAOS.length - 1];
 	}
-	return CELL_PULSE_METERS[CELL_PULSE_METERS.length - 1];
+	return CELL_SPEED_POOL_HIGH_CHAOS[Math.floor(Math.random() * CELL_SPEED_POOL_HIGH_CHAOS.length)]!;
 }
 
 /** Доля акцентуемых долей: 0→0, 25→25%, 50→50%, 75→75%, 100→90% (кусочно-линейно). */
@@ -99,9 +103,9 @@ function accentFillRatioFromChaos(c: number): number {
 	return 0.75 + (x - 75) * (0.15 / 25);
 }
 
-/** Пульсация / cell speed: только 2, 3 или 4 (chaos не расширяет пул). */
-function pickWeightedMeter2to9(_chaos: number): number {
-	return pickCellPulse234();
+/** Пульсация / cell speed: при chaos ≤ 70 — только 2–4 (3 редко); при > 70 — равномерно 2…9. */
+function pickWeightedMeter2to9(chaos: number): number {
+	return pickCellSpeedMeter(chaos);
 }
 
 function pickAccentCountForBar(chaos: number, curSyl: number): number {
