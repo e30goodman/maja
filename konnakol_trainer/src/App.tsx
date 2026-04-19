@@ -127,10 +127,13 @@ function normalizeSyllableReadMuteModeFromSnapshot(modeRaw: unknown, legacyLatch
 	return 'off';
 }
 
-/** Long-press по клетке: всегда только Ta Ka (2) ↔ Ta Ka Dhi Mi (4), независимо от панели слайдеров. */
+/** Long-press по клетке: три скорости Ta (1) → Ta Ka (2) → Ta Ka Dhi Mi (4) → снова Ta. */
 function nextSubdivLongPress(current: number): number {
 	const c = current >= 1 && current <= 9 ? current : 1;
-	return c === 2 ? 4 : 2;
+	if (c === 1) return 2;
+	if (c === 2) return 4;
+	if (c === 4) return 1;
+	return 2;
 }
 
 function normalizePulseMeterUnlinked(raw: unknown): Record<number, boolean> {
