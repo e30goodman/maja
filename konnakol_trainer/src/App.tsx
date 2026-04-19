@@ -13,26 +13,39 @@ const KONNAKOL_PYRAMID: Record<number, string[]> = {
   9: ["Ta", "Ka", "Dhi", "Mi", "Ta", "Ka", "Ta", "Ki", "Ta"]
 };
 
-/** Суммарный вес «простых» размеров {2,3,4} vs «сложных» {5..9}; легко подкрутить. */
-const PULSATION_WEIGHT_SIMPLE_GROUP = 0.85;
-const PULSATION_WEIGHT_COMPLEX_GROUP = 0.15;
+/**
+ * Взвешенный рандом пульсации (число долей в такте), диапазон 2–9.
+ * Группа A {2,3,4}: суммарно PULSATION_GROUP_A_PERCENT %; внутри группы — равновероятно.
+ * Группа B {5,6,7,8,9}: суммарно PULSATION_GROUP_B_PERCENT %; внутри — равновероятно.
+ * Меняй только проценты (сумма > 0); доля A на границе выбора = A / (A + B).
+ */
+const PULSATION_GROUP_A_PERCENT = 85;
+const PULSATION_GROUP_B_PERCENT = 15;
 const PULSATION_SIMPLE_METERS = [2, 3, 4] as const;
 const PULSATION_COMPLEX_METERS = [5, 6, 7, 8, 9] as const;
 
-/**
- * Один выбор пульсации для такта: диапазон 2–9.
- * Алгоритм: один бросок `r` в [0,1). Если r < 0.85 — группа A, иначе группа B.
- * Внутри группы — равномерный индекс (ещё один Math.random).
- */
+/** Вероятность одного значения внутри A: (A/100) * (1/|A|). Аналогично B. */
 function pickWeightedRandomPulsation2to9(): number {
-	const wSum = PULSATION_WEIGHT_SIMPLE_GROUP + PULSATION_WEIGHT_COMPLEX_GROUP;
-	const threshold =
-		wSum > 0 ? PULSATION_WEIGHT_SIMPLE_GROUP / wSum : PULSATION_WEIGHT_SIMPLE_GROUP;
-	const r = Math.random();
-	if (r < threshold) {
-		const i = Math.floor(Math.random() * PULSATION_SIMPLE_METERS.length);
-		return PULSATION_SIMPLE_METERS[i];
+	const wA = PULSATION_GROUP_A_PERCENT;
+	const wB = PULSATION_GROUP_B_PERCENT;
+	const wSum = wA + wB;
+
+	// Защита от нулевой суммы весов: равномерно всё 2..9.
+	if (wSum <= 0) {
+		return 2 + Math.floor(Math.random() * 8);
 	}
+
+	// Порог: доля «шанса» попасть в группу A. Один бросок r ∈ [0, 1).
+	const chanceGroupA = wA / wSum;
+	const r = Math.random();
+
+	// Если r < chanceGroupA — выпала группа A; иначе — группа B (взаимоисключающие исходы, суммарно 100%).
+	if (r < chanceGroupA) {
+		// Равномерный индекс по длине массива A → каждое из {2,3,4} с вероятностью chanceGroupA / |A|.
+		const idx = Math.floor(Math.random() * PULSATION_SIMPLE_METERS.length);
+		return PULSATION_SIMPLE_METERS[idx];
+	}
+
 	const j = Math.floor(Math.random() * PULSATION_COMPLEX_METERS.length);
 	return PULSATION_COMPLEX_METERS[j];
 }
@@ -1075,6 +1088,15 @@ export default function App() {
                         Bar Speed
                      </button>
                   </div>
+
+                  {randomPulsation ? (
+                    <p className="text-[10px] text-slate-500 leading-snug px-0.5 text-center">
+                      Pulsation:{' '}
+                      <span className="text-slate-400">
+                        {`{2,3,4} — ${PULSATION_GROUP_A_PERCENT}% (равн. внутри); {5…9} — ${PULSATION_GROUP_B_PERCENT}% (равн.)`}
+                      </span>
+                    </p>
+                  ) : null}
 
                   <div className={`flex flex-col gap-2 transition-all duration-300 ${randomPattern ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
                      <div className="flex items-center justify-between px-1">
