@@ -18,9 +18,7 @@ concurrency:
 
 jobs:
   deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    # No named `environment:` — repo rule "github-pages" often allows only main; deploy-pages works with permissions below.
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -52,7 +50,6 @@ jobs:
           path: './maja/dist'
       
       - name: Deploy to GitHub Pages
-        id: deployment
         uses: actions/deploy-pages@v4
 
 
