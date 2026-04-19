@@ -12,94 +12,7 @@ import {
 	Copy,
 	ClipboardPaste,
 } from 'lucide-react';
-
-const KONNAKOL_PYRAMID: Record<number, string[]> = {
-  1: ["Ta"],
-  2: ["Ta", "Ka"],
-  3: ["Ta", "Ki", "Ta"],
-  4: ["Ta", "Ka", "Dhi", "Mi"],
-  5: ["Ta", "Ka", "Ta", "Ki", "Ta"],
-  6: ["Ta", "Ka", "Dhi", "Mi", "Ta", "Ka"],
-  7: ["Ta", "Ka", "Dhi", "Mi", "Ta", "Ki", "Ta"],
-  8: ["Ta", "Ka", "Dhi", "Mi", "Ta", "Ka", "Dju", "Na"],
-  9: ["Ta", "Ka", "Dhi", "Mi", "Ta", "Ka", "Ta", "Ki", "Ta"]
-};
-
-/**
- * Подписи по клеткам: при **subdivs === 1** — паттерн такта + anti-repeat по хвосту (как в legacy).
- * При **subdivs > 1** — только фиксированная пирамида по числу поддолей (`Ta Ka`, `Ta Ka Dhi Mi`, …),
- * логика сдвига по такту **не** влияет на разбивку клетки.
- * После клетки **4** (Ta Ka Dhi Mi → хвост Mi) следующая клетка с **subdivs === 1** не показывает одну Mi — сразу **Ta**.
- */
-function buildRowCellSyllableLabels(
-	rowSyllCount: number,
-	customSubdivs: Record<string, number>,
-	rowIdx: number,
-): string[][] {
-	const seq = KONNAKOL_PYRAMID[rowSyllCount] ?? KONNAKOL_PYRAMID[1]!;
-	const out: string[][] = [];
-	if (seq.length === 0) {
-		for (let cIdx = 0; cIdx < rowSyllCount; cIdx++) {
-			out.push(['Ta']);
-		}
-		return out;
-	}
-
-	let lastTail: string | null = null;
-	/** Предыдущая клетка была именно 4 поддоли (Ta Ka Dhi Mi), хвост Mi. */
-	let prevCellWasFourPulse = false;
-	for (let cIdx = 0; cIdx < rowSyllCount; cIdx++) {
-		const raw = customSubdivs[`${rowIdx}-${cIdx}`];
-		const subdivs = Math.min(9, Math.max(1, typeof raw === 'number' && raw >= 1 ? raw : 1));
-
-		if (subdivs > 1) {
-			const inner = KONNAKOL_PYRAMID[subdivs] ?? KONNAKOL_PYRAMID[1]!;
-			const labels: string[] = [];
-			for (let j = 0; j < subdivs; j++) {
-				labels.push(inner[j] ?? inner[inner.length - 1] ?? 'Ta');
-			}
-			out.push(labels);
-			lastTail = labels[labels.length - 1] ?? 'Ta';
-			prevCellWasFourPulse = subdivs === 4;
-			continue;
-		}
-
-		const afterTaKaDhiMiCell = prevCellWasFourPulse;
-		prevCellWasFourPulse = false;
-
-		const isLastBeat = cIdx === rowSyllCount - 1;
-		let start = cIdx % seq.length;
-		const firstSyll = seq[start] ?? 'Ta';
-		if (!isLastBeat && lastTail != null && firstSyll === lastTail) {
-			start = (start - 1 + seq.length) % seq.length;
-		}
-		let t = seq[start] ?? 'Ta';
-		if (afterTaKaDhiMiCell && t === 'Mi') {
-			t = 'Ta';
-		}
-		out.push([t]);
-		lastTail = t;
-	}
-	return out;
-}
-
-/** Dynamic text sizing based on grid density (pure). */
-function getSyllableStyles(rowSylls: number, cellSubdivs: number = 1): string {
-	let pseudoSylls = rowSylls;
-	if (cellSubdivs === 2) pseudoSylls = rowSylls * 1.5;
-	else if (cellSubdivs === 3) pseudoSylls = rowSylls * 2;
-	else if (cellSubdivs === 4) pseudoSylls = rowSylls * 2;
-	else if (cellSubdivs >= 5 && cellSubdivs <= 6) pseudoSylls = rowSylls * 2.5;
-	else if (cellSubdivs >= 7) pseudoSylls = rowSylls * 3;
-
-	if (pseudoSylls >= 20) return 'text-[6px] font-black tracking-tighter leading-none';
-	if (pseudoSylls >= 14) return 'text-[7px] font-black tracking-tighter leading-none';
-	if (pseudoSylls >= 12) return 'text-[8px] font-black tracking-tighter leading-none';
-	if (pseudoSylls >= 9) return 'text-[9px] font-extrabold tracking-tight leading-none';
-	if (pseudoSylls >= 7) return 'text-[10px] font-bold tracking-tight leading-none';
-	if (pseudoSylls >= 5) return 'text-[11px] font-bold tracking-normal leading-none';
-	return 'text-sm font-bold tracking-wide leading-none';
-}
+import { SequencerGrid, type SequencerGridRowActions } from './SequencerGrid';
 
 type PlayheadHighlightEvent = { t: number; pos: { r: number; c: number; absR: number } };
 
@@ -125,16 +38,6 @@ function normalizeSyllableReadMuteModeFromSnapshot(modeRaw: unknown, legacyLatch
 	if (modeRaw === 'full' || modeRaw === 'no_accent_sharp') return modeRaw;
 	if (legacyLatched === true) return 'no_accent_sharp';
 	return 'off';
-}
-
-/** Long-press по клетке: Ta (1) → Ta Ka (2) → триоль Ta Ki Ta (3) → Ta Ka Dhi Mi (4) → снова Ta. */
-function nextSubdivLongPress(current: number): number {
-	const c = current >= 1 && current <= 9 ? current : 1;
-	if (c === 1) return 2;
-	if (c === 2) return 3;
-	if (c === 3) return 4;
-	if (c === 4) return 1;
-	return 2;
 }
 
 function normalizePulseMeterUnlinked(raw: unknown): Record<number, boolean> {
@@ -600,336 +503,6 @@ const playBarFirstHighClick = (ctx: AudioContext, time: number, soundType: 'mode
   osc.stop(time + 0.06);
 };
 
-/** Ref-filled each App render — stable identity for memoized grid row. */
-type SequencerGridRowActions = {
-	isHoldingRef: React.MutableRefObject<boolean>;
-	holdTimerRef: React.MutableRefObject<number | null>;
-	pulseUnlinkHoldTimerRef: React.MutableRefObject<number | null>;
-	isPanelExpandedRef: React.MutableRefObject<boolean>;
-	showRandomSettingsRef: React.MutableRefObject<boolean>;
-	syllables: number;
-	setActiveEditRow: React.Dispatch<React.SetStateAction<number | null>>;
-	setActiveEditCell: React.Dispatch<React.SetStateAction<string | null>>;
-	setIsPanelExpanded: React.Dispatch<React.SetStateAction<boolean>>;
-	setCustomMultipliers: React.Dispatch<React.SetStateAction<Record<number, number>>>;
-	setPulseMeterUnlinked: React.Dispatch<React.SetStateAction<Record<number, boolean>>>;
-	setCustomSyllables: React.Dispatch<React.SetStateAction<Record<number, number>>>;
-	setCustomSubdivisions: React.Dispatch<React.SetStateAction<Record<string, number>>>;
-	toggleAccent: (r: number, c: number) => void;
-	pulseMeterUnlinkedRef: React.MutableRefObject<Record<number, boolean>>;
-};
-
-type SequencerGridRowProps = {
-	absR: number;
-	rIdx: number;
-	rowSylls: number;
-	rowMult: number;
-	subdivSig: string;
-	accentSig: string;
-	pulseUnlinkedRow: boolean;
-	activeEditRow: number | null;
-	activeEditCell: string | null;
-	highlightCol: number | null;
-	isPlaying: boolean;
-	rowCellLabels: string[][];
-	effectiveUseFixedFlex: boolean;
-	displayScaleBars: number;
-	syllables: number;
-	actionsRef: React.MutableRefObject<SequencerGridRowActions | null>;
-	setRowEl: (absR: number, el: HTMLDivElement | null) => void;
-};
-
-function sequencerGridRowPropsEqual(a: SequencerGridRowProps, b: SequencerGridRowProps) {
-	return (
-		a.absR === b.absR &&
-		a.rIdx === b.rIdx &&
-		a.rowSylls === b.rowSylls &&
-		a.rowMult === b.rowMult &&
-		a.subdivSig === b.subdivSig &&
-		a.accentSig === b.accentSig &&
-		a.pulseUnlinkedRow === b.pulseUnlinkedRow &&
-		a.activeEditRow === b.activeEditRow &&
-		a.activeEditCell === b.activeEditCell &&
-		a.highlightCol === b.highlightCol &&
-		a.isPlaying === b.isPlaying &&
-		a.rowCellLabels === b.rowCellLabels &&
-		a.effectiveUseFixedFlex === b.effectiveUseFixedFlex &&
-		a.displayScaleBars === b.displayScaleBars &&
-		a.syllables === b.syllables &&
-		a.actionsRef === b.actionsRef &&
-		a.setRowEl === b.setRowEl
-	);
-}
-
-const SequencerGridRow = React.memo(
-	function SequencerGridRow(p: SequencerGridRowProps) {
-		const {
-			absR,
-			rIdx,
-			rowSylls,
-			rowMult,
-			subdivSig,
-			accentSig,
-			pulseUnlinkedRow,
-			activeEditRow,
-			activeEditCell,
-			highlightCol,
-			isPlaying,
-			rowCellLabels,
-			effectiveUseFixedFlex,
-			displayScaleBars,
-			syllables,
-			actionsRef,
-			setRowEl,
-		} = p;
-		const rowSubdivs = useMemo(
-			() => subdivSig.split(',').map((x) => parseInt(x, 10) || 1),
-			[subdivSig],
-		);
-		const accentBits = accentSig;
-		return (
-			<div
-				ref={(el) => setRowEl(absR, el)}
-				className={`flex items-stretch bg-[#161f33] border border-[#23314f] min-h-0 relative ${
-					displayScaleBars > 7 ? 'gap-1 p-1 rounded-lg' : 'gap-2 p-1.5 rounded-xl'
-				} ${!effectiveUseFixedFlex ? 'flex-1' : ''}`}
-				style={{
-					flex: effectiveUseFixedFlex
-						? `0 0 calc((100% - ${(displayScaleBars - 1) * 6}px) / ${displayScaleBars})`
-						: undefined,
-				}}
-			>
-				<div className="flex flex-col gap-1 justify-center w-8 shrink-0">
-					<button
-						type="button"
-						onClick={() => {
-							const a = actionsRef.current;
-							if (!a) return;
-							a.setCustomMultipliers((prev) => {
-								const m = prev[rIdx] || 1;
-								const next = m === 1 ? 2 : m === 2 ? 3 : m === 3 ? 4 : 1;
-								if (next === 1) {
-									const copy = { ...prev };
-									delete copy[rIdx];
-									return copy;
-								}
-								return { ...prev, [rIdx]: next };
-							});
-						}}
-						onContextMenu={(e) => {
-							e.preventDefault();
-							const a = actionsRef.current;
-							if (!a) return;
-							a.setCustomMultipliers((prev) => {
-								const copy = { ...prev };
-								delete copy[rIdx];
-								return copy;
-							});
-						}}
-						className={`relative flex-1 rounded-md border flex items-center justify-center text-[9px] font-bold min-h-[50%] transition-colors ${
-							rowMult === 1
-								? 'bg-[#1e2a45] border-[#2f4066] text-slate-300 hover:bg-[#253353] active:bg-[#1a253c]'
-								: rowMult === 2
-									? 'bg-blue-900/40 border-blue-500/50 text-blue-300 shadow-[inset_0_1px_3px_rgba(59,130,246,0.1)]'
-									: rowMult === 3
-										? 'bg-rose-900/40 border-rose-500/50 text-rose-300 shadow-[inset_0_1px_3px_rgba(244,63,94,0.1)]'
-										: 'bg-amber-900/40 border-amber-500/50 text-amber-200 shadow-[inset_0_1px_3px_rgba(245,158,11,0.12)]'
-						}`}
-					>
-						<span className="absolute top-[2px] left-[3px] text-[7.5px] text-slate-500 font-mono pointer-events-none leading-none opacity-80">
-							{rIdx + 1}
-						</span>
-						x{rowMult}
-					</button>
-					<button
-						type="button"
-						onPointerDown={(e) => {
-							const a = actionsRef.current;
-							if (!a) return;
-							a.isHoldingRef.current = false;
-							if (a.pulseUnlinkHoldTimerRef.current) clearTimeout(a.pulseUnlinkHoldTimerRef.current);
-							try {
-								(e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
-							} catch {
-								/* duplicate capture etc. */
-							}
-							a.pulseUnlinkHoldTimerRef.current = window.setTimeout(() => {
-								a.isHoldingRef.current = true;
-								a.setActiveEditCell(null);
-								a.setActiveEditRow(null);
-								a.setPulseMeterUnlinked((prev) => {
-									const nextVal = !prev[rIdx];
-									const next = { ...prev, [rIdx]: nextVal };
-									a.pulseMeterUnlinkedRef.current = { ...next };
-									return next;
-								});
-							}, 400);
-						}}
-						onPointerUp={(e) => {
-							const a = actionsRef.current;
-							if (!a) return;
-							if (a.pulseUnlinkHoldTimerRef.current) {
-								clearTimeout(a.pulseUnlinkHoldTimerRef.current);
-								a.pulseUnlinkHoldTimerRef.current = null;
-							}
-							try {
-								const el = e.currentTarget as HTMLButtonElement;
-								if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
-							} catch {
-								/* */
-							}
-						}}
-						onPointerLeave={(e) => {
-							const a = actionsRef.current;
-							if (!a) return;
-							const el = e.currentTarget as HTMLButtonElement;
-							if (typeof el.hasPointerCapture === 'function' && el.hasPointerCapture(e.pointerId)) return;
-							if (a.pulseUnlinkHoldTimerRef.current) {
-								clearTimeout(a.pulseUnlinkHoldTimerRef.current);
-								a.pulseUnlinkHoldTimerRef.current = null;
-							}
-						}}
-						onPointerCancel={(e) => {
-							const a = actionsRef.current;
-							if (!a) return;
-							if (a.pulseUnlinkHoldTimerRef.current) {
-								clearTimeout(a.pulseUnlinkHoldTimerRef.current);
-								a.pulseUnlinkHoldTimerRef.current = null;
-							}
-							try {
-								const el = e.currentTarget as HTMLButtonElement;
-								if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
-							} catch {
-								/* */
-							}
-						}}
-						onClick={() => {
-							const a = actionsRef.current;
-							if (!a || a.isHoldingRef.current) return;
-							a.setCustomSyllables((prev) => {
-								const current = prev[rIdx] !== undefined ? prev[rIdx] : a.syllables;
-								const next = current >= 9 ? 1 : current + 1;
-								return { ...prev, [rIdx]: next };
-							});
-						}}
-						onContextMenu={(e) => {
-							e.preventDefault();
-							const a = actionsRef.current;
-							if (!a) return;
-							a.setCustomSyllables((prev) => {
-								const copy = { ...prev };
-								delete copy[rIdx];
-								return copy;
-							});
-							a.setPulseMeterUnlinked((prev) => {
-								const copy = { ...prev };
-								delete copy[rIdx];
-								return copy;
-							});
-						}}
-						title="Tap: +1 syllable in bar. Hold: unlink bar length from pulse (timing uses 4 base). Right-click: reset bar to global syllables."
-						className={`flex-1 rounded-md border flex items-center justify-center text-[10px] font-extrabold shadow-[inset_0_1px_3px_rgba(0,0,0,0.1)] min-h-[50%] transition-colors bg-[#1e2a45] border-[#2f4066] text-slate-400 hover:bg-[#253353] active:bg-[#1a253c] ${
-							activeEditRow === rIdx
-								? 'ring-2 ring-purple-500 shadow-purple-500/30'
-								: pulseUnlinkedRow
-									? 'ring-1 ring-emerald-400/90 border-emerald-500/45 shadow-[0_0_14px_rgba(16,185,129,0.28)]'
-									: ''
-						}`}
-					>
-						{rowSylls}
-					</button>
-				</div>
-				<div className="flex flex-1 gap-1 items-stretch min-w-0">
-					{Array.from({ length: rowSylls }).map((_, cIdx) => {
-						const checkKey = `${rIdx}-${cIdx}`;
-						const isAccent = accentBits[cIdx] === '1';
-						const isActive = highlightCol === cIdx;
-						const subdivs = rowSubdivs[cIdx] ?? 1;
-						let cellClasses = 'bg-[#1e2a45] border-[#2f4066] shadow-[0_2px_4px_rgba(0,0,0,0.2)] hover:bg-[#253353]';
-						if (isAccent)
-							cellClasses =
-								'bg-purple-900/40 border-purple-500/50 shadow-[inset_0_1px_4px_rgba(168,85,247,0.2)] hover:bg-purple-900/50 text-purple-100';
-						if (isActive)
-							cellClasses =
-								'bg-emerald-500/20 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)] z-10 scale-[1.03] text-emerald-100';
-						return (
-							<button
-								type="button"
-								key={cIdx}
-								onPointerDown={() => {
-									const a = actionsRef.current;
-									if (!a) return;
-									a.isHoldingRef.current = false;
-									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
-									a.holdTimerRef.current = window.setTimeout(() => {
-										a.isHoldingRef.current = true;
-										a.setCustomSubdivisions((prev) => {
-											const current = prev[checkKey] || 1;
-											const next = nextSubdivLongPress(current);
-											return { ...prev, [checkKey]: next };
-										});
-										if (a.isPanelExpandedRef.current && !a.showRandomSettingsRef.current) {
-											a.setActiveEditRow(null);
-											a.setActiveEditCell(checkKey);
-											a.setIsPanelExpanded(true);
-										}
-									}, 400);
-								}}
-								onPointerUp={() => {
-									const a = actionsRef.current;
-									if (!a) return;
-									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
-								}}
-								onPointerLeave={() => {
-									const a = actionsRef.current;
-									if (!a) return;
-									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
-								}}
-								onClick={() => {
-									const a = actionsRef.current;
-									if (!a || a.isHoldingRef.current) return;
-									a.toggleAccent(rIdx, cIdx);
-								}}
-								className={`flex-1 flex flex-col items-center justify-center border min-w-0 transition-all duration-75 ${
-									rowSylls > 7 ? 'rounded-md' : 'rounded-xl'
-								} ${cellClasses} ${activeEditCell === checkKey ? 'ring-2 ring-purple-500 z-20 shadow-purple-500/30' : ''}`}
-							>
-								<div
-									className={`w-full h-full rounded-[inherit] overflow-hidden ${
-										subdivs === 1
-											? 'flex items-center justify-center'
-											: subdivs === 2
-												? 'grid grid-cols-1 grid-rows-2'
-												: subdivs === 3
-													? 'grid grid-cols-1 grid-rows-3'
-													: subdivs === 4
-														? 'grid grid-cols-2 grid-rows-2'
-														: subdivs <= 6
-															? 'grid grid-cols-2 grid-rows-3'
-															: 'grid grid-cols-3 grid-rows-3'
-									}`}
-								>
-									{Array.from({ length: subdivs }).map((_, i) => (
-										<span
-											key={i}
-											className={`flex items-center justify-center w-full h-full min-w-0 overflow-hidden text-center px-px font-sans ${getSyllableStyles(rowSylls, subdivs)} ${
-												isActive || isAccent ? 'drop-shadow-md' : 'text-slate-300'
-											} ${subdivs > 1 ? 'border-[0.5px] border-[#2f4066]/50' : ''}`}
-										>
-											{rowCellLabels[cIdx]?.[i] ?? 'Ta'}
-										</span>
-									))}
-								</div>
-							</button>
-						);
-					})}
-				</div>
-			</div>
-		);
-	},
-	sequencerGridRowPropsEqual,
-);
-
 export default function App() {
   const initialBoot = useMemo(() => loadSnapshotStorage(), []);
   const seed = initialBoot.snapshots[initialBoot.activeSnapshot];
@@ -1169,6 +742,13 @@ export default function App() {
   const clickSoundRef = useRef(clickSound);
   const frozenScaleRef = useRef(frozenScale);
 
+  /** Пока тянут глобальные слайдеры Bars/Syllables — не писать `snapshots` из эффекта; flush на pointerup. */
+  const barsSliderDraggingRef = useRef(false);
+  const syllablesSliderDraggingRef = useRef(false);
+  const sliderWindowListenersAttachedRef = useRef(false);
+  const onWindowPointerEndCaptureRef = useRef<() => void>(() => {});
+  const flushLiveSnapshotToActiveSlotRef = useRef<() => void>(() => {});
+
   useEffect(() => { barsRef.current = bars; }, [bars]);
   useEffect(() => { syllablesRef.current = syllables; }, [syllables]);
   useEffect(() => { tempoRef.current = tempo; }, [tempo]);
@@ -1212,6 +792,58 @@ export default function App() {
     firstBeatAccent: firstBeatAccentRef.current,
     syllableReadMuteMode: syllableReadMuteModeRef.current,
   });
+
+  const stableWindowPointerEnd = useCallback(() => {
+    onWindowPointerEndCaptureRef.current();
+  }, []);
+
+  const attachSliderWindowListeners = useCallback(() => {
+    if (sliderWindowListenersAttachedRef.current) return;
+    sliderWindowListenersAttachedRef.current = true;
+    window.addEventListener('pointerup', stableWindowPointerEnd, true);
+    window.addEventListener('pointercancel', stableWindowPointerEnd, true);
+  }, [stableWindowPointerEnd]);
+
+  flushLiveSnapshotToActiveSlotRef.current = () => {
+    startTransition(() => {
+      setSnapshots((prev) => ({
+        ...prev,
+        [activeSnapshotRef.current]: buildLiveSnapshotFromRefs(),
+      }));
+    });
+  };
+
+  onWindowPointerEndCaptureRef.current = () => {
+    if (!barsSliderDraggingRef.current && !syllablesSliderDraggingRef.current) return;
+    barsSliderDraggingRef.current = false;
+    syllablesSliderDraggingRef.current = false;
+    if (sliderWindowListenersAttachedRef.current) {
+      sliderWindowListenersAttachedRef.current = false;
+      window.removeEventListener('pointerup', stableWindowPointerEnd, true);
+      window.removeEventListener('pointercancel', stableWindowPointerEnd, true);
+    }
+    flushLiveSnapshotToActiveSlotRef.current();
+  };
+
+  useEffect(() => {
+    return () => {
+      if (sliderWindowListenersAttachedRef.current) {
+        sliderWindowListenersAttachedRef.current = false;
+        window.removeEventListener('pointerup', stableWindowPointerEnd, true);
+        window.removeEventListener('pointercancel', stableWindowPointerEnd, true);
+      }
+    };
+  }, [stableWindowPointerEnd]);
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === 'hidden') {
+        onWindowPointerEndCaptureRef.current();
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
 
   const getSnapshotPayloadForSlotExport = (slot: number): ReturnType<typeof createEmptySnapshot> => {
     if (activeSnapshotRef.current === slot) {
@@ -1283,33 +915,38 @@ export default function App() {
   const sequenceRef = useRef(sequence);
   sequenceRef.current = sequence; // Always keep ref atomic with render
 
-  // Auto-save preset whenever parameters change
+  // Auto-save preset whenever parameters change (пропуск во время drag Bars/Syllables — см. pointerup flush)
   useEffect(() => {
-    setSnapshots(prev => ({
-      ...prev,
-      [activeSnapshot]: {
-        tempo,
-        bars,
-        syllables,
-        accents,
-        customSyllables,
-        customMultipliers,
-        customSubdivisions,
-        randomModeEnabled,
-        randomPulsation,
-        randomPattern,
-        randomSpeed,
-        randomBarSpeed,
-        chaosLevel: chaosLevelRef.current,
-        clickSound,
-        panelExpanded: isPanelExpanded,
-        pulseMeterUnlinked: { ...pulseMeterUnlinked },
-        frozenScale,
-        onlyAccents,
-        firstBeatAccent,
-        syllableReadMuteMode,
-      },
-    }));
+    if (barsSliderDraggingRef.current || syllablesSliderDraggingRef.current) {
+      return;
+    }
+    startTransition(() => {
+      setSnapshots((prev) => ({
+        ...prev,
+        [activeSnapshot]: {
+          tempo,
+          bars,
+          syllables,
+          accents,
+          customSyllables,
+          customMultipliers,
+          customSubdivisions,
+          randomModeEnabled,
+          randomPulsation,
+          randomPattern,
+          randomSpeed,
+          randomBarSpeed,
+          chaosLevel: chaosLevelRef.current,
+          clickSound,
+          panelExpanded: isPanelExpanded,
+          pulseMeterUnlinked: { ...pulseMeterUnlinked },
+          frozenScale,
+          onlyAccents,
+          firstBeatAccent,
+          syllableReadMuteMode,
+        },
+      }));
+    });
   }, [
     tempo,
     bars,
@@ -1422,6 +1059,7 @@ export default function App() {
   };
 
   const loadSnapshot = (id: number) => {
+    onWindowPointerEndCaptureRef.current();
     flushChaosToActiveSnapshot();
     setActiveSnapshot(id);
     const snap = snapshots[id] ?? createEmptySnapshot();
@@ -1477,6 +1115,7 @@ export default function App() {
     }
     try {
       const stored = normalizeSnapshotForStorage(parsed);
+      onWindowPointerEndCaptureRef.current();
       flushChaosToActiveSnapshot();
       setActiveSnapshot(slot);
       applySnapshotDataToUi(stored, { preservePanel: true });
@@ -1524,15 +1163,6 @@ export default function App() {
   
   // Create a scroll stride that overlaps by 1 row
   const scrollStride = Math.max(1, displayScaleBars - 1);
-
-  const rowCellLabelsCache = useMemo(() => {
-    const arr: string[][][] = [];
-    for (let r = 0; r < bars; r++) {
-      const rowSylls = customSyllables[r] !== undefined ? customSyllables[r] : syllables;
-      arr[r] = buildRowCellSyllableLabels(rowSylls, customSubdivisions, r);
-    }
-    return arr;
-  }, [bars, syllables, customSyllables, customSubdivisions]);
 
   const setRowElStable = useCallback((absR: number, el: HTMLDivElement | null) => {
     rowRefs.current[absR] = el;
@@ -1600,10 +1230,12 @@ export default function App() {
   const flushChaosToActiveSnapshot = () => {
     const slot = activeSnapshotRef.current;
     const chaos = chaosLevelRef.current;
-    setSnapshots((prev) => {
-      const cur = prev[slot];
-      if (!cur || cur.chaosLevel === chaos) return prev;
-      return { ...prev, [slot]: { ...cur, chaosLevel: chaos } };
+    startTransition(() => {
+      setSnapshots((prev) => {
+        const cur = prev[slot];
+        if (!cur || cur.chaosLevel === chaos) return prev;
+        return { ...prev, [slot]: { ...cur, chaosLevel: chaos } };
+      });
     });
   };
 
@@ -1894,6 +1526,16 @@ export default function App() {
       scheduler();
     }
   };
+
+  /* Синхронизация refs с render до pointerup flush (до useEffect по deps). */
+  tempoRef.current = tempo;
+  barsRef.current = bars;
+  syllablesRef.current = syllables;
+  accentsRef.current = accents;
+  customSyllablesRef.current = { ...customSyllables };
+  customMultipliersRef.current = { ...customMultipliers };
+  customSubdivisionsRef.current = { ...customSubdivisions };
+  pulseMeterUnlinkedRef.current = { ...pulseMeterUnlinked };
 
   sequencerGridRowActionsRef.current = {
     isHoldingRef,
@@ -2255,7 +1897,11 @@ export default function App() {
                 min="1" 
                 max="32" 
                 value={bars} 
-                onChange={(e) => setBars(parseInt(e.target.value))} 
+                onPointerDown={() => {
+                  barsSliderDraggingRef.current = true;
+                  attachSliderWindowListeners();
+                }}
+                onChange={(e) => setBars(parseInt(e.target.value, 10))} 
                 className="flex-1 h-3 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-blue-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110" 
               />
               <div className="w-5 shrink-0 flex justify-end">
@@ -2291,7 +1937,11 @@ export default function App() {
                       min="1" 
                       max="9" 
                       value={syllables} 
-                      onChange={(e) => setSyllables(parseInt(e.target.value))} 
+                      onPointerDown={() => {
+                        syllablesSliderDraggingRef.current = true;
+                        attachSliderWindowListeners();
+                      }}
+                      onChange={(e) => setSyllables(parseInt(e.target.value, 10))} 
                       className="flex-1 h-3 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-emerald-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110" 
                     />
                     <div className="w-5 shrink-0 flex justify-end">
@@ -2354,65 +2004,25 @@ export default function App() {
           </button>
         </div>
 
-        {/* Bars grid: virtual strip + autoscroll only when many bars or frozen row height */}
-        <div 
-          ref={gridRef}
-          className={`relative flex flex-col gap-1.5 flex-1 overflow-y-auto overflow-x-hidden ${
-          isPlaying 
-            ? 'scrollbar-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]' 
-            : '[&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[#2f4066] [&::-webkit-scrollbar-thumb]:rounded-full'
-        }`}>
-          {Array.from({
-            length:
-              isPlaying && !allBarsFitViewport
-                ? Math.max(bars, activePos.absR + displayScaleBars * 2)
-                : bars,
-          }).map((_, absR) => {
-            const rIdx = absR % bars;
-            const rowSylls = customSyllables[rIdx] !== undefined ? customSyllables[rIdx] : syllables;
-            const rowCellLabels = rowCellLabelsCache[rIdx] ?? [];
-            const rowMult = customMultipliers[rIdx] || 1;
-            const effectiveUseFixedFlex =
-              useFixedFlex || (isPlaying && !allBarsFitViewport);
-            const subdivSig = Array.from({ length: rowSylls }, (_, c) =>
-              String(customSubdivisions[`${rIdx}-${c}`] ?? 1),
-            ).join(',');
-            const accentSig = Array.from({ length: rowSylls }, (_, c) =>
-              accents.has(`${rIdx}-${c}`) ? '1' : '0',
-            ).join('');
-            const pulseUnlinkedRow = Boolean(pulseMeterUnlinked[rIdx]);
-            const highlightCol = isPlaying
-              ? activePos.absR === absR
-                ? activePos.c
-                : null
-              : activePos.r === rIdx
-                ? activePos.c
-                : null;
-
-            return (
-              <SequencerGridRow
-                key={absR}
-                absR={absR}
-                rIdx={rIdx}
-                rowSylls={rowSylls}
-                rowMult={rowMult}
-                subdivSig={subdivSig}
-                accentSig={accentSig}
-                pulseUnlinkedRow={pulseUnlinkedRow}
-                activeEditRow={activeEditRow}
-                activeEditCell={activeEditCell}
-                highlightCol={highlightCol}
-                isPlaying={isPlaying}
-                rowCellLabels={rowCellLabels}
-                effectiveUseFixedFlex={effectiveUseFixedFlex}
-                displayScaleBars={displayScaleBars}
-                syllables={syllables}
-                actionsRef={sequencerGridRowActionsRef}
-                setRowEl={setRowElStable}
-              />
-            );
-          })}
-        </div>
+        <SequencerGrid
+          gridRef={gridRef}
+          bars={bars}
+          syllables={syllables}
+          customSyllables={customSyllables}
+          customSubdivisions={customSubdivisions}
+          customMultipliers={customMultipliers}
+          accents={accents}
+          pulseMeterUnlinked={pulseMeterUnlinked}
+          isPlaying={isPlaying}
+          activePos={activePos}
+          displayScaleBars={displayScaleBars}
+          useFixedFlex={useFixedFlex}
+          allBarsFitViewport={allBarsFitViewport}
+          activeEditRow={activeEditRow}
+          activeEditCell={activeEditCell}
+          sequencerGridRowActionsRef={sequencerGridRowActionsRef}
+          setRowElStable={setRowElStable}
+        />
 
         {/* Bottom Actions */}
         <div className="flex gap-3 mt-1 shrink-0 h-[60px]">
