@@ -1192,7 +1192,7 @@ export default function App() {
     const stepDuration = 60.0 / effectiveBpm;
     const subDuration = stepDuration / subdivs;
 
-    /** Long-press square: mute sharp clicks (ручные акценты + пассивные доли). Акцент такта «Ta» = playBarFirstHighClick — не мьютится. */
+    /** Long-press square: mute sharp clicks for passive syllables / sub-beats. Bar ding (Ta) and main accent click still play. */
     const readOnlyMute = syllableReadMuteRef.current;
     for (let sub = 0; sub < subdivs; sub++) {
       const subTime = time + sub * subDuration;
@@ -1202,13 +1202,15 @@ export default function App() {
         playBarFirstHighClick(audioCtxRef.current, subTime, clickSoundRef.current);
       }
 
-      if (!readOnlyMute) {
+      const mainAccentClick = isAccent && sub === 0;
+      const allowSharpDespiteReadMute = readOnlyMute && mainAccentClick;
+      if (!readOnlyMute || allowSharpDespiteReadMute) {
         const shouldPlayBeat = !onlyAccentsRef.current || isAccent;
         if (shouldPlayBeat) {
           playSharpClick(
             audioCtxRef.current,
             subTime,
-            isAccent && sub === 0,
+            mainAccentClick,
             clickSoundRef.current,
             onlyAccentsRef.current,
           );
