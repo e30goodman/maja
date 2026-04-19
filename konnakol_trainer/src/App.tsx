@@ -460,8 +460,9 @@ const playSharpClick = (
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
   osc.type = 'sine';
-  osc.frequency.setValueAtTime(isChecked ? 920 : 800, time);
-  const peak = isChecked ? 0.36 : 0.28;
+  /** Modern: заметнее отличие акцента от пассива (выше/громче vs ниже/тише). */
+  osc.frequency.setValueAtTime(isChecked ? 1020 : 700, time);
+  const peak = isChecked ? 0.42 : 0.23;
   const decay = 0.04;
   gain.gain.setValueAtTime(0, time);
   gain.gain.linearRampToValueAtTime(peak, time + 0.002);
