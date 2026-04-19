@@ -120,6 +120,25 @@ function pickWeightedMeter2to9(chaos: number): number {
 	return pickRandomPulsationMeter(chaos);
 }
 
+const CELL_SPEED_RANDOM_POOL = [2, 3, 4] as const;
+
+/** Random Speed (cell speed): только поддоли 2, 3 или 4. */
+function pickRandomCellSpeedSubdiv(): number {
+	return CELL_SPEED_RANDOM_POOL[Math.floor(Math.random() * CELL_SPEED_RANDOM_POOL.length)]!;
+}
+
+/**
+ * Доля долей такта, в которых random speed выставляет новую поддоль (остальные сбрасываются в дефолт).
+ * chaos 0–33 → 33%; 34–66 → 66%; 67–89 → линейно 66%→100%; ≥90 → 100%.
+ */
+function cellSpeedFillFractionFromChaos(chaos: number): number {
+	const c = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
+	if (c <= 33) return 0.33;
+	if (c <= 66) return 0.66;
+	if (c >= 90) return 1;
+	return 0.66 + ((c - 66) / (90 - 66)) * (1 - 0.66);
+}
+
 function pickAccentCountForBar(chaos: number, curSyl: number): number {
 	const x = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
 	if (curSyl < 1) return 0;
@@ -1159,11 +1178,11 @@ export default function App() {
               : Array.from({length: curSyl}, (_, i) => i);
               
             for (let i = 0; i < 9; i++) delete customSubdivisionsRef.current[`${prevBar}-${i}`];
-            
-            const hitRate = 0.12 + (chaos / CHAOS_SLIDER_MAX) * 0.58;
+
+            const cellSpeedHitP = cellSpeedFillFractionFromChaos(chaos);
             candidates.forEach(i => {
-              if (Math.random() < hitRate) {
-                customSubdivisionsRef.current[`${prevBar}-${i}`] = pickWeightedMeter2to9(chaos);
+              if (Math.random() < cellSpeedHitP) {
+                customSubdivisionsRef.current[`${prevBar}-${i}`] = pickRandomCellSpeedSubdiv();
               }
             });
             didChange = true;
