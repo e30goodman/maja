@@ -591,6 +591,14 @@ export default function App() {
   const [isPanelExpanded, setIsPanelExpanded] = useState(() => seed.panelExpanded === true);
   const isPanelExpandedRef = useRef(seed.panelExpanded === true);
   isPanelExpandedRef.current = isPanelExpanded;
+
+  useEffect(() => {
+    if (!isPanelExpanded) {
+      setActiveEditCell(null);
+      setActiveEditRow(null);
+    }
+  }, [isPanelExpanded]);
+
   const holdTimerRef = useRef<number | null>(null);
   const isHoldingRef = useRef(false);
   /** Long-press square: toggle «без щелчков по клеткам»; ding такта Ta не мьютится. */
