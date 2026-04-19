@@ -1761,7 +1761,6 @@ export default function App() {
           }).map((_, absR) => {
             const rIdx = absR % bars;
             const rowSylls = customSyllables[rIdx] !== undefined ? customSyllables[rIdx] : syllables;
-            const isCustom = customSyllables[rIdx] !== undefined;
             const rowMult = customMultipliers[rIdx] || 1;
             const effectiveUseFixedFlex =
               useFixedFlex || (isPlaying && !allBarsFitViewport);
@@ -1858,11 +1857,7 @@ export default function App() {
                     });
                   }}
                   title="Tap: +1 syllable in bar. Hold: unlink bar length from pulse (timing uses 4 base). Right-click: reset bar to global syllables."
-                  className={`flex-1 rounded-md border flex items-center justify-center text-[10px] font-extrabold shadow-[inset_0_1px_3px_rgba(0,0,0,0.1)] min-h-[50%] transition-colors ${
-                    isCustom
-                      ? 'bg-purple-900/40 border-purple-500/50 shadow-[inset_0_1px_4px_rgba(168,85,247,0.2)] hover:bg-purple-900/50 text-purple-100' 
-                      : 'bg-[#1e2a45] border-[#2f4066] text-slate-400 hover:bg-[#253353] active:bg-[#1a253c]'
-                  } ${
+                  className={`flex-1 rounded-md border flex items-center justify-center text-[10px] font-extrabold shadow-[inset_0_1px_3px_rgba(0,0,0,0.1)] min-h-[50%] transition-colors bg-[#1e2a45] border-[#2f4066] text-slate-400 hover:bg-[#253353] active:bg-[#1a253c] ${
                     activeEditRow === rIdx
                       ? 'ring-2 ring-purple-500 shadow-purple-500/30'
                       : pulseMeterUnlinked[rIdx]
