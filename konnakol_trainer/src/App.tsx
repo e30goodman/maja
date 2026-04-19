@@ -209,6 +209,8 @@ export default function App() {
   const randomBarSpeedRef = useRef(randomBarSpeed);
   const randomMaxNotesRef = useRef(randomMaxNotes);
   const clickSoundRef = useRef(clickSound);
+  /** scheduleNote reads latest paging mode without stale closure */
+  const playbackNeedsBarPagingRef = useRef(false);
 
   useEffect(() => { barsRef.current = bars; }, [bars]);
   useEffect(() => { syllablesRef.current = syllables; }, [syllables]);
@@ -288,6 +290,13 @@ export default function App() {
 
   // Auto-scroll only when the pattern has more bars than fit on screen (displayScaleBars slots).
   const playbackNeedsBarPaging = bars > displayScaleBars;
+  playbackNeedsBarPagingRef.current = playbackNeedsBarPaging;
+
+  /** When all bars fit on screen, keep the old infinite strip (absR % bars). When paging is on, only `bars` real rows — scroll the container instead. */
+  const useVirtualBarStripDuringPlay = isPlaying && !playbackNeedsBarPaging;
+  const gridRowCount = useVirtualBarStripDuringPlay
+    ? Math.max(bars, activePos.absR + displayScaleBars * 2)
+    : bars;
 
   // Auto-scroll to active row during playback in pages smoothly
   useEffect(() => {
@@ -514,7 +523,11 @@ export default function App() {
     const delay = Math.max(0, (time - audioCtxRef.current.currentTime) * 1000);
     setTimeout(() => {
       if (isPlayingRef.current) {
-        setActivePos({ r: rIdx, c: cIdx, absR });
+        setActivePos({
+          r: rIdx,
+          c: cIdx,
+          absR: playbackNeedsBarPagingRef.current ? rIdx : absR,
+        });
       }
     }, delay);
   };
@@ -911,8 +924,8 @@ export default function App() {
             ? 'scrollbar-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]' 
             : '[&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[#2f4066] [&::-webkit-scrollbar-thumb]:rounded-full'
         }`}>
-          {Array.from({ length: isPlaying ? Math.max(bars, activePos.absR + displayScaleBars * 2) : bars }).map((_, absR) => {
-            const rIdx = absR % bars;
+          {Array.from({ length: gridRowCount }).map((_, absR) => {
+            const rIdx = useVirtualBarStripDuringPlay ? absR % bars : absR;
             const rowSylls = customSyllables[rIdx] !== undefined ? customSyllables[rIdx] : syllables;
             const isCustom = customSyllables[rIdx] !== undefined;
             const rowMult = customMultipliers[rIdx] || 1;
@@ -920,7 +933,7 @@ export default function App() {
             
             return (
             <div 
-              key={absR} 
+              key={useVirtualBarStripDuringPlay ? `v-${absR}` : `b-${rIdx}`}
               ref={el => { rowRefs.current[absR] = el; }}
               className={`flex items-stretch bg-[#161f33] border border-[#23314f] min-h-0 relative ${
                 displayScaleBars > 7 ? 'gap-1 p-1 rounded-lg' : 'gap-2 p-1.5 rounded-xl'
@@ -1011,9 +1024,11 @@ export default function App() {
                 {Array.from({ length: rowSylls }).map((_, cIdx) => {
                   const checkKey = `${rIdx}-${cIdx}`;
                   const isAccent = accents.has(checkKey);
-                  const isActive = isPlaying 
-                      ? activePos.absR === absR && activePos.c === cIdx
-                      : activePos.r === rIdx && activePos.c === cIdx;
+                  const isActive = isPlaying
+                    ? (playbackNeedsBarPaging
+                      ? activePos.r === rIdx && activePos.c === cIdx
+                      : activePos.absR === absR && activePos.c === cIdx)
+                    : activePos.r === rIdx && activePos.c === cIdx;
                       
                   const subdivs = customSubdivisions[checkKey] || 1;
                   
