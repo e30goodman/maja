@@ -290,11 +290,11 @@ export default function App() {
   const [isPanelExpanded, setIsPanelExpanded] = useState(true);
   const holdTimerRef = useRef<number | null>(null);
   const isHoldingRef = useRef(false);
-  /** Long-press square (syllable playback): mute all clicks + cyan ring while held. */
+  /** Long-press square: each completed hold toggles read-only (all syllables muted). */
   const squareHoldTimerRef = useRef<number | null>(null);
   const syllableReadMuteRef = useRef(false);
   const squareHoldAteClickRef = useRef(false);
-  const [syllableReadMuteHoldUi, setSyllableReadMuteHoldUi] = useState(false);
+  const [syllableReadMuteLatched, setSyllableReadMuteLatched] = useState(false);
   const tapTimesRef = useRef<number[]>([]);
 
   const handleTap = () => {
@@ -599,6 +599,7 @@ export default function App() {
         squareHoldTimerRef.current = null;
       }
       syllableReadMuteRef.current = false;
+      setSyllableReadMuteLatched(false);
       if (audioCtxRef.current) audioCtxRef.current.close().catch(() => {});
     };
   }, []);
@@ -821,7 +822,7 @@ export default function App() {
         squareHoldTimerRef.current = null;
       }
       syllableReadMuteRef.current = false;
-      setSyllableReadMuteHoldUi(false);
+      setSyllableReadMuteLatched(false);
       squareHoldAteClickRef.current = false;
     } else {
       setIsPlaying(true);
@@ -1410,7 +1411,7 @@ export default function App() {
             <span className="font-bold text-[22px] tracking-wide">Ta</span>
           </button>
 
-          {/* All beats vs accent-only (square): purple = accent-only, gray = full grid; long-press = read-only mute + ring */}
+          {/* All beats vs accent-only (square); long-press toggles read-only mute (same border style as Ta). */}
           <button 
             onPointerDown={() => {
               squareHoldAteClickRef.current = false;
@@ -1420,9 +1421,10 @@ export default function App() {
               }
               squareHoldTimerRef.current = window.setTimeout(() => {
                 squareHoldTimerRef.current = null;
-                syllableReadMuteRef.current = true;
+                const next = !syllableReadMuteRef.current;
+                syllableReadMuteRef.current = next;
+                setSyllableReadMuteLatched(next);
                 squareHoldAteClickRef.current = true;
-                setSyllableReadMuteHoldUi(true);
               }, 400);
             }}
             onPointerUp={() => {
@@ -1430,24 +1432,18 @@ export default function App() {
                 window.clearTimeout(squareHoldTimerRef.current);
                 squareHoldTimerRef.current = null;
               }
-              syllableReadMuteRef.current = false;
-              setSyllableReadMuteHoldUi(false);
             }}
             onPointerLeave={() => {
               if (squareHoldTimerRef.current !== null) {
                 window.clearTimeout(squareHoldTimerRef.current);
                 squareHoldTimerRef.current = null;
               }
-              syllableReadMuteRef.current = false;
-              setSyllableReadMuteHoldUi(false);
             }}
             onPointerCancel={() => {
               if (squareHoldTimerRef.current !== null) {
                 window.clearTimeout(squareHoldTimerRef.current);
                 squareHoldTimerRef.current = null;
               }
-              syllableReadMuteRef.current = false;
-              setSyllableReadMuteHoldUi(false);
             }}
             onClick={() => {
               if (squareHoldAteClickRef.current) {
@@ -1457,17 +1453,17 @@ export default function App() {
               setOnlyAccents(!onlyAccents);
             }}
             onContextMenu={(e) => e.preventDefault()}
-            className={`flex-1 rounded-xl flex justify-center items-center transition-all touch-none select-none relative ${
-              syllableReadMuteHoldUi
-                ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-[#0b101e] border border-cyan-500/60'
+            className={`flex-1 rounded-xl flex justify-center items-center transition-all touch-none select-none relative bg-[#161f33] ${
+              syllableReadMuteLatched
+                ? 'border border-purple-400 shadow-[0_0_15px_rgba(192,132,252,0.4)] text-purple-200'
                 : onlyAccents
-                  ? 'bg-purple-700/30 hover:bg-purple-700/40 active:bg-purple-700/20 text-purple-200 border border-purple-500/40'
-                  : 'bg-[#161f33] border border-[#23314f] hover:bg-[#1a253c] active:bg-[#131b2c] text-slate-400 hover:text-slate-200'
+                  ? 'border border-purple-500/40 bg-purple-700/30 hover:bg-purple-700/40 active:bg-purple-700/20 text-purple-200'
+                  : 'border border-[#23314f] hover:bg-[#1a253c] active:bg-[#131b2c] text-slate-400 hover:text-slate-200'
             }`}
             type="button"
             aria-label={
-              syllableReadMuteHoldUi
-                ? 'Read-only: sound muted (release)'
+              syllableReadMuteLatched
+                ? 'Read-only: silent (long-press to turn off)'
                 : onlyAccents
                   ? 'Accent-only playback'
                   : 'Play all beats'
@@ -1475,7 +1471,9 @@ export default function App() {
           >
             <span
               className={`block w-6 h-6 rounded-sm border-2 border-current transition-all duration-300 ${
-                onlyAccents ? 'opacity-100 scale-110 bg-current/25' : 'opacity-55 scale-100 bg-transparent'
+                syllableReadMuteLatched || onlyAccents
+                  ? 'opacity-100 scale-110 bg-current/25'
+                  : 'opacity-55 scale-100 bg-transparent'
               }`}
             />
           </button>
