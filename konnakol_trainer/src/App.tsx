@@ -597,7 +597,10 @@ export default function App() {
     }
   }, [isPanelExpanded]);
 
+  /** Long-press по клетке такта (поддоли). */
   const holdTimerRef = useRef<number | null>(null);
+  /** Long-press по числу слогов в такте (unlink от глобального метра) — отдельно, чтобы клетки не сбивали таймер. */
+  const pulseUnlinkHoldTimerRef = useRef<number | null>(null);
   const isHoldingRef = useRef(false);
   /** Long-press square: toggle «без щелчков по клеткам»; ding такта Ta не мьютится. */
   const squareHoldTimerRef = useRef<number | null>(null);
@@ -1851,27 +1854,57 @@ export default function App() {
                   x{rowMult}
                 </button>
                 <button 
-                  onPointerDown={() => {
+                  onPointerDown={(e) => {
                     isHoldingRef.current = false;
-                    if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
-                    holdTimerRef.current = window.setTimeout(() => {
+                    if (pulseUnlinkHoldTimerRef.current) clearTimeout(pulseUnlinkHoldTimerRef.current);
+                    try {
+                      (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
+                    } catch {
+                      /* duplicate capture etc. */
+                    }
+                    pulseUnlinkHoldTimerRef.current = window.setTimeout(() => {
                       isHoldingRef.current = true;
                       setActiveEditCell(null);
                       setActiveEditRow(null);
-                      setPulseMeterUnlinked((prev) => ({
-                        ...prev,
-                        [rIdx]: !prev[rIdx],
-                      }));
+                      setPulseMeterUnlinked((prev) => {
+                        const nextVal = !prev[rIdx];
+                        const next = { ...prev, [rIdx]: nextVal };
+                        pulseMeterUnlinkedRef.current = { ...next };
+                        return next;
+                      });
                     }, 400);
                   }}
-                  onPointerUp={() => {
-                    if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+                  onPointerUp={(e) => {
+                    if (pulseUnlinkHoldTimerRef.current) {
+                      clearTimeout(pulseUnlinkHoldTimerRef.current);
+                      pulseUnlinkHoldTimerRef.current = null;
+                    }
+                    try {
+                      const el = e.currentTarget as HTMLButtonElement;
+                      if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+                    } catch {
+                      /* */
+                    }
                   }}
-                  onPointerLeave={() => {
-                    if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+                  onPointerLeave={(e) => {
+                    const el = e.currentTarget as HTMLButtonElement;
+                    if (typeof el.hasPointerCapture === 'function' && el.hasPointerCapture(e.pointerId)) return;
+                    if (pulseUnlinkHoldTimerRef.current) {
+                      clearTimeout(pulseUnlinkHoldTimerRef.current);
+                      pulseUnlinkHoldTimerRef.current = null;
+                    }
                   }}
-                  onPointerCancel={() => {
-                    if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+                  onPointerCancel={(e) => {
+                    if (pulseUnlinkHoldTimerRef.current) {
+                      clearTimeout(pulseUnlinkHoldTimerRef.current);
+                      pulseUnlinkHoldTimerRef.current = null;
+                    }
+                    try {
+                      const el = e.currentTarget as HTMLButtonElement;
+                      if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+                    } catch {
+                      /* */
+                    }
                   }}
                   onClick={() => {
                     if (isHoldingRef.current) return;
