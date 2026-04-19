@@ -1555,6 +1555,8 @@ export default function App() {
       setSyllableReadMuteMode('off');
       squareHoldAteClickRef.current = false;
     } else {
+      setIsPanelExpanded(false);
+      setShowRandomSettings(false);
       setIsPlaying(true);
       isPlayingRef.current = true;
       clearPlayheadScheduling();
