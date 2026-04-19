@@ -207,7 +207,8 @@ function createEmptySnapshot() {
 		randomSpeed: true,
 		randomBarSpeed: false,
 		chaosLevel: 15,
-		clickSound: 'modern' as 'modern' | 'oldschool',
+		/** Classic = legacy maja без `konnakol_metronome`: акцент / пассив + Ta на первой доле. */
+		clickSound: 'classic' as 'classic' | 'oldschool',
 		/** Верхняя панель: темп + слайдеры (Chevron) развёрнута. */
 		panelExpanded: false,
 		/** Ряд r: длительность клетки от PULSE_METER_BASE_SYLLABLES, не от customSyllables[r]. */
@@ -270,6 +271,7 @@ function parseSnapshotRow(raw: unknown) {
 		}
 	}
 	if (o.clickSound === 'oldschool') d.clickSound = 'oldschool';
+	else d.clickSound = 'classic'; // default + legacy `modern`
 	if (typeof o.panelExpanded === 'boolean') d.panelExpanded = o.panelExpanded;
 	if (o.sequencerCells && typeof o.sequencerCells === 'object') {
 		hydrateSequencerFromCells(o.sequencerCells, d);
@@ -303,7 +305,7 @@ function snapSlotLooksUsed(s: ReturnType<typeof createEmptySnapshot>) {
 	if (Object.keys(s.customSubdivisions).length > 0) return true;
 	if (s.randomModeEnabled || s.randomPulsation || !s.randomPattern || s.randomSpeed || s.randomBarSpeed) return true;
 	if (s.chaosLevel !== 0) return true;
-	if (s.clickSound !== 'modern') return true;
+	if (s.clickSound !== 'classic') return true;
 	if (s.panelExpanded === true) return true;
 	if (s.pulseMeterUnlinked && Object.values(s.pulseMeterUnlinked).some(Boolean)) return true;
 	if (s.onlyAccents) return true;
@@ -404,7 +406,7 @@ const playSharpClick = (
   ctx: AudioContext,
   time: number,
   isChecked: boolean,
-  soundType: 'modern' | 'oldschool' = 'modern',
+  soundType: 'classic' | 'oldschool' = 'classic',
   accentOnlyPlayback = false,
 ) => {
   // Old school = same as legacy maja `konnakol_metronome` (triangle + pitch sweep).
@@ -429,7 +431,8 @@ const playSharpClick = (
   }
 
   if (isChecked && accentOnlyPlayback) {
-    const decay = 0.042;
+    /** Только акценты: слой пассива + акцента, суммарный пик как у одиночного classic-акцента (~0.34). */
+    const decay = 0.04;
     const oscLo = ctx.createOscillator();
     const oscHi = ctx.createOscillator();
     const gLo = ctx.createGain();
@@ -438,8 +441,8 @@ const playSharpClick = (
     oscHi.type = 'sine';
     oscLo.frequency.setValueAtTime(800, time);
     oscHi.frequency.setValueAtTime(920, time);
-    const peakLo = 0.17;
-    const peakHi = 0.22;
+    const peakLo = 0.11;
+    const peakHi = 0.23;
     gLo.gain.setValueAtTime(0, time);
     gLo.gain.linearRampToValueAtTime(peakLo, time + 0.002);
     gLo.gain.exponentialRampToValueAtTime(0.001, time + decay);
@@ -460,9 +463,9 @@ const playSharpClick = (
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
   osc.type = 'sine';
-  /** Modern: заметнее отличие акцента от пассива (выше/громче vs ниже/тише). */
-  osc.frequency.setValueAtTime(isChecked ? 1020 : 700, time);
-  const peak = isChecked ? 0.42 : 0.23;
+  /** Classic (legacy maja, не konnakol_metronome): акцент 920 / пассив 800. */
+  osc.frequency.setValueAtTime(isChecked ? 920 : 800, time);
+  const peak = isChecked ? 0.34 : 0.28;
   const decay = 0.04;
   gain.gain.setValueAtTime(0, time);
   gain.gain.linearRampToValueAtTime(peak, time + 0.002);
@@ -473,7 +476,7 @@ const playSharpClick = (
   osc.stop(time + decay + 0.01);
 };
 
-const playBarFirstHighClick = (ctx: AudioContext, time: number, soundType: 'modern' | 'oldschool' = 'modern') => {
+const playBarFirstHighClick = (ctx: AudioContext, time: number, soundType: 'classic' | 'oldschool' = 'classic') => {
   if (soundType === 'oldschool') {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
@@ -543,10 +546,12 @@ export default function App() {
   const [showRandomSettings, setShowRandomSettings] = useState(false);
   const showRandomSettingsRef = useRef(false);
   showRandomSettingsRef.current = showRandomSettings;
+  const randomSettingsPanelRef = useRef<HTMLDivElement | null>(null);
+  const settingsGearButtonRef = useRef<HTMLButtonElement | null>(null);
   const coldStartRef = useRef(true);
 
   // Click Sound
-  const [clickSound, setClickSound] = useState<'modern' | 'oldschool'>(seed.clickSound);
+  const [clickSound, setClickSound] = useState<'classic' | 'oldschool'>(seed.clickSound);
 
   // Preset Snapshot State (7 slots; persisted in localStorage)
   const [activeSnapshot, setActiveSnapshot] = useState(initialBoot.activeSnapshot);
@@ -619,6 +624,20 @@ export default function App() {
       setActiveEditRow(null);
     }
   }, [isPanelExpanded]);
+
+  /** Закрыть окно Randomizer / Settings по клику вне панели (и вне кнопки-шестерёнки). */
+  useEffect(() => {
+    if (!showRandomSettings) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const node = e.target as Node | null;
+      if (!node) return;
+      if (randomSettingsPanelRef.current?.contains(node)) return;
+      if (settingsGearButtonRef.current?.contains(node)) return;
+      setShowRandomSettings(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => document.removeEventListener('pointerdown', onPointerDown, true);
+  }, [showRandomSettings]);
 
   /** Long-press по клетке такта (поддоли). */
   const holdTimerRef = useRef<number | null>(null);
@@ -1045,7 +1064,7 @@ export default function App() {
         ? snap.chaosLevel
         : 0,
     );
-    setClickSound(snap.clickSound === 'oldschool' ? 'oldschool' : 'modern');
+    setClickSound(snap.clickSound === 'oldschool' ? 'oldschool' : 'classic');
     setPulseMeterUnlinked(normalizePulseMeterUnlinked(snap.pulseMeterUnlinked));
     setOnlyAccents(snap.onlyAccents === true);
     setFirstBeatAccent(snap.firstBeatAccent !== false);
@@ -1624,6 +1643,7 @@ export default function App() {
         {/* Top Header Controls */}
         <div className="flex gap-2 items-center">
           <button 
+            ref={settingsGearButtonRef}
             onClick={() => {
               if (!showRandomSettings) {
                 setShowRandomSettings(true);
@@ -1714,7 +1734,10 @@ export default function App() {
         <div className="relative bg-[#161f33] rounded-2xl border border-[#23314f] flex flex-col shrink-0 mb-3">
           {showRandomSettings ? (
             <div className={`grid transition-all duration-300 ${isPanelExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
-              <div className={`overflow-hidden flex flex-col transition-all duration-300 ${isPanelExpanded ? 'px-2.5 py-4 gap-5' : 'px-2.5 py-0 gap-0'}`}>
+              <div
+                ref={randomSettingsPanelRef}
+                className={`overflow-hidden flex flex-col transition-all duration-300 ${isPanelExpanded ? 'px-2.5 py-4 gap-5' : 'px-2.5 py-0 gap-0'}`}
+              >
                 <div className="flex flex-col gap-4 px-1 pb-1">
                   <div className="flex justify-between items-center text-slate-300 font-bold text-[11px] uppercase tracking-wider">
                     <span className="flex items-center gap-2 drop-shadow-[0_0_8px_rgba(59,130,246,0.5)] text-blue-300">
@@ -1790,7 +1813,7 @@ export default function App() {
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] text-slate-400 font-bold tracking-wider uppercase">Click Sound</span>
                     <div className="flex bg-[#0b101e] p-[3px] rounded-lg border border-[#2f4066]/50">
-                       <button onClick={() => setClickSound('modern')} className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${clickSound === 'modern' ? 'bg-[#364976] text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}>Modern</button>
+                       <button onClick={() => setClickSound('classic')} className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${clickSound === 'classic' ? 'bg-[#364976] text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}>Classic</button>
                        <button onClick={() => setClickSound('oldschool')} className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${clickSound === 'oldschool' ? 'bg-[#364976] text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}>Oldschool</button>
                     </div>
                   </div>
@@ -1936,7 +1959,8 @@ export default function App() {
             </>
           )}
 
-          {/* Dynamic Scaling Sliders (Always Visible) */}
+          {/* Bars / Syllables: скрыты пока открыто окно Settings (Randomizer). */}
+          {!showRandomSettings ? (
           <div className={`px-2.5 pt-1 pb-3 flex flex-col mb-2 transition-all duration-300 ${isPanelExpanded ? 'gap-4' : 'gap-0'}`}>
             <div className="flex items-center gap-2">
               <div className="flex items-center w-12 justify-between pr-1 shrink-0">
@@ -2055,6 +2079,7 @@ export default function App() {
               </div>
             </div>
           </div>
+          ) : null}
           
           {/* Collapse Arrow Toggle */}
           <button 
