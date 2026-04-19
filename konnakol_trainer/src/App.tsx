@@ -13,6 +13,30 @@ const KONNAKOL_PYRAMID: Record<number, string[]> = {
   9: ["Ta", "Ka", "Dhi", "Mi", "Ta", "Ka", "Ta", "Ki", "Ta"]
 };
 
+/** Суммарный вес «простых» размеров {2,3,4} vs «сложных» {5..9}; легко подкрутить. */
+const PULSATION_WEIGHT_SIMPLE_GROUP = 0.85;
+const PULSATION_WEIGHT_COMPLEX_GROUP = 0.15;
+const PULSATION_SIMPLE_METERS = [2, 3, 4] as const;
+const PULSATION_COMPLEX_METERS = [5, 6, 7, 8, 9] as const;
+
+/**
+ * Один выбор пульсации для такта: диапазон 2–9.
+ * Алгоритм: один бросок `r` в [0,1). Если r < 0.85 — группа A, иначе группа B.
+ * Внутри группы — равномерный индекс (ещё один Math.random).
+ */
+function pickWeightedRandomPulsation2to9(): number {
+	const wSum = PULSATION_WEIGHT_SIMPLE_GROUP + PULSATION_WEIGHT_COMPLEX_GROUP;
+	const threshold =
+		wSum > 0 ? PULSATION_WEIGHT_SIMPLE_GROUP / wSum : PULSATION_WEIGHT_SIMPLE_GROUP;
+	const r = Math.random();
+	if (r < threshold) {
+		const i = Math.floor(Math.random() * PULSATION_SIMPLE_METERS.length);
+		return PULSATION_SIMPLE_METERS[i];
+	}
+	const j = Math.floor(Math.random() * PULSATION_COMPLEX_METERS.length);
+	return PULSATION_COMPLEX_METERS[j];
+}
+
 const SNAPSHOT_SLOT_COUNT = 7;
 const SNAPSHOT_STORAGE_KEY = 'konnakolTrainerSnapshotsV1';
 
@@ -614,7 +638,7 @@ export default function App() {
           let didChange = false;
 
           if (randomPulsationRef.current) {
-            const newSyl = Math.floor(Math.random() * 9) + 1;
+            const newSyl = pickWeightedRandomPulsation2to9();
             customSyllablesRef.current[prevBar] = newSyl;
             didChange = true;
           }
