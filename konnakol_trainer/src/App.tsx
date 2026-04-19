@@ -82,9 +82,25 @@ function pickBarSpeedMultiplier(chaos: number): number {
 
 const SNAPSHOT_SLOT_COUNT = 7;
 const SNAPSHOT_STORAGE_KEY = 'konnakolTrainerSnapshotsV1';
-/** Одна строка текста для мессенджеров; префикс отсекает посторонний JSON в буфере. */
-const SNAPSHOT_CLIPBOARD_PREFIX = 'konnakolTrainerSnapshotV1:';
-const SNAPSHOT_HOLD_MS = 450;
+/** Экспорт в буфер: компактная строка для мессенджеров. */
+const METRONOME_CONFIG_PREFIX = 'METRONOME_CONFIG:';
+/** Старые ссылки с чистым JSON после двоеточия — по-прежнему читаем. */
+const SNAPSHOT_CLIPBOARD_PREFIX_LEGACY = 'konnakolTrainerSnapshotV1:';
+const SNAPSHOT_HOLD_MS = 800;
+
+function utf8ToBase64Json(json: string): string {
+	const bytes = new TextEncoder().encode(json);
+	let bin = '';
+	for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
+	return btoa(bin);
+}
+
+function base64JsonToUtf8(b64: string): string {
+	const bin = atob(b64);
+	const bytes = new Uint8Array(bin.length);
+	for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i) & 0xff;
+	return new TextDecoder().decode(bytes);
+}
 
 type SequencerCellJSON = { accent: boolean; pulsation: number };
 
@@ -239,48 +255,31 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 }
 
 function encodeSnapshotClipboard(s: ReturnType<typeof createEmptySnapshot>): string {
-	return SNAPSHOT_CLIPBOARD_PREFIX + JSON.stringify(snapshotToJSON(s));
+	const json = JSON.stringify(snapshotToJSON(s));
+	return METRONOME_CONFIG_PREFIX + utf8ToBase64Json(json);
 }
 
 function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmptySnapshot> | null {
 	const t = text.trim();
-	if (!t.startsWith(SNAPSHOT_CLIPBOARD_PREFIX)) return null;
-	try {
-		const raw = JSON.parse(t.slice(SNAPSHOT_CLIPBOARD_PREFIX.length));
-		return parseSnapshotRow(raw);
-	} catch {
-		return null;
+	if (t.startsWith(METRONOME_CONFIG_PREFIX)) {
+		const b64 = t.slice(METRONOME_CONFIG_PREFIX.length).replace(/\s+/g, '');
+		if (!b64) return null;
+		try {
+			const json = base64JsonToUtf8(b64);
+			return parseSnapshotRow(JSON.parse(json));
+		} catch {
+			return null;
+		}
 	}
-}
-
-/** Слот в state: accents может быть Set — приводим к полному снепшоту для экспорта. */
-function snapshotFromSlotState(raw: unknown): ReturnType<typeof createEmptySnapshot> {
-	const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
-	const acc = o.accents;
-	const accentsArr =
-		acc instanceof Set
-			? [...acc]
-			: Array.isArray(acc)
-				? acc.filter((x): x is string => typeof x === 'string')
-				: [];
-	return parseSnapshotRow({
-		tempo: o.tempo,
-		bars: o.bars,
-		syllables: o.syllables,
-		accents: accentsArr,
-		sequencerCells: o.sequencerCells,
-		customSyllables: o.customSyllables,
-		customMultipliers: o.customMultipliers,
-		customSubdivisions: o.customSubdivisions,
-		randomModeEnabled: o.randomModeEnabled,
-		randomPulsation: o.randomPulsation,
-		randomPattern: o.randomPattern,
-		randomSpeed: o.randomSpeed,
-		randomBarSpeed: o.randomBarSpeed,
-		chaosLevel: o.chaosLevel,
-		clickSound: o.clickSound,
-		panelExpanded: o.panelExpanded,
-	});
+	if (t.startsWith(SNAPSHOT_CLIPBOARD_PREFIX_LEGACY)) {
+		try {
+			const raw = JSON.parse(t.slice(SNAPSHOT_CLIPBOARD_PREFIX_LEGACY.length));
+			return parseSnapshotRow(raw);
+		} catch {
+			return null;
+		}
+	}
+	return null;
 }
 
 function loadSnapshotStorage(): {
@@ -443,6 +442,19 @@ export default function App() {
   const snapshotHoldAteClickRef = useRef(false);
 
   const persistSnapshotsTimerRef = useRef<number | null>(null);
+  const clipboardToastTimerRef = useRef<number | null>(null);
+  const [clipboardToast, setClipboardToast] = useState<string | null>(null);
+
+  const showClipboardToast = (message: string) => {
+    setClipboardToast(message);
+    if (clipboardToastTimerRef.current !== null) {
+      window.clearTimeout(clipboardToastTimerRef.current);
+    }
+    clipboardToastTimerRef.current = window.setTimeout(() => {
+      clipboardToastTimerRef.current = null;
+      setClipboardToast(null);
+    }, 2600);
+  };
 
   const [activeEditCell, setActiveEditCell] = useState<string | null>(null);
   const [activeEditRow, setActiveEditRow] = useState<number | null>(null);
@@ -729,32 +741,34 @@ export default function App() {
     panelExpanded: s.panelExpanded === true,
   });
 
+  /** Smart Snapshot: сначала readText; валидный METRONOME_CONFIG (или legacy) → применить; иначе → копировать живое состояние. */
   const runSnapshotSlotHold = async (slot: number) => {
-    const slotSnap = snapshotsRef.current[slot] ?? createEmptySnapshot();
-    const emptyInactive =
-      activeSnapshotRef.current !== slot && !snapSlotLooksUsed(slotSnap);
+    let text = '';
     try {
-      if (emptyInactive) {
-        const text = await navigator.clipboard.readText();
-        const parsed = tryDecodeSnapshotClipboard(text);
-        if (!parsed) {
-          console.warn('[konnakol_trainer] paste: clipboard has no valid trainer snapshot');
-          return;
-        }
-        const stored = normalizeSnapshotForStorage(parsed);
-        setSnapshots((prev) => ({ ...prev, [slot]: stored }));
-        if (activeSnapshotRef.current === slot) {
-          applySnapshotDataToUi(stored);
-        }
-      } else {
-        const payload =
-          activeSnapshotRef.current === slot
-            ? buildLiveSnapshotFromRefs()
-            : snapshotFromSlotState(snapshotsRef.current[slot]);
-        await navigator.clipboard.writeText(encodeSnapshotClipboard(payload));
-      }
+      text = await navigator.clipboard.readText();
     } catch (e) {
-      console.warn('[konnakol_trainer] clipboard read/write failed', e);
+      console.warn('[konnakol_trainer] clipboard read failed', e);
+    }
+    const parsed = tryDecodeSnapshotClipboard(text);
+    if (parsed) {
+      try {
+        const stored = normalizeSnapshotForStorage(parsed);
+        setActiveSnapshot(slot);
+        applySnapshotDataToUi(stored, { preservePanel: true });
+        showClipboardToast('Пресет применен!');
+      } catch (e) {
+        console.warn('[konnakol_trainer] apply preset failed', e);
+        showClipboardToast('Не удалось применить пресет');
+      }
+      return;
+    }
+    try {
+      const payload = buildLiveSnapshotFromRefs();
+      await navigator.clipboard.writeText(encodeSnapshotClipboard(payload));
+      showClipboardToast('Настройки скопированы в буфер!');
+    } catch (e) {
+      console.warn('[konnakol_trainer] clipboard write failed', e);
+      showClipboardToast('Не удалось записать в буфер обмена');
     }
   };
 
@@ -811,6 +825,10 @@ export default function App() {
       if (snapshotHoldTimerRef.current !== null) {
         window.clearTimeout(snapshotHoldTimerRef.current);
         snapshotHoldTimerRef.current = null;
+      }
+      if (clipboardToastTimerRef.current !== null) {
+        window.clearTimeout(clipboardToastTimerRef.current);
+        clipboardToastTimerRef.current = null;
       }
       if (squareHoldTimerRef.current !== null) {
         window.clearTimeout(squareHoldTimerRef.current);
@@ -1336,17 +1354,11 @@ export default function App() {
                         const hasData =
                           isActive || snapSlotLooksUsed(snapshots[num] ?? createEmptySnapshot());
 
-                        const emptyInactive =
-                          !isActive && !snapSlotLooksUsed(snapshots[num] ?? createEmptySnapshot());
                         return (
                           <button
                             key={num}
                             type="button"
-                            title={
-                              emptyInactive
-                                ? 'Коротко: открыть слот. Удерживание: вставить из буфера'
-                                : 'Коротко: открыть слот. Удерживание: скопировать настройки в буфер'
-                            }
+                            title="Коротко: выбрать слот. Удержание ~0.8 с: Smart Snapshot — если в буфере METRONOME_CONFIG, применить пресет; иначе скопировать текущие настройки"
                             className={`w-8 h-8 flex items-center justify-center rounded-full text-[13px] font-bold transition-all touch-none select-none ${
                               isActive
                                 ? 'bg-[#1e2a45] text-white shadow-sm ring-1 ring-[#3a5080] scale-110'
@@ -1354,7 +1366,13 @@ export default function App() {
                                   ? 'text-slate-300 bg-[#1e2a45]/30 hover:bg-[#1e2a45]/60 hover:text-white'
                                   : 'text-slate-600 hover:text-slate-400'
                             }`}
-                            onPointerDown={() => {
+                            onPointerDown={(e) => {
+                              const el = e.currentTarget;
+                              try {
+                                el.setPointerCapture(e.pointerId);
+                              } catch {
+                                /* ignore */
+                              }
                               snapshotHoldAteClickRef.current = false;
                               snapshotHoldSlotRef.current = num;
                               if (snapshotHoldTimerRef.current !== null) {
@@ -1370,19 +1388,40 @@ export default function App() {
                                 void runSnapshotSlotHold(s);
                               }, SNAPSHOT_HOLD_MS);
                             }}
-                            onPointerUp={() => {
+                            onPointerUp={(e) => {
+                              try {
+                                if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+                                  e.currentTarget.releasePointerCapture(e.pointerId);
+                                }
+                              } catch {
+                                /* ignore */
+                              }
                               if (snapshotHoldTimerRef.current !== null) {
                                 window.clearTimeout(snapshotHoldTimerRef.current);
                                 snapshotHoldTimerRef.current = null;
                               }
                             }}
-                            onPointerLeave={() => {
+                            onPointerLeave={(e) => {
+                              try {
+                                if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+                                  e.currentTarget.releasePointerCapture(e.pointerId);
+                                }
+                              } catch {
+                                /* ignore */
+                              }
                               if (snapshotHoldTimerRef.current !== null) {
                                 window.clearTimeout(snapshotHoldTimerRef.current);
                                 snapshotHoldTimerRef.current = null;
                               }
                             }}
-                            onPointerCancel={() => {
+                            onPointerCancel={(e) => {
+                              try {
+                                if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+                                  e.currentTarget.releasePointerCapture(e.pointerId);
+                                }
+                              } catch {
+                                /* ignore */
+                              }
                               if (snapshotHoldTimerRef.current !== null) {
                                 window.clearTimeout(snapshotHoldTimerRef.current);
                                 snapshotHoldTimerRef.current = null;
@@ -1816,6 +1855,16 @@ export default function App() {
             />
           </button>
         </div>
+
+        {clipboardToast ? (
+          <div
+            role="status"
+            aria-live="polite"
+            className="pointer-events-none absolute bottom-[5.5rem] left-1/2 z-[60] max-w-[min(92%,22rem)] -translate-x-1/2 rounded-xl bg-[#1e2a45] px-3.5 py-2.5 text-center text-[13px] font-medium leading-snug text-slate-100 shadow-lg ring-1 ring-[#3a5080]"
+          >
+            {clipboardToast}
+          </div>
+        ) : null}
 
         {/* Play Button */}
         <div className="shrink-0 mb-2">
