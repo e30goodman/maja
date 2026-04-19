@@ -1118,12 +1118,12 @@ export default function App() {
             <span className="font-bold text-[22px] tracking-wide">Ta</span>
           </button>
 
-          {/* All beats vs accent-only (square marker, original-style) */}
+          {/* All beats vs accent-only (square): purple = accent-only, gray = full grid audible */}
           <button 
             onClick={() => setOnlyAccents(!onlyAccents)}
             onContextMenu={(e) => e.preventDefault()}
             className={`flex-1 rounded-xl flex justify-center items-center transition-all touch-none select-none relative ${
-              !onlyAccents 
+              onlyAccents
                 ? 'bg-purple-700/30 hover:bg-purple-700/40 active:bg-purple-700/20 text-purple-200 border border-purple-500/40' 
                 : 'bg-[#161f33] border border-[#23314f] hover:bg-[#1a253c] active:bg-[#131b2c] text-slate-400 hover:text-slate-200'
             }`}
@@ -1132,7 +1132,7 @@ export default function App() {
           >
             <span
               className={`block w-6 h-6 rounded-sm border-2 border-current transition-all duration-300 ${
-                !onlyAccents ? 'opacity-100 scale-110 bg-current/25' : 'opacity-55 scale-100 bg-transparent'
+                onlyAccents ? 'opacity-100 scale-110 bg-current/25' : 'opacity-55 scale-100 bg-transparent'
               }`}
             />
           </button>
