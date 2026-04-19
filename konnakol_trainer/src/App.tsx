@@ -931,7 +931,7 @@ export default function App() {
     const cs = { ...customSyllablesRef.current };
     const cd = { ...customSubdivisionsRef.current };
     const cm = { ...customMultipliersRef.current };
-    const acc = new Set(accentsRef.current);
+    const acc = new Set<string>(accentsRef.current as Set<string>);
 
     let any = false;
     for (let r = 0; r < nBars; r++) {
