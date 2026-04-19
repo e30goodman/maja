@@ -29,6 +29,20 @@ const CHAOS_SLIDER_MAX = 100;
 /** При «отвязке» пульса от числа долей такта длительность шага считается как при 4 долях (квартальная сетка). */
 const PULSE_METER_BASE_SYLLABLES = 4;
 
+/** Long-press по клетке: 1…9 только при развёрнутой основной панели (Bars+Syllbs); иначе — только 1, 2, 4. */
+function nextSubdivLongPress(current: number, allowFullSubdivRange: boolean): number {
+	if (allowFullSubdivRange) {
+		const c = current >= 1 && current <= 9 ? current : 1;
+		return c >= 9 ? 1 : c + 1;
+	}
+	const c = current >= 1 && current <= 9 ? current : 1;
+	if (c === 1) return 2;
+	if (c === 2) return 4;
+	if (c === 4) return 1;
+	if (c === 3) return 4;
+	return 2;
+}
+
 function normalizePulseMeterUnlinked(raw: unknown): Record<number, boolean> {
 	if (!raw || typeof raw !== 'object') return {};
 	const out: Record<number, boolean> = {};
@@ -491,6 +505,8 @@ export default function App() {
       : 0,
   );
   const [showRandomSettings, setShowRandomSettings] = useState(false);
+  const showRandomSettingsRef = useRef(false);
+  showRandomSettingsRef.current = showRandomSettings;
   const coldStartRef = useRef(true);
 
   // Click Sound
@@ -1881,12 +1897,15 @@ export default function App() {
                         if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
                         holdTimerRef.current = window.setTimeout(() => {
                           isHoldingRef.current = true;
-                          setCustomSubdivisions(prev => {
+                          setCustomSubdivisions((prev) => {
                             const current = prev[checkKey] || 1;
-                            const next = current >= 9 ? 1 : current + 1;
-                            return {...prev, [checkKey]: next};
+                            const next = nextSubdivLongPress(
+                              current,
+                              isPanelExpandedRef.current && !showRandomSettingsRef.current,
+                            );
+                            return { ...prev, [checkKey]: next };
                           });
-                          if (isPanelExpandedRef.current) {
+                          if (isPanelExpandedRef.current && !showRandomSettingsRef.current) {
                             setActiveEditRow(null);
                             setActiveEditCell(checkKey);
                             setIsPanelExpanded(true);
