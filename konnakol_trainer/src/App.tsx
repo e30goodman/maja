@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback, startTransition } from 'react';
 import {
 	Settings,
 	Minus,
@@ -65,6 +65,37 @@ function buildRowCellSyllableLabels(
 		lastTail = labels[labels.length - 1] ?? 'Ta';
 	}
 	return out;
+}
+
+/** Dynamic text sizing based on grid density (pure). */
+function getSyllableStyles(rowSylls: number, cellSubdivs: number = 1): string {
+	let pseudoSylls = rowSylls;
+	if (cellSubdivs === 2) pseudoSylls = rowSylls * 1.5;
+	else if (cellSubdivs === 3) pseudoSylls = rowSylls * 2;
+	else if (cellSubdivs === 4) pseudoSylls = rowSylls * 2;
+	else if (cellSubdivs >= 5 && cellSubdivs <= 6) pseudoSylls = rowSylls * 2.5;
+	else if (cellSubdivs >= 7) pseudoSylls = rowSylls * 3;
+
+	if (pseudoSylls >= 20) return 'text-[6px] font-black tracking-tighter leading-none';
+	if (pseudoSylls >= 14) return 'text-[7px] font-black tracking-tighter leading-none';
+	if (pseudoSylls >= 12) return 'text-[8px] font-black tracking-tighter leading-none';
+	if (pseudoSylls >= 9) return 'text-[9px] font-extrabold tracking-tight leading-none';
+	if (pseudoSylls >= 7) return 'text-[10px] font-bold tracking-tight leading-none';
+	if (pseudoSylls >= 5) return 'text-[11px] font-bold tracking-normal leading-none';
+	return 'text-sm font-bold tracking-wide leading-none';
+}
+
+type PlayheadHighlightEvent = { t: number; pos: { r: number; c: number; absR: number } };
+
+function insertPlayheadSorted(queue: PlayheadHighlightEvent[], ev: PlayheadHighlightEvent) {
+	let lo = 0;
+	let hi = queue.length;
+	while (lo < hi) {
+		const mid = (lo + hi) >> 1;
+		if (queue[mid].t <= ev.t) lo = mid + 1;
+		else hi = mid;
+	}
+	queue.splice(lo, 0, ev);
 }
 
 const CHAOS_SLIDER_MAX = 100;
@@ -256,6 +287,12 @@ function createEmptySnapshot() {
 		panelExpanded: false,
 		/** Ряд r: длительность клетки от PULSE_METER_BASE_SYLLABLES, не от customSyllables[r]. */
 		pulseMeterUnlinked: {} as Record<number, boolean>,
+		/** Заморозка высоты ряда (число видимых тактов) или null. */
+		frozenScale: null as number | null,
+		onlyAccents: false,
+		firstBeatAccent: true,
+		/** Long-press по квадрату: без щелчков на пассивных поддолях (защёлка в UI). */
+		syllableReadMuteLatched: false,
 	};
 }
 
@@ -322,6 +359,15 @@ function parseSnapshotRow(raw: unknown) {
 		}
 		d.pulseMeterUnlinked = next;
 	}
+	if (typeof o.onlyAccents === 'boolean') d.onlyAccents = o.onlyAccents;
+	if (typeof o.firstBeatAccent === 'boolean') d.firstBeatAccent = o.firstBeatAccent;
+	if (typeof o.syllableReadMuteLatched === 'boolean') d.syllableReadMuteLatched = o.syllableReadMuteLatched;
+	const fs = o.frozenScale;
+	if (fs === null || fs === undefined) d.frozenScale = null;
+	else {
+		const fn = parseInt(String(fs), 10);
+		d.frozenScale = Number.isFinite(fn) && fn >= 1 && fn <= 100 ? fn : null;
+	}
 	return d;
 }
 
@@ -336,6 +382,10 @@ function snapSlotLooksUsed(s: ReturnType<typeof createEmptySnapshot>) {
 	if (s.clickSound !== 'modern') return true;
 	if (s.panelExpanded === true) return true;
 	if (s.pulseMeterUnlinked && Object.values(s.pulseMeterUnlinked).some(Boolean)) return true;
+	if (s.onlyAccents) return true;
+	if (s.firstBeatAccent === false) return true;
+	if (s.frozenScale != null) return true;
+	if (s.syllableReadMuteLatched) return true;
 	return false;
 }
 
@@ -360,6 +410,10 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		pulseMeterUnlinked: Object.fromEntries(
 			Object.entries(s.pulseMeterUnlinked || {}).filter(([, v]) => v),
 		) as Record<string, boolean>,
+		frozenScale: s.frozenScale ?? null,
+		onlyAccents: s.onlyAccents,
+		firstBeatAccent: s.firstBeatAccent,
+		syllableReadMuteLatched: s.syllableReadMuteLatched,
 	};
 }
 
@@ -525,6 +579,339 @@ const playBarFirstHighClick = (ctx: AudioContext, time: number, soundType: 'mode
   osc.stop(time + 0.06);
 };
 
+/** Ref-filled each App render — stable identity for memoized grid row. */
+type SequencerGridRowActions = {
+	isHoldingRef: React.MutableRefObject<boolean>;
+	holdTimerRef: React.MutableRefObject<number | null>;
+	pulseUnlinkHoldTimerRef: React.MutableRefObject<number | null>;
+	isPanelExpandedRef: React.MutableRefObject<boolean>;
+	showRandomSettingsRef: React.MutableRefObject<boolean>;
+	syllables: number;
+	setActiveEditRow: React.Dispatch<React.SetStateAction<number | null>>;
+	setActiveEditCell: React.Dispatch<React.SetStateAction<string | null>>;
+	setIsPanelExpanded: React.Dispatch<React.SetStateAction<boolean>>;
+	setCustomMultipliers: React.Dispatch<React.SetStateAction<Record<number, number>>>;
+	setPulseMeterUnlinked: React.Dispatch<React.SetStateAction<Record<number, boolean>>>;
+	setCustomSyllables: React.Dispatch<React.SetStateAction<Record<number, number>>>;
+	setCustomSubdivisions: React.Dispatch<React.SetStateAction<Record<string, number>>>;
+	toggleAccent: (r: number, c: number) => void;
+	pulseMeterUnlinkedRef: React.MutableRefObject<Record<number, boolean>>;
+};
+
+type SequencerGridRowProps = {
+	absR: number;
+	rIdx: number;
+	rowSylls: number;
+	rowMult: number;
+	subdivSig: string;
+	accentSig: string;
+	pulseUnlinkedRow: boolean;
+	activeEditRow: number | null;
+	activeEditCell: string | null;
+	highlightCol: number | null;
+	isPlaying: boolean;
+	rowCellLabels: string[][];
+	effectiveUseFixedFlex: boolean;
+	displayScaleBars: number;
+	syllables: number;
+	actionsRef: React.MutableRefObject<SequencerGridRowActions | null>;
+	setRowEl: (absR: number, el: HTMLDivElement | null) => void;
+};
+
+function sequencerGridRowPropsEqual(a: SequencerGridRowProps, b: SequencerGridRowProps) {
+	return (
+		a.absR === b.absR &&
+		a.rIdx === b.rIdx &&
+		a.rowSylls === b.rowSylls &&
+		a.rowMult === b.rowMult &&
+		a.subdivSig === b.subdivSig &&
+		a.accentSig === b.accentSig &&
+		a.pulseUnlinkedRow === b.pulseUnlinkedRow &&
+		a.activeEditRow === b.activeEditRow &&
+		a.activeEditCell === b.activeEditCell &&
+		a.highlightCol === b.highlightCol &&
+		a.isPlaying === b.isPlaying &&
+		a.rowCellLabels === b.rowCellLabels &&
+		a.effectiveUseFixedFlex === b.effectiveUseFixedFlex &&
+		a.displayScaleBars === b.displayScaleBars &&
+		a.syllables === b.syllables &&
+		a.actionsRef === b.actionsRef &&
+		a.setRowEl === b.setRowEl
+	);
+}
+
+const SequencerGridRow = React.memo(
+	function SequencerGridRow(p: SequencerGridRowProps) {
+		const {
+			absR,
+			rIdx,
+			rowSylls,
+			rowMult,
+			subdivSig,
+			accentSig,
+			pulseUnlinkedRow,
+			activeEditRow,
+			activeEditCell,
+			highlightCol,
+			isPlaying,
+			rowCellLabels,
+			effectiveUseFixedFlex,
+			displayScaleBars,
+			syllables,
+			actionsRef,
+			setRowEl,
+		} = p;
+		const rowSubdivs = useMemo(
+			() => subdivSig.split(',').map((x) => parseInt(x, 10) || 1),
+			[subdivSig],
+		);
+		const accentBits = accentSig;
+		return (
+			<div
+				ref={(el) => setRowEl(absR, el)}
+				className={`flex items-stretch bg-[#161f33] border border-[#23314f] min-h-0 relative ${
+					displayScaleBars > 7 ? 'gap-1 p-1 rounded-lg' : 'gap-2 p-1.5 rounded-xl'
+				} ${!effectiveUseFixedFlex ? 'flex-1' : ''}`}
+				style={{
+					flex: effectiveUseFixedFlex
+						? `0 0 calc((100% - ${(displayScaleBars - 1) * 6}px) / ${displayScaleBars})`
+						: undefined,
+				}}
+			>
+				<div className="flex flex-col gap-1 justify-center w-8 shrink-0">
+					<button
+						type="button"
+						onClick={() => {
+							const a = actionsRef.current;
+							if (!a) return;
+							a.setCustomMultipliers((prev) => {
+								const m = prev[rIdx] || 1;
+								const next = m === 1 ? 2 : m === 2 ? 3 : m === 3 ? 4 : 1;
+								if (next === 1) {
+									const copy = { ...prev };
+									delete copy[rIdx];
+									return copy;
+								}
+								return { ...prev, [rIdx]: next };
+							});
+						}}
+						onContextMenu={(e) => {
+							e.preventDefault();
+							const a = actionsRef.current;
+							if (!a) return;
+							a.setCustomMultipliers((prev) => {
+								const copy = { ...prev };
+								delete copy[rIdx];
+								return copy;
+							});
+						}}
+						className={`relative flex-1 rounded-md border flex items-center justify-center text-[9px] font-bold min-h-[50%] transition-colors ${
+							rowMult === 1
+								? 'bg-[#1e2a45] border-[#2f4066] text-slate-300 hover:bg-[#253353] active:bg-[#1a253c]'
+								: rowMult === 2
+									? 'bg-blue-900/40 border-blue-500/50 text-blue-300 shadow-[inset_0_1px_3px_rgba(59,130,246,0.1)]'
+									: rowMult === 3
+										? 'bg-rose-900/40 border-rose-500/50 text-rose-300 shadow-[inset_0_1px_3px_rgba(244,63,94,0.1)]'
+										: 'bg-amber-900/40 border-amber-500/50 text-amber-200 shadow-[inset_0_1px_3px_rgba(245,158,11,0.12)]'
+						}`}
+					>
+						<span className="absolute top-[2px] left-[3px] text-[7.5px] text-slate-500 font-mono pointer-events-none leading-none opacity-80">
+							{rIdx + 1}
+						</span>
+						x{rowMult}
+					</button>
+					<button
+						type="button"
+						onPointerDown={(e) => {
+							const a = actionsRef.current;
+							if (!a) return;
+							a.isHoldingRef.current = false;
+							if (a.pulseUnlinkHoldTimerRef.current) clearTimeout(a.pulseUnlinkHoldTimerRef.current);
+							try {
+								(e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
+							} catch {
+								/* duplicate capture etc. */
+							}
+							a.pulseUnlinkHoldTimerRef.current = window.setTimeout(() => {
+								a.isHoldingRef.current = true;
+								a.setActiveEditCell(null);
+								a.setActiveEditRow(null);
+								a.setPulseMeterUnlinked((prev) => {
+									const nextVal = !prev[rIdx];
+									const next = { ...prev, [rIdx]: nextVal };
+									a.pulseMeterUnlinkedRef.current = { ...next };
+									return next;
+								});
+							}, 400);
+						}}
+						onPointerUp={(e) => {
+							const a = actionsRef.current;
+							if (!a) return;
+							if (a.pulseUnlinkHoldTimerRef.current) {
+								clearTimeout(a.pulseUnlinkHoldTimerRef.current);
+								a.pulseUnlinkHoldTimerRef.current = null;
+							}
+							try {
+								const el = e.currentTarget as HTMLButtonElement;
+								if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+							} catch {
+								/* */
+							}
+						}}
+						onPointerLeave={(e) => {
+							const a = actionsRef.current;
+							if (!a) return;
+							const el = e.currentTarget as HTMLButtonElement;
+							if (typeof el.hasPointerCapture === 'function' && el.hasPointerCapture(e.pointerId)) return;
+							if (a.pulseUnlinkHoldTimerRef.current) {
+								clearTimeout(a.pulseUnlinkHoldTimerRef.current);
+								a.pulseUnlinkHoldTimerRef.current = null;
+							}
+						}}
+						onPointerCancel={(e) => {
+							const a = actionsRef.current;
+							if (!a) return;
+							if (a.pulseUnlinkHoldTimerRef.current) {
+								clearTimeout(a.pulseUnlinkHoldTimerRef.current);
+								a.pulseUnlinkHoldTimerRef.current = null;
+							}
+							try {
+								const el = e.currentTarget as HTMLButtonElement;
+								if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+							} catch {
+								/* */
+							}
+						}}
+						onClick={() => {
+							const a = actionsRef.current;
+							if (!a || a.isHoldingRef.current) return;
+							a.setCustomSyllables((prev) => {
+								const current = prev[rIdx] !== undefined ? prev[rIdx] : a.syllables;
+								const next = current >= 9 ? 1 : current + 1;
+								return { ...prev, [rIdx]: next };
+							});
+						}}
+						onContextMenu={(e) => {
+							e.preventDefault();
+							const a = actionsRef.current;
+							if (!a) return;
+							a.setCustomSyllables((prev) => {
+								const copy = { ...prev };
+								delete copy[rIdx];
+								return copy;
+							});
+							a.setPulseMeterUnlinked((prev) => {
+								const copy = { ...prev };
+								delete copy[rIdx];
+								return copy;
+							});
+						}}
+						title="Tap: +1 syllable in bar. Hold: unlink bar length from pulse (timing uses 4 base). Right-click: reset bar to global syllables."
+						className={`flex-1 rounded-md border flex items-center justify-center text-[10px] font-extrabold shadow-[inset_0_1px_3px_rgba(0,0,0,0.1)] min-h-[50%] transition-colors bg-[#1e2a45] border-[#2f4066] text-slate-400 hover:bg-[#253353] active:bg-[#1a253c] ${
+							activeEditRow === rIdx
+								? 'ring-2 ring-purple-500 shadow-purple-500/30'
+								: pulseUnlinkedRow
+									? 'ring-1 ring-emerald-400/90 border-emerald-500/45 shadow-[0_0_14px_rgba(16,185,129,0.28)]'
+									: ''
+						}`}
+					>
+						{rowSylls}
+					</button>
+				</div>
+				<div className="flex flex-1 gap-1 items-stretch min-w-0">
+					{Array.from({ length: rowSylls }).map((_, cIdx) => {
+						const checkKey = `${rIdx}-${cIdx}`;
+						const isAccent = accentBits[cIdx] === '1';
+						const isActive = highlightCol === cIdx;
+						const subdivs = rowSubdivs[cIdx] ?? 1;
+						let cellClasses = 'bg-[#1e2a45] border-[#2f4066] shadow-[0_2px_4px_rgba(0,0,0,0.2)] hover:bg-[#253353]';
+						if (isAccent)
+							cellClasses =
+								'bg-purple-900/40 border-purple-500/50 shadow-[inset_0_1px_4px_rgba(168,85,247,0.2)] hover:bg-purple-900/50 text-purple-100';
+						if (isActive)
+							cellClasses =
+								'bg-emerald-500/20 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)] z-10 scale-[1.03] text-emerald-100';
+						return (
+							<button
+								type="button"
+								key={cIdx}
+								onPointerDown={() => {
+									const a = actionsRef.current;
+									if (!a) return;
+									a.isHoldingRef.current = false;
+									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
+									a.holdTimerRef.current = window.setTimeout(() => {
+										a.isHoldingRef.current = true;
+										a.setCustomSubdivisions((prev) => {
+											const current = prev[checkKey] || 1;
+											const next = nextSubdivLongPress(
+												current,
+												a.isPanelExpandedRef.current && !a.showRandomSettingsRef.current,
+											);
+											return { ...prev, [checkKey]: next };
+										});
+										if (a.isPanelExpandedRef.current && !a.showRandomSettingsRef.current) {
+											a.setActiveEditRow(null);
+											a.setActiveEditCell(checkKey);
+											a.setIsPanelExpanded(true);
+										}
+									}, 400);
+								}}
+								onPointerUp={() => {
+									const a = actionsRef.current;
+									if (!a) return;
+									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
+								}}
+								onPointerLeave={() => {
+									const a = actionsRef.current;
+									if (!a) return;
+									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
+								}}
+								onClick={() => {
+									const a = actionsRef.current;
+									if (!a || a.isHoldingRef.current) return;
+									a.toggleAccent(rIdx, cIdx);
+								}}
+								className={`flex-1 flex flex-col items-center justify-center border min-w-0 transition-all duration-75 ${
+									rowSylls > 7 ? 'rounded-md' : 'rounded-xl'
+								} ${cellClasses} ${activeEditCell === checkKey ? 'ring-2 ring-purple-500 z-20 shadow-purple-500/30' : ''}`}
+							>
+								<div
+									className={`w-full h-full rounded-[inherit] overflow-hidden ${
+										subdivs === 1
+											? 'flex items-center justify-center'
+											: subdivs === 2
+												? 'grid grid-cols-1 grid-rows-2'
+												: subdivs === 3
+													? 'grid grid-cols-1 grid-rows-3'
+													: subdivs === 4
+														? 'grid grid-cols-2 grid-rows-2'
+														: subdivs <= 6
+															? 'grid grid-cols-2 grid-rows-3'
+															: 'grid grid-cols-3 grid-rows-3'
+									}`}
+								>
+									{Array.from({ length: subdivs }).map((_, i) => (
+										<span
+											key={i}
+											className={`flex items-center justify-center w-full h-full min-w-0 overflow-hidden text-center px-px font-sans ${getSyllableStyles(rowSylls, subdivs)} ${
+												isActive || isAccent ? 'drop-shadow-md' : 'text-slate-300'
+											} ${subdivs > 1 ? 'border-[0.5px] border-[#2f4066]/50' : ''}`}
+										>
+											{rowCellLabels[cIdx]?.[i] ?? 'Ta'}
+										</span>
+									))}
+								</div>
+							</button>
+						);
+					})}
+				</div>
+			</div>
+		);
+	},
+	sequencerGridRowPropsEqual,
+);
+
 export default function App() {
   const initialBoot = useMemo(() => loadSnapshotStorage(), []);
   const seed = initialBoot.snapshots[initialBoot.activeSnapshot];
@@ -547,8 +934,8 @@ export default function App() {
   );
 
   // Metronome Sound Toggles
-  const [onlyAccents, setOnlyAccents] = useState(false);
-  const [firstBeatAccent, setFirstBeatAccent] = useState(true);
+  const [onlyAccents, setOnlyAccents] = useState(() => seed.onlyAccents === true);
+  const [firstBeatAccent, setFirstBeatAccent] = useState(() => seed.firstBeatAccent !== false);
 
   // Randomizer States
   const [randomModeEnabled, setRandomModeEnabled] = useState(seed.randomModeEnabled);
@@ -584,6 +971,10 @@ export default function App() {
         customSubdivisions: { ...s.customSubdivisions },
         panelExpanded: s.panelExpanded === true,
         pulseMeterUnlinked: { ...(s.pulseMeterUnlinked || {}) },
+        frozenScale: typeof s.frozenScale === 'number' && s.frozenScale >= 1 ? s.frozenScale : null,
+        onlyAccents: s.onlyAccents === true,
+        firstBeatAccent: s.firstBeatAccent !== false,
+        syllableReadMuteLatched: s.syllableReadMuteLatched === true,
       };
     }
     return out;
@@ -620,7 +1011,9 @@ export default function App() {
 
   const [activeEditCell, setActiveEditCell] = useState<string | null>(null);
   const [activeEditRow, setActiveEditRow] = useState<number | null>(null);
-  const [frozenScale, setFrozenScale] = useState<number | null>(null);
+  const [frozenScale, setFrozenScale] = useState<number | null>(() =>
+    typeof seed.frozenScale === 'number' && seed.frozenScale >= 1 ? seed.frozenScale : null,
+  );
   const [isPanelExpanded, setIsPanelExpanded] = useState(() => seed.panelExpanded === true);
   const isPanelExpandedRef = useRef(seed.panelExpanded === true);
   isPanelExpandedRef.current = isPanelExpanded;
@@ -641,7 +1034,11 @@ export default function App() {
   const squareHoldTimerRef = useRef<number | null>(null);
   const syllableReadMuteRef = useRef(false);
   const squareHoldAteClickRef = useRef(false);
-  const [syllableReadMuteLatched, setSyllableReadMuteLatched] = useState(false);
+  const [syllableReadMuteLatched, setSyllableReadMuteLatched] = useState(
+    () => seed.syllableReadMuteLatched === true,
+  );
+  const syllableReadMuteLatchedRef = useRef(syllableReadMuteLatched);
+  syllableReadMuteLatchedRef.current = syllableReadMuteLatched;
   const tapTimesRef = useRef<number[]>([]);
 
   const handleTap = () => {
@@ -720,6 +1117,9 @@ export default function App() {
   const lastScrolledPageRef = useRef<number>(-1);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const timerIDRef = useRef<number | null>(null);
+  const playheadQueueRef = useRef<PlayheadHighlightEvent[]>([]);
+  const playheadTimerRef = useRef<number | null>(null);
+  const sequencerGridRowActionsRef = useRef<SequencerGridRowActions | null>(null);
   const nextNoteTimeRef = useRef(0);
   const currentStepRef = useRef(0);
   const isPlayingRef = useRef(false);
@@ -781,6 +1181,10 @@ export default function App() {
     clickSound: clickSoundRef.current,
     panelExpanded: isPanelExpandedRef.current,
     pulseMeterUnlinked: { ...pulseMeterUnlinkedRef.current },
+    frozenScale: frozenScaleRef.current,
+    onlyAccents: onlyAccentsRef.current,
+    firstBeatAccent: firstBeatAccentRef.current,
+    syllableReadMuteLatched: syllableReadMuteLatchedRef.current,
   });
 
   const getSnapshotPayloadForSlotExport = (slot: number): ReturnType<typeof createEmptySnapshot> => {
@@ -813,6 +1217,10 @@ export default function App() {
       clickSound: raw.clickSound,
       panelExpanded: raw.panelExpanded,
       pulseMeterUnlinked: raw.pulseMeterUnlinked,
+      frozenScale: raw.frozenScale,
+      onlyAccents: raw.onlyAccents,
+      firstBeatAccent: raw.firstBeatAccent,
+      syllableReadMuteLatched: raw.syllableReadMuteLatched,
     });
   };
 
@@ -865,10 +1273,14 @@ export default function App() {
         randomPattern,
         randomSpeed,
         randomBarSpeed,
-        chaosLevel,
+        chaosLevel: chaosLevelRef.current,
         clickSound,
         panelExpanded: isPanelExpanded,
         pulseMeterUnlinked: { ...pulseMeterUnlinked },
+        frozenScale,
+        onlyAccents,
+        firstBeatAccent,
+        syllableReadMuteLatched,
       },
     }));
   }, [
@@ -886,9 +1298,12 @@ export default function App() {
     randomPattern,
     randomSpeed,
     randomBarSpeed,
-    chaosLevel,
     clickSound,
     isPanelExpanded,
+    frozenScale,
+    onlyAccents,
+    firstBeatAccent,
+    syllableReadMuteLatched,
   ]);
 
   useEffect(() => {
@@ -900,7 +1315,10 @@ export default function App() {
       try {
         const out: Record<string, ReturnType<typeof snapshotToJSON>> = {};
         for (let i = 1; i <= SNAPSHOT_SLOT_COUNT; i++) {
-          const s = snapshots[i];
+          let s = snapshots[i];
+          if (i === activeSnapshot && s) {
+            s = { ...s, chaosLevel: chaosLevelRef.current };
+          }
           if (s) out[String(i)] = snapshotToJSON(s);
         }
         localStorage.setItem(
@@ -917,7 +1335,7 @@ export default function App() {
         persistSnapshotsTimerRef.current = null;
       }
     };
-  }, [snapshots, activeSnapshot]);
+  }, [snapshots, activeSnapshot, chaosLevel]);
 
   const applySnapshotDataToUi = (
     snap: ReturnType<typeof createEmptySnapshot>,
@@ -960,12 +1378,20 @@ export default function App() {
     );
     setClickSound(snap.clickSound === 'oldschool' ? 'oldschool' : 'modern');
     setPulseMeterUnlinked(normalizePulseMeterUnlinked(snap.pulseMeterUnlinked));
+    setOnlyAccents(snap.onlyAccents === true);
+    setFirstBeatAccent(snap.firstBeatAccent !== false);
+    setSyllableReadMuteLatched(snap.syllableReadMuteLatched === true);
+    syllableReadMuteRef.current = false;
+    setFrozenScale(
+      typeof snap.frozenScale === 'number' && snap.frozenScale >= 1 ? snap.frozenScale : null,
+    );
     if (!options?.preservePanel) {
       setIsPanelExpanded(snap.panelExpanded === true);
     }
   };
 
   const loadSnapshot = (id: number) => {
+    flushChaosToActiveSnapshot();
     setActiveSnapshot(id);
     const snap = snapshots[id] ?? createEmptySnapshot();
     applySnapshotDataToUi(snap, { preservePanel: true });
@@ -981,6 +1407,10 @@ export default function App() {
     customSubdivisions: { ...s.customSubdivisions },
     panelExpanded: s.panelExpanded === true,
     pulseMeterUnlinked: { ...(s.pulseMeterUnlinked || {}) },
+    frozenScale: typeof s.frozenScale === 'number' && s.frozenScale >= 1 ? s.frozenScale : null,
+    onlyAccents: s.onlyAccents === true,
+    firstBeatAccent: s.firstBeatAccent !== false,
+    syllableReadMuteLatched: s.syllableReadMuteLatched === true,
   });
 
   const closeSnapshotClipMenu = () => setSnapshotClipMenu(null);
@@ -1016,6 +1446,7 @@ export default function App() {
     }
     try {
       const stored = normalizeSnapshotForStorage(parsed);
+      flushChaosToActiveSnapshot();
       setActiveSnapshot(slot);
       applySnapshotDataToUi(stored, { preservePanel: true });
       showClipboardToast('Preset applied!');
@@ -1062,6 +1493,19 @@ export default function App() {
   
   // Create a scroll stride that overlaps by 1 row
   const scrollStride = Math.max(1, displayScaleBars - 1);
+
+  const rowCellLabelsCache = useMemo(() => {
+    const arr: string[][][] = [];
+    for (let r = 0; r < bars; r++) {
+      const rowSylls = customSyllables[r] !== undefined ? customSyllables[r] : syllables;
+      arr[r] = buildRowCellSyllableLabels(rowSylls, customSubdivisions, r);
+    }
+    return arr;
+  }, [bars, syllables, customSyllables, customSubdivisions]);
+
+  const setRowElStable = useCallback((absR: number, el: HTMLDivElement | null) => {
+    rowRefs.current[absR] = el;
+  }, []);
 
   // Auto-scroll during playback only when the grid uses a virtual strip (many bars / frozen scale).
   useEffect(() => {
@@ -1113,19 +1557,63 @@ export default function App() {
       }
       syllableReadMuteRef.current = false;
       setSyllableReadMuteLatched(false);
+      if (playheadTimerRef.current !== null) {
+        window.clearTimeout(playheadTimerRef.current);
+        playheadTimerRef.current = null;
+      }
+      playheadQueueRef.current = [];
       if (audioCtxRef.current) audioCtxRef.current.close().catch(() => {});
     };
   }, []);
 
-  const toggleAccent = (r: number, c: number) => {
-    setAccents(prev => {
+  const flushChaosToActiveSnapshot = () => {
+    const slot = activeSnapshotRef.current;
+    const chaos = chaosLevelRef.current;
+    setSnapshots((prev) => {
+      const cur = prev[slot];
+      if (!cur || cur.chaosLevel === chaos) return prev;
+      return { ...prev, [slot]: { ...cur, chaosLevel: chaos } };
+    });
+  };
+
+  const clearPlayheadScheduling = () => {
+    if (playheadTimerRef.current !== null) {
+      window.clearTimeout(playheadTimerRef.current);
+      playheadTimerRef.current = null;
+    }
+    playheadQueueRef.current = [];
+  };
+
+  function schedulePlayheadWake() {
+    if (playheadTimerRef.current !== null) {
+      window.clearTimeout(playheadTimerRef.current);
+      playheadTimerRef.current = null;
+    }
+    if (!isPlayingRef.current || !audioCtxRef.current) return;
+    const ctx = audioCtxRef.current;
+    const q = playheadQueueRef.current;
+    let lastPos: { r: number; c: number; absR: number } | null = null;
+    while (q.length > 0 && q[0].t <= ctx.currentTime) {
+      lastPos = q.shift()!.pos;
+    }
+    if (lastPos !== null) setActivePos(lastPos);
+    if (q.length === 0) return;
+    const delayMs = Math.max(0, (q[0].t - ctx.currentTime) * 1000);
+    playheadTimerRef.current = window.setTimeout(() => {
+      playheadTimerRef.current = null;
+      schedulePlayheadWake();
+    }, delayMs);
+  }
+
+  const toggleAccent = useCallback((r: number, c: number) => {
+    setAccents((prev) => {
       const next = new Set(prev);
       const key = `${r}-${c}`;
       if (next.has(key)) next.delete(key);
       else next.add(key);
       return next;
     });
-  };
+  }, []);
 
   const nextNote = () => {
     try {
@@ -1213,10 +1701,12 @@ export default function App() {
             currentSeqItem = sequenceRef.current[currentStepRef.current];
 
             setTimeout(() => {
-              if (randomPulsationRef.current) setCustomSyllables({...customSyllablesRef.current});
-              if (randomPatternRef.current) setAccents(new Set(accentsRef.current));
-              if (randomSpeedRef.current) setCustomSubdivisions({...customSubdivisionsRef.current});
-              if (randomBarSpeedRef.current) setCustomMultipliers({...customMultipliersRef.current});
+              startTransition(() => {
+                if (randomPulsationRef.current) setCustomSyllables({ ...customSyllablesRef.current });
+                if (randomPatternRef.current) setAccents(new Set(accentsRef.current));
+                if (randomSpeedRef.current) setCustomSubdivisions({ ...customSubdivisionsRef.current });
+                if (randomBarSpeedRef.current) setCustomMultipliers({ ...customMultipliersRef.current });
+              });
             }, 0);
           }
         }
@@ -1314,12 +1804,11 @@ export default function App() {
       }
     }
 
-    const delay = Math.max(0, (time - audioCtxRef.current.currentTime) * 1000);
-    setTimeout(() => {
-      if (isPlayingRef.current) {
-        setActivePos({ r: rIdx, c: cIdx, absR });
-      }
-    }, delay);
+    insertPlayheadSorted(playheadQueueRef.current, {
+      t: time,
+      pos: { r: rIdx, c: cIdx, absR },
+    });
+    schedulePlayheadWake();
   };
 
   const scheduler = () => {
@@ -1335,6 +1824,7 @@ export default function App() {
     if (isPlaying) {
       setIsPlaying(false);
       isPlayingRef.current = false;
+      clearPlayheadScheduling();
       setActivePos({ r: -1, c: -1, absR: -1 });
       currentStepRef.current = 0; // Reset pattern position to start
       if (timerIDRef.current) clearTimeout(timerIDRef.current);
@@ -1348,6 +1838,7 @@ export default function App() {
     } else {
       setIsPlaying(true);
       isPlayingRef.current = true;
+      clearPlayheadScheduling();
       coldStartRef.current = true; // Mark cold start
       
       const startSeqItem = sequenceRef.current[currentStepRef.current];
@@ -1369,22 +1860,22 @@ export default function App() {
     }
   };
 
-  // Dynamic text sizing based on grid density to keep text readable
-  const getSyllableStyles = (rowSylls: number, cellSubdivs: number = 1) => {
-    let pseudoSylls = rowSylls;
-    if (cellSubdivs === 2) pseudoSylls = rowSylls * 1.5;
-    else if (cellSubdivs === 3) pseudoSylls = rowSylls * 2;
-    else if (cellSubdivs === 4) pseudoSylls = rowSylls * 2;
-    else if (cellSubdivs >= 5 && cellSubdivs <= 6) pseudoSylls = rowSylls * 2.5;
-    else if (cellSubdivs >= 7) pseudoSylls = rowSylls * 3;
-
-    if (pseudoSylls >= 20) return 'text-[6px] font-black tracking-tighter leading-none';
-    if (pseudoSylls >= 14) return 'text-[7px] font-black tracking-tighter leading-none';
-    if (pseudoSylls >= 12) return 'text-[8px] font-black tracking-tighter leading-none';
-    if (pseudoSylls >= 9) return 'text-[9px] font-extrabold tracking-tight leading-none';
-    if (pseudoSylls >= 7) return 'text-[10px] font-bold tracking-tight leading-none';
-    if (pseudoSylls >= 5) return 'text-[11px] font-bold tracking-normal leading-none';
-    return 'text-sm font-bold tracking-wide leading-none';
+  sequencerGridRowActionsRef.current = {
+    isHoldingRef,
+    holdTimerRef,
+    pulseUnlinkHoldTimerRef,
+    isPanelExpandedRef,
+    showRandomSettingsRef,
+    syllables,
+    setActiveEditRow,
+    setActiveEditCell,
+    setIsPanelExpanded,
+    setCustomMultipliers,
+    setPulseMeterUnlinked,
+    setCustomSyllables,
+    setCustomSubdivisions,
+    toggleAccent,
+    pulseMeterUnlinkedRef,
   };
 
   return (
@@ -1549,6 +2040,9 @@ export default function App() {
                       max={100}
                       value={chaosLevel}
                       onChange={(e) => setChaosLevel(parseInt(e.target.value, 10))}
+                      onPointerUp={() => flushChaosToActiveSnapshot()}
+                      onPointerCancel={() => flushChaosToActiveSnapshot()}
+                      onBlur={() => flushChaosToActiveSnapshot()}
                       className="w-full h-2 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110"
                     />
                   </div>
@@ -1841,222 +2335,48 @@ export default function App() {
           }).map((_, absR) => {
             const rIdx = absR % bars;
             const rowSylls = customSyllables[rIdx] !== undefined ? customSyllables[rIdx] : syllables;
-            const rowCellLabels = buildRowCellSyllableLabels(rowSylls, customSubdivisions, rIdx);
+            const rowCellLabels = rowCellLabelsCache[rIdx] ?? [];
             const rowMult = customMultipliers[rIdx] || 1;
             const effectiveUseFixedFlex =
               useFixedFlex || (isPlaying && !allBarsFitViewport);
-            
+            const subdivSig = Array.from({ length: rowSylls }, (_, c) =>
+              String(customSubdivisions[`${rIdx}-${c}`] ?? 1),
+            ).join(',');
+            const accentSig = Array.from({ length: rowSylls }, (_, c) =>
+              accents.has(`${rIdx}-${c}`) ? '1' : '0',
+            ).join('');
+            const pulseUnlinkedRow = Boolean(pulseMeterUnlinked[rIdx]);
+            const highlightCol = isPlaying
+              ? activePos.absR === absR
+                ? activePos.c
+                : null
+              : activePos.r === rIdx
+                ? activePos.c
+                : null;
+
             return (
-            <div 
-              key={absR} 
-              ref={el => { rowRefs.current[absR] = el; }}
-              className={`flex items-stretch bg-[#161f33] border border-[#23314f] min-h-0 relative ${
-                displayScaleBars > 7 ? 'gap-1 p-1 rounded-lg' : 'gap-2 p-1.5 rounded-xl'
-              } ${!effectiveUseFixedFlex ? 'flex-1' : ''}`}
-              style={{
-                flex: effectiveUseFixedFlex ? `0 0 calc((100% - ${(displayScaleBars - 1) * 6}px) / ${displayScaleBars})` : undefined
-              }}
-            >
-              {/* Left Control Column */}
-              <div className="flex flex-col gap-1 justify-center w-8 shrink-0">
-                <button 
-                  onClick={() => {
-                    setCustomMultipliers(prev => {
-                      const m = prev[rIdx] || 1;
-                      const next = m === 1 ? 2 : m === 2 ? 3 : m === 3 ? 4 : 1;
-                      if (next === 1) {
-                        const copy = { ...prev };
-                        delete copy[rIdx];
-                        return copy;
-                      }
-                      return { ...prev, [rIdx]: next };
-                    });
-                  }}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setCustomMultipliers(prev => {
-                      const copy = { ...prev };
-                      delete copy[rIdx];
-                      return copy;
-                    });
-                  }}
-                  className={`relative flex-1 rounded-md border flex items-center justify-center text-[9px] font-bold min-h-[50%] transition-colors ${
-                    rowMult === 1 
-                      ? 'bg-[#1e2a45] border-[#2f4066] text-slate-300 hover:bg-[#253353] active:bg-[#1a253c]'
-                      : rowMult === 2
-                        ? 'bg-blue-900/40 border-blue-500/50 text-blue-300 shadow-[inset_0_1px_3px_rgba(59,130,246,0.1)]'
-                        : rowMult === 3
-                          ? 'bg-rose-900/40 border-rose-500/50 text-rose-300 shadow-[inset_0_1px_3px_rgba(244,63,94,0.1)]'
-                          : 'bg-amber-900/40 border-amber-500/50 text-amber-200 shadow-[inset_0_1px_3px_rgba(245,158,11,0.12)]'
-                  }`}
-                >
-                  <span className="absolute top-[2px] left-[3px] text-[7.5px] text-slate-500 font-mono pointer-events-none leading-none opacity-80">{rIdx + 1}</span>
-                  x{rowMult}
-                </button>
-                <button 
-                  onPointerDown={(e) => {
-                    isHoldingRef.current = false;
-                    if (pulseUnlinkHoldTimerRef.current) clearTimeout(pulseUnlinkHoldTimerRef.current);
-                    try {
-                      (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
-                    } catch {
-                      /* duplicate capture etc. */
-                    }
-                    pulseUnlinkHoldTimerRef.current = window.setTimeout(() => {
-                      isHoldingRef.current = true;
-                      setActiveEditCell(null);
-                      setActiveEditRow(null);
-                      setPulseMeterUnlinked((prev) => {
-                        const nextVal = !prev[rIdx];
-                        const next = { ...prev, [rIdx]: nextVal };
-                        pulseMeterUnlinkedRef.current = { ...next };
-                        return next;
-                      });
-                    }, 400);
-                  }}
-                  onPointerUp={(e) => {
-                    if (pulseUnlinkHoldTimerRef.current) {
-                      clearTimeout(pulseUnlinkHoldTimerRef.current);
-                      pulseUnlinkHoldTimerRef.current = null;
-                    }
-                    try {
-                      const el = e.currentTarget as HTMLButtonElement;
-                      if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
-                    } catch {
-                      /* */
-                    }
-                  }}
-                  onPointerLeave={(e) => {
-                    const el = e.currentTarget as HTMLButtonElement;
-                    if (typeof el.hasPointerCapture === 'function' && el.hasPointerCapture(e.pointerId)) return;
-                    if (pulseUnlinkHoldTimerRef.current) {
-                      clearTimeout(pulseUnlinkHoldTimerRef.current);
-                      pulseUnlinkHoldTimerRef.current = null;
-                    }
-                  }}
-                  onPointerCancel={(e) => {
-                    if (pulseUnlinkHoldTimerRef.current) {
-                      clearTimeout(pulseUnlinkHoldTimerRef.current);
-                      pulseUnlinkHoldTimerRef.current = null;
-                    }
-                    try {
-                      const el = e.currentTarget as HTMLButtonElement;
-                      if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
-                    } catch {
-                      /* */
-                    }
-                  }}
-                  onClick={() => {
-                    if (isHoldingRef.current) return;
-                    setCustomSyllables(prev => {
-                      const current = prev[rIdx] !== undefined ? prev[rIdx] : syllables;
-                      const next = current >= 9 ? 1 : current + 1;
-                      return { ...prev, [rIdx]: next };
-                    });
-                  }}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setCustomSyllables((prev) => {
-                      const copy = { ...prev };
-                      delete copy[rIdx];
-                      return copy;
-                    });
-                    setPulseMeterUnlinked((prev) => {
-                      const copy = { ...prev };
-                      delete copy[rIdx];
-                      return copy;
-                    });
-                  }}
-                  title="Tap: +1 syllable in bar. Hold: unlink bar length from pulse (timing uses 4 base). Right-click: reset bar to global syllables."
-                  className={`flex-1 rounded-md border flex items-center justify-center text-[10px] font-extrabold shadow-[inset_0_1px_3px_rgba(0,0,0,0.1)] min-h-[50%] transition-colors bg-[#1e2a45] border-[#2f4066] text-slate-400 hover:bg-[#253353] active:bg-[#1a253c] ${
-                    activeEditRow === rIdx
-                      ? 'ring-2 ring-purple-500 shadow-purple-500/30'
-                      : pulseMeterUnlinked[rIdx]
-                        ? 'ring-1 ring-emerald-400/90 border-emerald-500/45 shadow-[0_0_14px_rgba(16,185,129,0.28)]'
-                        : ''
-                  }`}
-                >
-                  {rowSylls}
-                </button>
-              </div>
-
-              {/* Syllables ROW (Sebellions) */}
-              <div className="flex flex-1 gap-1 items-stretch min-w-0">
-                {Array.from({ length: rowSylls }).map((_, cIdx) => {
-                  const checkKey = `${rIdx}-${cIdx}`;
-                  const isAccent = accents.has(checkKey);
-                  const isActive = isPlaying 
-                      ? activePos.absR === absR && activePos.c === cIdx
-                      : activePos.r === rIdx && activePos.c === cIdx;
-                      
-                  const subdivs = customSubdivisions[checkKey] || 1;
-                  
-                  let cellClasses = 'bg-[#1e2a45] border-[#2f4066] shadow-[0_2px_4px_rgba(0,0,0,0.2)] hover:bg-[#253353]';
-                  if (isAccent) cellClasses = 'bg-purple-900/40 border-purple-500/50 shadow-[inset_0_1px_4px_rgba(168,85,247,0.2)] hover:bg-purple-900/50 text-purple-100';
-                  if (isActive) cellClasses = 'bg-emerald-500/20 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)] z-10 scale-[1.03] text-emerald-100';
-
-                  return (
-                    <button 
-                      key={cIdx} 
-                      onPointerDown={(e) => {
-                        isHoldingRef.current = false;
-                        if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
-                        holdTimerRef.current = window.setTimeout(() => {
-                          isHoldingRef.current = true;
-                          setCustomSubdivisions((prev) => {
-                            const current = prev[checkKey] || 1;
-                            const next = nextSubdivLongPress(
-                              current,
-                              isPanelExpandedRef.current && !showRandomSettingsRef.current,
-                            );
-                            return { ...prev, [checkKey]: next };
-                          });
-                          if (isPanelExpandedRef.current && !showRandomSettingsRef.current) {
-                            setActiveEditRow(null);
-                            setActiveEditCell(checkKey);
-                            setIsPanelExpanded(true);
-                          }
-                        }, 400);
-                      }}
-                      onPointerUp={() => {
-                        if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
-                      }}
-                      onPointerLeave={() => {
-                        if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
-                      }}
-                      onClick={() => {
-                        if (isHoldingRef.current) return;
-                        toggleAccent(rIdx, cIdx);
-                      }}
-                      className={`flex-1 flex flex-col items-center justify-center border min-w-0 transition-all duration-75 ${
-                        rowSylls > 7 ? 'rounded-md' : 'rounded-xl'
-                      } ${cellClasses} ${activeEditCell === checkKey ? 'ring-2 ring-purple-500 z-20 shadow-purple-500/30' : ''}`}
-                    >
-                      <div className={`w-full h-full rounded-[inherit] overflow-hidden ${
-                        subdivs === 1 ? 'flex items-center justify-center' :
-                        subdivs === 2 ? 'grid grid-cols-1 grid-rows-2' :
-                        subdivs === 3 ? 'grid grid-cols-1 grid-rows-3' :
-                        subdivs === 4 ? 'grid grid-cols-2 grid-rows-2' :
-                        subdivs <= 6 ? 'grid grid-cols-2 grid-rows-3' :
-                        'grid grid-cols-3 grid-rows-3'
-                      }`}>
-                        {Array.from({length: subdivs}).map((_, i) => (
-                          <span 
-                            key={i}
-                            className={`flex items-center justify-center w-full h-full min-w-0 overflow-hidden text-center px-px font-sans ${getSyllableStyles(rowSylls, subdivs)} ${
-                              (isActive || isAccent) ? 'drop-shadow-md' : 'text-slate-300'
-                            } ${subdivs > 1 ? 'border-[0.5px] border-[#2f4066]/50' : ''}`}
-                          >
-                            {rowCellLabels[cIdx]?.[i] ?? 'Ta'}
-                          </span>
-                        ))}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )})}
+              <SequencerGridRow
+                key={absR}
+                absR={absR}
+                rIdx={rIdx}
+                rowSylls={rowSylls}
+                rowMult={rowMult}
+                subdivSig={subdivSig}
+                accentSig={accentSig}
+                pulseUnlinkedRow={pulseUnlinkedRow}
+                activeEditRow={activeEditRow}
+                activeEditCell={activeEditCell}
+                highlightCol={highlightCol}
+                isPlaying={isPlaying}
+                rowCellLabels={rowCellLabels}
+                effectiveUseFixedFlex={effectiveUseFixedFlex}
+                displayScaleBars={displayScaleBars}
+                syllables={syllables}
+                actionsRef={sequencerGridRowActionsRef}
+                setRowEl={setRowElStable}
+              />
+            );
+          })}
         </div>
 
         {/* Bottom Actions */}
