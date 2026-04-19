@@ -291,12 +291,13 @@ function createEmptySnapshot() {
 		customSyllables: {} as Record<number, number>,
 		customMultipliers: {} as Record<number, number>,
 		customSubdivisions: {} as Record<string, number>,
-		randomModeEnabled: false,
-		randomPulsation: false,
+		/** Дефолт рандомайзера: режим вкл., pulsation + cell speed + accents (pattern), chaos 15. */
+		randomModeEnabled: true,
+		randomPulsation: true,
 		randomPattern: true,
-		randomSpeed: false,
+		randomSpeed: true,
 		randomBarSpeed: false,
-		chaosLevel: 0,
+		chaosLevel: 15,
 		clickSound: 'modern' as 'modern' | 'oldschool',
 		/** Верхняя панель: темп + слайдеры (Chevron) развёрнута. */
 		panelExpanded: false,
