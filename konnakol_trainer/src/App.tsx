@@ -1080,10 +1080,9 @@ export default function App() {
 
         {/* Global Settings (Tempo & Row Selectors) */}
         <div className="relative bg-[#161f33] rounded-2xl border border-[#23314f] flex flex-col shrink-0 mb-3">
-          <div className={`grid transition-all duration-300 ${isPanelExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
-            <div className={`overflow-hidden flex flex-col transition-all duration-300 ${isPanelExpanded ? 'px-2.5 py-4 gap-5' : 'px-2.5 py-0 gap-0'}`}>
-              
-              {showRandomSettings ? (
+          {showRandomSettings ? (
+            <div className={`grid transition-all duration-300 ${isPanelExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+              <div className={`overflow-hidden flex flex-col transition-all duration-300 ${isPanelExpanded ? 'px-2.5 py-4 gap-5' : 'px-2.5 py-0 gap-0'}`}>
                 <div className="flex flex-col gap-4 px-1 pb-1">
                   <div className="flex justify-between items-center text-slate-300 font-bold text-[11px] uppercase tracking-wider">
                     <span className="flex items-center gap-2 drop-shadow-[0_0_8px_rgba(59,130,246,0.5)] text-blue-300">
@@ -1176,74 +1175,80 @@ export default function App() {
                     </div>
                   </div>
                 </div>
-              ) : (
-                <div className="flex flex-col gap-2 relative h-[74px] justify-between pb-1">
-                  {/* Tempo Controls */}
-                  <div className="flex items-center gap-2">
-                    <button 
-                      onClick={() => setTempo(t => Math.max(20, t - 1))}
-                      className="p-2 bg-[#23314f] rounded-lg text-slate-300 hover:bg-[#2c3d63] active:bg-[#1b253b] transition-colors shrink-0"
-                    >
-                      <Minus size={18} strokeWidth={2.5}/>
-                    </button>
-                    <div 
-                      className="flex-1 relative flex items-center h-8 cursor-pointer touch-none"
-                      onPointerDown={(e) => {
-                        const el = e.currentTarget;
-                        el.setPointerCapture(e.pointerId);
-                        const rect = el.getBoundingClientRect();
-                        const updateTempo = (clientX: number) => {
-                          const thumbHalf = 24; // w-12 / 2
-                          const activeWidth = rect.width - (thumbHalf * 2);
-                          const x = Math.max(0, Math.min(activeWidth, clientX - rect.left - thumbHalf));
-                          const percent = x / Math.max(1, activeWidth);
-                          setTempo(Math.round(20 + percent * 380));
-                        };
-                        updateTempo(e.clientX);
-                        
-                        const onMove = (moveEvt: PointerEvent) => {
-                          updateTempo(moveEvt.clientX);
-                        };
-                        const onUp = () => {
-                          el.removeEventListener('pointermove', onMove);
-                          el.removeEventListener('pointerup', onUp);
-                          el.releasePointerCapture(e.pointerId);
-                        };
-                        
-                        el.addEventListener('pointermove', onMove);
-                        el.addEventListener('pointerup', onUp);
-                      }}
-                    >
-                      {/* Slider track */}
-                      <div className="absolute w-full h-1.5 bg-[#0b101e] rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-[#364976]" 
-                          style={{ width: `calc(24px + ${((tempo - 20) / 380)} * calc(100% - 48px))` }}
-                        ></div>
-                      </div>
-                      <div 
-                        className="absolute z-10 bg-[#23314f] border border-[#2f4066] px-3 w-12 text-center py-1 rounded-full text-sm font-bold shadow-md -translate-x-1/2 flex items-center justify-center select-none"
-                        style={{ left: `calc(24px + ${((tempo - 20) / 380)} * calc(100% - 48px))` }}
-                      >
-                        {tempo}
-                      </div>
-                    </div>
-                    <button 
-                      onClick={() => setTempo(t => Math.min(400, t + 1))}
-                      className="p-2 bg-[#23314f] rounded-lg text-slate-300 hover:bg-[#2c3d63] active:bg-[#1b253b] transition-colors shrink-0"
-                    >
-                      <Plus size={18} strokeWidth={2.5}/>
-                    </button>
-                  </div>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="px-2.5 pt-3 pb-1">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setTempo(t => Math.max(20, t - 1))}
+                    className="p-2 bg-[#23314f] rounded-lg text-slate-300 hover:bg-[#2c3d63] active:bg-[#1b253b] transition-colors shrink-0"
+                  >
+                    <Minus size={18} strokeWidth={2.5} />
+                  </button>
+                  <div
+                    className="flex-1 relative flex items-center h-8 cursor-pointer touch-none"
+                    onPointerDown={(e) => {
+                      const el = e.currentTarget;
+                      el.setPointerCapture(e.pointerId);
+                      const rect = el.getBoundingClientRect();
+                      const updateTempo = (clientX: number) => {
+                        const thumbHalf = 24;
+                        const activeWidth = rect.width - thumbHalf * 2;
+                        const x = Math.max(0, Math.min(activeWidth, clientX - rect.left - thumbHalf));
+                        const percent = x / Math.max(1, activeWidth);
+                        setTempo(Math.round(20 + percent * 380));
+                      };
+                      updateTempo(e.clientX);
 
-                  {/* Snapshots / Presets 1-7 */}
+                      const onMove = (moveEvt: PointerEvent) => {
+                        updateTempo(moveEvt.clientX);
+                      };
+                      const onUp = () => {
+                        el.removeEventListener('pointermove', onMove);
+                        el.removeEventListener('pointerup', onUp);
+                        el.releasePointerCapture(e.pointerId);
+                      };
+
+                      el.addEventListener('pointermove', onMove);
+                      el.addEventListener('pointerup', onUp);
+                    }}
+                  >
+                    <div className="absolute w-full h-1.5 bg-[#0b101e] rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-[#364976]"
+                        style={{ width: `calc(24px + ${((tempo - 20) / 380)} * calc(100% - 48px))` }}
+                      />
+                    </div>
+                    <div
+                      className="absolute z-10 bg-[#23314f] border border-[#2f4066] px-3 w-12 text-center py-1 rounded-full text-sm font-bold shadow-md -translate-x-1/2 flex items-center justify-center select-none"
+                      style={{ left: `calc(24px + ${((tempo - 20) / 380)} * calc(100% - 48px))` }}
+                    >
+                      {tempo}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setTempo(t => Math.min(400, t + 1))}
+                    className="p-2 bg-[#23314f] rounded-lg text-slate-300 hover:bg-[#2c3d63] active:bg-[#1b253b] transition-colors shrink-0"
+                  >
+                    <Plus size={18} strokeWidth={2.5} />
+                  </button>
+                </div>
+              </div>
+              <div
+                className={`grid transition-all duration-300 ${isPanelExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
+              >
+                <div
+                  className={`overflow-hidden flex flex-col transition-all duration-300 ${isPanelExpanded ? 'px-2.5 pb-2 pt-0' : 'px-2.5 py-0'}`}
+                >
                   <div className="flex flex-col">
                     <div className="flex justify-between items-center px-1">
                       {[1, 2, 3, 4, 5, 6, 7].map((num) => {
                         const isActive = activeSnapshot === num;
                         const hasData =
                           isActive || snapSlotLooksUsed(snapshots[num] ?? createEmptySnapshot());
-                        
+
                         const emptyInactive =
                           !isActive && !snapSlotLooksUsed(snapshots[num] ?? createEmptySnapshot());
                         return (
@@ -1312,9 +1317,9 @@ export default function App() {
                     </div>
                   </div>
                 </div>
-              )}
-            </div>
-          </div>
+              </div>
+            </>
+          )}
 
           {/* Dynamic Scaling Sliders (Always Visible) */}
           <div className={`px-2.5 pt-1 pb-3 flex flex-col mb-2 transition-all duration-300 ${isPanelExpanded ? 'gap-4' : 'gap-0'}`}>
