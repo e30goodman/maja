@@ -25,26 +25,44 @@ const KONNAKOL_PYRAMID: Record<number, string[]> = {
   9: ["Ta", "Ka", "Dhi", "Mi", "Ta", "Ka", "Ta", "Ki", "Ta"]
 };
 
-/** Подписи долей в ряду: как в maja `computeBarRhythmCellPresentations` — не подряд два одинаковых слога (кроме последней доли такта). */
-function buildRowDisplaySyllables(rowSyllCount: number): string[] {
+/**
+ * Подписи по клеткам и поддолям: как в maja `computeBarRhythmCellPresentations` —
+ * цепочка «хвост» последнего показанного слога; при совпадении первого слога клетки с хвостом
+ * сдвигаем старт по кругу seq (кроме последней доли такта). Для subdivs>1 берём subdivs подряд
+ * слогов из паттерна такта, начиная с якоря доли cIdx.
+ */
+function buildRowCellSyllableLabels(
+	rowSyllCount: number,
+	customSubdivs: Record<string, number>,
+	rowIdx: number,
+): string[][] {
 	const seq = KONNAKOL_PYRAMID[rowSyllCount] ?? KONNAKOL_PYRAMID[1]!;
-	const out: string[] = [];
-	let lastDisplayed: string | null = null;
-	for (let i = 0; i < rowSyllCount; i++) {
-		if (seq.length === 0) {
-			out.push('Ta');
-			lastDisplayed = 'Ta';
-			continue;
+	const out: string[][] = [];
+	if (seq.length === 0) {
+		for (let cIdx = 0; cIdx < rowSyllCount; cIdx++) {
+			out.push(['Ta']);
 		}
-		const defaultStart = i % seq.length;
-		let displayStart = defaultStart;
-		const isLastBeatInBar = i === rowSyllCount - 1;
-		if (!isLastBeatInBar && lastDisplayed != null && seq[defaultStart] === lastDisplayed) {
-			displayStart = (defaultStart - 1 + seq.length) % seq.length;
+		return out;
+	}
+
+	let lastTail: string | null = null;
+	for (let cIdx = 0; cIdx < rowSyllCount; cIdx++) {
+		const raw = customSubdivs[`${rowIdx}-${cIdx}`];
+		const subdivs = Math.min(9, Math.max(1, typeof raw === 'number' && raw >= 1 ? raw : 1));
+		const isLastBeat = cIdx === rowSyllCount - 1;
+
+		let start = cIdx % seq.length;
+		const firstSyll = seq[start] ?? 'Ta';
+		if (!isLastBeat && lastTail != null && firstSyll === lastTail) {
+			start = (start - 1 + seq.length) % seq.length;
 		}
-		const text = seq[displayStart] ?? 'Ta';
-		out.push(text);
-		lastDisplayed = text;
+
+		const labels: string[] = [];
+		for (let j = 0; j < subdivs; j++) {
+			labels.push(seq[(start + j) % seq.length] ?? 'Ta');
+		}
+		out.push(labels);
+		lastTail = labels[labels.length - 1] ?? 'Ta';
 	}
 	return out;
 }
@@ -1804,7 +1822,7 @@ export default function App() {
           }).map((_, absR) => {
             const rIdx = absR % bars;
             const rowSylls = customSyllables[rIdx] !== undefined ? customSyllables[rIdx] : syllables;
-            const rowSyllLabels = buildRowDisplaySyllables(rowSylls);
+            const rowCellLabels = buildRowCellSyllableLabels(rowSylls, customSubdivisions, rIdx);
             const rowMult = customMultipliers[rIdx] || 1;
             const effectiveUseFixedFlex =
               useFixedFlex || (isPlaying && !allBarsFitViewport);
@@ -2010,9 +2028,7 @@ export default function App() {
                               (isActive || isAccent) ? 'drop-shadow-md' : 'text-slate-300'
                             } ${subdivs > 1 ? 'border-[0.5px] border-[#2f4066]/50' : ''}`}
                           >
-                            {subdivs > 1
-                              ? KONNAKOL_PYRAMID[subdivs]?.[i] || 'Ta'
-                              : rowSyllLabels[cIdx] ?? 'Ta'}
+                            {rowCellLabels[cIdx]?.[i] ?? 'Ta'}
                           </span>
                         ))}
                       </div>
