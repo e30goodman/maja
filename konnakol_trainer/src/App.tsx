@@ -411,7 +411,7 @@ export default function App() {
           }
 
           if (randomBarSpeedRef.current) {
-            const multOptions = [1, 1.5, 2];
+            const multOptions = [1, 2, 3];
             customMultipliersRef.current[prevBar] = multOptions[Math.floor(Math.random() * multOptions.length)];
             didChange = true;
           }
