@@ -145,6 +145,75 @@ function pickBarSpeedMultiplier(chaos: number): number {
 	return 4;
 }
 
+type BarRandomizerMutable = {
+	customSyllables: Record<number, number>;
+	accents: Set<string>;
+	customSubdivisions: Record<string, number>;
+	customMultipliers: Record<number, number>;
+};
+
+/** Одна итерация рандома на такт `prevBar` (как на границе такта в плеере). */
+function applyRandomizerEffectsToBar(
+	prevBar: number,
+	chaos: number,
+	randomPulsation: boolean,
+	randomPattern: boolean,
+	randomSpeed: boolean,
+	randomBarSpeed: boolean,
+	onlyAccents: boolean,
+	syllablesDefault: number,
+	m: BarRandomizerMutable,
+): boolean {
+	let didChange = false;
+
+	if (randomPulsation) {
+		m.customSyllables[prevBar] = pickWeightedMeter2to9(chaos);
+		didChange = true;
+	}
+
+	const curSyl = m.customSyllables[prevBar] ?? syllablesDefault;
+
+	if (randomPattern) {
+		for (let i = 0; i < 9; i++) m.accents.delete(`${prevBar}-${i}`);
+		const candidates = Array.from({ length: curSyl }, (_, i) => i).sort(() => Math.random() - 0.5);
+		const fillCount = pickAccentCountForBar(chaos, curSyl);
+		for (let i = 0; i < fillCount; i++) {
+			m.accents.add(`${prevBar}-${candidates[i]}`);
+		}
+		didChange = true;
+	}
+
+	if (randomSpeed) {
+		const curSylSpeed = m.customSyllables[prevBar] ?? syllablesDefault;
+		const candidates = onlyAccents
+			? Array.from({ length: curSylSpeed }, (_, i) => i).filter((i) => m.accents.has(`${prevBar}-${i}`))
+			: Array.from({ length: curSylSpeed }, (_, i) => i);
+		for (let i = 0; i < 9; i++) delete m.customSubdivisions[`${prevBar}-${i}`];
+		if (chaos <= 25) {
+			const pOne = chaos <= 0 ? 0 : chaos / 25;
+			if (candidates.length > 0 && Math.random() < pOne) {
+				const pick = candidates[Math.floor(Math.random() * candidates.length)]!;
+				m.customSubdivisions[`${prevBar}-${pick}`] = pickRandomCellSpeedSubdiv();
+			}
+		} else {
+			const cellSpeedHitP = cellSpeedFillFractionFromChaos(chaos);
+			candidates.forEach((i) => {
+				if (Math.random() < cellSpeedHitP) {
+					m.customSubdivisions[`${prevBar}-${i}`] = pickRandomCellSpeedSubdiv();
+				}
+			});
+		}
+		didChange = true;
+	}
+
+	if (randomBarSpeed) {
+		m.customMultipliers[prevBar] = pickBarSpeedMultiplier(chaos);
+		didChange = true;
+	}
+
+	return didChange;
+}
+
 const SNAPSHOT_SLOT_COUNT = 7;
 const SNAPSHOT_STORAGE_KEY = 'konnakolTrainerSnapshotsV1';
 /** Clipboard export: compact string for messengers. */
@@ -153,8 +222,8 @@ const METRONOME_CONFIG_PREFIX = 'METRONOME_CONFIG:';
 const SNAPSHOT_CLIPBOARD_PREFIX_LEGACY = 'konnakolTrainerSnapshotV1:';
 /** Hold snapshot slot to open Copy / Paste menu. */
 const SNAPSHOT_MENU_HOLD_MS = 520;
-/** Hold кнопку «кости»: заполнить все такты по включённым опциям рандомайзера. */
-const RANDOM_DICE_PREFILL_HOLD_MS = 520;
+/** Удерживание кнопки «кости»: префилл всех тактов по активным фичам Randomizer. */
+const RANDOM_DICE_PREFILL_HOLD_MS = SNAPSHOT_MENU_HOLD_MS;
 
 function utf8ToBase64Json(json: string): string {
 	const bytes = new TextEncoder().encode(json);
@@ -666,6 +735,10 @@ export default function App() {
   /** Long-press square: toggle «без щелчков по клеткам»; ding такта Ta не мьютится. */
   const squareHoldTimerRef = useRef<number | null>(null);
   const squareHoldAteClickRef = useRef(false);
+  const randomDiceHoldTimerRef = useRef<number | null>(null);
+  const randomDiceHoldAteClickRef = useRef(false);
+  const [randomDiceMintFlash, setRandomDiceMintFlash] = useState(false);
+  const randomDiceMintFlashClearRef = useRef<number | null>(null);
   const [syllableReadMuteMode, setSyllableReadMuteMode] = useState<SyllableReadMuteMode>(() =>
     normalizeSyllableReadMuteModeFromSnapshot(
       seed.syllableReadMuteMode,
@@ -813,110 +886,6 @@ export default function App() {
   useEffect(() => { clickSoundRef.current = clickSound; }, [clickSound]);
   useEffect(() => { frozenScaleRef.current = frozenScale; }, [frozenScale]);
 
-  const randomDiceHoldTimerRef = useRef<number | null>(null);
-  const randomDiceHoldAteClickRef = useRef(false);
-  const [randomDiceMintFlash, setRandomDiceMintFlash] = useState(false);
-
-  useEffect(() => {
-    return () => {
-      if (randomDiceHoldTimerRef.current !== null) {
-        window.clearTimeout(randomDiceHoldTimerRef.current);
-        randomDiceHoldTimerRef.current = null;
-      }
-    };
-  }, []);
-
-  /** Одна строка такта: те же правила, что при смене такта во время PLAY. */
-  function mutateBarWithRandomFeatures(prevBar: number, chaos: number): boolean {
-    let didChange = false;
-    if (randomPulsationRef.current) {
-      customSyllablesRef.current[prevBar] = pickWeightedMeter2to9(chaos);
-      didChange = true;
-    }
-    if (randomPatternRef.current) {
-      const curSyl = customSyllablesRef.current[prevBar] ?? syllablesRef.current;
-      for (let i = 0; i < 9; i++) accentsRef.current.delete(`${prevBar}-${i}`);
-      const candidates = Array.from({ length: curSyl }, (_, i) => i).sort(() => Math.random() - 0.5);
-      const fillCount = pickAccentCountForBar(chaos, curSyl);
-      for (let i = 0; i < fillCount; i++) {
-        accentsRef.current.add(`${prevBar}-${candidates[i]}`);
-      }
-      didChange = true;
-    }
-    if (randomSpeedRef.current) {
-      const curSyl = customSyllablesRef.current[prevBar] ?? syllablesRef.current;
-      const candidates = onlyAccentsRef.current
-        ? Array.from({ length: curSyl }, (_, i) => i).filter((i) =>
-            accentsRef.current.has(`${prevBar}-${i}`),
-          )
-        : Array.from({ length: curSyl }, (_, i) => i);
-      for (let i = 0; i < 9; i++) delete customSubdivisionsRef.current[`${prevBar}-${i}`];
-      if (chaos <= 25) {
-        const pOne = chaos <= 0 ? 0 : chaos / 25;
-        if (candidates.length > 0 && Math.random() < pOne) {
-          const pick = candidates[Math.floor(Math.random() * candidates.length)]!;
-          customSubdivisionsRef.current[`${prevBar}-${pick}`] = pickRandomCellSpeedSubdiv();
-        }
-      } else {
-        const cellSpeedHitP = cellSpeedFillFractionFromChaos(chaos);
-        candidates.forEach((i) => {
-          if (Math.random() < cellSpeedHitP) {
-            customSubdivisionsRef.current[`${prevBar}-${i}`] = pickRandomCellSpeedSubdiv();
-          }
-        });
-      }
-      didChange = true;
-    }
-    if (randomBarSpeedRef.current) {
-      customMultipliersRef.current[prevBar] = pickBarSpeedMultiplier(chaos);
-      didChange = true;
-    }
-    return didChange;
-  }
-
-  function runRandomPrefillAllBars() {
-    const anyFeature =
-      randomPulsationRef.current ||
-      randomPatternRef.current ||
-      randomSpeedRef.current ||
-      randomBarSpeedRef.current;
-    if (!anyFeature) {
-      setRandomDiceMintFlash(true);
-      window.setTimeout(() => setRandomDiceMintFlash(false), 220);
-      return;
-    }
-    const chaos = chaosLevelRef.current;
-    let touched = false;
-    for (let b = 0; b < barsRef.current; b++) {
-      if (mutateBarWithRandomFeatures(b, chaos)) touched = true;
-    }
-    if (!touched) {
-      setRandomDiceMintFlash(true);
-      window.setTimeout(() => setRandomDiceMintFlash(false), 220);
-      return;
-    }
-    const newSeq: { r: number; c: number; activeSyllables: number }[] = [];
-    for (let r = 0; r < barsRef.current; r++) {
-      const syls =
-        customSyllablesRef.current[r] !== undefined ? customSyllablesRef.current[r]! : syllablesRef.current;
-      for (let c = 0; c < syls; c++) {
-        newSeq.push({ r, c, activeSyllables: syls });
-      }
-    }
-    sequenceRef.current = newSeq;
-    if (currentStepRef.current >= newSeq.length) {
-      currentStepRef.current = Math.max(0, newSeq.length - 1);
-    }
-    startTransition(() => {
-      if (randomPulsationRef.current) setCustomSyllables({ ...customSyllablesRef.current });
-      if (randomPatternRef.current) setAccents(new Set(accentsRef.current));
-      if (randomSpeedRef.current) setCustomSubdivisions({ ...customSubdivisionsRef.current });
-      if (randomBarSpeedRef.current) setCustomMultipliers({ ...customMultipliersRef.current });
-    });
-    setRandomDiceMintFlash(true);
-    window.setTimeout(() => setRandomDiceMintFlash(false), 320);
-  }
-
   const buildLiveSnapshotFromRefs = (): ReturnType<typeof createEmptySnapshot> => ({
     tempo: tempoRef.current,
     bars: barsRef.current,
@@ -939,6 +908,62 @@ export default function App() {
     firstBeatAccent: firstBeatAccentRef.current,
     syllableReadMuteMode: syllableReadMuteModeRef.current,
   });
+
+  const prefillAllTactsRandomizer = useCallback(() => {
+    const chaos = chaosLevelRef.current;
+    const nBars = barsRef.current;
+    const syllablesDefault = syllablesRef.current;
+    const rp = randomPulsationRef.current;
+    const rpat = randomPatternRef.current;
+    const rs = randomSpeedRef.current;
+    const rbs = randomBarSpeedRef.current;
+    const oa = onlyAccentsRef.current;
+    const hasAny = rp || rpat || rs || rbs;
+
+    if (randomDiceMintFlashClearRef.current !== null) {
+      window.clearTimeout(randomDiceMintFlashClearRef.current);
+      randomDiceMintFlashClearRef.current = null;
+    }
+    setRandomDiceMintFlash(true);
+    randomDiceMintFlashClearRef.current = window.setTimeout(() => {
+      randomDiceMintFlashClearRef.current = null;
+      setRandomDiceMintFlash(false);
+    }, 320);
+
+    if (!hasAny) return;
+
+    const cs = { ...customSyllablesRef.current };
+    const cd = { ...customSubdivisionsRef.current };
+    const cm = { ...customMultipliersRef.current };
+    const acc = new Set(accentsRef.current);
+
+    let any = false;
+    for (let r = 0; r < nBars; r++) {
+      if (
+        applyRandomizerEffectsToBar(r, chaos, rp, rpat, rs, rbs, oa, syllablesDefault, {
+          customSyllables: cs,
+          accents: acc,
+          customSubdivisions: cd,
+          customMultipliers: cm,
+        })
+      ) {
+        any = true;
+      }
+    }
+    if (!any) return;
+
+    customSyllablesRef.current = cs;
+    customSubdivisionsRef.current = cd;
+    customMultipliersRef.current = cm;
+    accentsRef.current = acc;
+
+    startTransition(() => {
+      setCustomSyllables({ ...cs });
+      setAccents(new Set(acc));
+      setCustomSubdivisions({ ...cd });
+      setCustomMultipliers({ ...cm });
+    });
+  }, []);
 
   const stableWindowPointerEnd = useCallback(() => {
     onWindowPointerEndCaptureRef.current();
@@ -1069,7 +1094,7 @@ export default function App() {
     }
     startTransition(() => {
       setSnapshots((prev) => ({
-        ...prev,
+      ...prev,
         [activeSnapshot]: {
           tempo,
           bars,
@@ -1152,9 +1177,9 @@ export default function App() {
     snap: ReturnType<typeof createEmptySnapshot>,
     options?: { preservePanel?: boolean },
   ) => {
-    setTempo(snap.tempo);
-    setBars(snap.bars);
-    setSyllables(snap.syllables);
+      setTempo(snap.tempo);
+      setBars(snap.bars);
+      setSyllables(snap.syllables);
     setAccents(
       new Set(
         Array.isArray(snap.accents)
@@ -1164,9 +1189,9 @@ export default function App() {
             : [],
       ),
     );
-    setCustomSyllables({ ...snap.customSyllables });
-    setCustomMultipliers({ ...(snap.customMultipliers || {}) });
-    setCustomSubdivisions({ ...(snap.customSubdivisions || {}) });
+      setCustomSyllables({ ...snap.customSyllables });
+      setCustomMultipliers({ ...(snap.customMultipliers || {}) });
+      setCustomSubdivisions({ ...(snap.customSubdivisions || {}) });
     setRandomModeEnabled(
       snap.randomModeEnabled !== undefined ? Boolean(snap.randomModeEnabled) : false,
     );
@@ -1363,12 +1388,12 @@ export default function App() {
 
     if (activePos.absR >= 0 && gridRef.current) {
       let logicalPage = Math.floor(activePos.absR / scrollStride);
-
+      
       if (activePos.absR > 0 && activePos.absR % scrollStride === 0) {
         const rIdx = activePos.absR % bars;
         const rowSylls = customSyllables[rIdx] !== undefined ? customSyllables[rIdx] : syllables;
         const isPastHalfway = activePos.c >= Math.floor(rowSylls / 2);
-
+        
         if (!isPastHalfway) {
           logicalPage -= 1;
         }
@@ -1378,9 +1403,9 @@ export default function App() {
         lastScrolledPageRef.current = logicalPage;
         const pageStartAbsR = logicalPage * scrollStride;
         const rowEl = rowRefs.current[pageStartAbsR];
-
+        
         if (rowEl) {
-          rowEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+           rowEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
       }
     }
@@ -1412,6 +1437,14 @@ export default function App() {
       if (squareHoldTimerRef.current !== null) {
         window.clearTimeout(squareHoldTimerRef.current);
         squareHoldTimerRef.current = null;
+      }
+      if (randomDiceHoldTimerRef.current !== null) {
+        window.clearTimeout(randomDiceHoldTimerRef.current);
+        randomDiceHoldTimerRef.current = null;
+      }
+      if (randomDiceMintFlashClearRef.current !== null) {
+        window.clearTimeout(randomDiceMintFlashClearRef.current);
+        randomDiceMintFlashClearRef.current = null;
       }
       syllableReadMuteModeRef.current = 'off';
       setSyllableReadMuteMode('off');
@@ -1497,8 +1530,25 @@ export default function App() {
         } else if (randomModeEnabledRef.current) {
           const targetR = currentSeqItem.r;
           const prevBar = (targetR - 1 + barsRef.current) % barsRef.current;
+
           const chaos = chaosLevelRef.current;
-          const didChange = mutateBarWithRandomFeatures(prevBar, chaos);
+          const m = {
+            customSyllables: customSyllablesRef.current,
+            accents: accentsRef.current,
+            customSubdivisions: customSubdivisionsRef.current,
+            customMultipliers: customMultipliersRef.current,
+          };
+          const didChange = applyRandomizerEffectsToBar(
+            prevBar,
+            chaos,
+            randomPulsationRef.current,
+            randomPatternRef.current,
+            randomSpeedRef.current,
+            randomBarSpeedRef.current,
+            onlyAccentsRef.current,
+            syllablesRef.current,
+            m,
+          );
 
           if (didChange) {
             const newSeq = [];
@@ -1522,7 +1572,7 @@ export default function App() {
             setTimeout(() => {
               startTransition(() => {
                 if (randomPulsationRef.current) setCustomSyllables({ ...customSyllablesRef.current });
-                if (randomPatternRef.current) setAccents(new Set(accentsRef.current));
+              if (randomPatternRef.current) setAccents(new Set(accentsRef.current));
                 if (randomSpeedRef.current) setCustomSubdivisions({ ...customSubdivisionsRef.current });
                 if (randomBarSpeedRef.current) setCustomMultipliers({ ...customMultipliersRef.current });
               });
@@ -1542,7 +1592,7 @@ export default function App() {
         ? PULSE_METER_BASE_SYLLABLES
         : effectiveSyllables;
       const mult = customMultipliersRef.current[rowR] || 1;
-
+      
       const effectiveBpm = tempoRef.current * (pulseSyllables / 4) * mult;
       if (effectiveBpm > 0) {
         nextNoteTimeRef.current += 60.0 / effectiveBpm;
@@ -1563,11 +1613,11 @@ export default function App() {
                 /* Loop on same screen: playhead row index stays 0..bars-1. */
                 playAbsBarRef.current = newR;
               } else if (newR === 0 && oldR === barsRef.current - 1) {
-                playAbsBarRef.current += 1;
+                  playAbsBarRef.current += 1;
               } else if (newR > oldR) {
                 playAbsBarRef.current += newR - oldR;
               } else {
-                playAbsBarRef.current = newR;
+                  playAbsBarRef.current = newR;
               }
           }
       }
@@ -1602,7 +1652,7 @@ export default function App() {
     for (let sub = 0; sub < subdivs; sub++) {
       const subTime = time + sub * subDuration;
       const isFirstOfBar = cIdx === 0 && sub === 0;
-
+      
       /** Первый удар «Ta»: всегда при включённом first beat, в т.ч. при long-press `full` (сетка дальше глушится отдельно). */
       if (isFirstOfBar && firstBeatAccentRef.current) {
         playBarFirstHighClick(audioCtxRef.current, subTime, clickSoundRef.current);
@@ -1651,8 +1701,6 @@ export default function App() {
     if (isPlaying) {
       setIsPlaying(false);
       isPlayingRef.current = false;
-      setRandomModeEnabled(false);
-      randomModeEnabledRef.current = false;
       clearPlayheadScheduling();
       setActivePos({ r: -1, c: -1, absR: -1 });
       currentStepRef.current = 0; // Reset pattern position to start
@@ -1661,9 +1709,18 @@ export default function App() {
         window.clearTimeout(squareHoldTimerRef.current);
         squareHoldTimerRef.current = null;
       }
+      if (randomDiceHoldTimerRef.current !== null) {
+        window.clearTimeout(randomDiceHoldTimerRef.current);
+        randomDiceHoldTimerRef.current = null;
+      }
+      if (randomDiceMintFlashClearRef.current !== null) {
+        window.clearTimeout(randomDiceMintFlashClearRef.current);
+        randomDiceMintFlashClearRef.current = null;
+      }
       syllableReadMuteModeRef.current = 'off';
       setSyllableReadMuteMode('off');
       squareHoldAteClickRef.current = false;
+      randomDiceHoldAteClickRef.current = false;
     } else {
       setIsPanelExpanded(false);
       setShowRandomSettings(false);
@@ -1742,7 +1799,7 @@ export default function App() {
           </button>
           {!isPanelExpanded && !showRandomSettings ? (
             <div className="flex-1 flex items-center gap-2 min-w-0 py-2 px-1.5 bg-[#161f33] rounded-xl border border-[#23314f] touch-none">
-              <button
+          <button 
                 type="button"
                 onClick={() => setTempo((t) => Math.max(20, t - 1))}
                 className="p-2 bg-[#23314f] rounded-lg text-slate-300 hover:bg-[#2c3d63] active:bg-[#1b253b] transition-colors shrink-0"
@@ -1799,11 +1856,11 @@ export default function App() {
           ) : (
             <button
               type="button"
-              onClick={handleTap}
-              className="flex-1 py-3 bg-[#161f33] rounded-xl border border-[#23314f] font-semibold text-slate-300 tracking-wide hover:bg-[#1a253c] active:bg-purple-900/50 active:border-purple-500/50 active:text-purple-100 transition-all active:scale-95 duration-75"
-            >
-              Tap
-            </button>
+            onClick={handleTap}
+            className="flex-1 py-3 bg-[#161f33] rounded-xl border border-[#23314f] font-semibold text-slate-300 tracking-wide hover:bg-[#1a253c] active:bg-purple-900/50 active:border-purple-500/50 active:text-purple-100 transition-all active:scale-95 duration-75"
+          >
+            Tap
+          </button>
           )}
           <button 
             onClick={clearSequencer}
@@ -1816,7 +1873,7 @@ export default function App() {
 
         {/* Global Settings (Tempo & Row Selectors) */}
         <div className="relative bg-[#161f33] rounded-2xl border border-[#23314f] flex flex-col shrink-0 mb-3">
-          {showRandomSettings ? (
+              {showRandomSettings ? (
             <div className={`grid transition-all duration-300 ${isPanelExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
               <div
                 ref={randomSettingsPanelRef}
@@ -1878,9 +1935,9 @@ export default function App() {
                         Chaos level
                       </span>
                       <span className="text-purple-300 font-mono text-xs font-bold">{chaosLevel}</span>
-                    </div>
-                    <input
-                      type="range"
+                     </div>
+                     <input 
+                        type="range" 
                       min={0}
                       max={100}
                       value={chaosLevel}
@@ -1888,8 +1945,8 @@ export default function App() {
                       onPointerUp={() => flushChaosToActiveSnapshot()}
                       onPointerCancel={() => flushChaosToActiveSnapshot()}
                       onBlur={() => flushChaosToActiveSnapshot()}
-                      className="w-full h-2 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110"
-                    />
+                        className="w-full h-2 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110"
+                      />
                   </div>
 
                   <div className="w-full h-px bg-[#1e2a45]/80 my-0.5"></div>
@@ -1901,22 +1958,22 @@ export default function App() {
                        <button onClick={() => setClickSound('oldschool')} className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${clickSound === 'oldschool' ? 'bg-[#364976] text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}>Oldschool</button>
                     </div>
                   </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-          ) : (
+              ) : (
             <>
               {isPanelExpanded ? (
                 <div className="px-2.5 pt-3 pb-1">
                   <div className="flex items-center gap-2">
-                    <button
+                    <button 
                       type="button"
                       onClick={() => setTempo((t) => Math.max(20, t - 1))}
                       className="p-2 bg-[#23314f] rounded-lg text-slate-300 hover:bg-[#2c3d63] active:bg-[#1b253b] transition-colors shrink-0"
                     >
                       <Minus size={18} strokeWidth={2.5} />
                     </button>
-                    <div
+                    <div 
                       className="flex-1 relative flex items-center h-8 cursor-pointer touch-none"
                       onPointerDown={(e) => {
                         const el = e.currentTarget;
@@ -1930,7 +1987,7 @@ export default function App() {
                           setTempo(Math.round(20 + percent * 380));
                         };
                         updateTempo(e.clientX);
-
+                        
                         const onMove = (moveEvt: PointerEvent) => {
                           updateTempo(moveEvt.clientX);
                         };
@@ -1939,25 +1996,25 @@ export default function App() {
                           el.removeEventListener('pointerup', onUp);
                           el.releasePointerCapture(e.pointerId);
                         };
-
+                        
                         el.addEventListener('pointermove', onMove);
                         el.addEventListener('pointerup', onUp);
                       }}
                     >
                       <div className="absolute w-full h-1.5 bg-[#0b101e] rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-[#364976]"
+                        <div 
+                          className="h-full bg-[#364976]" 
                           style={{ width: `calc(24px + ${((tempo - 20) / 380)} * calc(100% - 48px))` }}
                         />
                       </div>
-                      <div
+                      <div 
                         className="absolute z-10 bg-[#23314f] border border-[#2f4066] px-3 w-12 text-center py-1 rounded-full text-sm font-bold shadow-md -translate-x-1/2 flex items-center justify-center select-none"
                         style={{ left: `calc(24px + ${((tempo - 20) / 380)} * calc(100% - 48px))` }}
                       >
                         {tempo}
                       </div>
                     </div>
-                    <button
+                    <button 
                       type="button"
                       onClick={() => setTempo((t) => Math.min(400, t + 1))}
                       className="p-2 bg-[#23314f] rounded-lg text-slate-300 hover:bg-[#2c3d63] active:bg-[#1b253b] transition-colors shrink-0"
@@ -1979,10 +2036,10 @@ export default function App() {
                         const isActive = activeSnapshot === num;
                         const hasData =
                           isActive || snapSlotLooksUsed(snapshots[num] ?? createEmptySnapshot());
-
+                        
                         return (
-                          <button
-                            key={num}
+                          <button 
+                            key={num} 
                             type="button"
                             ref={(el) => {
                               snapshotSlotButtonRefs.current[num] = el;
@@ -1990,8 +2047,8 @@ export default function App() {
                             title="Tap: select slot. Hold: copy / paste preset menu"
                             className={`w-8 h-8 flex items-center justify-center rounded-full text-[13px] font-bold transition-all touch-none select-none ${
                               isActive
-                                ? 'bg-[#1e2a45] text-white shadow-sm ring-1 ring-[#3a5080] scale-110'
-                                : hasData
+                                ? 'bg-[#1e2a45] text-white shadow-sm ring-1 ring-[#3a5080] scale-110' 
+                                : hasData 
                                   ? 'text-slate-300 bg-[#1e2a45]/30 hover:bg-[#1e2a45]/60 hover:text-white'
                                   : 'text-slate-600 hover:text-slate-400'
                             }`}
@@ -2039,7 +2096,7 @@ export default function App() {
                     </div>
                   </div>
                 </div>
-              </div>
+            </div>
             </>
           )}
 
@@ -2196,10 +2253,10 @@ export default function App() {
 
         {/* Bottom Actions */}
         <div className="flex gap-3 mt-1 shrink-0 h-[60px]">
-          {/* Randomizer: тап — вкл/выкл во время PLAY; удержание — префилл всех тактов по включённым опциям + мятная вспышка. */}
-          <button 
+          {/* Randomizer: tap — live random при PLAY; удерживание — префилл всех тактов по галочкам Settings. */}
+          <button
             type="button"
-            title="Tap: random on/off while playing. Hold: fill all bars (Randomizer settings)."
+            title="Коротко: рандом при PLAY. Удерживай ~0,5 с: заполнить все такты (Pulsation / Accents / Cell / Bar Speed из настроек)."
             onPointerDown={() => {
               randomDiceHoldAteClickRef.current = false;
               if (randomDiceHoldTimerRef.current !== null) {
@@ -2208,11 +2265,17 @@ export default function App() {
               }
               randomDiceHoldTimerRef.current = window.setTimeout(() => {
                 randomDiceHoldTimerRef.current = null;
+                prefillAllTactsRandomizer();
                 randomDiceHoldAteClickRef.current = true;
-                runRandomPrefillAllBars();
               }, RANDOM_DICE_PREFILL_HOLD_MS);
             }}
             onPointerUp={() => {
+              if (randomDiceHoldTimerRef.current !== null) {
+                window.clearTimeout(randomDiceHoldTimerRef.current);
+                randomDiceHoldTimerRef.current = null;
+              }
+            }}
+            onPointerLeave={() => {
               if (randomDiceHoldTimerRef.current !== null) {
                 window.clearTimeout(randomDiceHoldTimerRef.current);
                 randomDiceHoldTimerRef.current = null;
@@ -2231,9 +2294,9 @@ export default function App() {
               }
               setRandomModeEnabled((prev) => !prev);
             }}
-            className={`flex-1 rounded-xl border flex justify-center items-center transition-all duration-200 relative touch-none select-none ${
+            className={`flex-1 rounded-xl border flex justify-center items-center transition-all duration-200 relative ${
               randomDiceMintFlash
-                ? 'bg-teal-400/25 border-teal-300/90 text-teal-50 shadow-[0_0_22px_rgba(110,231,183,0.65)] ring-2 ring-teal-200/70 scale-[1.02]'
+                ? 'bg-teal-500/25 border-teal-300/75 text-teal-100 shadow-[0_0_22px_rgba(45,212,191,0.55)] ring-2 ring-teal-300/70'
                 : randomModeEnabled
                   ? 'bg-blue-600/30 border-blue-400/60 shadow-[0_0_15px_rgba(59,130,246,0.3)] text-blue-200'
                   : 'bg-[#161f33] border-[#23314f] text-slate-400 hover:text-slate-200 hover:bg-[#1a253c]'
