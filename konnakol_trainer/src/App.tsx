@@ -209,8 +209,7 @@ export default function App() {
   const randomBarSpeedRef = useRef(randomBarSpeed);
   const randomMaxNotesRef = useRef(randomMaxNotes);
   const clickSoundRef = useRef(clickSound);
-  /** scheduleNote reads latest paging mode without stale closure */
-  const playbackNeedsBarPagingRef = useRef(false);
+  const frozenScaleRef = useRef(frozenScale);
 
   useEffect(() => { barsRef.current = bars; }, [bars]);
   useEffect(() => { syllablesRef.current = syllables; }, [syllables]);
@@ -228,6 +227,10 @@ export default function App() {
   useEffect(() => { randomBarSpeedRef.current = randomBarSpeed; }, [randomBarSpeed]);
   useEffect(() => { randomMaxNotesRef.current = randomMaxNotes; }, [randomMaxNotes]);
   useEffect(() => { clickSoundRef.current = clickSound; }, [clickSound]);
+  useEffect(() => { frozenScaleRef.current = frozenScale; }, [frozenScale]);
+
+  /** All pattern rows fit in the phone frame: no virtual strip, no playhead autoscroll. */
+  const allBarsFitViewport = frozenScale === null && bars <= 10;
 
   const sequence = React.useMemo(() => {
     const seq = [];
@@ -288,24 +291,13 @@ export default function App() {
   // Create a scroll stride that overlaps by 1 row
   const scrollStride = Math.max(1, displayScaleBars - 1);
 
-  // Auto-scroll only when the pattern has more bars than fit on screen (displayScaleBars slots).
-  const playbackNeedsBarPaging = bars > displayScaleBars;
-  playbackNeedsBarPagingRef.current = playbackNeedsBarPaging;
-
-  /** When all bars fit on screen, keep the old infinite strip (absR % bars). When paging is on, only `bars` real rows — scroll the container instead. */
-  const useVirtualBarStripDuringPlay = isPlaying && !playbackNeedsBarPaging;
-  const gridRowCount = useVirtualBarStripDuringPlay
-    ? Math.max(bars, activePos.absR + displayScaleBars * 2)
-    : bars;
-
-  // Auto-scroll to active row during playback in pages smoothly
+  // Auto-scroll during playback only when the grid uses a virtual strip (many bars / frozen scale).
   useEffect(() => {
     if (!isPlaying) {
       lastScrolledPageRef.current = -1; // Reset memory when stopped
       if (gridRef.current) gridRef.current.scrollTop = 0;
-    } else if (!playbackNeedsBarPaging) {
-      lastScrolledPageRef.current = -1;
-      if (gridRef.current) gridRef.current.scrollTop = 0;
+    } else if (frozenScale === null && bars <= 10) {
+      /* Compact grid: all bars visible — no scrollIntoView, avoid bogus "pages". */
     } else if (activePos.absR >= 0 && gridRef.current) {
       let logicalPage = Math.floor(activePos.absR / scrollStride);
       
@@ -330,7 +322,7 @@ export default function App() {
         }
       }
     }
-  }, [activePos.absR, activePos.c, isPlaying, scrollStride, customSyllables, syllables, bars, playbackNeedsBarPaging, displayScaleBars]);
+  }, [activePos.absR, activePos.c, isPlaying, scrollStride, customSyllables, syllables, bars, frozenScale]);
 
   useEffect(() => {
     return () => {
@@ -473,12 +465,17 @@ export default function App() {
       if (nextSeqItem) {
           const newR = nextSeqItem.r;
           if (newR !== oldR) {
-              if (newR === 0 && oldR === barsRef.current - 1) {
-                  playAbsBarRef.current += 1;
+              const compact =
+                frozenScaleRef.current === null && barsRef.current <= 10;
+              if (compact) {
+                /* Loop on same screen: playhead row index stays 0..bars-1. */
+                playAbsBarRef.current = newR;
+              } else if (newR === 0 && oldR === barsRef.current - 1) {
+                playAbsBarRef.current += 1;
               } else if (newR > oldR) {
-                  playAbsBarRef.current += (newR - oldR);
+                playAbsBarRef.current += newR - oldR;
               } else {
-                  playAbsBarRef.current = newR;
+                playAbsBarRef.current = newR;
               }
           }
       }
@@ -523,11 +520,7 @@ export default function App() {
     const delay = Math.max(0, (time - audioCtxRef.current.currentTime) * 1000);
     setTimeout(() => {
       if (isPlayingRef.current) {
-        setActivePos({
-          r: rIdx,
-          c: cIdx,
-          absR: playbackNeedsBarPagingRef.current ? rIdx : absR,
-        });
+        setActivePos({ r: rIdx, c: cIdx, absR });
       }
     }, delay);
   };
@@ -916,7 +909,7 @@ export default function App() {
           </button>
         </div>
 
-        {/* Bars Grid: Auto-scrolls when playing, hides scrollbar, pages cleanly at exactly 10 */}
+        {/* Bars grid: virtual strip + autoscroll only when many bars or frozen row height */}
         <div 
           ref={gridRef}
           className={`relative flex flex-col gap-1.5 flex-1 overflow-y-auto overflow-x-hidden ${
@@ -924,16 +917,22 @@ export default function App() {
             ? 'scrollbar-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]' 
             : '[&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[#2f4066] [&::-webkit-scrollbar-thumb]:rounded-full'
         }`}>
-          {Array.from({ length: gridRowCount }).map((_, absR) => {
-            const rIdx = useVirtualBarStripDuringPlay ? absR % bars : absR;
+          {Array.from({
+            length:
+              isPlaying && !allBarsFitViewport
+                ? Math.max(bars, activePos.absR + displayScaleBars * 2)
+                : bars,
+          }).map((_, absR) => {
+            const rIdx = absR % bars;
             const rowSylls = customSyllables[rIdx] !== undefined ? customSyllables[rIdx] : syllables;
             const isCustom = customSyllables[rIdx] !== undefined;
             const rowMult = customMultipliers[rIdx] || 1;
-            const effectiveUseFixedFlex = useFixedFlex || isPlaying;
+            const effectiveUseFixedFlex =
+              useFixedFlex || (isPlaying && !allBarsFitViewport);
             
             return (
             <div 
-              key={useVirtualBarStripDuringPlay ? `v-${absR}` : `b-${rIdx}`}
+              key={absR} 
               ref={el => { rowRefs.current[absR] = el; }}
               className={`flex items-stretch bg-[#161f33] border border-[#23314f] min-h-0 relative ${
                 displayScaleBars > 7 ? 'gap-1 p-1 rounded-lg' : 'gap-2 p-1.5 rounded-xl'
@@ -1024,11 +1023,9 @@ export default function App() {
                 {Array.from({ length: rowSylls }).map((_, cIdx) => {
                   const checkKey = `${rIdx}-${cIdx}`;
                   const isAccent = accents.has(checkKey);
-                  const isActive = isPlaying
-                    ? (playbackNeedsBarPaging
-                      ? activePos.r === rIdx && activePos.c === cIdx
-                      : activePos.absR === absR && activePos.c === cIdx)
-                    : activePos.r === rIdx && activePos.c === cIdx;
+                  const isActive = isPlaying 
+                      ? activePos.absR === absR && activePos.c === cIdx
+                      : activePos.r === rIdx && activePos.c === cIdx;
                       
                   const subdivs = customSubdivisions[checkKey] || 1;
                   
