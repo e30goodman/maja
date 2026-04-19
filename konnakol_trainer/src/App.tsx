@@ -13,6 +13,7 @@ import {
 	ClipboardPaste,
 } from 'lucide-react';
 import { SequencerGrid, type SequencerGridRowActions } from './SequencerGrid';
+import { FastSlider } from './FastSlider';
 
 type PlayheadHighlightEvent = { t: number; pos: { r: number; c: number; absR: number } };
 
@@ -858,11 +859,6 @@ export default function App() {
   const clickSoundRef = useRef(clickSound);
   const frozenScaleRef = useRef(frozenScale);
 
-  /** Пока тянут глобальные слайдеры Bars/Syllables — не писать `snapshots` из эффекта; flush на pointerup. */
-  const barsSliderDraggingRef = useRef(false);
-  const syllablesSliderDraggingRef = useRef(false);
-  const sliderWindowListenersAttachedRef = useRef(false);
-  const onWindowPointerEndCaptureRef = useRef<() => void>(() => {});
   const flushLiveSnapshotToActiveSlotRef = useRef<() => void>(() => {});
 
   useEffect(() => { barsRef.current = bars; }, [bars]);
@@ -965,17 +961,6 @@ export default function App() {
     });
   }, []);
 
-  const stableWindowPointerEnd = useCallback(() => {
-    onWindowPointerEndCaptureRef.current();
-  }, []);
-
-  const attachSliderWindowListeners = useCallback(() => {
-    if (sliderWindowListenersAttachedRef.current) return;
-    sliderWindowListenersAttachedRef.current = true;
-    window.addEventListener('pointerup', stableWindowPointerEnd, true);
-    window.addEventListener('pointercancel', stableWindowPointerEnd, true);
-  }, [stableWindowPointerEnd]);
-
   flushLiveSnapshotToActiveSlotRef.current = () => {
     startTransition(() => {
       setSnapshots((prev) => ({
@@ -985,32 +970,10 @@ export default function App() {
     });
   };
 
-  onWindowPointerEndCaptureRef.current = () => {
-    if (!barsSliderDraggingRef.current && !syllablesSliderDraggingRef.current) return;
-    barsSliderDraggingRef.current = false;
-    syllablesSliderDraggingRef.current = false;
-    if (sliderWindowListenersAttachedRef.current) {
-      sliderWindowListenersAttachedRef.current = false;
-      window.removeEventListener('pointerup', stableWindowPointerEnd, true);
-      window.removeEventListener('pointercancel', stableWindowPointerEnd, true);
-    }
-    flushLiveSnapshotToActiveSlotRef.current();
-  };
-
-  useEffect(() => {
-    return () => {
-      if (sliderWindowListenersAttachedRef.current) {
-        sliderWindowListenersAttachedRef.current = false;
-        window.removeEventListener('pointerup', stableWindowPointerEnd, true);
-        window.removeEventListener('pointercancel', stableWindowPointerEnd, true);
-      }
-    };
-  }, [stableWindowPointerEnd]);
-
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState === 'hidden') {
-        onWindowPointerEndCaptureRef.current();
+        flushLiveSnapshotToActiveSlotRef.current();
       }
     };
     document.addEventListener('visibilitychange', onVis);
@@ -1087,11 +1050,8 @@ export default function App() {
   const sequenceRef = useRef(sequence);
   sequenceRef.current = sequence; // Always keep ref atomic with render
 
-  // Auto-save preset whenever parameters change (пропуск во время drag Bars/Syllables — см. pointerup flush)
+  // Auto-save preset whenever parameters change
   useEffect(() => {
-    if (barsSliderDraggingRef.current || syllablesSliderDraggingRef.current) {
-      return;
-    }
     startTransition(() => {
       setSnapshots((prev) => ({
       ...prev,
@@ -1171,7 +1131,7 @@ export default function App() {
         persistSnapshotsTimerRef.current = null;
       }
     };
-  }, [snapshots, activeSnapshot, chaosLevel]);
+  }, [snapshots, activeSnapshot]);
 
   const applySnapshotDataToUi = (
     snap: ReturnType<typeof createEmptySnapshot>,
@@ -1231,7 +1191,7 @@ export default function App() {
   };
 
   const loadSnapshot = (id: number) => {
-    onWindowPointerEndCaptureRef.current();
+    flushLiveSnapshotToActiveSlotRef.current();
     flushChaosToActiveSnapshot();
     setActiveSnapshot(id);
     const snap = snapshots[id] ?? createEmptySnapshot();
@@ -1287,7 +1247,7 @@ export default function App() {
     }
     try {
       const stored = normalizeSnapshotForStorage(parsed);
-      onWindowPointerEndCaptureRef.current();
+      flushLiveSnapshotToActiveSlotRef.current();
       flushChaosToActiveSnapshot();
       setActiveSnapshot(slot);
       applySnapshotDataToUi(stored, { preservePanel: true });
@@ -1468,6 +1428,21 @@ export default function App() {
       });
     });
   };
+
+  const tempoLiveRafRef = useRef<number | null>(null);
+  const onTempoLive = useCallback((n: number) => {
+    tempoRef.current = n;
+    if (tempoLiveRafRef.current !== null) return;
+    tempoLiveRafRef.current = requestAnimationFrame(() => {
+      tempoLiveRafRef.current = null;
+      const v = tempoRef.current;
+      setTempo((prev) => (prev === v ? prev : v));
+    });
+  }, []);
+
+  const onChaosLive = useCallback((n: number) => {
+    chaosLevelRef.current = n;
+  }, []);
 
   const clearPlayheadScheduling = () => {
     if (playheadTimerRef.current !== null) {
@@ -1808,45 +1783,18 @@ export default function App() {
               >
                 <Minus size={18} strokeWidth={2.5} />
               </button>
-              <div
-                className="flex-1 relative flex items-center h-8 min-w-0 cursor-pointer touch-none"
-                onPointerDown={(e) => {
-                  const el = e.currentTarget;
-                  el.setPointerCapture(e.pointerId);
-                  const rect = el.getBoundingClientRect();
-                  const thumbHalf = 24;
-                  const updateTempo = (clientX: number) => {
-                    const activeWidth = rect.width - thumbHalf * 2;
-                    const x = Math.max(0, Math.min(activeWidth, clientX - rect.left - thumbHalf));
-                    const percent = x / Math.max(1, activeWidth);
-                    setTempo(Math.round(20 + percent * 380));
-                  };
-                  updateTempo(e.clientX);
-                  const onMove = (moveEvt: PointerEvent) => {
-                    updateTempo(moveEvt.clientX);
-                  };
-                  const onUp = () => {
-                    el.removeEventListener('pointermove', onMove);
-                    el.removeEventListener('pointerup', onUp);
-                    el.releasePointerCapture(e.pointerId);
-                  };
-                  el.addEventListener('pointermove', onMove);
-                  el.addEventListener('pointerup', onUp);
+              <FastSlider
+                variant="tempoTrack"
+                compact
+                min={20}
+                max={400}
+                value={tempo}
+                onLiveChange={onTempoLive}
+                onCommit={(v) => {
+                  tempoRef.current = v;
+                  setTempo(v);
                 }}
-              >
-                <div className="absolute w-full h-1.5 bg-[#0b101e] rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-[#364976]"
-                    style={{ width: `calc(24px + ${((tempo - 20) / 380)} * calc(100% - 48px))` }}
-                  />
-                </div>
-                <div
-                  className="absolute z-10 bg-[#23314f] border border-[#2f4066] px-3 w-12 text-center py-1 rounded-full text-sm font-bold shadow-md -translate-x-1/2 flex items-center justify-center select-none"
-                  style={{ left: `calc(24px + ${((tempo - 20) / 380)} * calc(100% - 48px))` }}
-                >
-                  {tempo}
-                </div>
-              </div>
+              />
               <button
                 type="button"
                 onClick={() => setTempo((t) => Math.min(400, t + 1))}
@@ -1938,16 +1886,19 @@ export default function App() {
                       </span>
                       <span className="text-purple-300 font-mono text-xs font-bold">{chaosLevel}</span>
                      </div>
-                     <input 
-                        type="range" 
-                      min={0}
-                      max={100}
-                      value={chaosLevel}
-                      onChange={(e) => setChaosLevel(parseInt(e.target.value, 10))}
-                      onPointerUp={() => flushChaosToActiveSnapshot()}
-                      onPointerCancel={() => flushChaosToActiveSnapshot()}
-                      onBlur={() => flushChaosToActiveSnapshot()}
-                        className="w-full h-2 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110"
+                     <FastSlider
+                        variant="native"
+                        min={0}
+                        max={100}
+                        value={chaosLevel}
+                        onLiveChange={onChaosLive}
+                        onCommit={(v) => {
+                          chaosLevelRef.current = v;
+                          setChaosLevel(v);
+                          flushChaosToActiveSnapshot();
+                        }}
+                        className="flex w-full min-w-0 flex-row items-center gap-2"
+                        rangeClassName="w-full h-2 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110"
                       />
                   </div>
 
@@ -1975,47 +1926,17 @@ export default function App() {
                     >
                       <Minus size={18} strokeWidth={2.5} />
                     </button>
-                    <div 
-                      className="flex-1 relative flex items-center h-8 cursor-pointer touch-none"
-                      onPointerDown={(e) => {
-                        const el = e.currentTarget;
-                        el.setPointerCapture(e.pointerId);
-                        const rect = el.getBoundingClientRect();
-                        const updateTempo = (clientX: number) => {
-                          const thumbHalf = 24;
-                          const activeWidth = rect.width - thumbHalf * 2;
-                          const x = Math.max(0, Math.min(activeWidth, clientX - rect.left - thumbHalf));
-                          const percent = x / Math.max(1, activeWidth);
-                          setTempo(Math.round(20 + percent * 380));
-                        };
-                        updateTempo(e.clientX);
-                        
-                        const onMove = (moveEvt: PointerEvent) => {
-                          updateTempo(moveEvt.clientX);
-                        };
-                        const onUp = () => {
-                          el.removeEventListener('pointermove', onMove);
-                          el.removeEventListener('pointerup', onUp);
-                          el.releasePointerCapture(e.pointerId);
-                        };
-                        
-                        el.addEventListener('pointermove', onMove);
-                        el.addEventListener('pointerup', onUp);
+                    <FastSlider
+                      variant="tempoTrack"
+                      min={20}
+                      max={400}
+                      value={tempo}
+                      onLiveChange={onTempoLive}
+                      onCommit={(v) => {
+                        tempoRef.current = v;
+                        setTempo(v);
                       }}
-                    >
-                      <div className="absolute w-full h-1.5 bg-[#0b101e] rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-[#364976]" 
-                          style={{ width: `calc(24px + ${((tempo - 20) / 380)} * calc(100% - 48px))` }}
-                        />
-                      </div>
-                      <div 
-                        className="absolute z-10 bg-[#23314f] border border-[#2f4066] px-3 w-12 text-center py-1 rounded-full text-sm font-bold shadow-md -translate-x-1/2 flex items-center justify-center select-none"
-                        style={{ left: `calc(24px + ${((tempo - 20) / 380)} * calc(100% - 48px))` }}
-                      >
-                        {tempo}
-                      </div>
-                    </div>
+                    />
                     <button 
                       type="button"
                       onClick={() => setTempo((t) => Math.min(400, t + 1))}
@@ -2120,17 +2041,23 @@ export default function App() {
                   <Snowflake size={12} />
                 </button>
               </div>
-              <input 
-                type="range" 
-                min="1" 
-                max="32" 
-                value={bars} 
-                onPointerDown={() => {
-                  barsSliderDraggingRef.current = true;
-                  attachSliderWindowListeners();
+              <FastSlider
+                variant="native"
+                min={1}
+                max={32}
+                value={bars}
+                onLiveChange={(n) => {
+                  barsRef.current = n;
                 }}
-                onChange={(e) => setBars(parseInt(e.target.value, 10))} 
-                className="flex-1 h-3 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-blue-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110" 
+                onCommit={(v) => {
+                  barsRef.current = v;
+                  setBars(v);
+                }}
+                className="flex flex-1 items-center gap-2 min-w-0"
+                rangeClassName="flex-1 h-3 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-blue-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110"
+                renderTrailing={(loc) => (
+                  <span className="w-7 shrink-0 text-center text-[11px] font-bold text-slate-500 tabular-nums">{loc}</span>
+                )}
               />
               <div className="w-5 shrink-0 flex justify-end">
                 <input 
@@ -2160,21 +2087,24 @@ export default function App() {
                   {/* Global Syllables Slider */}
                   <div className={`absolute inset-0 flex items-center gap-2 transition-all duration-300 ${(activeEditCell !== null || activeEditRow !== null) ? 'opacity-0 pointer-events-none scale-y-50' : 'opacity-100 scale-y-100'}`}>
                     <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold w-12 shrink-0">Syllbs</span>
-                    <input 
-                      type="range" 
-                      min="1" 
-                      max="9" 
-                      value={syllables} 
-                      onPointerDown={() => {
-                        syllablesSliderDraggingRef.current = true;
-                        attachSliderWindowListeners();
+                    <FastSlider
+                      variant="native"
+                      min={1}
+                      max={9}
+                      value={syllables}
+                      onLiveChange={(n) => {
+                        syllablesRef.current = n;
                       }}
-                      onChange={(e) => setSyllables(parseInt(e.target.value, 10))} 
-                      className="flex-1 h-3 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-emerald-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110" 
+                      onCommit={(v) => {
+                        syllablesRef.current = v;
+                        setSyllables(v);
+                      }}
+                      className="flex flex-1 items-center gap-2 min-w-0"
+                      rangeClassName="flex-1 h-3 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-emerald-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110"
+                      renderTrailing={(loc) => (
+                        <span className="w-5 shrink-0 py-1 text-xs font-bold text-slate-300 text-right tabular-nums">{loc}</span>
+                      )}
                     />
-                    <div className="w-5 shrink-0 flex justify-end">
-                      <span className="w-full py-1 text-xs font-bold text-slate-300 text-right">{syllables}</span>
-                    </div>
                   </div>
 
                   {/* Specific Bar Syllables Slider */}
