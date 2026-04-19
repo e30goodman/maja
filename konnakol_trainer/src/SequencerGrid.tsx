@@ -279,7 +279,7 @@ const SequencerGridRow = React.memo(
 							});
 						}}
 						title="Tap: +1 syllable in bar. Hold: unlink bar length from pulse (timing uses 4 base). Right-click: reset bar to global syllables."
-						className={`flex-1 rounded-md border flex items-center justify-center text-[10px] font-extrabold shadow-[inset_0_1px_3px_rgba(0,0,0,0.1)] min-h-[50%] transition-colors bg-[#1e2a45] border-[#2f4066] text-slate-400 hover:bg-[#253353] active:bg-[#1a253c] ${
+						className={`flex-1 rounded-md border flex items-center justify-center text-[12px] font-extrabold leading-none shadow-[inset_0_1px_3px_rgba(0,0,0,0.1)] min-h-[50%] transition-colors bg-[#1e2a45] border-[#2f4066] text-slate-400 hover:bg-[#253353] active:bg-[#1a253c] ${
 							activeEditRow === rIdx
 								? 'ring-2 ring-purple-500 shadow-purple-500/30'
 								: pulseUnlinkedRow
