@@ -1098,12 +1098,75 @@ export default function App() {
           >
             <Settings size={20} />
           </button>
-          <button 
-            onClick={handleTap}
-            className="flex-1 py-3 bg-[#161f33] rounded-xl border border-[#23314f] font-semibold text-slate-300 tracking-wide hover:bg-[#1a253c] active:bg-purple-900/50 active:border-purple-500/50 active:text-purple-100 transition-all active:scale-95 duration-75"
-          >
-            Tap
-          </button>
+          {!isPanelExpanded && !showRandomSettings ? (
+            <div className="flex-1 flex items-center gap-0.5 min-w-0 py-2 px-1.5 bg-[#161f33] rounded-xl border border-[#23314f] touch-none">
+              <button
+                type="button"
+                onClick={() => setTempo((t) => Math.max(20, t - 1))}
+                className="p-1 shrink-0 bg-[#23314f] rounded-md text-slate-300 hover:bg-[#2c3d63] active:bg-[#1b253b] transition-colors"
+              >
+                <Minus size={14} strokeWidth={2.5} />
+              </button>
+              <div
+                className="flex-1 relative flex items-center h-7 min-w-0 cursor-pointer touch-none"
+                onPointerDown={(e) => {
+                  const el = e.currentTarget;
+                  el.setPointerCapture(e.pointerId);
+                  const rect = el.getBoundingClientRect();
+                  const thumbHalf = 8;
+                  const updateTempo = (clientX: number) => {
+                    const activeWidth = rect.width - thumbHalf * 2;
+                    const x = Math.max(0, Math.min(activeWidth, clientX - rect.left - thumbHalf));
+                    const percent = x / Math.max(1, activeWidth);
+                    setTempo(Math.round(20 + percent * 380));
+                  };
+                  updateTempo(e.clientX);
+                  const onMove = (moveEvt: PointerEvent) => {
+                    updateTempo(moveEvt.clientX);
+                  };
+                  const onUp = () => {
+                    el.removeEventListener('pointermove', onMove);
+                    el.removeEventListener('pointerup', onUp);
+                    el.releasePointerCapture(e.pointerId);
+                  };
+                  el.addEventListener('pointermove', onMove);
+                  el.addEventListener('pointerup', onUp);
+                }}
+              >
+                <div className="absolute w-full h-1 bg-[#0b101e] rounded-full overflow-hidden left-0 right-0">
+                  <div
+                    className="h-full bg-[#364976]"
+                    style={{
+                      width: `calc(16px + ${((tempo - 20) / 380)} * calc(100% - 32px))`,
+                    }}
+                  />
+                </div>
+                <div
+                  className="absolute z-10 bg-[#23314f] border border-[#2f4066] w-7 text-center py-0.5 rounded-full text-[10px] font-bold shadow-md -translate-x-1/2 flex items-center justify-center select-none"
+                  style={{
+                    left: `calc(16px + ${((tempo - 20) / 380)} * calc(100% - 32px))`,
+                  }}
+                >
+                  {tempo}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTempo((t) => Math.min(400, t + 1))}
+                className="p-1 shrink-0 bg-[#23314f] rounded-md text-slate-300 hover:bg-[#2c3d63] active:bg-[#1b253b] transition-colors"
+              >
+                <Plus size={14} strokeWidth={2.5} />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={handleTap}
+              className="flex-1 py-3 bg-[#161f33] rounded-xl border border-[#23314f] font-semibold text-slate-300 tracking-wide hover:bg-[#1a253c] active:bg-purple-900/50 active:border-purple-500/50 active:text-purple-100 transition-all active:scale-95 duration-75"
+            >
+              Tap
+            </button>
+          )}
           <button 
             onClick={clearSequencer}
             className="p-3 bg-[#161f33] rounded-xl border border-[#23314f] text-slate-400 hover:text-red-400 hover:border-red-500/30 active:bg-red-500/20 transition-all duration-200"
@@ -1199,63 +1262,67 @@ export default function App() {
             </div>
           ) : (
             <>
-              <div className="px-2.5 pt-3 pb-1">
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setTempo(t => Math.max(20, t - 1))}
-                    className="p-2 bg-[#23314f] rounded-lg text-slate-300 hover:bg-[#2c3d63] active:bg-[#1b253b] transition-colors shrink-0"
-                  >
-                    <Minus size={18} strokeWidth={2.5} />
-                  </button>
-                  <div
-                    className="flex-1 relative flex items-center h-8 cursor-pointer touch-none"
-                    onPointerDown={(e) => {
-                      const el = e.currentTarget;
-                      el.setPointerCapture(e.pointerId);
-                      const rect = el.getBoundingClientRect();
-                      const updateTempo = (clientX: number) => {
-                        const thumbHalf = 24;
-                        const activeWidth = rect.width - thumbHalf * 2;
-                        const x = Math.max(0, Math.min(activeWidth, clientX - rect.left - thumbHalf));
-                        const percent = x / Math.max(1, activeWidth);
-                        setTempo(Math.round(20 + percent * 380));
-                      };
-                      updateTempo(e.clientX);
-
-                      const onMove = (moveEvt: PointerEvent) => {
-                        updateTempo(moveEvt.clientX);
-                      };
-                      const onUp = () => {
-                        el.removeEventListener('pointermove', onMove);
-                        el.removeEventListener('pointerup', onUp);
-                        el.releasePointerCapture(e.pointerId);
-                      };
-
-                      el.addEventListener('pointermove', onMove);
-                      el.addEventListener('pointerup', onUp);
-                    }}
-                  >
-                    <div className="absolute w-full h-1.5 bg-[#0b101e] rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-[#364976]"
-                        style={{ width: `calc(24px + ${((tempo - 20) / 380)} * calc(100% - 48px))` }}
-                      />
-                    </div>
-                    <div
-                      className="absolute z-10 bg-[#23314f] border border-[#2f4066] px-3 w-12 text-center py-1 rounded-full text-sm font-bold shadow-md -translate-x-1/2 flex items-center justify-center select-none"
-                      style={{ left: `calc(24px + ${((tempo - 20) / 380)} * calc(100% - 48px))` }}
+              {isPanelExpanded ? (
+                <div className="px-2.5 pt-3 pb-1">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setTempo((t) => Math.max(20, t - 1))}
+                      className="p-2 bg-[#23314f] rounded-lg text-slate-300 hover:bg-[#2c3d63] active:bg-[#1b253b] transition-colors shrink-0"
                     >
-                      {tempo}
+                      <Minus size={18} strokeWidth={2.5} />
+                    </button>
+                    <div
+                      className="flex-1 relative flex items-center h-8 cursor-pointer touch-none"
+                      onPointerDown={(e) => {
+                        const el = e.currentTarget;
+                        el.setPointerCapture(e.pointerId);
+                        const rect = el.getBoundingClientRect();
+                        const updateTempo = (clientX: number) => {
+                          const thumbHalf = 24;
+                          const activeWidth = rect.width - thumbHalf * 2;
+                          const x = Math.max(0, Math.min(activeWidth, clientX - rect.left - thumbHalf));
+                          const percent = x / Math.max(1, activeWidth);
+                          setTempo(Math.round(20 + percent * 380));
+                        };
+                        updateTempo(e.clientX);
+
+                        const onMove = (moveEvt: PointerEvent) => {
+                          updateTempo(moveEvt.clientX);
+                        };
+                        const onUp = () => {
+                          el.removeEventListener('pointermove', onMove);
+                          el.removeEventListener('pointerup', onUp);
+                          el.releasePointerCapture(e.pointerId);
+                        };
+
+                        el.addEventListener('pointermove', onMove);
+                        el.addEventListener('pointerup', onUp);
+                      }}
+                    >
+                      <div className="absolute w-full h-1.5 bg-[#0b101e] rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-[#364976]"
+                          style={{ width: `calc(24px + ${((tempo - 20) / 380)} * calc(100% - 48px))` }}
+                        />
+                      </div>
+                      <div
+                        className="absolute z-10 bg-[#23314f] border border-[#2f4066] px-3 w-12 text-center py-1 rounded-full text-sm font-bold shadow-md -translate-x-1/2 flex items-center justify-center select-none"
+                        style={{ left: `calc(24px + ${((tempo - 20) / 380)} * calc(100% - 48px))` }}
+                      >
+                        {tempo}
+                      </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => setTempo((t) => Math.min(400, t + 1))}
+                      className="p-2 bg-[#23314f] rounded-lg text-slate-300 hover:bg-[#2c3d63] active:bg-[#1b253b] transition-colors shrink-0"
+                    >
+                      <Plus size={18} strokeWidth={2.5} />
+                    </button>
                   </div>
-                  <button
-                    onClick={() => setTempo(t => Math.min(400, t + 1))}
-                    className="p-2 bg-[#23314f] rounded-lg text-slate-300 hover:bg-[#2c3d63] active:bg-[#1b253b] transition-colors shrink-0"
-                  >
-                    <Plus size={18} strokeWidth={2.5} />
-                  </button>
                 </div>
-              </div>
+              ) : null}
               <div
                 className={`grid transition-all duration-300 ${isPanelExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
               >
