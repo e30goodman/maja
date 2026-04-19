@@ -36,13 +36,16 @@ function pickWeightedMeter2to9(chaos: number): number {
 
 function pickAccentCountForBar(chaos: number, curSyl: number): number {
 	const x = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
-	if (x < 1) return 0;
+	if (curSyl < 1) return 0;
+	const minAcc = Math.min(curSyl, x > 15 ? 2 : 1);
+	const maxCap = Math.min(curSyl, Math.max(minAcc, Math.floor(curSyl * 0.9)));
 	const ratio = accentFillRatioFromChaos(x);
 	const cap = Math.floor(curSyl * ratio);
 	const spread = 1 + Math.floor(curSyl * 0.12);
 	const jitter = Math.floor((Math.random() - 0.5) * spread);
-	const n = Math.max(0, Math.min(curSyl, cap + jitter));
-	return Math.min(n, Math.floor(curSyl * 0.9));
+	let n = Math.max(0, Math.min(curSyl, cap + jitter));
+	n = Math.min(maxCap, Math.max(minAcc, n));
+	return n;
 }
 
 function pickBarSpeedMultiplier(chaos: number): number {
