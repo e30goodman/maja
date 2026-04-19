@@ -49,16 +49,30 @@ function normalizePulseMeterUnlinked(raw: unknown): Record<number, boolean> {
 	}
 	return out;
 }
-/** Random pulsation: пул пульсов по ручке chaos (равномерный выбор внутри пула). */
+/** Random pulsation: пул по chaos; Ta (1) с сильно пониженным весом относительно 2–9. */
 const RANDOM_PULSE_POOL_LE_30 = [1, 2, 3, 4, 5] as const;
 const RANDOM_PULSE_POOL_LE_70 = [1, 2, 3, 4, 5, 6, 7] as const;
 const RANDOM_PULSE_POOL_FULL = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
+/** Вес «1» vs вес каждого из остальных (=1). ~0.06 → P(Ta) порядка 1–2% в полном пуле. */
+const RANDOM_PULSE_TA_WEIGHT = 0.06;
 
 function pickRandomPulsationMeter(chaos: number): number {
 	const c = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
-	if (c <= 30) return RANDOM_PULSE_POOL_LE_30[Math.floor(Math.random() * RANDOM_PULSE_POOL_LE_30.length)]!;
-	if (c <= 70) return RANDOM_PULSE_POOL_LE_70[Math.floor(Math.random() * RANDOM_PULSE_POOL_LE_70.length)]!;
-	return RANDOM_PULSE_POOL_FULL[Math.floor(Math.random() * RANDOM_PULSE_POOL_FULL.length)]!;
+	const pool =
+		c <= 30 ? RANDOM_PULSE_POOL_LE_30 : c <= 70 ? RANDOM_PULSE_POOL_LE_70 : RANDOM_PULSE_POOL_FULL;
+	let sum = 0;
+	const w: number[] = [];
+	for (const v of pool) {
+		const wi = v === 1 ? RANDOM_PULSE_TA_WEIGHT : 1;
+		w.push(wi);
+		sum += wi;
+	}
+	let r = Math.random() * sum;
+	for (let i = 0; i < pool.length; i++) {
+		r -= w[i]!;
+		if (r <= 0) return pool[i]!;
+	}
+	return pool[pool.length - 1]!;
 }
 
 /** Доля акцентуемых долей: 0→0, 25→25%, 50→50%, 75→75%, 100→90% (кусочно-линейно). */
@@ -70,7 +84,7 @@ function accentFillRatioFromChaos(c: number): number {
 	return 0.75 + (x - 75) * (0.15 / 25);
 }
 
-/** Random pulsation (длина такта / поддоли): chaos≤30 → 1–5; 31–70 → 1–7; >70 → 1–9. */
+/** Random pulsation (длина такта / поддоли): chaos≤30 → 1–5; 31–70 → 1–7; >70 → 1–9; единица редкая. */
 function pickWeightedMeter2to9(chaos: number): number {
 	return pickRandomPulsationMeter(chaos);
 }
