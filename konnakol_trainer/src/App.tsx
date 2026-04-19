@@ -349,7 +349,17 @@ function loadSnapshotStorage(): {
 	return { activeSnapshot, snapshots };
 }
 
-const playSharpClick = (ctx: AudioContext, time: number, isChecked: boolean, soundType: 'modern' | 'oldschool' = 'modern') => {
+/**
+ * @param accentOnlyPlayback When true, only accented steps sound — blend accent with passive timbre.
+ *   When false, passive steps also sound — accented hits use accent-only (high) to avoid doubling + clipping.
+ */
+const playSharpClick = (
+  ctx: AudioContext,
+  time: number,
+  isChecked: boolean,
+  soundType: 'modern' | 'oldschool' = 'modern',
+  accentOnlyPlayback = false,
+) => {
   // Old school = same as legacy maja `konnakol_metronome` (triangle + pitch sweep).
   if (soundType === 'oldschool') {
     const osc = ctx.createOscillator();
@@ -369,11 +379,40 @@ const playSharpClick = (ctx: AudioContext, time: number, isChecked: boolean, sou
     return;
   }
 
+  if (isChecked && accentOnlyPlayback) {
+    const decay = 0.042;
+    const oscLo = ctx.createOscillator();
+    const oscHi = ctx.createOscillator();
+    const gLo = ctx.createGain();
+    const gHi = ctx.createGain();
+    oscLo.type = 'sine';
+    oscHi.type = 'sine';
+    oscLo.frequency.setValueAtTime(800, time);
+    oscHi.frequency.setValueAtTime(920, time);
+    const peakLo = 0.17;
+    const peakHi = 0.22;
+    gLo.gain.setValueAtTime(0, time);
+    gLo.gain.linearRampToValueAtTime(peakLo, time + 0.002);
+    gLo.gain.exponentialRampToValueAtTime(0.001, time + decay);
+    gHi.gain.setValueAtTime(0, time);
+    gHi.gain.linearRampToValueAtTime(peakHi, time + 0.002);
+    gHi.gain.exponentialRampToValueAtTime(0.001, time + decay);
+    oscLo.connect(gLo);
+    oscHi.connect(gHi);
+    gLo.connect(ctx.destination);
+    gHi.connect(ctx.destination);
+    oscLo.start(time);
+    oscHi.start(time);
+    oscLo.stop(time + decay + 0.012);
+    oscHi.stop(time + decay + 0.012);
+    return;
+  }
+
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
   osc.type = 'sine';
   osc.frequency.setValueAtTime(isChecked ? 920 : 800, time);
-  const peak = isChecked ? 0.34 : 0.28;
+  const peak = isChecked ? 0.36 : 0.28;
   const decay = 0.04;
   gain.gain.setValueAtTime(0, time);
   gain.gain.linearRampToValueAtTime(peak, time + 0.002);
@@ -1166,7 +1205,13 @@ export default function App() {
       if (!readOnlyMute) {
         const shouldPlayBeat = !onlyAccentsRef.current || isAccent;
         if (shouldPlayBeat) {
-          playSharpClick(audioCtxRef.current, subTime, isAccent && sub === 0, clickSoundRef.current);
+          playSharpClick(
+            audioCtxRef.current,
+            subTime,
+            isAccent && sub === 0,
+            clickSoundRef.current,
+            onlyAccentsRef.current,
+          );
         }
       }
     }
