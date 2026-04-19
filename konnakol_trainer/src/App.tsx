@@ -39,6 +39,9 @@ function pickWeightedRandomPulsation2to9(): number {
 
 const SNAPSHOT_SLOT_COUNT = 7;
 const SNAPSHOT_STORAGE_KEY = 'konnakolTrainerSnapshotsV1';
+/** Одна строка текста для мессенджеров; префикс отсекает посторонний JSON в буфере. */
+const SNAPSHOT_CLIPBOARD_PREFIX = 'konnakolTrainerSnapshotV1:';
+const SNAPSHOT_HOLD_MS = 450;
 
 function createEmptySnapshot() {
 	return {
@@ -134,6 +137,49 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		randomMaxNotes: s.randomMaxNotes,
 		clickSound: s.clickSound,
 	};
+}
+
+function encodeSnapshotClipboard(s: ReturnType<typeof createEmptySnapshot>): string {
+	return SNAPSHOT_CLIPBOARD_PREFIX + JSON.stringify(snapshotToJSON(s));
+}
+
+function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmptySnapshot> | null {
+	const t = text.trim();
+	if (!t.startsWith(SNAPSHOT_CLIPBOARD_PREFIX)) return null;
+	try {
+		const raw = JSON.parse(t.slice(SNAPSHOT_CLIPBOARD_PREFIX.length));
+		return parseSnapshotRow(raw);
+	} catch {
+		return null;
+	}
+}
+
+/** Слот в state: accents может быть Set — приводим к полному снепшоту для экспорта. */
+function snapshotFromSlotState(raw: unknown): ReturnType<typeof createEmptySnapshot> {
+	const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+	const acc = o.accents;
+	const accentsArr =
+		acc instanceof Set
+			? [...acc]
+			: Array.isArray(acc)
+				? acc.filter((x): x is string => typeof x === 'string')
+				: [];
+	return parseSnapshotRow({
+		tempo: o.tempo,
+		bars: o.bars,
+		syllables: o.syllables,
+		accents: accentsArr,
+		customSyllables: o.customSyllables,
+		customMultipliers: o.customMultipliers,
+		customSubdivisions: o.customSubdivisions,
+		randomModeEnabled: o.randomModeEnabled,
+		randomPulsation: o.randomPulsation,
+		randomPattern: o.randomPattern,
+		randomSpeed: o.randomSpeed,
+		randomBarSpeed: o.randomBarSpeed,
+		randomMaxNotes: o.randomMaxNotes,
+		clickSound: o.clickSound,
+	});
 }
 
 function loadSnapshotStorage(): {
@@ -282,6 +328,14 @@ export default function App() {
     return out;
   });
 
+  const snapshotsRef = useRef(snapshots);
+  snapshotsRef.current = snapshots;
+  const activeSnapshotRef = useRef(activeSnapshot);
+  activeSnapshotRef.current = activeSnapshot;
+  const snapshotHoldTimerRef = useRef<number | null>(null);
+  const snapshotHoldSlotRef = useRef<number | null>(null);
+  const snapshotHoldAteClickRef = useRef(false);
+
   const persistSnapshotsTimerRef = useRef<number | null>(null);
 
   const [activeEditCell, setActiveEditCell] = useState<string | null>(null);
@@ -401,6 +455,23 @@ export default function App() {
   useEffect(() => { clickSoundRef.current = clickSound; }, [clickSound]);
   useEffect(() => { frozenScaleRef.current = frozenScale; }, [frozenScale]);
 
+  const buildLiveSnapshotFromRefs = (): ReturnType<typeof createEmptySnapshot> => ({
+    tempo: tempoRef.current,
+    bars: barsRef.current,
+    syllables: syllablesRef.current,
+    accents: new Set(accentsRef.current),
+    customSyllables: { ...customSyllablesRef.current },
+    customMultipliers: { ...customMultipliersRef.current },
+    customSubdivisions: { ...customSubdivisionsRef.current },
+    randomModeEnabled: randomModeEnabledRef.current,
+    randomPulsation: randomPulsationRef.current,
+    randomPattern: randomPatternRef.current,
+    randomSpeed: randomSpeedRef.current,
+    randomBarSpeed: randomBarSpeedRef.current,
+    randomMaxNotes: randomMaxNotesRef.current,
+    clickSound: clickSoundRef.current,
+  });
+
   /** All pattern rows fit in the phone frame: no virtual strip, no playhead autoscroll. */
   const allBarsFitViewport = frozenScale === null && bars <= 10;
 
@@ -485,62 +556,91 @@ export default function App() {
     };
   }, [snapshots, activeSnapshot]);
 
+  const applySnapshotDataToUi = (snap: ReturnType<typeof createEmptySnapshot>) => {
+    setTempo(snap.tempo);
+    setBars(snap.bars);
+    setSyllables(snap.syllables);
+    setAccents(
+      new Set(
+        Array.isArray(snap.accents)
+          ? snap.accents
+          : snap.accents instanceof Set
+            ? [...snap.accents]
+            : [],
+      ),
+    );
+    setCustomSyllables({ ...snap.customSyllables });
+    setCustomMultipliers({ ...(snap.customMultipliers || {}) });
+    setCustomSubdivisions({ ...(snap.customSubdivisions || {}) });
+    setRandomModeEnabled(
+      snap.randomModeEnabled !== undefined ? Boolean(snap.randomModeEnabled) : false,
+    );
+    setRandomPulsation(
+      snap.randomPulsation !== undefined ? Boolean(snap.randomPulsation) : false,
+    );
+    setRandomPattern(
+      snap.randomPattern !== undefined ? Boolean(snap.randomPattern) : true,
+    );
+    setRandomSpeed(
+      snap.randomSpeed !== undefined ? Boolean(snap.randomSpeed) : false,
+    );
+    setRandomBarSpeed(
+      snap.randomBarSpeed !== undefined ? Boolean(snap.randomBarSpeed) : false,
+    );
+    setRandomMaxNotes(
+      typeof snap.randomMaxNotes === 'number' && snap.randomMaxNotes >= 0 && snap.randomMaxNotes <= 9
+        ? snap.randomMaxNotes
+        : 0,
+    );
+    setClickSound(snap.clickSound === 'oldschool' ? 'oldschool' : 'modern');
+  };
+
   const loadSnapshot = (id: number) => {
-    const snap = snapshots[id];
     setActiveSnapshot(id);
+    const snap = snapshots[id];
     if (snap) {
-      setTempo(snap.tempo);
-      setBars(snap.bars);
-      setSyllables(snap.syllables);
-      setAccents(
-        new Set(
-          Array.isArray(snap.accents)
-            ? snap.accents
-            : snap.accents instanceof Set
-              ? [...snap.accents]
-              : [],
-        ),
-      );
-      setCustomSyllables({ ...snap.customSyllables });
-      setCustomMultipliers({ ...(snap.customMultipliers || {}) });
-      setCustomSubdivisions({ ...(snap.customSubdivisions || {}) });
-      setRandomModeEnabled(
-        snap.randomModeEnabled !== undefined ? Boolean(snap.randomModeEnabled) : false,
-      );
-      setRandomPulsation(
-        snap.randomPulsation !== undefined ? Boolean(snap.randomPulsation) : false,
-      );
-      setRandomPattern(
-        snap.randomPattern !== undefined ? Boolean(snap.randomPattern) : true,
-      );
-      setRandomSpeed(
-        snap.randomSpeed !== undefined ? Boolean(snap.randomSpeed) : false,
-      );
-      setRandomBarSpeed(
-        snap.randomBarSpeed !== undefined ? Boolean(snap.randomBarSpeed) : false,
-      );
-      setRandomMaxNotes(
-        typeof snap.randomMaxNotes === 'number' && snap.randomMaxNotes >= 0 && snap.randomMaxNotes <= 9
-          ? snap.randomMaxNotes
-          : 0,
-      );
-      setClickSound(snap.clickSound === 'oldschool' ? 'oldschool' : 'modern');
+      applySnapshotDataToUi(snap);
     } else {
-      // Initialize an empty layout for a completely new snapshot
-      setTempo(100);
-      setBars(4);
-      setSyllables(4);
-      setAccents(new Set());
-      setCustomSyllables({});
-      setCustomMultipliers({});
-      setCustomSubdivisions({});
-      setRandomModeEnabled(false);
-      setRandomPulsation(false);
-      setRandomPattern(true);
-      setRandomSpeed(false);
-      setRandomBarSpeed(false);
-      setRandomMaxNotes(0);
-      setClickSound('modern');
+      applySnapshotDataToUi(createEmptySnapshot());
+    }
+  };
+
+  const normalizeSnapshotForStorage = (
+    s: ReturnType<typeof createEmptySnapshot>,
+  ): ReturnType<typeof createEmptySnapshot> => ({
+    ...s,
+    accents: s.accents instanceof Set ? new Set(s.accents) : new Set(Array.isArray(s.accents) ? s.accents : []),
+    customSyllables: { ...s.customSyllables },
+    customMultipliers: { ...s.customMultipliers },
+    customSubdivisions: { ...s.customSubdivisions },
+  });
+
+  const runSnapshotSlotHold = async (slot: number) => {
+    const slotSnap = snapshotsRef.current[slot] ?? createEmptySnapshot();
+    const emptyInactive =
+      activeSnapshotRef.current !== slot && !snapSlotLooksUsed(slotSnap);
+    try {
+      if (emptyInactive) {
+        const text = await navigator.clipboard.readText();
+        const parsed = tryDecodeSnapshotClipboard(text);
+        if (!parsed) {
+          console.warn('[konnakol_trainer] paste: clipboard has no valid trainer snapshot');
+          return;
+        }
+        const stored = normalizeSnapshotForStorage(parsed);
+        setSnapshots((prev) => ({ ...prev, [slot]: stored }));
+        if (activeSnapshotRef.current === slot) {
+          applySnapshotDataToUi(stored);
+        }
+      } else {
+        const payload =
+          activeSnapshotRef.current === slot
+            ? buildLiveSnapshotFromRefs()
+            : snapshotFromSlotState(snapshotsRef.current[slot]);
+        await navigator.clipboard.writeText(encodeSnapshotClipboard(payload));
+      }
+    } catch (e) {
+      console.warn('[konnakol_trainer] clipboard read/write failed', e);
     }
   };
 
@@ -594,6 +694,10 @@ export default function App() {
   useEffect(() => {
     return () => {
       if (timerIDRef.current) clearTimeout(timerIDRef.current);
+      if (snapshotHoldTimerRef.current !== null) {
+        window.clearTimeout(snapshotHoldTimerRef.current);
+        snapshotHoldTimerRef.current = null;
+      }
       if (squareHoldTimerRef.current !== null) {
         window.clearTimeout(squareHoldTimerRef.current);
         squareHoldTimerRef.current = null;
@@ -1049,17 +1153,66 @@ export default function App() {
                         const hasData =
                           isActive || snapSlotLooksUsed(snapshots[num] ?? createEmptySnapshot());
                         
+                        const emptyInactive =
+                          !isActive && !snapSlotLooksUsed(snapshots[num] ?? createEmptySnapshot());
                         return (
-                          <button 
-                            key={num} 
-                            onClick={() => loadSnapshot(num)}
-                            className={`w-8 h-8 flex items-center justify-center rounded-full text-[13px] font-bold transition-all ${
+                          <button
+                            key={num}
+                            type="button"
+                            title={
+                              emptyInactive
+                                ? 'Коротко: открыть слот. Удерживание: вставить из буфера'
+                                : 'Коротко: открыть слот. Удерживание: скопировать настройки в буфер'
+                            }
+                            className={`w-8 h-8 flex items-center justify-center rounded-full text-[13px] font-bold transition-all touch-none select-none ${
                               isActive
-                                ? 'bg-[#1e2a45] text-white shadow-sm ring-1 ring-[#3a5080] scale-110' 
-                                : hasData 
+                                ? 'bg-[#1e2a45] text-white shadow-sm ring-1 ring-[#3a5080] scale-110'
+                                : hasData
                                   ? 'text-slate-300 bg-[#1e2a45]/30 hover:bg-[#1e2a45]/60 hover:text-white'
                                   : 'text-slate-600 hover:text-slate-400'
                             }`}
+                            onPointerDown={() => {
+                              snapshotHoldAteClickRef.current = false;
+                              snapshotHoldSlotRef.current = num;
+                              if (snapshotHoldTimerRef.current !== null) {
+                                window.clearTimeout(snapshotHoldTimerRef.current);
+                                snapshotHoldTimerRef.current = null;
+                              }
+                              snapshotHoldTimerRef.current = window.setTimeout(() => {
+                                snapshotHoldTimerRef.current = null;
+                                const s = snapshotHoldSlotRef.current;
+                                snapshotHoldSlotRef.current = null;
+                                if (s == null) return;
+                                snapshotHoldAteClickRef.current = true;
+                                void runSnapshotSlotHold(s);
+                              }, SNAPSHOT_HOLD_MS);
+                            }}
+                            onPointerUp={() => {
+                              if (snapshotHoldTimerRef.current !== null) {
+                                window.clearTimeout(snapshotHoldTimerRef.current);
+                                snapshotHoldTimerRef.current = null;
+                              }
+                            }}
+                            onPointerLeave={() => {
+                              if (snapshotHoldTimerRef.current !== null) {
+                                window.clearTimeout(snapshotHoldTimerRef.current);
+                                snapshotHoldTimerRef.current = null;
+                              }
+                            }}
+                            onPointerCancel={() => {
+                              if (snapshotHoldTimerRef.current !== null) {
+                                window.clearTimeout(snapshotHoldTimerRef.current);
+                                snapshotHoldTimerRef.current = null;
+                              }
+                            }}
+                            onClick={() => {
+                              if (snapshotHoldAteClickRef.current) {
+                                snapshotHoldAteClickRef.current = false;
+                                return;
+                              }
+                              loadSnapshot(num);
+                            }}
+                            onContextMenu={(e) => e.preventDefault()}
                           >
                             {num}
                           </button>
