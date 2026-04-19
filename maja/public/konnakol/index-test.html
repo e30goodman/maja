@@ -1286,7 +1286,8 @@
             align-items: stretch;
             justify-content: center;
             position: relative;
-            background: var(--slate-800);
+            /* test: без заливки — чтобы текст силлаблов не перекрывался визуально */
+            background: transparent;
             padding: calc(clamp(6px, calc(10px - (min(var(--bars-count), 3) * 0.45px)), 8px) * var(--bar-scale) * var(--tact-h, 1));
             border-radius: calc(0.5rem * var(--bar-scale));
             height: auto;
@@ -1315,7 +1316,7 @@
         }
         .cell.cell-tempo-hold-active {
             border-color: rgba(248, 113, 113, 0.85) !important;
-            background: rgba(127, 29, 29, 0.32);
+            background: transparent;
             animation: tempo-hold-cell-pulse 0.85s ease-in-out infinite;
         }
         .cell:focus-visible {
@@ -1364,7 +1365,7 @@
         }
         .cell.rhythm-note-on {
             border-color: var(--violet-500);
-            background: rgba(124, 58, 237, 0.22);
+            background: transparent;
             color: var(--text);
             box-shadow: 0 0 10px rgba(139, 92, 246, 0.25);
         }
@@ -1372,7 +1373,7 @@
             color: var(--text);
         }
         .cell.playing {
-            background: var(--playback-bg);
+            background: transparent;
             color: var(--text);
             border-color: var(--playback-border);
             box-shadow: 0 0 14px var(--playback-glow);
@@ -1382,7 +1383,7 @@
             color: #fecdd3;
         }
         .cell.rhythm-note-on.playing {
-            background: var(--playback-bg-strong);
+            background: transparent;
             border-color: var(--rose-500);
             box-shadow: 0 0 18px rgba(244, 63, 94, 0.58), 0 0 0 1px rgba(251, 113, 133, 0.35) inset;
         }
@@ -1392,12 +1393,12 @@
         .cell.tempo-boost {
             border-color: var(--playback-border);
             box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.24) inset;
-            background: rgba(244, 63, 94, 0.12);
+            background: transparent;
         }
         .cell.tempo-boost-x3 {
             border-color: #f43f5e;
             box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.34) inset, 0 0 12px rgba(244, 63, 94, 0.22);
-            background: rgba(244, 63, 94, 0.20);
+            background: transparent;
         }
         .cell-speed-badge {
             position: absolute;
