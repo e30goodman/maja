@@ -264,6 +264,9 @@ const SNAPSHOT_FLAG_RANDOM_BAR_SPEED = 1 << 4;
 const SNAPSHOT_FLAG_PANEL_EXPANDED = 1 << 5;
 const SNAPSHOT_FLAG_ONLY_ACCENTS = 1 << 6;
 const SNAPSHOT_FLAG_FIRST_BEAT_ACCENT = 1 << 7;
+const SNAPSHOT_FLAG_POLY_MODE = 1 << 8;
+const SNAPSHOT_FLAG_POLY_VOICES_3 = 1 << 9;
+const SNAPSHOT_FLAG_POLY_VOICES_4 = 1 << 10;
 const SNAPSHOT_SOUND_ID_CLASSIC = 0;
 const SNAPSHOT_SOUND_ID_OLDSCHOOL = 1;
 
@@ -332,6 +335,153 @@ function hydrateSnapshotAccentsFromGridToken(
 	d.accents = nextAccents;
 }
 
+function encodeSparseRowNumberMap(
+	map: Record<number, number>,
+	isAllowed: (value: number) => boolean,
+): string {
+	const parts: string[] = [];
+	for (const [k, raw] of Object.entries(map)) {
+		const row = parseInt(k, 10);
+		const value = parseInt(String(raw), 10);
+		if (!Number.isFinite(row) || row < 0 || !Number.isFinite(value) || !isAllowed(value)) continue;
+		parts.push(`${row.toString(36)}:${value.toString(36)}`);
+	}
+	if (parts.length === 0) return '0';
+	parts.sort();
+	return parts.join('_');
+}
+
+function decodeSparseRowNumberMap(
+	token: string,
+	isAllowed: (value: number) => boolean,
+): Record<number, number> {
+	if (!token || token === '0') return {};
+	const out: Record<number, number> = {};
+	for (const chunk of token.split('_')) {
+		const [rowRaw, valueRaw] = chunk.split(':');
+		if (!rowRaw || !valueRaw) continue;
+		const row = parseInt(rowRaw, 36);
+		const value = parseInt(valueRaw, 36);
+		if (!Number.isFinite(row) || row < 0 || !Number.isFinite(value) || !isAllowed(value)) continue;
+		out[row] = value;
+	}
+	return out;
+}
+
+function encodePulseUnlinkedRowsToken(rows: Record<number, boolean>): string {
+	const out: string[] = [];
+	for (const [k, raw] of Object.entries(rows)) {
+		const row = parseInt(k, 10);
+		if (!Number.isFinite(row) || row < 0 || raw !== true) continue;
+		out.push(row.toString(36));
+	}
+	if (out.length === 0) return '0';
+	out.sort();
+	return out.join('_');
+}
+
+function decodePulseUnlinkedRowsToken(token: string): Record<number, boolean> {
+	if (!token || token === '0') return {};
+	const out: Record<number, boolean> = {};
+	for (const piece of token.split('_')) {
+		const row = parseInt(piece, 36);
+		if (!Number.isFinite(row) || row < 0) continue;
+		out[row] = true;
+	}
+	return out;
+}
+
+function buildCellIndexMapForSnapshot(
+	bars: number,
+	syllables: number,
+	customSyllables: Record<number, number>,
+): Array<{ key: string }> {
+	const cells: Array<{ key: string }> = [];
+	for (let r = 0; r < bars; r++) {
+		const rowSylls = customSyllables[r] !== undefined ? customSyllables[r] : syllables;
+		for (let c = 0; c < rowSylls; c++) {
+			cells.push({ key: `${r}-${c}` });
+		}
+	}
+	return cells;
+}
+
+function buildAccentTokenForVariableGrid(accents: Set<string>, cells: Array<{ key: string }>): string {
+	if (cells.length === 0) return '0';
+	let bits = '';
+	for (const cell of cells) bits += accents.has(cell.key) ? '1' : '0';
+	if (!bits || /^0+$/.test(bits)) return '0';
+	const fullHex = BigInt(`0b${bits}`).toString(16);
+	const trailingZeros = bits.match(/0+$/)?.[0].length ?? 0;
+	const coreLen = bits.length - trailingZeros;
+	const coreBits = coreLen > 0 ? bits.slice(0, coreLen) : '0';
+	const coreHex = BigInt(`0b${coreBits}`).toString(16);
+	return trailingZeros > 0 ? `${coreHex}~${trailingZeros.toString(36)}` : fullHex;
+}
+
+function hydrateAccentsFromVariableGridToken(token: string, cells: Array<{ key: string }>): Set<string> {
+	const totalCells = cells.length;
+	if (!token || token === '0' || totalCells === 0) return new Set<string>();
+	const normalizedToken = token.toLowerCase();
+	let normalizedHex = normalizedToken;
+	let trailingZeros = 0;
+	if (normalizedToken.includes('~')) {
+		const [hexPart, tzPart] = normalizedToken.split('~');
+		if (!hexPart || tzPart === undefined || tzPart.length === 0) return new Set<string>();
+		if (!/^[0-9a-f]+$/.test(hexPart)) return new Set<string>();
+		const tz = parseInt(tzPart, 36);
+		if (!Number.isFinite(tz) || tz < 0 || tz > totalCells) return new Set<string>();
+		normalizedHex = hexPart;
+		trailingZeros = tz;
+	} else if (!/^[0-9a-f]+$/.test(normalizedHex)) {
+		return new Set<string>();
+	}
+	let bits = BigInt(`0x${normalizedHex}`).toString(2);
+	if (trailingZeros > 0) {
+		const coreLen = Math.max(0, totalCells - trailingZeros);
+		if (bits.length < coreLen) bits = bits.padStart(coreLen, '0');
+		if (bits.length > coreLen) bits = bits.slice(bits.length - coreLen);
+		bits += '0'.repeat(trailingZeros);
+	}
+	if (bits.length < totalCells) bits = bits.padStart(totalCells, '0');
+	if (bits.length > totalCells) bits = bits.slice(bits.length - totalCells);
+	const out = new Set<string>();
+	for (let i = 0; i < totalCells; i++) {
+		if (bits[i] === '1') out.add(cells[i]!.key);
+	}
+	return out;
+}
+
+function encodeSubdivisionsToken(
+	customSubdivisions: Record<string, number>,
+	cells: Array<{ key: string }>,
+): string {
+	const out: string[] = [];
+	for (let idx = 0; idx < cells.length; idx++) {
+		const key = cells[idx]!.key;
+		const val = customSubdivisions[key];
+		if (typeof val !== 'number' || val < 1 || val > 9 || val === 1) continue;
+		out.push(`${idx.toString(36)}:${val.toString(36)}`);
+	}
+	if (out.length === 0) return '0';
+	return out.join('_');
+}
+
+function decodeSubdivisionsToken(token: string, cells: Array<{ key: string }>): Record<string, number> {
+	if (!token || token === '0') return {};
+	const out: Record<string, number> = {};
+	for (const piece of token.split('_')) {
+		const [idxRaw, valRaw] = piece.split(':');
+		if (!idxRaw || !valRaw) continue;
+		const idx = parseInt(idxRaw, 36);
+		const val = parseInt(valRaw, 36);
+		if (!Number.isFinite(idx) || idx < 0 || idx >= cells.length) continue;
+		if (!Number.isFinite(val) || val < 1 || val > 9 || val === 1) continue;
+		out[cells[idx]!.key] = val;
+	}
+	return out;
+}
+
 function buildSnapshotFlags(s: ReturnType<typeof createEmptySnapshot>): number {
 	let flags = 0;
 	if (s.randomModeEnabled) flags |= SNAPSHOT_FLAG_RANDOM_MODE_ENABLED;
@@ -342,6 +492,9 @@ function buildSnapshotFlags(s: ReturnType<typeof createEmptySnapshot>): number {
 	if (s.panelExpanded) flags |= SNAPSHOT_FLAG_PANEL_EXPANDED;
 	if (s.onlyAccents) flags |= SNAPSHOT_FLAG_ONLY_ACCENTS;
 	if (s.firstBeatAccent) flags |= SNAPSHOT_FLAG_FIRST_BEAT_ACCENT;
+	if (s.polyMode) flags |= SNAPSHOT_FLAG_POLY_MODE;
+	if (s.polyVoices === 3) flags |= SNAPSHOT_FLAG_POLY_VOICES_3;
+	if (s.polyVoices === 4) flags |= SNAPSHOT_FLAG_POLY_VOICES_4;
 	return flags;
 }
 
@@ -354,6 +507,12 @@ function applySnapshotFlags(flags: number, d: ReturnType<typeof createEmptySnaps
 	d.panelExpanded = Boolean(flags & SNAPSHOT_FLAG_PANEL_EXPANDED);
 	d.onlyAccents = Boolean(flags & SNAPSHOT_FLAG_ONLY_ACCENTS);
 	d.firstBeatAccent = Boolean(flags & SNAPSHOT_FLAG_FIRST_BEAT_ACCENT);
+	d.polyMode = Boolean(flags & SNAPSHOT_FLAG_POLY_MODE);
+	d.polyVoices = (flags & SNAPSHOT_FLAG_POLY_VOICES_4)
+		? 4
+		: (flags & SNAPSHOT_FLAG_POLY_VOICES_3)
+			? 3
+			: 2;
 }
 
 function buildSnapshotSoundId(s: ReturnType<typeof createEmptySnapshot>): number {
@@ -565,21 +724,21 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 }
 
 function encodeSnapshotClipboard(s: ReturnType<typeof createEmptySnapshot>): string {
-	try {
-		const json = JSON.stringify(snapshotToJSON(s));
-		const bytes = new TextEncoder().encode(json);
-		let bin = '';
-		for (let i = 0; i < bytes.length; i++) {
-			bin += String.fromCharCode(bytes[i]!);
-		}
-		return SNAPSHOT_CLIPBOARD_MARKER + btoa(bin);
-	} catch {
-		const gridToken = buildSnapshotGridToken(s);
-		const flags = buildSnapshotFlags(s);
-		const soundId = buildSnapshotSoundId(s);
-		const compact = `${s.tempo}.${s.bars}.${s.syllables}.${gridToken}.${s.chaosLevel}.${flags}.${soundId}`;
-		return SNAPSHOT_CLIPBOARD_MARKER + compact;
-	}
+	const accents = s.accents instanceof Set ? s.accents : new Set(Array.isArray(s.accents) ? s.accents : []);
+	const rowSyllablesToken = encodeSparseRowNumberMap(s.customSyllables, (value) => value >= 1 && value <= 9);
+	const cells = buildCellIndexMapForSnapshot(s.bars, s.syllables, s.customSyllables);
+	const accentToken = buildAccentTokenForVariableGrid(accents, cells);
+	const subdivisionsToken = encodeSubdivisionsToken(s.customSubdivisions, cells);
+	const multipliersToken = encodeSparseRowNumberMap(
+		s.customMultipliers,
+		(value) => value >= 1 && value <= 4 && value !== 1,
+	);
+	const pulseUnlinkedToken = encodePulseUnlinkedRowsToken(s.pulseMeterUnlinked || {});
+	const gridToken = [accentToken, rowSyllablesToken, subdivisionsToken, multipliersToken, pulseUnlinkedToken].join('|');
+	const flags = buildSnapshotFlags(s);
+	const soundId = buildSnapshotSoundId(s);
+	const compact = `${s.tempo}.${s.bars}.${s.syllables}.${gridToken}.${s.chaosLevel}.${flags}.${soundId}`;
+	return SNAPSHOT_CLIPBOARD_MARKER + compact;
 }
 
 function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmptySnapshot> | null {
@@ -594,6 +753,50 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 		const body = t.slice(markerLength).replace(/\s+/g, '');
 		if (!body) return null;
 		const compactParts = body.split('.');
+		if (compactParts.length === 11) {
+			const [
+				tempoRaw,
+				barsRaw,
+				syllablesRaw,
+				rowSyllablesToken,
+				accentToken,
+				subdivisionsToken,
+				multipliersToken,
+				pulseUnlinkedToken,
+				chaosRaw,
+				flagsRaw,
+				soundRaw,
+			] = compactParts;
+			const d = createEmptySnapshot();
+			const tempo = parseInt(tempoRaw, 10);
+			const bars = parseInt(barsRaw, 10);
+			const syllables = parseInt(syllablesRaw, 10);
+			const chaosLevel = parseInt(chaosRaw, 10);
+			const flags = parseInt(flagsRaw, 10);
+			const soundId = parseInt(soundRaw, 10);
+			if (!Number.isFinite(tempo) || tempo < 20 || tempo > 400) return null;
+			if (!Number.isFinite(bars) || bars < 1 || bars > 100) return null;
+			if (!Number.isFinite(syllables) || syllables < 1 || syllables > 9) return null;
+			if (!Number.isFinite(chaosLevel) || chaosLevel < 0 || chaosLevel > 100) return null;
+			if (!Number.isFinite(flags) || flags < 0) return null;
+			if (!Number.isFinite(soundId)) return null;
+			d.tempo = tempo;
+			d.bars = bars;
+			d.syllables = syllables;
+			d.customSyllables = decodeSparseRowNumberMap(rowSyllablesToken, (value) => value >= 1 && value <= 9);
+			const cells = buildCellIndexMapForSnapshot(d.bars, d.syllables, d.customSyllables);
+			d.accents = hydrateAccentsFromVariableGridToken(accentToken, cells);
+			d.customSubdivisions = decodeSubdivisionsToken(subdivisionsToken, cells);
+			d.customMultipliers = decodeSparseRowNumberMap(
+				multipliersToken,
+				(value) => value >= 1 && value <= 4 && value !== 1,
+			);
+			d.pulseMeterUnlinked = decodePulseUnlinkedRowsToken(pulseUnlinkedToken);
+			d.chaosLevel = chaosLevel;
+			applySnapshotFlags(flags, d);
+			applySnapshotSoundId(soundId, d);
+			return d;
+		}
 		if (compactParts.length === 7) {
 			const [tempoRaw, barsRaw, syllablesRaw, gridTokenRaw, chaosRaw, flagsRaw, soundRaw] = compactParts;
 			const d = createEmptySnapshot();
@@ -615,18 +818,27 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 			d.chaosLevel = chaosLevel;
 			applySnapshotFlags(flags, d);
 			applySnapshotSoundId(soundId, d);
-			hydrateSnapshotAccentsFromGridToken(gridTokenRaw, bars, syllables, d);
+			if (gridTokenRaw.includes('|')) {
+				const [accentToken, rowSyllablesToken, subdivisionsToken, multipliersToken, pulseUnlinkedToken] =
+					gridTokenRaw.split('|');
+				d.customSyllables = decodeSparseRowNumberMap(
+					rowSyllablesToken || '0',
+					(value) => value >= 1 && value <= 9,
+				);
+				const cells = buildCellIndexMapForSnapshot(d.bars, d.syllables, d.customSyllables);
+				d.accents = hydrateAccentsFromVariableGridToken(accentToken || '0', cells);
+				d.customSubdivisions = decodeSubdivisionsToken(subdivisionsToken || '0', cells);
+				d.customMultipliers = decodeSparseRowNumberMap(
+					multipliersToken || '0',
+					(value) => value >= 1 && value <= 4 && value !== 1,
+				);
+				d.pulseMeterUnlinked = decodePulseUnlinkedRowsToken(pulseUnlinkedToken || '0');
+			} else {
+				hydrateSnapshotAccentsFromGridToken(gridTokenRaw, bars, syllables, d);
+			}
 			return d;
 		}
-		try {
-			const bin = atob(body);
-			const bytes = new Uint8Array(bin.length);
-			for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i) & 0xff;
-			const json = new TextDecoder().decode(bytes);
-			return parseSnapshotRow(JSON.parse(json));
-		} catch {
-			return null;
-		}
+		return null;
 	}
 	if (t.startsWith(SNAPSHOT_CLIPBOARD_PREFIX_LEGACY)) {
 		try {
