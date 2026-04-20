@@ -1732,6 +1732,9 @@ export default function App() {
 
   const scheduler = () => {
     if (!isPlayingRef.current || !audioCtxRef.current) return;
+    if (audioCtxRef.current.currentTime > nextNoteTimeRef.current + 0.5) {
+      nextNoteTimeRef.current = audioCtxRef.current.currentTime + 0.05;
+    }
     while (nextNoteTimeRef.current < audioCtxRef.current.currentTime + 0.1) {
       scheduleNote(currentStepRef.current, playAbsBarRef.current, nextNoteTimeRef.current);
       nextNote();
