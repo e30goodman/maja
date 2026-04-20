@@ -2167,7 +2167,17 @@ export default function App() {
                         syllablesSliderDraggingRef.current = true;
                         attachSliderWindowListeners();
                       }}
-                      onChange={(e) => setSyllables(parseInt(e.target.value, 10))} 
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value, 10);
+                        if (!Number.isFinite(v) || v < 1 || v > 9) return;
+                        setSyllables(v);
+                        /** После рандома у каждого такта свой customSyllables[r] — без этого глобальный Syllbs «молчит». */
+                        const n = barsRef.current;
+                        const next: Record<number, number> = {};
+                        for (let r = 0; r < n; r++) next[r] = v;
+                        setCustomSyllables(next);
+                        customSyllablesRef.current = { ...next };
+                      }}
                       className="flex-1 h-3 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-emerald-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110" 
                     />
                     <div className="w-5 shrink-0 flex justify-end">
@@ -2254,7 +2264,7 @@ export default function App() {
         {/* Bottom Actions */}
         <div className="flex gap-3 mt-1 shrink-0 h-[60px]">
           {/* Randomizer: tap — live random при PLAY; удерживание — префилл всех тактов по галочкам Settings. */}
-          <button
+                <button 
             type="button"
             title="Коротко: рандом при PLAY. Удерживай ~0,5 с: заполнить все такты (Pulsation / Accents / Cell / Bar Speed из настроек)."
             onPointerDown={() => {
@@ -2268,14 +2278,14 @@ export default function App() {
                 prefillAllTactsRandomizer();
                 randomDiceHoldAteClickRef.current = true;
               }, RANDOM_DICE_PREFILL_HOLD_MS);
-            }}
-            onPointerUp={() => {
+                  }}
+                  onPointerUp={() => {
               if (randomDiceHoldTimerRef.current !== null) {
                 window.clearTimeout(randomDiceHoldTimerRef.current);
                 randomDiceHoldTimerRef.current = null;
               }
-            }}
-            onPointerLeave={() => {
+                  }}
+                  onPointerLeave={() => {
               if (randomDiceHoldTimerRef.current !== null) {
                 window.clearTimeout(randomDiceHoldTimerRef.current);
                 randomDiceHoldTimerRef.current = null;
@@ -2286,8 +2296,8 @@ export default function App() {
                 window.clearTimeout(randomDiceHoldTimerRef.current);
                 randomDiceHoldTimerRef.current = null;
               }
-            }}
-            onClick={() => {
+                      }}
+                      onClick={() => {
               if (randomDiceHoldAteClickRef.current) {
                 randomDiceHoldAteClickRef.current = false;
                 return;
@@ -2298,8 +2308,8 @@ export default function App() {
               randomDiceMintFlash
                 ? 'bg-teal-500/25 border-teal-300/75 text-teal-100 shadow-[0_0_22px_rgba(45,212,191,0.55)] ring-2 ring-teal-300/70'
                 : randomModeEnabled
-                  ? 'bg-blue-600/30 border-blue-400/60 shadow-[0_0_15px_rgba(59,130,246,0.3)] text-blue-200'
-                  : 'bg-[#161f33] border-[#23314f] text-slate-400 hover:text-slate-200 hover:bg-[#1a253c]'
+                ? 'bg-blue-600/30 border-blue-400/60 shadow-[0_0_15px_rgba(59,130,246,0.3)] text-blue-200'
+                : 'bg-[#161f33] border-[#23314f] text-slate-400 hover:text-slate-200 hover:bg-[#1a253c]'
             }`}
           >
             <Dices size={24} />

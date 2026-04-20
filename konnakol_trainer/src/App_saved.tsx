@@ -2167,7 +2167,17 @@ export default function App() {
                         syllablesSliderDraggingRef.current = true;
                         attachSliderWindowListeners();
                       }}
-                      onChange={(e) => setSyllables(parseInt(e.target.value, 10))} 
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value, 10);
+                        if (!Number.isFinite(v) || v < 1 || v > 9) return;
+                        setSyllables(v);
+                        /** После рандома у каждого такта свой customSyllables[r] — без этого глобальный Syllbs «молчит». */
+                        const n = barsRef.current;
+                        const next: Record<number, number> = {};
+                        for (let r = 0; r < n; r++) next[r] = v;
+                        setCustomSyllables(next);
+                        customSyllablesRef.current = { ...next };
+                      }}
                       className="flex-1 h-3 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-emerald-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110" 
                     />
                     <div className="w-5 shrink-0 flex justify-end">
