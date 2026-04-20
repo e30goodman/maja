@@ -52,7 +52,9 @@ jobs:
           mkdir -p pages-artifact/konnakol/trainer
           cp -R konnakol_trainer/dist/. pages-artifact/konnakol/trainer/
           cp maja/index.html pages-artifact/index.html
-          cp -R maja/images pages-artifact/images
+          cp -R maja/public/images pages-artifact/images
+          cp maja/public/instagram-icon.png pages-artifact/instagram-icon.png
+          cp maja/public/youtube-icon.png pages-artifact/youtube-icon.png
           cp promo.html pages-artifact/promo.html
       
       - name: Upload artifact
