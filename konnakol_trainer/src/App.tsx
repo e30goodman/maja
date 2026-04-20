@@ -243,7 +243,7 @@ const POLY_VOICES_STORAGE_KEY = 'konnakol_poly_voices';
 const APP_COMMIT_VERSION = (() => {
 	const maybeCommit = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env
 		?.VITE_APP_COMMIT;
-	return typeof maybeCommit === 'string' && maybeCommit.length >= 7 ? maybeCommit.slice(0, 7) : '3d87bb9';
+	return typeof maybeCommit === 'string' && maybeCommit.length >= 7 ? maybeCommit.slice(0, 7) : '*16';
 })();
 const TEMPO_THROTTLE_MS = 56;
 /** Clipboard export: kawaii magic marker for compact preset payload. */
@@ -3399,6 +3399,7 @@ export default function App() {
           syllables={syllables}
           lowPerfMode={lowPerfMode}
           isTaEditorMode={isTaEditorMode}
+          accentMapVersion={accentMapVersion}
           customSyllables={customSyllables}
           customSubdivisions={customSubdivisions}
           customMultipliers={customMultipliers}

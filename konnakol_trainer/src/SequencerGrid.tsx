@@ -91,6 +91,7 @@ type SequencerGridRowProps = {
 	highlightCol: number | null;
 	isPlaying: boolean;
 	isTaEditorMode: boolean;
+	accentMapVersion: number;
 	rowCellLabels: string[][];
 	effectiveUseFixedFlex: boolean;
 	displayScaleBars: number;
@@ -119,6 +120,7 @@ function sequencerGridRowPropsEqual(a: SequencerGridRowProps, b: SequencerGridRo
 		a.highlightCol === b.highlightCol &&
 		a.isPlaying === b.isPlaying &&
 		a.isTaEditorMode === b.isTaEditorMode &&
+		a.accentMapVersion === b.accentMapVersion &&
 		a.rowCellLabels === b.rowCellLabels &&
 		a.effectiveUseFixedFlex === b.effectiveUseFixedFlex &&
 		a.displayScaleBars === b.displayScaleBars &&
@@ -149,6 +151,7 @@ const SequencerGridRow = React.memo(
 			highlightCol,
 			isPlaying,
 			isTaEditorMode,
+			accentMapVersion,
 			rowCellLabels,
 			effectiveUseFixedFlex,
 			displayScaleBars,
@@ -330,7 +333,7 @@ const SequencerGridRow = React.memo(
 								? `ring-2 ring-purple-500 ${lowPerfMode ? '' : 'shadow-purple-500/30'} bg-[#1e2a45] border-[#2f4066] text-slate-400`
 								: pulseUnlinkedRow
 									? `bg-teal-500/25 border-teal-400/70 text-teal-50 ring-1 ring-teal-400/80 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_8px_rgba(20,184,166,0.25),0_0_12px_rgba(45,212,191,0.2)]'}`
-									: 'bg-[#1e2a45] border-[#2f4066] text-slate-400 hover:bg-[#253353] active:bg-[#1a253c]'
+									: 'bg-[#1e2a45] border-[#2f4066] text-slate-400 hover:bg-[#253353] active:bg-[#1e2a45]'
 						}`}
 					>
 						{rowSylls}
@@ -342,23 +345,26 @@ const SequencerGridRow = React.memo(
 						const isAccent = accentBits[cIdx] === '1';
 						const isActive = highlightCol === cIdx;
 						const subdivs = rowSubdivs[cIdx] ?? 1;
-						let cellClasses = `bg-[#1e2a45] border-[#2f4066] ${lowPerfMode ? '' : 'shadow-[0_2px_4px_rgba(0,0,0,0.2)]'} hover:bg-[#253353]`;
+						const cellBorder2 = 'border-2 box-border border-[#2f4066]';
+						let cellClasses = `bg-[#1e2a45] ${cellBorder2} ${lowPerfMode ? '' : 'shadow-[0_2px_4px_rgba(0,0,0,0.2)]'} hover:bg-[#253353] text-slate-300`;
 						if (isTaEditorMode && cIdx === 0) {
 							if (isAccent) {
 								cellClasses = lowPerfMode
-									? 'bg-[#1e2a45] border-2 border-white text-white z-[1]'
-									: 'bg-[#1e2a45] border-2 border-white/95 text-white shadow-[0_0_14px_rgba(255,255,255,0.2)] z-[1] hover:bg-[#253353]';
+									? 'bg-[#1e2a45] border-2 box-border border-white text-white z-[1]'
+									: 'bg-[#1e2a45] border-2 box-border border-white/95 text-white shadow-[0_0_14px_rgba(255,255,255,0.2)] z-[1] hover:bg-[#253353]';
 							} else {
-								cellClasses = `bg-[#141d30] border border-slate-600/60 ${lowPerfMode ? '' : 'opacity-90'} text-slate-500 hover:bg-[#1a253c]`;
+								cellClasses = `bg-[#141d30] border-2 box-border border-slate-600/60 ${lowPerfMode ? '' : 'opacity-90'} text-slate-500 hover:bg-[#1a253c]`;
 							}
-						} else if (isAccent)
-							cellClasses =
-								`bg-purple-900/40 border-purple-500/50 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_4px_rgba(168,85,247,0.2)]'} hover:bg-purple-900/50 text-purple-100`;
-						if (isActive)
-							cellClasses =
-								lowPerfMode
-									? 'bg-emerald-500/20 border-emerald-500 z-10 text-emerald-100'
-									: 'bg-emerald-500/20 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)] z-10 scale-[1.03] text-emerald-100';
+						} else if (!isTaEditorMode && accentMapVersion >= 1 && cIdx === 0 && isAccent) {
+							cellClasses = `bg-[#1a2238] border-2 box-border border-purple-400/85 text-purple-100 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_3px_rgba(192,132,252,0.12)]'} hover:bg-[#222a45]`;
+						} else if (isAccent) {
+							cellClasses = `bg-purple-900/40 border-2 box-border border-purple-500/50 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_4px_rgba(168,85,247,0.2)]'} hover:bg-purple-900/50 text-purple-100`;
+						}
+						if (isActive) {
+							cellClasses = lowPerfMode
+								? 'bg-emerald-500/20 border-2 box-border border-emerald-500 z-10 text-emerald-100'
+								: 'bg-emerald-500/20 border-2 box-border border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)] z-10 text-emerald-100';
+						}
 						return (
 							<button
 								type="button"
@@ -366,6 +372,7 @@ const SequencerGridRow = React.memo(
 								onPointerDown={() => {
 									const a = actionsRef.current;
 									if (!a) return;
+									if (isTaEditorMode) return;
 									a.isHoldingRef.current = false;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
 									a.holdTimerRef.current = window.setTimeout(() => {
@@ -385,11 +392,13 @@ const SequencerGridRow = React.memo(
 								onPointerUp={() => {
 									const a = actionsRef.current;
 									if (!a) return;
+									if (isTaEditorMode) return;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
 								}}
 								onPointerLeave={() => {
 									const a = actionsRef.current;
 									if (!a) return;
+									if (isTaEditorMode) return;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
 								}}
 								onClick={() => {
@@ -401,9 +410,9 @@ const SequencerGridRow = React.memo(
 									}
 									a.toggleAccent(rIdx, cIdx);
 								}}
-								className={`flex-1 flex flex-col items-center justify-center border min-w-0 ${lowPerfMode ? '' : 'transition-all duration-75'} ${
+								className={`flex-1 flex flex-col items-center justify-center min-w-0 ${lowPerfMode ? '' : 'transition-all duration-75'} ${
 									rowSylls > 7 ? 'rounded-md' : 'rounded-xl'
-								} ${cellClasses} ${activeEditCell === checkKey ? `ring-2 ring-purple-500 z-20 ${lowPerfMode ? '' : 'shadow-purple-500/30'}` : ''}`}
+								} ${cellClasses} ${activeEditCell === checkKey ? `ring-2 ring-inset ring-purple-500 z-20 ${lowPerfMode ? '' : 'shadow-purple-500/30'}` : ''}`}
 							>
 								<div
 									className={`w-full h-full rounded-[inherit] overflow-hidden ${
@@ -460,6 +469,7 @@ export type SequencerGridProps = {
 	allBarsFitViewport: boolean;
 	lowPerfMode: boolean;
 	isTaEditorMode: boolean;
+	accentMapVersion: number;
 	activeEditRow: number | null;
 	activeEditCell: string | null;
 	sequencerGridRowActionsRef: React.MutableRefObject<SequencerGridRowActions | null>;
@@ -485,6 +495,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	allBarsFitViewport,
 	lowPerfMode,
 	isTaEditorMode,
+	accentMapVersion,
 	activeEditRow,
 	activeEditCell,
 	sequencerGridRowActionsRef,
@@ -548,6 +559,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 								highlightCol={highlightCol}
 								isPlaying={isPlaying}
 								isTaEditorMode={isTaEditorMode}
+								accentMapVersion={accentMapVersion}
 								rowCellLabels={rowCellLabels}
 								effectiveUseFixedFlex={effectiveUseFixedFlex}
 								displayScaleBars={displayScaleBars}
@@ -608,6 +620,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 									highlightCol={highlightCol}
 									isPlaying={isPlaying}
 									isTaEditorMode={isTaEditorMode}
+									accentMapVersion={accentMapVersion}
 									rowCellLabels={rowCellLabels}
 									effectiveUseFixedFlex={effectiveUseFixedFlex}
 									displayScaleBars={displayScaleBars}
