@@ -241,9 +241,10 @@ const LITE_UI_STORAGE_KEY = 'konnakol_lite_ui';
 const POLY_MODE_STORAGE_KEY = 'konnakol_poly_mode';
 const POLY_VOICES_STORAGE_KEY = 'konnakol_poly_voices';
 const APP_COMMIT_VERSION = (() => {
-	const maybeCommit = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env
-		?.VITE_APP_COMMIT;
-	return typeof maybeCommit === 'string' && maybeCommit.length >= 7 ? maybeCommit.slice(0, 7) : '*18';
+	const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.VITE_APP_COMMIT;
+	if (typeof env === 'string' && env.length >= 7) return env.slice(0, 7);
+	if (typeof __GIT_SHA7__ === 'string' && __GIT_SHA7__.length >= 7) return __GIT_SHA7__.slice(0, 7);
+	return '0000000';
 })();
 const TEMPO_THROTTLE_MS = 56;
 /** Clipboard export: kawaii magic marker for compact preset payload. */
@@ -259,8 +260,6 @@ const SNAPSHOT_CLIPBOARD_PREFIX_LEGACY = 'konnakolTrainerSnapshotV1:';
 const SNAPSHOT_MENU_HOLD_MS = 520;
 /** Удерживание кнопки «кости»: префилл всех тактов по активным фичам Randomizer. */
 const RANDOM_DICE_PREFILL_HOLD_MS = SNAPSHOT_MENU_HOLD_MS;
-/** Удержание квадрата «только акценты»: диктант — бегунок только на 1-й доле; короче — обычный тап по кнопке. */
-const SQUARE_DICTATION_HOLD_SKIP_TAP_MS = 200;
 
 const SNAPSHOT_FLAG_RANDOM_MODE_ENABLED = 1 << 0;
 const SNAPSHOT_FLAG_RANDOM_PULSATION = 1 << 1;
@@ -793,6 +792,8 @@ function createEmptySnapshot() {
 		/** 0 = legacy: первая доля Ta без явных ключей `r-0` считается включённой; 1 = карта `accents` для первых долей. */
 		accentMapVersion: 0,
 		syllableReadMuteMode: 'off' as SyllableReadMuteMode,
+		/** Диктант: только первый слог такта с зелёным бегунком; пассивные щелчки выключены. */
+		dictantMode: false,
 		/** Звук 1 (Ta-динг): любые `r-c`, включая `r-0` (белая рамка в редакторе Ta без записи в `accents`). */
 		taDingKeys: new Set<string>(),
 	};
@@ -863,6 +864,7 @@ function parseSnapshotRow(raw: unknown) {
 		d.pulseMeterUnlinked = next;
 	}
 	if (typeof o.onlyAccents === 'boolean') d.onlyAccents = o.onlyAccents;
+	if (typeof o.dictantMode === 'boolean') d.dictantMode = o.dictantMode;
 	if (typeof o.firstBeatAccent === 'boolean') d.firstBeatAccent = o.firstBeatAccent;
 	if (o.accentMapVersion === true) d.accentMapVersion = 1;
 	else {
@@ -917,6 +919,7 @@ function snapSlotLooksUsed(s: ReturnType<typeof createEmptySnapshot>) {
 	if (s.polyVoices !== 2) return true;
 	if (s.syllableReadMuteMode !== 'off') return true;
 	if ((s as { accentMapVersion?: number }).accentMapVersion === 1) return true;
+	if ((s as { dictantMode?: boolean }).dictantMode === true) return true;
 	return false;
 }
 
@@ -949,6 +952,7 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		accentMapVersion: (s as { accentMapVersion?: number }).accentMapVersion === 1 ? 1 : 0,
 		taEditorMode: false,
 		syllableReadMuteMode: s.syllableReadMuteMode,
+		dictantMode: s.dictantMode === true,
 		taDingKeys: [...s.taDingKeys],
 	};
 }
@@ -1334,6 +1338,7 @@ export default function App() {
 
   // Metronome Sound Toggles
   const [onlyAccents, setOnlyAccents] = useState(() => seed.onlyAccents === true);
+  const [dictantMode, setDictantMode] = useState(() => (seed as { dictantMode?: boolean }).dictantMode === true);
   const [firstBeatAccent, setFirstBeatAccent] = useState(() => seed.firstBeatAccent !== false);
   const [accentMapVersion, setAccentMapVersion] = useState(() =>
     (seed as { accentMapVersion?: number }).accentMapVersion === 1 ? 1 : 0,
@@ -1561,9 +1566,9 @@ export default function App() {
   /** Long-press по числу слогов в такте: gati / пульс от четвёрки (не смешивать с holdTimerRef клеток). */
   const pulseUnlinkHoldTimerRef = useRef<number | null>(null);
   const isHoldingRef = useRef(false);
-  /** Удержание квадрата onlyAccents: визуально только первая доля такта (диктант). */
-  const [dictationPlayheadHold, setDictationPlayheadHold] = useState(false);
-  const squarePointerDownAtRef = useRef<number | null>(null);
+  /** Long-press square: toggle «без щелчков по клеткам»; ding такта Ta не мьютится. */
+  const squareHoldTimerRef = useRef<number | null>(null);
+  const squareHoldAteClickRef = useRef(false);
   const randomDiceHoldTimerRef = useRef<number | null>(null);
   const randomDiceHoldAteClickRef = useRef(false);
   const taHoldTimerRef = useRef<number | null>(null);
@@ -1620,6 +1625,7 @@ export default function App() {
     setTaDingKeys(emptyTaDing);
     taDingKeysRef.current = emptyTaDing;
     setAccentMapVersion(0);
+    setDictantMode(false);
     setIsTaEditorMode(false);
     setFirstBeatDingSuppressedRows(new Set());
     setTempo(defaults.tempo);
@@ -1689,6 +1695,7 @@ export default function App() {
   const customSubdivisionsRef = useRef(customSubdivisions);
   const pulseMeterUnlinkedRef = useRef(pulseMeterUnlinked);
   const onlyAccentsRef = useRef(onlyAccents);
+  const dictantModeRef = useRef(dictantMode);
   const firstBeatAccentRef = useRef(firstBeatAccent);
   const accentMapVersionRef = useRef(accentMapVersion);
   const isTaEditorModeRef = useRef(isTaEditorMode);
@@ -1827,6 +1834,7 @@ export default function App() {
     firstBeatAccent: firstBeatAccentRef.current,
     accentMapVersion: accentMapVersionRef.current,
     syllableReadMuteMode: syllableReadMuteModeRef.current,
+    dictantMode: dictantModeRef.current,
   });
 
   const prefillAllTactsRandomizer = useCallback(() => {
@@ -2082,6 +2090,7 @@ export default function App() {
       accentMapVersion: (raw as { accentMapVersion?: number }).accentMapVersion,
       syllableReadMuteMode: raw.syllableReadMuteMode,
       syllableReadMuteLatched: raw.syllableReadMuteLatched,
+      dictantMode: (raw as { dictantMode?: boolean }).dictantMode,
     });
   };
 
@@ -2100,8 +2109,10 @@ export default function App() {
     });
   }, [bars]);
 
-  /** All pattern rows fit in the phone frame: no virtual strip, no playhead autoscroll. */
-  const allBarsFitViewport = frozenScale === null && bars <= 10;
+  /** Сколько тактов по высоте «влезает» при текущей шкале (freeze фиксирует делитель отдельно от `bars`). */
+  const displayScaleBars = frozenScale !== null ? Math.min(frozenScale, 10) : Math.min(bars, 10);
+  /** Все такты влезают в окно — без виртуальной ленты и без автопрокрутки (в т.ч. при включённом freeze). */
+  const allBarsFitViewport = bars <= displayScaleBars;
   const disableMenuSmoothing = lowPerfMode || bars > 8 || syllables >= 9;
 
   const sequence = React.useMemo(() => {
@@ -2154,6 +2165,7 @@ export default function App() {
           firstBeatAccent,
           accentMapVersion,
           syllableReadMuteMode,
+          dictantMode,
         },
       }));
     });
@@ -2182,6 +2194,7 @@ export default function App() {
     firstBeatAccent,
     accentMapVersion,
     syllableReadMuteMode,
+    dictantMode,
   ]);
 
   useEffect(() => {
@@ -2268,6 +2281,7 @@ export default function App() {
     setOnlyAccents(snap.onlyAccents === true);
     setFirstBeatAccent(snap.firstBeatAccent !== false);
     setAccentMapVersion((snap as { accentMapVersion?: number }).accentMapVersion === 1 ? 1 : 0);
+    setDictantMode((snap as { dictantMode?: boolean }).dictantMode === true);
     setIsTaEditorMode(false);
     setFirstBeatDingSuppressedRows(new Set());
     const nextMute = normalizeSyllableReadMuteModeFromSnapshot(
@@ -2313,6 +2327,7 @@ export default function App() {
     firstBeatAccent: s.firstBeatAccent !== false,
     accentMapVersion: (s as { accentMapVersion?: number }).accentMapVersion === 1 ? 1 : 0,
     syllableReadMuteMode: normalizeSyllableReadMuteModeFromSnapshot(s.syllableReadMuteMode, undefined),
+    dictantMode: (s as { dictantMode?: boolean }).dictantMode === true,
   });
 
   const closeSnapshotClipMenu = () => setSnapshotClipMenu(null);
@@ -2396,8 +2411,7 @@ export default function App() {
     }
   }, [polyMode, polyChunks.length, sequence.length]);
 
-  // Determine display metrics that drive auto-scrolling
-  const displayScaleBars = frozenScale !== null ? Math.min(frozenScale, 10) : Math.min(bars, 10);
+  // Display metrics (displayScaleBars / allBarsFitViewport объявлены выше — общая шкала для сетки и скролла)
   const useFixedFlex = frozenScale !== null || bars > 10;
   
   // Create a scroll stride that overlaps by 1 row
@@ -2454,7 +2468,7 @@ export default function App() {
       return cleanup;
     }
 
-    if (frozenScale === null && bars <= 10) {
+    if (bars <= displayScaleBars) {
       return cleanup;
     }
 
@@ -2492,7 +2506,7 @@ export default function App() {
     customSyllables,
     syllables,
     bars,
-    frozenScale,
+    displayScaleBars,
   ]);
 
   useEffect(() => {
@@ -2510,6 +2524,10 @@ export default function App() {
         window.clearTimeout(clipboardToastTimerRef.current);
         clipboardToastTimerRef.current = null;
       }
+      if (squareHoldTimerRef.current !== null) {
+        window.clearTimeout(squareHoldTimerRef.current);
+        squareHoldTimerRef.current = null;
+      }
       if (randomDiceHoldTimerRef.current !== null) {
         window.clearTimeout(randomDiceHoldTimerRef.current);
         randomDiceHoldTimerRef.current = null;
@@ -2524,8 +2542,6 @@ export default function App() {
       }
       syllableReadMuteModeRef.current = 'off';
       setSyllableReadMuteMode('off');
-      setDictationPlayheadHold(false);
-      squarePointerDownAtRef.current = null;
       if (playheadTimerRef.current !== null) {
         window.clearTimeout(playheadTimerRef.current);
         playheadTimerRef.current = null;
@@ -2749,8 +2765,11 @@ export default function App() {
       if (nextSeqItem) {
           const newR = nextSeqItem.r;
           if (newR !== oldR) {
-              const compact =
-                frozenScaleRef.current === null && barsRef.current <= 10;
+              const dsb =
+                frozenScaleRef.current !== null
+                  ? Math.min(frozenScaleRef.current, 10)
+                  : Math.min(barsRef.current, 10);
+              const compact = barsRef.current <= dsb;
               if (compact) {
                 /* Loop on same screen: playhead row index stays 0..bars-1. */
                 playAbsBarRef.current = newR;
@@ -2824,8 +2843,9 @@ export default function App() {
           playBarFirstHighClick(audioCtxRef.current, subTime, clickSoundRef.current);
         }
         const hasTaDingHere = taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
-        const shouldPlayBeat =
-          !onlyAccentsRef.current || isAccent || hasTaDingHere;
+        const accentLikePlayback =
+          !onlyAccentsRef.current && !dictantModeRef.current;
+        const shouldPlayBeat = accentLikePlayback || isAccent || hasTaDingHere;
         if (!shouldPlayBeat) continue;
         const isTaFirstBeatArticulation =
           cIdx === 0 && sub === 0 && firstBeatAccentRef.current && firstBeatCellHitRow;
@@ -2838,17 +2858,19 @@ export default function App() {
           subTime,
           sharpAsChecked,
           clickSoundRef.current,
-          onlyAccentsRef.current,
+          onlyAccentsRef.current || dictantModeRef.current,
         );
         if (polyModeRef.current) {
           polyClickSlotsRef.current.add(polySlotKey);
         }
       }
-      insertPlayheadSorted(playheadQueueRef.current, {
-        t: time,
-        pos: { r: rIdx, c: cIdx, absR, voice, step },
-      });
-      schedulePlayheadWake();
+      if (!dictantModeRef.current || cIdx === 0) {
+        insertPlayheadSorted(playheadQueueRef.current, {
+          t: time,
+          pos: { r: rIdx, c: cIdx, absR, voice, step },
+        });
+        schedulePlayheadWake();
+      }
     },
     [],
   );
@@ -2914,6 +2936,10 @@ export default function App() {
       polyClickSlotsRef.current.clear();
       currentStepRef.current = 0; // Reset pattern position to start
       if (timerIDRef.current) clearTimeout(timerIDRef.current);
+      if (squareHoldTimerRef.current !== null) {
+        window.clearTimeout(squareHoldTimerRef.current);
+        squareHoldTimerRef.current = null;
+      }
       if (randomDiceHoldTimerRef.current !== null) {
         window.clearTimeout(randomDiceHoldTimerRef.current);
         randomDiceHoldTimerRef.current = null;
@@ -2928,8 +2954,7 @@ export default function App() {
       }
       syllableReadMuteModeRef.current = 'off';
       setSyllableReadMuteMode('off');
-      setDictationPlayheadHold(false);
-      squarePointerDownAtRef.current = null;
+      squareHoldAteClickRef.current = false;
       randomDiceHoldAteClickRef.current = false;
       taHoldAteClickRef.current = false;
       if (audioCtxRef.current) {
@@ -2988,6 +3013,7 @@ export default function App() {
   accentMapVersionRef.current = accentMapVersion;
   isTaEditorModeRef.current = isTaEditorMode;
   firstBeatAccentRef.current = firstBeatAccent;
+  dictantModeRef.current = dictantMode;
   firstBeatDingSuppressedRowsRef.current = firstBeatDingSuppressedRows;
 
   const firstBeatEditorSuppressedRowsSorted: number[] = [];
@@ -3569,7 +3595,6 @@ export default function App() {
           displayScaleBars={displayScaleBars}
           useFixedFlex={useFixedFlex}
           allBarsFitViewport={allBarsFitViewport}
-          dictationPlayheadHold={dictationPlayheadHold}
           activeEditRow={activeEditRow}
           activeEditCell={activeEditCell}
           sequencerGridRowActionsRef={sequencerGridRowActionsRef}
@@ -3685,35 +3710,51 @@ export default function App() {
             <span className="font-bold text-[22px] tracking-wide">Ta</span>
           </button>
 
-          {/* All beats vs accent-only (square); удержание при PLAY — диктант: бегунок только на 1-й доле. */}
+          {/* All beats vs accent-only (square); долгое нажатие — режим диктант (бегунок только на 1-й доле; пассивные замьючены). */}
           <button
             type="button"
-            title="Коротко: только акценты / все доли. Удерживай при воспроизведении — диктант (зелёный бегунок только на первой доле такта)."
+            title="Коротко: только выделенные доли / все доли. Удерживай ~0,4 с: диктант (бегунок только на первом слоге такта; пассивные щелчки выкл.). Повторное удержание — выход из диктанта."
             onPointerDown={() => {
-              squarePointerDownAtRef.current = Date.now();
-              setDictationPlayheadHold(true);
+              squareHoldAteClickRef.current = false;
+              if (squareHoldTimerRef.current !== null) {
+                window.clearTimeout(squareHoldTimerRef.current);
+                squareHoldTimerRef.current = null;
+              }
+              squareHoldTimerRef.current = window.setTimeout(() => {
+                squareHoldTimerRef.current = null;
+                squareHoldAteClickRef.current = true;
+                setDictantMode((d) => !d);
+              }, 400);
             }}
             onPointerUp={() => {
-              setDictationPlayheadHold(false);
+              if (squareHoldTimerRef.current !== null) {
+                window.clearTimeout(squareHoldTimerRef.current);
+                squareHoldTimerRef.current = null;
+              }
             }}
             onPointerLeave={() => {
-              setDictationPlayheadHold(false);
+              if (squareHoldTimerRef.current !== null) {
+                window.clearTimeout(squareHoldTimerRef.current);
+                squareHoldTimerRef.current = null;
+              }
             }}
             onPointerCancel={() => {
-              setDictationPlayheadHold(false);
+              if (squareHoldTimerRef.current !== null) {
+                window.clearTimeout(squareHoldTimerRef.current);
+                squareHoldTimerRef.current = null;
+              }
             }}
             onClick={() => {
-              const t0 = squarePointerDownAtRef.current;
-              squarePointerDownAtRef.current = null;
-              if (t0 !== null && Date.now() - t0 >= SQUARE_DICTATION_HOLD_SKIP_TAP_MS) {
+              if (squareHoldAteClickRef.current) {
+                squareHoldAteClickRef.current = false;
                 return;
               }
               setOnlyAccents(!onlyAccents);
             }}
             onContextMenu={(e) => e.preventDefault()}
             className={`flex-1 rounded-xl flex justify-center items-center transition-all touch-none select-none relative bg-[#161f33] ${
-              dictationPlayheadHold
-                ? `border border-teal-400/80 ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(45,212,191,0.35)]'} text-teal-100 ring-2 ring-teal-400/50`
+              dictantMode
+                ? `border border-teal-400/90 ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(45,212,191,0.28)]'} text-teal-100`
                 : syllableReadMuteMode !== 'off'
                   ? syllableReadMuteMode === 'full'
                     ? `border border-amber-400/90 ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(251,191,36,0.28)]'} text-amber-100`
@@ -3723,20 +3764,20 @@ export default function App() {
                     : 'border border-[#23314f] hover:bg-[#1a253c] active:bg-[#131b2c] text-slate-400 hover:text-slate-200'
             }`}
             aria-label={
-              dictationPlayheadHold
-                ? 'Диктант: подсказка позиции только на первой доле такта'
+              dictantMode
+                ? 'Режим диктант: бегунок только на первом слоге такта, пассивные щелчки выключены. Долгое удержание — выключить диктант'
                 : syllableReadMuteMode === 'full'
-                  ? 'Тишина по щелчкам сетки (режим из пресета)'
+                  ? 'Тишина по щелчкам сетки (из пресета). Короткое: только выделенные / все доли'
                   : syllableReadMuteMode === 'no_accent_sharp'
-                    ? 'На акцентах звук как у пассивных (режим из пресета)'
+                    ? 'Акценты со звуком пассивных (из пресета). Короткое: только выделенные / все доли'
                     : onlyAccents
-                      ? 'Только выделенные доли; удерживай при PLAY — диктант'
-                      : 'Все доли; удерживай при PLAY — диктант'
+                      ? 'Только выделенные доли. Долгое удержание — режим диктант'
+                      : 'Все доли. Долгое удержание — режим диктант'
             }
           >
             <span
               className={`block w-6 h-6 rounded-sm border-2 border-current ${lowPerfMode ? '' : 'transition-all duration-300'} ${
-                dictationPlayheadHold || syllableReadMuteMode !== 'off' || onlyAccents
+                dictantMode || syllableReadMuteMode !== 'off' || onlyAccents
                   ? 'opacity-100 scale-110 bg-current/25'
                   : 'opacity-55 scale-100 bg-transparent'
               }`}
