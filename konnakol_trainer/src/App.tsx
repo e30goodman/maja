@@ -13,7 +13,7 @@ import {
 	ClipboardPaste,
 } from 'lucide-react';
 import { SequencerGrid, type SequencerGridRowActions } from './SequencerGrid';
-import { FastSlider } from './FastSlider';
+import { CommittedSlider, TempoTrackSlider } from './CommittedSlider';
 
 type PlayheadHighlightEvent = { t: number; pos: { r: number; c: number; absR: number } };
 
@@ -632,6 +632,9 @@ export default function App() {
       ? seed.chaosLevel
       : 0,
   );
+  /** Подпись chaos во время drag (без лишнего DOM — тот же span). */
+  const [chaosLabelDraft, setChaosLabelDraft] = useState<number | null>(null);
+  const [syllablesLabelDraft, setSyllablesLabelDraft] = useState<number | null>(null);
   const [showRandomSettings, setShowRandomSettings] = useState(false);
   const showRandomSettingsRef = useRef(false);
   showRandomSettingsRef.current = showRandomSettings;
@@ -775,7 +778,9 @@ export default function App() {
       const newTempo = Math.round(60000 / averageInterval);
       
       // Clamp between 20 and 400
-      setTempo(Math.min(400, Math.max(20, newTempo)));
+      const clamped = Math.min(400, Math.max(20, newTempo));
+      tempoRef.current = clamped;
+      setTempo(clamped);
     }
   };
 
@@ -859,6 +864,11 @@ export default function App() {
   const clickSoundRef = useRef(clickSound);
   const frozenScaleRef = useRef(frozenScale);
 
+  /** Пока тянут глобальные слайдеры Bars/Syllables — не писать `snapshots` из эффекта; flush на pointerup. */
+  const barsSliderDraggingRef = useRef(false);
+  const syllablesSliderDraggingRef = useRef(false);
+  const sliderWindowListenersAttachedRef = useRef(false);
+  const onWindowPointerEndCaptureRef = useRef<() => void>(() => {});
   const flushLiveSnapshotToActiveSlotRef = useRef<() => void>(() => {});
 
   useEffect(() => { barsRef.current = bars; }, [bars]);
@@ -961,6 +971,17 @@ export default function App() {
     });
   }, []);
 
+  const stableWindowPointerEnd = useCallback(() => {
+    onWindowPointerEndCaptureRef.current();
+  }, []);
+
+  const attachSliderWindowListeners = useCallback(() => {
+    if (sliderWindowListenersAttachedRef.current) return;
+    sliderWindowListenersAttachedRef.current = true;
+    window.addEventListener('pointerup', stableWindowPointerEnd, true);
+    window.addEventListener('pointercancel', stableWindowPointerEnd, true);
+  }, [stableWindowPointerEnd]);
+
   flushLiveSnapshotToActiveSlotRef.current = () => {
     startTransition(() => {
       setSnapshots((prev) => ({
@@ -970,10 +991,32 @@ export default function App() {
     });
   };
 
+  onWindowPointerEndCaptureRef.current = () => {
+    const had = barsSliderDraggingRef.current || syllablesSliderDraggingRef.current;
+    barsSliderDraggingRef.current = false;
+    syllablesSliderDraggingRef.current = false;
+    if (sliderWindowListenersAttachedRef.current) {
+      sliderWindowListenersAttachedRef.current = false;
+      window.removeEventListener('pointerup', stableWindowPointerEnd, true);
+      window.removeEventListener('pointercancel', stableWindowPointerEnd, true);
+    }
+    if (had) flushLiveSnapshotToActiveSlotRef.current();
+  };
+
+  useEffect(() => {
+    return () => {
+      if (sliderWindowListenersAttachedRef.current) {
+        sliderWindowListenersAttachedRef.current = false;
+        window.removeEventListener('pointerup', stableWindowPointerEnd, true);
+        window.removeEventListener('pointercancel', stableWindowPointerEnd, true);
+      }
+    };
+  }, [stableWindowPointerEnd]);
+
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState === 'hidden') {
-        flushLiveSnapshotToActiveSlotRef.current();
+        onWindowPointerEndCaptureRef.current();
       }
     };
     document.addEventListener('visibilitychange', onVis);
@@ -1050,8 +1093,11 @@ export default function App() {
   const sequenceRef = useRef(sequence);
   sequenceRef.current = sequence; // Always keep ref atomic with render
 
-  // Auto-save preset whenever parameters change
+  // Auto-save preset whenever parameters change (пропуск во время drag Bars/Syllables — см. pointerup flush)
   useEffect(() => {
+    if (barsSliderDraggingRef.current || syllablesSliderDraggingRef.current) {
+      return;
+    }
     startTransition(() => {
       setSnapshots((prev) => ({
       ...prev,
@@ -1172,6 +1218,8 @@ export default function App() {
         ? snap.chaosLevel
         : 0,
     );
+    setChaosLabelDraft(null);
+    setSyllablesLabelDraft(null);
     setClickSound(snap.clickSound === 'oldschool' ? 'oldschool' : 'classic');
     setPulseMeterUnlinked(normalizePulseMeterUnlinked(snap.pulseMeterUnlinked));
     setOnlyAccents(snap.onlyAccents === true);
@@ -1191,7 +1239,7 @@ export default function App() {
   };
 
   const loadSnapshot = (id: number) => {
-    flushLiveSnapshotToActiveSlotRef.current();
+    onWindowPointerEndCaptureRef.current();
     flushChaosToActiveSnapshot();
     setActiveSnapshot(id);
     const snap = snapshots[id] ?? createEmptySnapshot();
@@ -1247,7 +1295,7 @@ export default function App() {
     }
     try {
       const stored = normalizeSnapshotForStorage(parsed);
-      flushLiveSnapshotToActiveSlotRef.current();
+      onWindowPointerEndCaptureRef.current();
       flushChaosToActiveSnapshot();
       setActiveSnapshot(slot);
       applySnapshotDataToUi(stored, { preservePanel: true });
@@ -1428,21 +1476,6 @@ export default function App() {
       });
     });
   };
-
-  const tempoLiveRafRef = useRef<number | null>(null);
-  const onTempoLive = useCallback((n: number) => {
-    tempoRef.current = n;
-    if (tempoLiveRafRef.current !== null) return;
-    tempoLiveRafRef.current = requestAnimationFrame(() => {
-      tempoLiveRafRef.current = null;
-      const v = tempoRef.current;
-      setTempo((prev) => (prev === v ? prev : v));
-    });
-  }, []);
-
-  const onChaosLive = useCallback((n: number) => {
-    chaosLevelRef.current = n;
-  }, []);
 
   const clearPlayheadScheduling = () => {
     if (playheadTimerRef.current !== null) {
@@ -1778,26 +1811,37 @@ export default function App() {
             <div className="flex-1 flex items-center gap-2 min-w-0 py-2 px-1.5 bg-[#161f33] rounded-xl border border-[#23314f] touch-none">
           <button 
                 type="button"
-                onClick={() => setTempo((t) => Math.max(20, t - 1))}
+                onClick={() => {
+                  setTempo((t) => {
+                    const n = Math.max(20, t - 1);
+                    tempoRef.current = n;
+                    return n;
+                  });
+                }}
                 className="p-2 bg-[#23314f] rounded-lg text-slate-300 hover:bg-[#2c3d63] active:bg-[#1b253b] transition-colors shrink-0"
               >
                 <Minus size={18} strokeWidth={2.5} />
               </button>
-              <FastSlider
-                variant="tempoTrack"
-                compact
-                min={20}
-                max={400}
-                value={tempo}
-                onLiveChange={onTempoLive}
-                onCommit={(v) => {
-                  tempoRef.current = v;
-                  setTempo(v);
+              <TempoTrackSlider
+                committedTempo={tempo}
+                onTempoLive={(t) => {
+                  tempoRef.current = t;
                 }}
+                onCommit={(t) => {
+                  tempoRef.current = t;
+                  setTempo(t);
+                }}
+                className="flex-1 relative flex items-center h-8 min-w-0 cursor-pointer touch-none"
               />
               <button
                 type="button"
-                onClick={() => setTempo((t) => Math.min(400, t + 1))}
+                onClick={() => {
+                  setTempo((t) => {
+                    const n = Math.min(400, t + 1);
+                    tempoRef.current = n;
+                    return n;
+                  });
+                }}
                 className="p-2 bg-[#23314f] rounded-lg text-slate-300 hover:bg-[#2c3d63] active:bg-[#1b253b] transition-colors shrink-0"
               >
                 <Plus size={18} strokeWidth={2.5} />
@@ -1884,21 +1928,23 @@ export default function App() {
                       <span className="text-[11px] text-slate-400 font-bold tracking-wider uppercase">
                         Chaos level
                       </span>
-                      <span className="text-purple-300 font-mono text-xs font-bold">{chaosLevel}</span>
+                      <span className="text-purple-300 font-mono text-xs font-bold">
+                        {chaosLabelDraft ?? chaosLevel}
+                      </span>
                      </div>
-                     <FastSlider
-                        variant="native"
+                     <CommittedSlider
                         min={0}
                         max={100}
+                        step={1}
                         value={chaosLevel}
-                        onLiveChange={onChaosLive}
+                        onDraftChange={setChaosLabelDraft}
                         onCommit={(v) => {
                           chaosLevelRef.current = v;
                           setChaosLevel(v);
+                          setChaosLabelDraft(null);
                           flushChaosToActiveSnapshot();
                         }}
-                        className="flex w-full min-w-0 flex-row items-center gap-2"
-                        rangeClassName="w-full h-2 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110"
+                        className="w-full h-2 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110"
                       />
                   </div>
 
@@ -1921,25 +1967,37 @@ export default function App() {
                   <div className="flex items-center gap-2">
                     <button 
                       type="button"
-                      onClick={() => setTempo((t) => Math.max(20, t - 1))}
+                      onClick={() => {
+                        setTempo((t) => {
+                          const n = Math.max(20, t - 1);
+                          tempoRef.current = n;
+                          return n;
+                        });
+                      }}
                       className="p-2 bg-[#23314f] rounded-lg text-slate-300 hover:bg-[#2c3d63] active:bg-[#1b253b] transition-colors shrink-0"
                     >
                       <Minus size={18} strokeWidth={2.5} />
                     </button>
-                    <FastSlider
-                      variant="tempoTrack"
-                      min={20}
-                      max={400}
-                      value={tempo}
-                      onLiveChange={onTempoLive}
-                      onCommit={(v) => {
-                        tempoRef.current = v;
-                        setTempo(v);
+                    <TempoTrackSlider
+                      committedTempo={tempo}
+                      onTempoLive={(t) => {
+                        tempoRef.current = t;
                       }}
+                      onCommit={(t) => {
+                        tempoRef.current = t;
+                        setTempo(t);
+                      }}
+                      className="flex-1 relative flex items-center h-8 min-w-0 cursor-pointer touch-none"
                     />
                     <button 
                       type="button"
-                      onClick={() => setTempo((t) => Math.min(400, t + 1))}
+                      onClick={() => {
+                        setTempo((t) => {
+                          const n = Math.min(400, t + 1);
+                          tempoRef.current = n;
+                          return n;
+                        });
+                      }}
                       className="p-2 bg-[#23314f] rounded-lg text-slate-300 hover:bg-[#2c3d63] active:bg-[#1b253b] transition-colors shrink-0"
                     >
                       <Plus size={18} strokeWidth={2.5} />
@@ -2041,23 +2099,17 @@ export default function App() {
                   <Snowflake size={12} />
                 </button>
               </div>
-              <FastSlider
-                variant="native"
+              <CommittedSlider
                 min={1}
                 max={32}
+                step={1}
                 value={bars}
-                onLiveChange={(n) => {
-                  barsRef.current = n;
+                onDragState={(drag) => {
+                  barsSliderDraggingRef.current = drag;
+                  if (drag) attachSliderWindowListeners();
                 }}
-                onCommit={(v) => {
-                  barsRef.current = v;
-                  setBars(v);
-                }}
-                className="flex flex-1 items-center gap-2 min-w-0"
-                rangeClassName="flex-1 h-3 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-blue-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110"
-                renderTrailing={(loc) => (
-                  <span className="w-7 shrink-0 text-center text-[11px] font-bold text-slate-500 tabular-nums">{loc}</span>
-                )}
+                onCommit={(v) => setBars(v)}
+                className="flex-1 h-3 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-blue-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110"
               />
               <div className="w-5 shrink-0 flex justify-end">
                 <input 
@@ -2087,24 +2139,27 @@ export default function App() {
                   {/* Global Syllables Slider */}
                   <div className={`absolute inset-0 flex items-center gap-2 transition-all duration-300 ${(activeEditCell !== null || activeEditRow !== null) ? 'opacity-0 pointer-events-none scale-y-50' : 'opacity-100 scale-y-100'}`}>
                     <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold w-12 shrink-0">Syllbs</span>
-                    <FastSlider
-                      variant="native"
+                    <CommittedSlider
                       min={1}
                       max={9}
+                      step={1}
                       value={syllables}
-                      onLiveChange={(n) => {
-                        syllablesRef.current = n;
+                      onDraftChange={setSyllablesLabelDraft}
+                      onDragState={(drag) => {
+                        syllablesSliderDraggingRef.current = drag;
+                        if (drag) attachSliderWindowListeners();
                       }}
                       onCommit={(v) => {
-                        syllablesRef.current = v;
                         setSyllables(v);
+                        setSyllablesLabelDraft(null);
                       }}
-                      className="flex flex-1 items-center gap-2 min-w-0"
-                      rangeClassName="flex-1 h-3 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-emerald-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110"
-                      renderTrailing={(loc) => (
-                        <span className="w-5 shrink-0 py-1 text-xs font-bold text-slate-300 text-right tabular-nums">{loc}</span>
-                      )}
+                      className="flex-1 h-3 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-emerald-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110"
                     />
+                    <div className="w-5 shrink-0 flex justify-end">
+                      <span className="w-full py-1 text-xs font-bold text-slate-300 text-right">
+                        {syllablesLabelDraft ?? syllables}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Specific Bar Syllables Slider */}
