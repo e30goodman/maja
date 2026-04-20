@@ -216,7 +216,8 @@ function applyRandomizerEffectsToBar(
 
 const SNAPSHOT_SLOT_COUNT = 7;
 const SNAPSHOT_STORAGE_KEY = 'konnakolTrainerSnapshotsV1';
-const APP_COMMIT_VERSION = '91a60bc';
+const APP_COMMIT_VERSION = '811e836';
+const TEMPO_THROTTLE_MS = 56;
 /** Clipboard export: kawaii magic marker for compact preset payload. */
 const SNAPSHOT_CLIPBOARD_MARKER = '(⁠ʘ⁠ᴗ⁠ʘ⁠)⁠♪:';
 /** Accept marker with/without zero-width separators from messengers. */
@@ -831,6 +832,7 @@ export default function App() {
   const seed = initialBoot.snapshots[initialBoot.activeSnapshot];
 
   const [tempo, setTempo] = useState(seed.tempo);
+  const [tempoUi, setTempoUi] = useState(seed.tempo);
   const [bars, setBars] = useState(seed.bars);
   const [syllables, setSyllables] = useState(seed.syllables);
 
@@ -914,6 +916,8 @@ export default function App() {
   } | null>(null);
 
   const persistSnapshotsTimerRef = useRef<number | null>(null);
+  const tempoThrottleTimerRef = useRef<number | null>(null);
+  const pendingTempoRef = useRef<number | null>(null);
   const clipboardToastTimerRef = useRef<number | null>(null);
   const [clipboardToast, setClipboardToast] = useState<string | null>(null);
 
@@ -1099,6 +1103,7 @@ export default function App() {
   useEffect(() => { barsRef.current = bars; }, [bars]);
   useEffect(() => { syllablesRef.current = syllables; }, [syllables]);
   useEffect(() => { tempoRef.current = tempo; }, [tempo]);
+  useEffect(() => { setTempoUi(tempo); }, [tempo]);
   useEffect(() => { accentsRef.current = new Set(accents); }, [accents]);
   useEffect(() => { customMultipliersRef.current = { ...customMultipliers }; }, [customMultipliers]);
   useEffect(() => { customSubdivisionsRef.current = { ...customSubdivisions }; }, [customSubdivisions]);
@@ -1116,6 +1121,53 @@ export default function App() {
   useEffect(() => { chaosLevelRef.current = chaosLevel; }, [chaosLevel]);
   useEffect(() => { clickSoundRef.current = clickSound; }, [clickSound]);
   useEffect(() => { frozenScaleRef.current = frozenScale; }, [frozenScale]);
+
+  const clampTempo = useCallback((n: number) => Math.min(400, Math.max(20, Math.round(n))), []);
+
+  const applyTempoImmediate = useCallback(
+    (raw: number) => {
+      const next = clampTempo(raw);
+      setTempoUi(next);
+      pendingTempoRef.current = null;
+      if (tempoThrottleTimerRef.current !== null) {
+        window.clearTimeout(tempoThrottleTimerRef.current);
+        tempoThrottleTimerRef.current = null;
+      }
+      setTempo(next);
+      tempoRef.current = next;
+    },
+    [clampTempo],
+  );
+
+  const scheduleTempoCommit = useCallback(
+    (raw: number) => {
+      const next = clampTempo(raw);
+      setTempoUi(next);
+      pendingTempoRef.current = next;
+      if (tempoThrottleTimerRef.current !== null) return;
+      tempoThrottleTimerRef.current = window.setTimeout(() => {
+        tempoThrottleTimerRef.current = null;
+        const pending = pendingTempoRef.current;
+        pendingTempoRef.current = null;
+        if (pending === null) return;
+        setTempo(pending);
+        tempoRef.current = pending;
+      }, TEMPO_THROTTLE_MS);
+    },
+    [clampTempo],
+  );
+
+  const flushTempoCommit = useCallback(() => {
+    const pending = pendingTempoRef.current;
+    pendingTempoRef.current = null;
+    if (tempoThrottleTimerRef.current !== null) {
+      window.clearTimeout(tempoThrottleTimerRef.current);
+      tempoThrottleTimerRef.current = null;
+    }
+    if (pending === null) return;
+    setTempo(pending);
+    tempoRef.current = pending;
+  }, []);
 
   const buildLiveSnapshotFromRefs = (): ReturnType<typeof createEmptySnapshot> => ({
     tempo: tempoRef.current,
@@ -1743,6 +1795,10 @@ export default function App() {
 
   useEffect(() => {
     return () => {
+      if (tempoThrottleTimerRef.current !== null) {
+        window.clearTimeout(tempoThrottleTimerRef.current);
+        tempoThrottleTimerRef.current = null;
+      }
       if (timerIDRef.current) clearTimeout(timerIDRef.current);
       if (snapshotHoldTimerRef.current !== null) {
         window.clearTimeout(snapshotHoldTimerRef.current);
@@ -2123,7 +2179,7 @@ export default function App() {
             <div className="flex-1 flex items-center gap-2 min-w-0 py-2 px-1.5 bg-[#161f33] rounded-xl border border-[#23314f] touch-none">
           <button 
                 type="button"
-                onClick={() => setTempo((t) => Math.max(20, t - 1))}
+                onClick={() => applyTempoImmediate(tempoUi - 1)}
                 className="p-2 bg-[#23314f] rounded-lg text-slate-300 hover:bg-[#2c3d63] active:bg-[#1b253b] transition-colors shrink-0"
               >
                 <Minus size={18} strokeWidth={2.5} />
@@ -2139,37 +2195,40 @@ export default function App() {
                     const activeWidth = rect.width - thumbHalf * 2;
                     const x = Math.max(0, Math.min(activeWidth, clientX - rect.left - thumbHalf));
                     const percent = x / Math.max(1, activeWidth);
-                    setTempo(Math.round(20 + percent * 380));
+                    scheduleTempoCommit(Math.round(20 + percent * 380));
                   };
                   updateTempo(e.clientX);
                   const onMove = (moveEvt: PointerEvent) => {
                     updateTempo(moveEvt.clientX);
                   };
                   const onUp = () => {
+                    flushTempoCommit();
                     el.removeEventListener('pointermove', onMove);
                     el.removeEventListener('pointerup', onUp);
+                    el.removeEventListener('pointercancel', onUp);
                     el.releasePointerCapture(e.pointerId);
                   };
                   el.addEventListener('pointermove', onMove);
                   el.addEventListener('pointerup', onUp);
+                  el.addEventListener('pointercancel', onUp);
                 }}
               >
                 <div className="absolute w-full h-1.5 bg-[#0b101e] rounded-full overflow-hidden">
                   <div
                     className="h-full bg-[#364976]"
-                    style={{ width: `calc(24px + ${((tempo - 20) / 380)} * calc(100% - 48px))` }}
+                    style={{ width: `calc(24px + ${((tempoUi - 20) / 380)} * calc(100% - 48px))` }}
                   />
                 </div>
                 <div
                   className="absolute z-10 bg-[#23314f] border border-[#2f4066] px-3 w-12 text-center py-1 rounded-full text-sm font-bold shadow-md -translate-x-1/2 flex items-center justify-center select-none"
-                  style={{ left: `calc(24px + ${((tempo - 20) / 380)} * calc(100% - 48px))` }}
+                  style={{ left: `calc(24px + ${((tempoUi - 20) / 380)} * calc(100% - 48px))` }}
                 >
-                  {tempo}
+                  {tempoUi}
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setTempo((t) => Math.min(400, t + 1))}
+                onClick={() => applyTempoImmediate(tempoUi + 1)}
                 className="p-2 bg-[#23314f] rounded-lg text-slate-300 hover:bg-[#2c3d63] active:bg-[#1b253b] transition-colors shrink-0"
               >
                 <Plus size={18} strokeWidth={2.5} />
@@ -2293,7 +2352,7 @@ export default function App() {
                   <div className="flex items-center gap-2">
                     <button 
                       type="button"
-                      onClick={() => setTempo((t) => Math.max(20, t - 1))}
+                      onClick={() => applyTempoImmediate(tempoUi - 1)}
                       className="p-2 bg-[#23314f] rounded-lg text-slate-300 hover:bg-[#2c3d63] active:bg-[#1b253b] transition-colors shrink-0"
                     >
                       <Minus size={18} strokeWidth={2.5} />
@@ -2309,7 +2368,7 @@ export default function App() {
                           const activeWidth = rect.width - thumbHalf * 2;
                           const x = Math.max(0, Math.min(activeWidth, clientX - rect.left - thumbHalf));
                           const percent = x / Math.max(1, activeWidth);
-                          setTempo(Math.round(20 + percent * 380));
+                          scheduleTempoCommit(Math.round(20 + percent * 380));
                         };
                         updateTempo(e.clientX);
                         
@@ -2317,31 +2376,34 @@ export default function App() {
                           updateTempo(moveEvt.clientX);
                         };
                         const onUp = () => {
+                          flushTempoCommit();
                           el.removeEventListener('pointermove', onMove);
                           el.removeEventListener('pointerup', onUp);
+                          el.removeEventListener('pointercancel', onUp);
                           el.releasePointerCapture(e.pointerId);
                         };
                         
                         el.addEventListener('pointermove', onMove);
                         el.addEventListener('pointerup', onUp);
+                        el.addEventListener('pointercancel', onUp);
                       }}
                     >
                       <div className="absolute w-full h-1.5 bg-[#0b101e] rounded-full overflow-hidden">
                         <div 
                           className="h-full bg-[#364976]" 
-                          style={{ width: `calc(24px + ${((tempo - 20) / 380)} * calc(100% - 48px))` }}
+                          style={{ width: `calc(24px + ${((tempoUi - 20) / 380)} * calc(100% - 48px))` }}
                         />
                       </div>
                       <div 
                         className="absolute z-10 bg-[#23314f] border border-[#2f4066] px-3 w-12 text-center py-1 rounded-full text-sm font-bold shadow-md -translate-x-1/2 flex items-center justify-center select-none"
-                        style={{ left: `calc(24px + ${((tempo - 20) / 380)} * calc(100% - 48px))` }}
+                        style={{ left: `calc(24px + ${((tempoUi - 20) / 380)} * calc(100% - 48px))` }}
                       >
-                        {tempo}
+                        {tempoUi}
                       </div>
                     </div>
                     <button 
                       type="button"
-                      onClick={() => setTempo((t) => Math.min(400, t + 1))}
+                      onClick={() => applyTempoImmediate(tempoUi + 1)}
                       className="p-2 bg-[#23314f] rounded-lg text-slate-300 hover:bg-[#2c3d63] active:bg-[#1b253b] transition-colors shrink-0"
                     >
                       <Plus size={18} strokeWidth={2.5} />
