@@ -297,7 +297,7 @@ const SequencerGridRow = React.memo(
 						if (isActive)
 							cellClasses =
 								lowPerfMode
-									? 'bg-blue-500 border-blue-300 z-10 text-white'
+									? 'bg-emerald-500/20 border-emerald-500 z-10 text-emerald-100'
 									: 'bg-emerald-500/20 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)] z-10 scale-[1.03] text-emerald-100';
 						return (
 							<button

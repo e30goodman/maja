@@ -981,15 +981,36 @@ export default function App() {
     }
   }, [lowPerfMode]);
 
+  const potatoAutoFreezeArmedRef = useRef(true);
   const prevLowPerfModeRef = useRef(lowPerfMode);
   useEffect(() => {
     const prev = prevLowPerfModeRef.current;
     prevLowPerfModeRef.current = lowPerfMode;
     if (prev === lowPerfMode) return;
+    potatoAutoFreezeArmedRef.current = true;
     if (!lowPerfMode) return;
     if (bars >= 6) setFrozenScale(bars);
     else setFrozenScale(null);
   }, [lowPerfMode, bars]);
+
+  const applyBarsWithPotatoFreeze = useCallback(
+    (next: number) => {
+      const prevBars = barsRef.current;
+      setBars(next);
+      barsRef.current = next;
+      if (!lowPerfMode) return;
+      if (next <= 5) {
+        potatoAutoFreezeArmedRef.current = true;
+        setFrozenScale(null);
+        return;
+      }
+      const crossedUpFromLow = prevBars <= 5 && next >= 6;
+      if (potatoAutoFreezeArmedRef.current && crossedUpFromLow) {
+        setFrozenScale(next);
+      }
+    },
+    [lowPerfMode],
+  );
 
   /** Long-press по клетке такта (поддоли). */
   const holdTimerRef = useRef<number | null>(null);
@@ -2299,20 +2320,6 @@ export default function App() {
                     </span>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setLowPerfMode((v) => !v)}
-                    className={`w-full flex items-center justify-between py-2.5 px-3 rounded-lg text-xs font-bold transition-colors border ${
-                      lowPerfMode
-                        ? 'bg-amber-600/20 border-amber-400/60 text-amber-200'
-                        : 'bg-[#1a253c]/40 border-[#23314f] text-slate-400 hover:text-slate-300 hover:bg-[#1a253c]/80'
-                    }`}
-                    title="Упрощает визуальные эффекты для старых устройств"
-                  >
-                    <span>Potato Mode (Старый телефон)</span>
-                    <span className="font-mono text-[10px]">{lowPerfMode ? 'ON' : 'OFF'}</span>
-                  </button>
-                  
                   <div className="grid grid-cols-2 gap-2">
                      <button 
                        onClick={() => toggleRandomFeature('pulsation')}
@@ -2379,12 +2386,25 @@ export default function App() {
                   <div className="w-full h-px bg-[#1e2a45]/80 my-0.5"></div>
 
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-slate-400 font-bold tracking-wider uppercase">Click Sound</span>
+                    <span className={`text-[11px] font-bold tracking-wider uppercase text-blue-300 ${lowPerfMode ? '' : 'drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]'}`}>Click Sound</span>
                     <div className="flex bg-[#0b101e] p-[3px] rounded-lg border border-[#2f4066]/50">
                        <button onClick={() => setClickSound('classic')} className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${clickSound === 'classic' ? 'bg-[#364976] text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}>Classic</button>
                        <button onClick={() => setClickSound('oldschool')} className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${clickSound === 'oldschool' ? 'bg-[#364976] text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}>Oldschool</button>
                     </div>
                   </div>
+
+                  <div className="w-full h-px bg-[#1e2a45]/80 my-0.5"></div>
+                  <button
+                    type="button"
+                    onClick={() => setLowPerfMode((v) => !v)}
+                    className={`w-1/2 self-center flex items-center justify-center py-1.5 px-2 rounded-md text-[11px] font-bold transition-colors border ${
+                      lowPerfMode
+                        ? 'bg-emerald-500/20 border-emerald-300/70 text-emerald-200'
+                        : 'bg-[#16332f]/35 border-emerald-700/50 text-emerald-300 hover:text-emerald-200 hover:bg-[#16332f]/60'
+                    }`}
+                  >
+                    <span>Potato Mode</span>
+                  </button>
                     </div>
                   </div>
                 </div>
@@ -2537,7 +2557,16 @@ export default function App() {
               <div className="flex items-center w-12 justify-between pr-1 shrink-0">
                 <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold">Bars</span>
                 <button 
-                  onClick={() => setFrozenScale(frozenScale !== null ? null : bars)}
+                  onClick={() => {
+                    setFrozenScale((prev) => {
+                      const next = prev !== null ? null : bars;
+                      if (lowPerfMode) {
+                        if (bars >= 6) potatoAutoFreezeArmedRef.current = next !== null;
+                        if (bars <= 5) potatoAutoFreezeArmedRef.current = true;
+                      }
+                      return next;
+                    });
+                  }}
                   className={`flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-all duration-300 ${
                     frozenScale !== null 
                       ? `bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/50 ${lowPerfMode ? '' : 'shadow-[0_0_8px_rgba(59,130,246,0.3)]'}` 
@@ -2559,12 +2588,10 @@ export default function App() {
                   attachSliderWindowListeners();
                 }}
                 onLiveChange={(next) => {
-                  setBars(next);
-                  barsRef.current = next;
+                  applyBarsWithPotatoFreeze(next);
                 }}
                 onCommit={(next) => {
-                  setBars(next);
-                  barsRef.current = next;
+                  applyBarsWithPotatoFreeze(next);
                 }}
               />
               <div className="w-5 shrink-0 flex justify-end">
@@ -2578,7 +2605,7 @@ export default function App() {
                     let val = parseInt(e.target.value);
                     if (isNaN(val) || val < 1) val = 1;
                     if (val > 100) val = 100;
-                    setBars(val);
+                    applyBarsWithPotatoFreeze(val);
                   }}
                   onKeyDown={e => {
                     if (e.key === 'Enter') e.currentTarget.blur();
