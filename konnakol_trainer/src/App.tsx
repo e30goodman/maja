@@ -216,8 +216,13 @@ function applyRandomizerEffectsToBar(
 
 const SNAPSHOT_SLOT_COUNT = 7;
 const SNAPSHOT_STORAGE_KEY = 'konnakolTrainerSnapshotsV1';
-/** Clipboard export: compact string for messengers. */
-const METRONOME_CONFIG_PREFIX = 'METRONOME_CONFIG:';
+/** Clipboard export: kawaii magic marker for compact preset payload. */
+const SNAPSHOT_CLIPBOARD_MARKER = '(⁠ʘ⁠ᴗ⁠ʘ⁠)⁠♪:';
+/** Accept marker with/without zero-width separators from messengers. */
+const SNAPSHOT_CLIPBOARD_MARKER_REGEX =
+	/^\([\s\u200b\u200c\u200d\ufeff\u2060]*ʘ[\s\u200b\u200c\u200d\ufeff\u2060]*ᴗ[\s\u200b\u200c\u200d\ufeff\u2060]*ʘ[\s\u200b\u200c\u200d\ufeff\u2060]*\)[\s\u200b\u200c\u200d\ufeff\u2060]*♪[\s\u200b\u200c\u200d\ufeff\u2060]*:/;
+/** Backward compatibility for previously shared compact snapshots. */
+const SNAPSHOT_CLIPBOARD_PREFIX_LEGACY_COMPACT = 'METRONOME_CONFIG:';
 /** Legacy prefix with raw JSON after colon — still accepted when pasting. */
 const SNAPSHOT_CLIPBOARD_PREFIX_LEGACY = 'konnakolTrainerSnapshotV1:';
 /** Hold snapshot slot to open Copy / Paste menu. */
@@ -225,18 +230,112 @@ const SNAPSHOT_MENU_HOLD_MS = 520;
 /** Удерживание кнопки «кости»: префилл всех тактов по активным фичам Randomizer. */
 const RANDOM_DICE_PREFILL_HOLD_MS = SNAPSHOT_MENU_HOLD_MS;
 
-function utf8ToBase64Json(json: string): string {
-	const bytes = new TextEncoder().encode(json);
-	let bin = '';
-	for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
-	return btoa(bin);
+const SNAPSHOT_FLAG_RANDOM_MODE_ENABLED = 1 << 0;
+const SNAPSHOT_FLAG_RANDOM_PULSATION = 1 << 1;
+const SNAPSHOT_FLAG_RANDOM_PATTERN = 1 << 2;
+const SNAPSHOT_FLAG_RANDOM_SPEED = 1 << 3;
+const SNAPSHOT_FLAG_RANDOM_BAR_SPEED = 1 << 4;
+const SNAPSHOT_FLAG_PANEL_EXPANDED = 1 << 5;
+const SNAPSHOT_FLAG_ONLY_ACCENTS = 1 << 6;
+const SNAPSHOT_FLAG_FIRST_BEAT_ACCENT = 1 << 7;
+const SNAPSHOT_SOUND_ID_CLASSIC = 0;
+const SNAPSHOT_SOUND_ID_OLDSCHOOL = 1;
+
+function buildSnapshotGridToken(s: ReturnType<typeof createEmptySnapshot>): string {
+	const accents = s.accents instanceof Set ? s.accents : new Set(Array.isArray(s.accents) ? s.accents : []);
+	let bits = '';
+	for (let r = 0; r < s.bars; r++) {
+		for (let c = 0; c < s.syllables; c++) {
+			bits += accents.has(`${r}-${c}`) ? '1' : '0';
+		}
+	}
+	if (!bits || /^0+$/.test(bits)) return '0';
+	const fullHex = BigInt(`0b${bits}`).toString(16);
+	const trailingZeros = bits.match(/0+$/)?.[0].length ?? 0;
+	const coreLen = bits.length - trailingZeros;
+	const coreBits = coreLen > 0 ? bits.slice(0, coreLen) : '0';
+	const coreHex = BigInt(`0b${coreBits}`).toString(16);
+	const compressed = trailingZeros > 0 ? `${coreHex}~${trailingZeros.toString(36)}` : coreHex;
+	return compressed.length < fullHex.length ? compressed : fullHex;
 }
 
-function base64JsonToUtf8(b64: string): string {
-	const bin = atob(b64);
-	const bytes = new Uint8Array(bin.length);
-	for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i) & 0xff;
-	return new TextDecoder().decode(bytes);
+function hydrateSnapshotAccentsFromGridToken(
+	gridToken: string,
+	bars: number,
+	syllables: number,
+	d: ReturnType<typeof createEmptySnapshot>,
+) {
+	const totalCells = bars * syllables;
+	if (totalCells <= 0) {
+		d.accents = new Set<string>();
+		return;
+	}
+	const normalizedToken = gridToken.trim().toLowerCase();
+	if (!normalizedToken) return;
+	let normalizedHex = normalizedToken;
+	let trailingZeros = 0;
+	if (normalizedToken.includes('~')) {
+		const [hexPart, tzPart] = normalizedToken.split('~');
+		if (!hexPart || tzPart === undefined || tzPart.length === 0) return;
+		if (!/^[0-9a-f]+$/.test(hexPart)) return;
+		const tz = parseInt(tzPart, 36);
+		if (!Number.isFinite(tz) || tz < 0 || tz > totalCells) return;
+		normalizedHex = hexPart;
+		trailingZeros = tz;
+	} else {
+		if (!/^[0-9a-f]+$/.test(normalizedHex)) return;
+	}
+	// BigInt is mandatory here to safely parse masks >53 bits.
+	let bits = BigInt(`0x${normalizedHex}`).toString(2);
+	if (trailingZeros > 0) {
+		const coreLen = Math.max(0, totalCells - trailingZeros);
+		if (bits.length < coreLen) bits = bits.padStart(coreLen, '0');
+		if (bits.length > coreLen) bits = bits.slice(bits.length - coreLen);
+		bits += '0'.repeat(trailingZeros);
+	}
+	if (bits.length < totalCells) bits = bits.padStart(totalCells, '0');
+	if (bits.length > totalCells) bits = bits.slice(bits.length - totalCells);
+	const nextAccents = new Set<string>();
+	let idx = 0;
+	for (let r = 0; r < bars; r++) {
+		for (let c = 0; c < syllables; c++) {
+			if (bits[idx] === '1') nextAccents.add(`${r}-${c}`);
+			idx++;
+		}
+	}
+	d.accents = nextAccents;
+}
+
+function buildSnapshotFlags(s: ReturnType<typeof createEmptySnapshot>): number {
+	let flags = 0;
+	if (s.randomModeEnabled) flags |= SNAPSHOT_FLAG_RANDOM_MODE_ENABLED;
+	if (s.randomPulsation) flags |= SNAPSHOT_FLAG_RANDOM_PULSATION;
+	if (s.randomPattern) flags |= SNAPSHOT_FLAG_RANDOM_PATTERN;
+	if (s.randomSpeed) flags |= SNAPSHOT_FLAG_RANDOM_SPEED;
+	if (s.randomBarSpeed) flags |= SNAPSHOT_FLAG_RANDOM_BAR_SPEED;
+	if (s.panelExpanded) flags |= SNAPSHOT_FLAG_PANEL_EXPANDED;
+	if (s.onlyAccents) flags |= SNAPSHOT_FLAG_ONLY_ACCENTS;
+	if (s.firstBeatAccent) flags |= SNAPSHOT_FLAG_FIRST_BEAT_ACCENT;
+	return flags;
+}
+
+function applySnapshotFlags(flags: number, d: ReturnType<typeof createEmptySnapshot>) {
+	d.randomModeEnabled = Boolean(flags & SNAPSHOT_FLAG_RANDOM_MODE_ENABLED);
+	d.randomPulsation = Boolean(flags & SNAPSHOT_FLAG_RANDOM_PULSATION);
+	d.randomPattern = Boolean(flags & SNAPSHOT_FLAG_RANDOM_PATTERN);
+	d.randomSpeed = Boolean(flags & SNAPSHOT_FLAG_RANDOM_SPEED);
+	d.randomBarSpeed = Boolean(flags & SNAPSHOT_FLAG_RANDOM_BAR_SPEED);
+	d.panelExpanded = Boolean(flags & SNAPSHOT_FLAG_PANEL_EXPANDED);
+	d.onlyAccents = Boolean(flags & SNAPSHOT_FLAG_ONLY_ACCENTS);
+	d.firstBeatAccent = Boolean(flags & SNAPSHOT_FLAG_FIRST_BEAT_ACCENT);
+}
+
+function buildSnapshotSoundId(s: ReturnType<typeof createEmptySnapshot>): number {
+	return s.clickSound === 'oldschool' ? SNAPSHOT_SOUND_ID_OLDSCHOOL : SNAPSHOT_SOUND_ID_CLASSIC;
+}
+
+function applySnapshotSoundId(soundId: number, d: ReturnType<typeof createEmptySnapshot>) {
+	d.clickSound = soundId === SNAPSHOT_SOUND_ID_OLDSCHOOL ? 'oldschool' : 'classic';
 }
 
 type SequencerCellJSON = { accent: boolean; pulsation: number };
@@ -432,17 +531,54 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 }
 
 function encodeSnapshotClipboard(s: ReturnType<typeof createEmptySnapshot>): string {
-	const json = JSON.stringify(snapshotToJSON(s));
-	return METRONOME_CONFIG_PREFIX + utf8ToBase64Json(json);
+	const gridToken = buildSnapshotGridToken(s);
+	const flags = buildSnapshotFlags(s);
+	const soundId = buildSnapshotSoundId(s);
+	const compact = `${s.tempo}.${s.bars}.${s.syllables}.${gridToken}.${s.chaosLevel}.${flags}.${soundId}`;
+	return SNAPSHOT_CLIPBOARD_MARKER + compact;
 }
 
 function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmptySnapshot> | null {
 	const t = text.trim();
-	if (t.startsWith(METRONOME_CONFIG_PREFIX)) {
-		const b64 = t.slice(METRONOME_CONFIG_PREFIX.length).replace(/\s+/g, '');
-		if (!b64) return null;
+	const markerMatch = t.match(SNAPSHOT_CLIPBOARD_MARKER_REGEX);
+	const hasNewMarker = markerMatch !== null;
+	const hasLegacyCompactMarker = t.startsWith(SNAPSHOT_CLIPBOARD_PREFIX_LEGACY_COMPACT);
+	if (hasNewMarker || hasLegacyCompactMarker) {
+		const markerLength = hasNewMarker
+			? markerMatch![0].length
+			: SNAPSHOT_CLIPBOARD_PREFIX_LEGACY_COMPACT.length;
+		const body = t.slice(markerLength).replace(/\s+/g, '');
+		if (!body) return null;
+		const compactParts = body.split('.');
+		if (compactParts.length === 7) {
+			const [tempoRaw, barsRaw, syllablesRaw, gridTokenRaw, chaosRaw, flagsRaw, soundRaw] = compactParts;
+			const d = createEmptySnapshot();
+			const tempo = parseInt(tempoRaw, 10);
+			const bars = parseInt(barsRaw, 10);
+			const syllables = parseInt(syllablesRaw, 10);
+			const chaosLevel = parseInt(chaosRaw, 10);
+			const flags = parseInt(flagsRaw, 10);
+			const soundId = parseInt(soundRaw, 10);
+			if (!Number.isFinite(tempo) || tempo < 20 || tempo > 400) return null;
+			if (!Number.isFinite(bars) || bars < 1 || bars > 100) return null;
+			if (!Number.isFinite(syllables) || syllables < 1 || syllables > 9) return null;
+			if (!Number.isFinite(chaosLevel) || chaosLevel < 0 || chaosLevel > 100) return null;
+			if (!Number.isFinite(flags) || flags < 0) return null;
+			if (!Number.isFinite(soundId)) return null;
+			d.tempo = tempo;
+			d.bars = bars;
+			d.syllables = syllables;
+			d.chaosLevel = chaosLevel;
+			applySnapshotFlags(flags, d);
+			applySnapshotSoundId(soundId, d);
+			hydrateSnapshotAccentsFromGridToken(gridTokenRaw, bars, syllables, d);
+			return d;
+		}
 		try {
-			const json = base64JsonToUtf8(b64);
+			const bin = atob(body);
+			const bytes = new Uint8Array(bin.length);
+			for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i) & 0xff;
+			const json = new TextDecoder().decode(bytes);
 			return parseSnapshotRow(JSON.parse(json));
 		} catch {
 			return null;
@@ -594,6 +730,100 @@ const playBarFirstHighClick = (ctx: AudioContext, time: number, soundType: 'clas
   osc.start(time);
   osc.stop(time + 0.06);
 };
+
+type StructuralSliderProps = {
+  label: string;
+  min: number;
+  max: number;
+  value: number;
+  colorClass: string;
+  onCommit: (next: number) => void;
+  onLiveChange?: (next: number) => void;
+  onBeginDrag?: () => void;
+};
+
+function StructuralSlider({
+  label,
+  min,
+  max,
+  value,
+  colorClass,
+  onCommit,
+  onLiveChange,
+  onBeginDrag,
+}: StructuralSliderProps) {
+  const [localValue, setLocalValue] = useState(value);
+  const committedValueRef = useRef(value);
+  const lastLiveValueRef = useRef(value);
+  const pointerActiveRef = useRef(false);
+
+  useEffect(() => {
+    setLocalValue(value);
+    committedValueRef.current = value;
+    lastLiveValueRef.current = value;
+  }, [value]);
+
+  const normalizeValue = useCallback(
+    (raw: string) => {
+      const parsed = parseInt(raw, 10);
+      if (!Number.isFinite(parsed)) return localValue;
+      return Math.min(max, Math.max(min, parsed));
+    },
+    [localValue, max, min],
+  );
+
+  const commitLocalValue = useCallback(
+    (next: number) => {
+      if (committedValueRef.current === next) return;
+      committedValueRef.current = next;
+      onCommit(next);
+    },
+    [onCommit],
+  );
+
+  const applyLiveValue = useCallback(
+    (next: number) => {
+      setLocalValue(next);
+      if (lastLiveValueRef.current !== next) {
+        lastLiveValueRef.current = next;
+        onLiveChange?.(next);
+      }
+    },
+    [onLiveChange],
+  );
+
+  return (
+    <input
+      aria-label={label}
+      type="range"
+      min={String(min)}
+      max={String(max)}
+      value={localValue}
+      onPointerDown={() => {
+        pointerActiveRef.current = true;
+        onBeginDrag?.();
+      }}
+      onPointerUp={() => {
+        if (pointerActiveRef.current) pointerActiveRef.current = false;
+        commitLocalValue(localValue);
+      }}
+      onPointerCancel={() => {
+        if (pointerActiveRef.current) pointerActiveRef.current = false;
+        commitLocalValue(localValue);
+      }}
+      onBlur={() => {
+        commitLocalValue(localValue);
+      }}
+      onInput={(e) => {
+        applyLiveValue(normalizeValue(e.currentTarget.value));
+      }}
+      onChange={(e) => {
+        applyLiveValue(normalizeValue(e.currentTarget.value));
+      }}
+      className={`flex-1 h-3 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 ${colorClass} [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110`}
+    />
+  );
+}
 
 export default function App() {
   const initialBoot = useMemo(() => loadSnapshotStorage(), []);
@@ -1367,7 +1597,7 @@ export default function App() {
     }
     const parsed = tryDecodeSnapshotClipboard(text);
     if (!parsed) {
-      showClipboardToast('No METRONOME_CONFIG preset in clipboard');
+      showClipboardToast('No snapshot marker found in clipboard');
       closeSnapshotClipMenu();
       return;
     }
@@ -2208,17 +2438,24 @@ export default function App() {
                   <Snowflake size={12} />
                 </button>
               </div>
-              <input 
-                type="range" 
-                min="1" 
-                max="32" 
-                value={bars} 
-                onPointerDown={() => {
+              <StructuralSlider
+                label="Bars"
+                min={1}
+                max={32}
+                value={bars}
+                colorClass="[&::-webkit-slider-thumb]:bg-blue-400"
+                onBeginDrag={() => {
                   barsSliderDraggingRef.current = true;
                   attachSliderWindowListeners();
                 }}
-                onChange={(e) => setBars(parseInt(e.target.value, 10))} 
-                className="flex-1 h-3 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-blue-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110" 
+                onLiveChange={(next) => {
+                  setBars(next);
+                  barsRef.current = next;
+                }}
+                onCommit={(next) => {
+                  setBars(next);
+                  barsRef.current = next;
+                }}
               />
               <div className="w-5 shrink-0 flex justify-end">
                 <input 
@@ -2248,18 +2485,22 @@ export default function App() {
                   {/* Global Syllables Slider */}
                   <div className={`absolute inset-0 flex items-center gap-2 transition-all duration-300 ${(activeEditCell !== null || activeEditRow !== null) ? 'opacity-0 pointer-events-none scale-y-50' : 'opacity-100 scale-y-100'}`}>
                     <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold w-12 shrink-0">Syllbs</span>
-                    <input 
-                      type="range" 
-                      min="1" 
-                      max="9" 
-                      value={syllables} 
-                      onPointerDown={() => {
+                    <StructuralSlider
+                      label="Syllbs"
+                      min={1}
+                      max={9}
+                      value={syllables}
+                      colorClass="[&::-webkit-slider-thumb]:bg-emerald-400"
+                      onBeginDrag={() => {
                         syllablesSliderDraggingRef.current = true;
                         attachSliderWindowListeners();
                       }}
-                      onInput={(e) => applyGlobalSyllablesFromSlider(e.currentTarget.value)}
-                      onChange={(e) => applyGlobalSyllablesFromSlider(e.currentTarget.value)}
-                      className="flex-1 h-3 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-emerald-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110" 
+                      onLiveChange={(next) => {
+                        applyGlobalSyllablesFromSlider(String(next));
+                      }}
+                      onCommit={(next) => {
+                        applyGlobalSyllablesFromSlider(String(next));
+                      }}
                     />
                     <div className="w-5 shrink-0 flex justify-end">
                       <span className="w-full py-1 text-xs font-bold text-slate-300 text-right">{syllables}</span>
