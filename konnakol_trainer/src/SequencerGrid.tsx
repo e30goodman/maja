@@ -87,6 +87,7 @@ type SequencerGridRowProps = {
 	effectiveUseFixedFlex: boolean;
 	displayScaleBars: number;
 	syllables: number;
+	lowPerfMode: boolean;
 	actionsRef: React.MutableRefObject<SequencerGridRowActions | null>;
 	setRowEl: (absR: number, el: HTMLDivElement | null) => void;
 };
@@ -108,6 +109,7 @@ function sequencerGridRowPropsEqual(a: SequencerGridRowProps, b: SequencerGridRo
 		a.effectiveUseFixedFlex === b.effectiveUseFixedFlex &&
 		a.displayScaleBars === b.displayScaleBars &&
 		a.syllables === b.syllables &&
+		a.lowPerfMode === b.lowPerfMode &&
 		a.actionsRef === b.actionsRef &&
 		a.setRowEl === b.setRowEl
 	);
@@ -131,6 +133,7 @@ const SequencerGridRow = React.memo(
 			effectiveUseFixedFlex,
 			displayScaleBars,
 			syllables,
+			lowPerfMode,
 			actionsRef,
 			setRowEl,
 		} = p;
@@ -182,10 +185,10 @@ const SequencerGridRow = React.memo(
 							rowMult === 1
 								? 'bg-[#1e2a45] border-[#2f4066] text-slate-300 hover:bg-[#253353] active:bg-[#1a253c]'
 								: rowMult === 2
-									? 'bg-blue-900/40 border-blue-500/50 text-blue-300 shadow-[inset_0_1px_3px_rgba(59,130,246,0.1)]'
+									? `bg-blue-900/40 border-blue-500/50 text-blue-300 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_3px_rgba(59,130,246,0.1)]'}`
 									: rowMult === 3
-										? 'bg-rose-900/40 border-rose-500/50 text-rose-300 shadow-[inset_0_1px_3px_rgba(244,63,94,0.1)]'
-										: 'bg-amber-900/40 border-amber-500/50 text-amber-200 shadow-[inset_0_1px_3px_rgba(245,158,11,0.12)]'
+										? `bg-rose-900/40 border-rose-500/50 text-rose-300 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_3px_rgba(244,63,94,0.1)]'}`
+										: `bg-amber-900/40 border-amber-500/50 text-amber-200 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_3px_rgba(245,158,11,0.12)]'}`
 						}`}
 					>
 						<span className="absolute top-[2px] left-[3px] text-[7.5px] text-slate-500 font-mono pointer-events-none leading-none opacity-80">
@@ -270,11 +273,11 @@ const SequencerGridRow = React.memo(
 							});
 						}}
 						onContextMenu={(e) => e.preventDefault()}
-						className={`flex-1 rounded-md border flex items-center justify-center text-[12px] font-extrabold leading-none shadow-[inset_0_1px_3px_rgba(0,0,0,0.1)] min-h-[50%] transition-colors select-none ${
+						className={`flex-1 rounded-md border flex items-center justify-center text-[12px] font-extrabold leading-none ${lowPerfMode ? '' : 'shadow-[inset_0_1px_3px_rgba(0,0,0,0.1)]'} min-h-[50%] transition-colors select-none ${
 							activeEditRow === rIdx
-								? 'ring-2 ring-purple-500 shadow-purple-500/30 bg-[#1e2a45] border-[#2f4066] text-slate-400'
+								? `ring-2 ring-purple-500 ${lowPerfMode ? '' : 'shadow-purple-500/30'} bg-[#1e2a45] border-[#2f4066] text-slate-400`
 								: pulseUnlinkedRow
-									? 'bg-teal-500/25 border-teal-400/70 text-teal-50 ring-1 ring-teal-400/80 shadow-[inset_0_1px_8px_rgba(20,184,166,0.25),0_0_12px_rgba(45,212,191,0.2)]'
+									? `bg-teal-500/25 border-teal-400/70 text-teal-50 ring-1 ring-teal-400/80 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_8px_rgba(20,184,166,0.25),0_0_12px_rgba(45,212,191,0.2)]'}`
 									: 'bg-[#1e2a45] border-[#2f4066] text-slate-400 hover:bg-[#253353] active:bg-[#1a253c]'
 						}`}
 					>
@@ -287,13 +290,15 @@ const SequencerGridRow = React.memo(
 						const isAccent = accentBits[cIdx] === '1';
 						const isActive = highlightCol === cIdx;
 						const subdivs = rowSubdivs[cIdx] ?? 1;
-						let cellClasses = 'bg-[#1e2a45] border-[#2f4066] shadow-[0_2px_4px_rgba(0,0,0,0.2)] hover:bg-[#253353]';
+						let cellClasses = `bg-[#1e2a45] border-[#2f4066] ${lowPerfMode ? '' : 'shadow-[0_2px_4px_rgba(0,0,0,0.2)]'} hover:bg-[#253353]`;
 						if (isAccent)
 							cellClasses =
-								'bg-purple-900/40 border-purple-500/50 shadow-[inset_0_1px_4px_rgba(168,85,247,0.2)] hover:bg-purple-900/50 text-purple-100';
+								`bg-purple-900/40 border-purple-500/50 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_4px_rgba(168,85,247,0.2)]'} hover:bg-purple-900/50 text-purple-100`;
 						if (isActive)
 							cellClasses =
-								'bg-emerald-500/20 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)] z-10 scale-[1.03] text-emerald-100';
+								lowPerfMode
+									? 'bg-blue-500 border-blue-300 z-10 text-white'
+									: 'bg-emerald-500/20 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)] z-10 scale-[1.03] text-emerald-100';
 						return (
 							<button
 								type="button"
@@ -336,9 +341,9 @@ const SequencerGridRow = React.memo(
 									}
 									a.toggleAccent(rIdx, cIdx);
 								}}
-								className={`flex-1 flex flex-col items-center justify-center border min-w-0 transition-all duration-75 ${
+								className={`flex-1 flex flex-col items-center justify-center border min-w-0 ${lowPerfMode ? '' : 'transition-all duration-75'} ${
 									rowSylls > 7 ? 'rounded-md' : 'rounded-xl'
-								} ${cellClasses} ${activeEditCell === checkKey ? 'ring-2 ring-purple-500 z-20 shadow-purple-500/30' : ''}`}
+								} ${cellClasses} ${activeEditCell === checkKey ? `ring-2 ring-purple-500 z-20 ${lowPerfMode ? '' : 'shadow-purple-500/30'}` : ''}`}
 							>
 								<div
 									className={`w-full h-full rounded-[inherit] overflow-hidden ${
@@ -359,7 +364,7 @@ const SequencerGridRow = React.memo(
 										<span
 											key={i}
 											className={`flex items-center justify-center w-full h-full min-w-0 overflow-hidden text-center px-px font-sans ${getSyllableStyles(rowSylls, subdivs)} ${
-												isActive || isAccent ? 'drop-shadow-md' : 'text-slate-300'
+												isActive || isAccent ? (lowPerfMode ? 'text-white' : 'drop-shadow-md') : 'text-slate-300'
 											} ${subdivs > 1 ? 'border-[0.5px] border-[#2f4066]/50' : ''}`}
 										>
 											{rowCellLabels[cIdx]?.[i] ?? 'Ta'}
@@ -390,6 +395,7 @@ export type SequencerGridProps = {
 	displayScaleBars: number;
 	useFixedFlex: boolean;
 	allBarsFitViewport: boolean;
+	lowPerfMode: boolean;
 	activeEditRow: number | null;
 	activeEditCell: string | null;
 	sequencerGridRowActionsRef: React.MutableRefObject<SequencerGridRowActions | null>;
@@ -410,6 +416,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	displayScaleBars,
 	useFixedFlex,
 	allBarsFitViewport,
+	lowPerfMode,
 	activeEditRow,
 	activeEditCell,
 	sequencerGridRowActionsRef,
@@ -475,6 +482,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 						effectiveUseFixedFlex={effectiveUseFixedFlex}
 						displayScaleBars={displayScaleBars}
 						syllables={syllables}
+						lowPerfMode={lowPerfMode}
 						actionsRef={sequencerGridRowActionsRef}
 						setRowEl={setRowElStable}
 					/>

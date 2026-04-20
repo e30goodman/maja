@@ -216,7 +216,8 @@ function applyRandomizerEffectsToBar(
 
 const SNAPSHOT_SLOT_COUNT = 7;
 const SNAPSHOT_STORAGE_KEY = 'konnakolTrainerSnapshotsV1';
-const APP_COMMIT_VERSION = '811e836';
+const LITE_UI_STORAGE_KEY = 'konnakol_lite_ui';
+const APP_COMMIT_VERSION = 'd6d32e1';
 const TEMPO_THROTTLE_MS = 56;
 /** Clipboard export: kawaii magic marker for compact preset payload. */
 const SNAPSHOT_CLIPBOARD_MARKER = '(⁠ʘ⁠ᴗ⁠ʘ⁠)⁠♪:';
@@ -606,7 +607,10 @@ function loadSnapshotStorage(): {
 	let activeSnapshot = 1;
 	try {
 		const raw = localStorage.getItem(SNAPSHOT_STORAGE_KEY);
-		if (!raw) return { activeSnapshot, snapshots };
+		if (!raw) {
+			for (let i = 1; i <= SNAPSHOT_SLOT_COUNT; i++) snapshots[i].randomModeEnabled = false;
+			return { activeSnapshot, snapshots };
+		}
 		const data = JSON.parse(raw) as { activeSnapshot?: number; snapshots?: Record<string, unknown> };
 		if (typeof data.activeSnapshot === 'number' && data.activeSnapshot >= 1 && data.activeSnapshot <= SNAPSHOT_SLOT_COUNT) {
 			activeSnapshot = Math.floor(data.activeSnapshot);
@@ -867,6 +871,13 @@ export default function App() {
   const [showRandomSettings, setShowRandomSettings] = useState(false);
   const showRandomSettingsRef = useRef(false);
   showRandomSettingsRef.current = showRandomSettings;
+  const [lowPerfMode, setLowPerfMode] = useState(() => {
+    try {
+      return localStorage.getItem(LITE_UI_STORAGE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
   const randomSettingsPanelRef = useRef<HTMLDivElement | null>(null);
   const settingsGearButtonRef = useRef<HTMLButtonElement | null>(null);
   const coldStartRef = useRef(true);
@@ -961,6 +972,24 @@ export default function App() {
     document.addEventListener('pointerdown', onPointerDown, true);
     return () => document.removeEventListener('pointerdown', onPointerDown, true);
   }, [showRandomSettings]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LITE_UI_STORAGE_KEY, lowPerfMode ? '1' : '0');
+    } catch {
+      /* ignore localStorage errors */
+    }
+  }, [lowPerfMode]);
+
+  const prevLowPerfModeRef = useRef(lowPerfMode);
+  useEffect(() => {
+    const prev = prevLowPerfModeRef.current;
+    prevLowPerfModeRef.current = lowPerfMode;
+    if (prev === lowPerfMode) return;
+    if (!lowPerfMode) return;
+    if (bars >= 6) setFrozenScale(bars);
+    else setFrozenScale(null);
+  }, [lowPerfMode, bars]);
 
   /** Long-press по клетке такта (поддоли). */
   const holdTimerRef = useRef<number | null>(null);
@@ -1441,7 +1470,7 @@ export default function App() {
 
   /** All pattern rows fit in the phone frame: no virtual strip, no playhead autoscroll. */
   const allBarsFitViewport = frozenScale === null && bars <= 10;
-  const disableMenuSmoothing = bars > 8 || syllables >= 9;
+  const disableMenuSmoothing = lowPerfMode || bars > 8 || syllables >= 9;
 
   const sequence = React.useMemo(() => {
     const seq = [];
@@ -2262,20 +2291,34 @@ export default function App() {
               >
                 <div className="flex flex-col gap-4 px-1 pb-1">
                   <div className="flex justify-between items-center text-slate-300 font-bold text-[11px] uppercase tracking-wider">
-                    <span className="flex items-center gap-2 drop-shadow-[0_0_8px_rgba(59,130,246,0.5)] text-blue-300">
+                    <span className={`flex items-center gap-2 text-blue-300 ${lowPerfMode ? '' : 'drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]'}`}>
                       <Dices size={14} /> Randomizer
                     </span>
                     <span className="text-[10px] font-medium normal-case tracking-normal text-slate-500">
                       {APP_COMMIT_VERSION}
                     </span>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setLowPerfMode((v) => !v)}
+                    className={`w-full flex items-center justify-between py-2.5 px-3 rounded-lg text-xs font-bold transition-colors border ${
+                      lowPerfMode
+                        ? 'bg-amber-600/20 border-amber-400/60 text-amber-200'
+                        : 'bg-[#1a253c]/40 border-[#23314f] text-slate-400 hover:text-slate-300 hover:bg-[#1a253c]/80'
+                    }`}
+                    title="Упрощает визуальные эффекты для старых устройств"
+                  >
+                    <span>Potato Mode (Старый телефон)</span>
+                    <span className="font-mono text-[10px]">{lowPerfMode ? 'ON' : 'OFF'}</span>
+                  </button>
                   
                   <div className="grid grid-cols-2 gap-2">
                      <button 
                        onClick={() => toggleRandomFeature('pulsation')}
                        className={`flex items-center justify-center py-2 rounded-lg text-xs font-bold transition-all duration-200 border ${
                          randomPulsation 
-                           ? 'bg-purple-600/20 border-purple-500/50 text-purple-300 shadow-[0_0_10px_rgba(168,85,247,0.15)]' 
+                           ? `bg-purple-600/20 border-purple-500/50 text-purple-300 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(168,85,247,0.15)]'}` 
                            : 'bg-[#1a253c]/40 border-[#23314f] text-slate-500 hover:text-slate-400 hover:bg-[#1a253c]/80'
                        }`}
                      >
@@ -2285,7 +2328,7 @@ export default function App() {
                         onClick={() => toggleRandomFeature('pattern')}
                         className={`flex items-center justify-center py-2 rounded-lg text-xs font-bold transition-all duration-200 border ${
                           randomPattern 
-                            ? 'bg-purple-600/20 border-purple-500/50 text-purple-300 shadow-[0_0_10px_rgba(168,85,247,0.15)]' 
+                            ? `bg-purple-600/20 border-purple-500/50 text-purple-300 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(168,85,247,0.15)]'}` 
                             : 'bg-[#1a253c]/40 border-[#23314f] text-slate-500 hover:text-slate-400 hover:bg-[#1a253c]/80'
                         }`}
                      >
@@ -2295,7 +2338,7 @@ export default function App() {
                         onClick={() => toggleRandomFeature('speed')}
                         className={`flex items-center justify-center py-2 rounded-lg text-xs font-bold transition-all duration-200 border ${
                           randomSpeed 
-                            ? 'bg-purple-600/20 border-purple-500/50 text-purple-300 shadow-[0_0_10px_rgba(168,85,247,0.15)]' 
+                            ? `bg-purple-600/20 border-purple-500/50 text-purple-300 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(168,85,247,0.15)]'}` 
                             : 'bg-[#1a253c]/40 border-[#23314f] text-slate-500 hover:text-slate-400 hover:bg-[#1a253c]/80'
                         }`}
                      >
@@ -2305,7 +2348,7 @@ export default function App() {
                         onClick={() => toggleRandomFeature('barSpeed')}
                         className={`flex items-center justify-center py-2 rounded-lg text-xs font-bold transition-all duration-200 border ${
                           randomBarSpeed 
-                            ? 'bg-purple-600/20 border-purple-500/50 text-purple-300 shadow-[0_0_10px_rgba(168,85,247,0.15)]' 
+                            ? `bg-purple-600/20 border-purple-500/50 text-purple-300 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(168,85,247,0.15)]'}` 
                             : 'bg-[#1a253c]/40 border-[#23314f] text-slate-500 hover:text-slate-400 hover:bg-[#1a253c]/80'
                         }`}
                      >
@@ -2497,7 +2540,7 @@ export default function App() {
                   onClick={() => setFrozenScale(frozenScale !== null ? null : bars)}
                   className={`flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-all duration-300 ${
                     frozenScale !== null 
-                      ? 'bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/50 shadow-[0_0_8px_rgba(59,130,246,0.3)]' 
+                      ? `bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/50 ${lowPerfMode ? '' : 'shadow-[0_0_8px_rgba(59,130,246,0.3)]'}` 
                       : 'bg-[#1e2a45]/40 text-slate-400 hover:text-slate-200 hover:bg-[#1e2a45] ring-1 ring-[#2f4066]/30'
                   }`}
                   title={frozenScale !== null ? "Unfreeze row height" : "Freeze current row height"}
@@ -2634,6 +2677,7 @@ export default function App() {
           gridRef={gridRef}
           bars={bars}
           syllables={syllables}
+          lowPerfMode={lowPerfMode}
           customSyllables={customSyllables}
           customSubdivisions={customSubdivisions}
           customMultipliers={customMultipliers}
@@ -2695,9 +2739,9 @@ export default function App() {
             }}
             className={`flex-1 rounded-xl border flex justify-center items-center transition-all duration-200 relative ${
               randomDiceMintFlash
-                ? 'bg-teal-500/25 border-teal-300/75 text-teal-100 shadow-[0_0_22px_rgba(45,212,191,0.55)] ring-2 ring-teal-300/70'
+                ? `bg-teal-500/25 border-teal-300/75 text-teal-100 ${lowPerfMode ? '' : 'shadow-[0_0_22px_rgba(45,212,191,0.55)]'} ring-2 ring-teal-300/70`
                 : randomModeEnabled
-                ? 'bg-blue-600/30 border-blue-400/60 shadow-[0_0_15px_rgba(59,130,246,0.3)] text-blue-200'
+                ? `bg-blue-600/30 border-blue-400/60 ${lowPerfMode ? '' : 'shadow-[0_0_15px_rgba(59,130,246,0.3)]'} text-blue-200`
                 : 'bg-[#161f33] border-[#23314f] text-slate-400 hover:text-slate-200 hover:bg-[#1a253c]'
             }`}
           >
@@ -2709,7 +2753,7 @@ export default function App() {
             onClick={() => setFirstBeatAccent(!firstBeatAccent)}
             className={`flex-1 rounded-xl flex justify-center items-center transition-all bg-[#161f33] ${
               firstBeatAccent 
-                ? 'border border-purple-400 shadow-[0_0_15px_rgba(192,132,252,0.4)] text-purple-200' 
+                ? `border border-purple-400 ${lowPerfMode ? '' : 'shadow-[0_0_15px_rgba(192,132,252,0.4)]'} text-purple-200` 
                 : 'border border-[#23314f] text-slate-400 hover:text-slate-200 hover:bg-[#1a253c] active:bg-[#131b2c]'
             }`}
           >
@@ -2763,8 +2807,8 @@ export default function App() {
             className={`flex-1 rounded-xl flex justify-center items-center transition-all touch-none select-none relative bg-[#161f33] ${
               syllableReadMuteMode !== 'off'
                 ? syllableReadMuteMode === 'full'
-                  ? 'border border-amber-400/90 shadow-[0_0_14px_rgba(251,191,36,0.28)] text-amber-100'
-                  : 'border border-purple-400 shadow-[0_0_15px_rgba(192,132,252,0.4)] text-purple-200'
+                  ? `border border-amber-400/90 ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(251,191,36,0.28)]'} text-amber-100`
+                  : `border border-purple-400 ${lowPerfMode ? '' : 'shadow-[0_0_15px_rgba(192,132,252,0.4)]'} text-purple-200`
                 : onlyAccents
                   ? 'border border-purple-500/40 bg-purple-700/30 hover:bg-purple-700/40 active:bg-purple-700/20 text-purple-200'
                   : 'border border-[#23314f] hover:bg-[#1a253c] active:bg-[#131b2c] text-slate-400 hover:text-slate-200'
@@ -2781,7 +2825,7 @@ export default function App() {
             }
           >
             <span
-              className={`block w-6 h-6 rounded-sm border-2 border-current transition-all duration-300 ${
+              className={`block w-6 h-6 rounded-sm border-2 border-current ${lowPerfMode ? '' : 'transition-all duration-300'} ${
                 syllableReadMuteMode !== 'off' || onlyAccents
                   ? 'opacity-100 scale-110 bg-current/25'
                   : 'opacity-55 scale-100 bg-transparent'
@@ -2804,7 +2848,7 @@ export default function App() {
         <div className="shrink-0 mb-2">
           <button 
             onClick={togglePlayback}
-            className={`w-full py-4 rounded-xl font-black text-lg tracking-[0.2em] flex items-center justify-center gap-2 shadow-[0_8px_20px_rgba(16,185,129,0.2)] transition-all transform active:scale-[0.98] ${
+            className={`w-full py-4 rounded-xl font-black text-lg tracking-[0.2em] flex items-center justify-center gap-2 ${lowPerfMode ? '' : 'shadow-[0_8px_20px_rgba(16,185,129,0.2)]'} transition-all transform active:scale-[0.98] ${
               isPlaying 
                 ? 'bg-rose-500 hover:bg-rose-400 active:bg-rose-600 shadow-rose-500/20 text-white' 
                 : 'bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-950'
