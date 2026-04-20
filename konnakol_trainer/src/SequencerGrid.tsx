@@ -507,6 +507,8 @@ export type SequencerGridProps = {
 	displayScaleBars: number;
 	useFixedFlex: boolean;
 	allBarsFitViewport: boolean;
+	/** При PLAY и удержании квадрата — подсветка только на первой доле такта (диктант). */
+	dictationPlayheadHold: boolean;
 	lowPerfMode: boolean;
 	isTaEditorMode: boolean;
 	accentMapVersion: number;
@@ -536,6 +538,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	displayScaleBars,
 	useFixedFlex,
 	allBarsFitViewport,
+	dictationPlayheadHold,
 	lowPerfMode,
 	isTaEditorMode,
 	accentMapVersion,
@@ -584,13 +587,16 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 							taDingKeys.has(`${rIdx}-${c}`) ? '1' : '0',
 						).join('');
 						const pulseUnlinkedRow = Boolean(pulseMeterUnlinked[rIdx]);
-						const highlightCol = isPlaying
+						let highlightCol: number | null = isPlaying
 							? activePos.absR === absR
 								? activePos.c
 								: null
 							: activePos.r === rIdx
 								? activePos.c
 								: null;
+						if (dictationPlayheadHold && isPlaying && highlightCol !== null) {
+							highlightCol = 0;
+						}
 
 						return (
 							<SequencerGridRow
@@ -655,8 +661,15 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 									const voiceHighlight = activePositions.find(
 										(pos) => pos.step === stepIdx && pos.voice === voiceIdx,
 									);
-									const highlightCol =
-										isPlaying && voiceHighlight ? voiceHighlight.c : !isPlaying && activePos.r === rIdx ? activePos.c : null;
+									let highlightCol: number | null =
+										isPlaying && voiceHighlight
+											? voiceHighlight.c
+											: !isPlaying && activePos.r === rIdx
+												? activePos.c
+												: null;
+									if (dictationPlayheadHold && isPlaying && voiceHighlight) {
+										highlightCol = 0;
+									}
 									return (
 										<SequencerGridRow
 											key={absR}

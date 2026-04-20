@@ -243,7 +243,7 @@ const POLY_VOICES_STORAGE_KEY = 'konnakol_poly_voices';
 const APP_COMMIT_VERSION = (() => {
 	const maybeCommit = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env
 		?.VITE_APP_COMMIT;
-	return typeof maybeCommit === 'string' && maybeCommit.length >= 7 ? maybeCommit.slice(0, 7) : '*17';
+	return typeof maybeCommit === 'string' && maybeCommit.length >= 7 ? maybeCommit.slice(0, 7) : '*18';
 })();
 const TEMPO_THROTTLE_MS = 56;
 /** Clipboard export: kawaii magic marker for compact preset payload. */
@@ -259,6 +259,8 @@ const SNAPSHOT_CLIPBOARD_PREFIX_LEGACY = 'konnakolTrainerSnapshotV1:';
 const SNAPSHOT_MENU_HOLD_MS = 520;
 /** Удерживание кнопки «кости»: префилл всех тактов по активным фичам Randomizer. */
 const RANDOM_DICE_PREFILL_HOLD_MS = SNAPSHOT_MENU_HOLD_MS;
+/** Удержание квадрата «только акценты»: диктант — бегунок только на 1-й доле; короче — обычный тап по кнопке. */
+const SQUARE_DICTATION_HOLD_SKIP_TAP_MS = 200;
 
 const SNAPSHOT_FLAG_RANDOM_MODE_ENABLED = 1 << 0;
 const SNAPSHOT_FLAG_RANDOM_PULSATION = 1 << 1;
@@ -1559,9 +1561,9 @@ export default function App() {
   /** Long-press по числу слогов в такте: gati / пульс от четвёрки (не смешивать с holdTimerRef клеток). */
   const pulseUnlinkHoldTimerRef = useRef<number | null>(null);
   const isHoldingRef = useRef(false);
-  /** Long-press square: toggle «без щелчков по клеткам»; ding такта Ta не мьютится. */
-  const squareHoldTimerRef = useRef<number | null>(null);
-  const squareHoldAteClickRef = useRef(false);
+  /** Удержание квадрата onlyAccents: визуально только первая доля такта (диктант). */
+  const [dictationPlayheadHold, setDictationPlayheadHold] = useState(false);
+  const squarePointerDownAtRef = useRef<number | null>(null);
   const randomDiceHoldTimerRef = useRef<number | null>(null);
   const randomDiceHoldAteClickRef = useRef(false);
   const taHoldTimerRef = useRef<number | null>(null);
@@ -2508,10 +2510,6 @@ export default function App() {
         window.clearTimeout(clipboardToastTimerRef.current);
         clipboardToastTimerRef.current = null;
       }
-      if (squareHoldTimerRef.current !== null) {
-        window.clearTimeout(squareHoldTimerRef.current);
-        squareHoldTimerRef.current = null;
-      }
       if (randomDiceHoldTimerRef.current !== null) {
         window.clearTimeout(randomDiceHoldTimerRef.current);
         randomDiceHoldTimerRef.current = null;
@@ -2526,6 +2524,8 @@ export default function App() {
       }
       syllableReadMuteModeRef.current = 'off';
       setSyllableReadMuteMode('off');
+      setDictationPlayheadHold(false);
+      squarePointerDownAtRef.current = null;
       if (playheadTimerRef.current !== null) {
         window.clearTimeout(playheadTimerRef.current);
         playheadTimerRef.current = null;
@@ -2914,10 +2914,6 @@ export default function App() {
       polyClickSlotsRef.current.clear();
       currentStepRef.current = 0; // Reset pattern position to start
       if (timerIDRef.current) clearTimeout(timerIDRef.current);
-      if (squareHoldTimerRef.current !== null) {
-        window.clearTimeout(squareHoldTimerRef.current);
-        squareHoldTimerRef.current = null;
-      }
       if (randomDiceHoldTimerRef.current !== null) {
         window.clearTimeout(randomDiceHoldTimerRef.current);
         randomDiceHoldTimerRef.current = null;
@@ -2932,7 +2928,8 @@ export default function App() {
       }
       syllableReadMuteModeRef.current = 'off';
       setSyllableReadMuteMode('off');
-      squareHoldAteClickRef.current = false;
+      setDictationPlayheadHold(false);
+      squarePointerDownAtRef.current = null;
       randomDiceHoldAteClickRef.current = false;
       taHoldAteClickRef.current = false;
       if (audioCtxRef.current) {
@@ -3572,6 +3569,7 @@ export default function App() {
           displayScaleBars={displayScaleBars}
           useFixedFlex={useFixedFlex}
           allBarsFitViewport={allBarsFitViewport}
+          dictationPlayheadHold={dictationPlayheadHold}
           activeEditRow={activeEditRow}
           activeEditCell={activeEditCell}
           sequencerGridRowActionsRef={sequencerGridRowActionsRef}
@@ -3687,73 +3685,58 @@ export default function App() {
             <span className="font-bold text-[22px] tracking-wide">Ta</span>
           </button>
 
-          {/* All beats vs accent-only (square); long-press: режим от muteMode (см. aria-label). */}
-          <button 
+          {/* All beats vs accent-only (square); удержание при PLAY — диктант: бегунок только на 1-й доле. */}
+          <button
+            type="button"
+            title="Коротко: только акценты / все доли. Удерживай при воспроизведении — диктант (зелёный бегунок только на первой доле такта)."
             onPointerDown={() => {
-              squareHoldAteClickRef.current = false;
-              if (squareHoldTimerRef.current !== null) {
-                window.clearTimeout(squareHoldTimerRef.current);
-                squareHoldTimerRef.current = null;
-              }
-              squareHoldTimerRef.current = window.setTimeout(() => {
-                squareHoldTimerRef.current = null;
-                const prev = syllableReadMuteModeRef.current;
-                const next: SyllableReadMuteMode =
-                  prev !== 'off' ? 'off' : onlyAccentsRef.current ? 'full' : 'no_accent_sharp';
-                syllableReadMuteModeRef.current = next;
-                setSyllableReadMuteMode(next);
-                squareHoldAteClickRef.current = true;
-              }, 400);
+              squarePointerDownAtRef.current = Date.now();
+              setDictationPlayheadHold(true);
             }}
             onPointerUp={() => {
-              if (squareHoldTimerRef.current !== null) {
-                window.clearTimeout(squareHoldTimerRef.current);
-                squareHoldTimerRef.current = null;
-              }
+              setDictationPlayheadHold(false);
             }}
             onPointerLeave={() => {
-              if (squareHoldTimerRef.current !== null) {
-                window.clearTimeout(squareHoldTimerRef.current);
-                squareHoldTimerRef.current = null;
-              }
+              setDictationPlayheadHold(false);
             }}
             onPointerCancel={() => {
-              if (squareHoldTimerRef.current !== null) {
-                window.clearTimeout(squareHoldTimerRef.current);
-                squareHoldTimerRef.current = null;
-              }
+              setDictationPlayheadHold(false);
             }}
             onClick={() => {
-              if (squareHoldAteClickRef.current) {
-                squareHoldAteClickRef.current = false;
+              const t0 = squarePointerDownAtRef.current;
+              squarePointerDownAtRef.current = null;
+              if (t0 !== null && Date.now() - t0 >= SQUARE_DICTATION_HOLD_SKIP_TAP_MS) {
                 return;
               }
               setOnlyAccents(!onlyAccents);
             }}
             onContextMenu={(e) => e.preventDefault()}
             className={`flex-1 rounded-xl flex justify-center items-center transition-all touch-none select-none relative bg-[#161f33] ${
-              syllableReadMuteMode !== 'off'
-                ? syllableReadMuteMode === 'full'
-                  ? `border border-amber-400/90 ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(251,191,36,0.28)]'} text-amber-100`
-                  : `border border-purple-400 ${lowPerfMode ? '' : 'shadow-[0_0_15px_rgba(192,132,252,0.4)]'} text-purple-200`
-                : onlyAccents
-                  ? 'border border-purple-500/40 bg-purple-700/30 hover:bg-purple-700/40 active:bg-purple-700/20 text-purple-200'
-                  : 'border border-[#23314f] hover:bg-[#1a253c] active:bg-[#131b2c] text-slate-400 hover:text-slate-200'
-            }`}
-            type="button"
-            aria-label={
-              syllableReadMuteMode === 'full'
-                ? 'Тишина по щелчкам сетки (вкл. только акценты). Долгое — выключить'
-                : syllableReadMuteMode === 'no_accent_sharp'
-                  ? 'Пассивные как обычно; на акцентах звук как у пассивных. Долгое — выключить'
+              dictationPlayheadHold
+                ? `border border-teal-400/80 ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(45,212,191,0.35)]'} text-teal-100 ring-2 ring-teal-400/50`
+                : syllableReadMuteMode !== 'off'
+                  ? syllableReadMuteMode === 'full'
+                    ? `border border-amber-400/90 ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(251,191,36,0.28)]'} text-amber-100`
+                    : `border border-purple-400 ${lowPerfMode ? '' : 'shadow-[0_0_15px_rgba(192,132,252,0.4)]'} text-purple-200`
                   : onlyAccents
-                    ? 'Только выделенные доли; долгое при вкл. — полная тишина по сетке'
-                    : 'Все доли; долгое без «только акценты» — акценты со звуком пассивных'
+                    ? 'border border-purple-500/40 bg-purple-700/30 hover:bg-purple-700/40 active:bg-purple-700/20 text-purple-200'
+                    : 'border border-[#23314f] hover:bg-[#1a253c] active:bg-[#131b2c] text-slate-400 hover:text-slate-200'
+            }`}
+            aria-label={
+              dictationPlayheadHold
+                ? 'Диктант: подсказка позиции только на первой доле такта'
+                : syllableReadMuteMode === 'full'
+                  ? 'Тишина по щелчкам сетки (режим из пресета)'
+                  : syllableReadMuteMode === 'no_accent_sharp'
+                    ? 'На акцентах звук как у пассивных (режим из пресета)'
+                    : onlyAccents
+                      ? 'Только выделенные доли; удерживай при PLAY — диктант'
+                      : 'Все доли; удерживай при PLAY — диктант'
             }
           >
             <span
               className={`block w-6 h-6 rounded-sm border-2 border-current ${lowPerfMode ? '' : 'transition-all duration-300'} ${
-                syllableReadMuteMode !== 'off' || onlyAccents
+                dictationPlayheadHold || syllableReadMuteMode !== 'off' || onlyAccents
                   ? 'opacity-100 scale-110 bg-current/25'
                   : 'opacity-55 scale-100 bg-transparent'
               }`}
