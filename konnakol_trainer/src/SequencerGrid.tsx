@@ -214,6 +214,7 @@ const SequencerGridRow = React.memo(
 									a.pulseMeterUnlinkedRef.current = { ...next };
 									return next;
 								});
+								a.pulseUnlinkHoldTimerRef.current = null;
 							}, 400);
 						}}
 						onPointerUp={(e) => {
@@ -256,7 +257,11 @@ const SequencerGridRow = React.memo(
 						}}
 						onClick={() => {
 							const a = actionsRef.current;
-							if (!a || a.isHoldingRef.current) return;
+							if (!a) return;
+							if (a.isHoldingRef.current) {
+								a.isHoldingRef.current = false;
+								return;
+							}
 							a.setCustomSyllables((prev) => {
 								const current = prev[rIdx] !== undefined ? prev[rIdx] : a.syllables;
 								const next = current >= 9 ? 1 : current + 1;
@@ -338,7 +343,11 @@ const SequencerGridRow = React.memo(
 								}}
 								onClick={() => {
 									const a = actionsRef.current;
-									if (!a || a.isHoldingRef.current) return;
+									if (!a) return;
+									if (a.isHoldingRef.current) {
+										a.isHoldingRef.current = false;
+										return;
+									}
 									a.toggleAccent(rIdx, cIdx);
 								}}
 								className={`flex-1 flex flex-col items-center justify-center border min-w-0 transition-all duration-75 ${
