@@ -55,7 +55,7 @@ jobs:
           cp -R maja/public/images pages-artifact/images
           cp maja/public/instagram-icon.png pages-artifact/instagram-icon.png
           cp maja/public/youtube-icon.png pages-artifact/youtube-icon.png
-          cp promo.html pages-artifact/promo.html
+          cp maja/public/promo.html pages-artifact/promo.html
       
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
