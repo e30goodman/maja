@@ -240,7 +240,7 @@ const SNAPSHOT_STORAGE_KEY = 'konnakolTrainerSnapshotsV1';
 const LITE_UI_STORAGE_KEY = 'konnakol_lite_ui';
 const POLY_MODE_STORAGE_KEY = 'konnakol_poly_mode';
 const POLY_VOICES_STORAGE_KEY = 'konnakol_poly_voices';
-const APP_COMMIT_VERSION = 'a32e290';
+const APP_COMMIT_VERSION = '3d87bb9';
 const TEMPO_THROTTLE_MS = 56;
 /** Clipboard export: kawaii magic marker for compact preset payload. */
 const SNAPSHOT_CLIPBOARD_MARKER = '(⁠ʘ⁠ᴗ⁠ʘ⁠)⁠♪:';
