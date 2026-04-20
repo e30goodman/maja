@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../konnakol"
+		},
+		{
+			"path": "../controls/browser-use"
+		}
+	],
+	"settings": {}
+}
