@@ -976,13 +976,26 @@ export default function App() {
     window.addEventListener('pointercancel', stableWindowPointerEnd, true);
   }, [stableWindowPointerEnd]);
 
-  /** Глобальный Syllbs: любое новое положение слайдера → все такты = этому числу (сброс per-bar после рандома). */
+  /** Глобальный Syllbs: жёсткий сброс сетки (слоги, акценты, поддоли, множители) — без «фантомов» от старого рандома. */
   const applyGlobalSyllablesFromSlider = useCallback((raw: string) => {
     const next = parseInt(raw, 10);
     if (!Number.isFinite(next) || next < 1 || next > 9) return;
+
     setSyllables(next);
+    syllablesRef.current = next;
+
     setCustomSyllables({});
     customSyllablesRef.current = {};
+
+    const emptyAccents = new Set<string>();
+    setAccents(emptyAccents);
+    accentsRef.current = emptyAccents;
+
+    setCustomSubdivisions({});
+    customSubdivisionsRef.current = {};
+
+    setCustomMultipliers({});
+    customMultipliersRef.current = {};
   }, []);
 
   flushLiveSnapshotToActiveSlotRef.current = () => {
@@ -2176,8 +2189,12 @@ export default function App() {
                         syllablesSliderDraggingRef.current = true;
                         attachSliderWindowListeners();
                       }}
-                      onInput={(e) => applyGlobalSyllablesFromSlider(e.currentTarget.value)}
-                      onChange={(e) => applyGlobalSyllablesFromSlider(e.currentTarget.value)}
+                      onChange={(e) => {
+                        const val = e.currentTarget.value;
+                        startTransition(() => {
+                          applyGlobalSyllablesFromSlider(val);
+                        });
+                      }}
                       className="flex-1 h-3 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-emerald-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110" 
                     />
                     <div className="w-5 shrink-0 flex justify-end">
