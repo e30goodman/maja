@@ -216,7 +216,7 @@ function applyRandomizerEffectsToBar(
 
 const SNAPSHOT_SLOT_COUNT = 7;
 const SNAPSHOT_STORAGE_KEY = 'konnakolTrainerSnapshotsV1';
-const APP_COMMIT_VERSION = '23c95c6';
+const APP_COMMIT_VERSION = '91a60bc';
 /** Clipboard export: kawaii magic marker for compact preset payload. */
 const SNAPSHOT_CLIPBOARD_MARKER = '(⁠ʘ⁠ᴗ⁠ʘ⁠)⁠♪:';
 /** Accept marker with/without zero-width separators from messengers. */
@@ -1389,6 +1389,7 @@ export default function App() {
 
   /** All pattern rows fit in the phone frame: no virtual strip, no playhead autoscroll. */
   const allBarsFitViewport = frozenScale === null && bars <= 10;
+  const disableMenuSmoothing = bars > 8 || syllables >= 9;
 
   const sequence = React.useMemo(() => {
     const seq = [];
@@ -2195,10 +2196,10 @@ export default function App() {
         {/* Global Settings (Tempo & Row Selectors) */}
         <div className="relative bg-[#161f33] rounded-2xl border border-[#23314f] flex flex-col shrink-0 mb-3">
               {showRandomSettings ? (
-            <div className={`grid transition-all duration-300 ${isPanelExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+            <div className={`grid ${disableMenuSmoothing ? '' : 'transition-all duration-300'} ${isPanelExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
               <div
                 ref={randomSettingsPanelRef}
-                className={`overflow-hidden flex flex-col transition-all duration-300 ${isPanelExpanded ? 'px-2.5 py-4 gap-5' : 'px-2.5 py-0 gap-0'}`}
+                className={`overflow-hidden flex flex-col ${disableMenuSmoothing ? '' : 'transition-all duration-300'} ${isPanelExpanded ? 'px-2.5 py-4 gap-5' : 'px-2.5 py-0 gap-0'}`}
               >
                 <div className="flex flex-col gap-4 px-1 pb-1">
                   <div className="flex justify-between items-center text-slate-300 font-bold text-[11px] uppercase tracking-wider">
@@ -2349,10 +2350,10 @@ export default function App() {
                 </div>
               ) : null}
               <div
-                className={`grid transition-all duration-300 ${isPanelExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
+                className={`grid ${disableMenuSmoothing ? '' : 'transition-all duration-300'} ${isPanelExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
               >
                 <div
-                  className={`overflow-hidden flex flex-col transition-all duration-300 ${isPanelExpanded ? 'px-2.5 pb-2 pt-0' : 'px-2.5 py-0'}`}
+                  className={`overflow-hidden flex flex-col ${disableMenuSmoothing ? '' : 'transition-all duration-300'} ${isPanelExpanded ? 'px-2.5 pb-2 pt-0' : 'px-2.5 py-0'}`}
                 >
                   <div className="flex flex-col">
                     <div className="flex justify-between items-center px-1 translate-y-[3px]">
@@ -2426,7 +2427,7 @@ export default function App() {
 
           {/* Bars / Syllables: скрыты пока открыто окно Settings (Randomizer). */}
           {!showRandomSettings ? (
-          <div className={`px-2.5 pt-1 pb-3 flex flex-col mb-2 transition-all duration-300 ${isPanelExpanded ? 'gap-4' : 'gap-0'}`}>
+          <div className={`px-2.5 pt-1 pb-3 flex flex-col mb-2 ${disableMenuSmoothing ? '' : 'transition-all duration-300'} ${isPanelExpanded ? 'gap-4' : 'gap-0'}`}>
             <div className="flex items-center gap-2">
               <div className="flex items-center w-12 justify-between pr-1 shrink-0">
                 <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold">Bars</span>
@@ -2483,11 +2484,11 @@ export default function App() {
               </div>
             </div>
 
-            <div className={`grid transition-all duration-300 ${isPanelExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+            <div className={`grid ${disableMenuSmoothing ? '' : 'transition-all duration-300'} ${isPanelExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
               <div className="overflow-hidden">
                 <div className="relative h-4 w-full">
                   {/* Global Syllables Slider */}
-                  <div className={`absolute inset-0 flex items-center gap-2 transition-all duration-300 ${(activeEditCell !== null || activeEditRow !== null) ? 'opacity-0 pointer-events-none scale-y-50' : 'opacity-100 scale-y-100'}`}>
+                  <div className={`absolute inset-0 flex items-center gap-2 ${disableMenuSmoothing ? '' : 'transition-all duration-300'} ${(activeEditCell !== null || activeEditRow !== null) ? 'opacity-0 pointer-events-none scale-y-50' : 'opacity-100 scale-y-100'}`}>
                     <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold w-12 shrink-0">Syllbs</span>
                     <StructuralSlider
                       label="Syllbs"
@@ -2512,7 +2513,7 @@ export default function App() {
                   </div>
 
                   {/* Specific Bar Syllables Slider */}
-                  <div className={`absolute inset-0 flex items-center gap-2 transition-all duration-300 ${activeEditRow !== null && activeEditCell === null ? 'opacity-100 scale-y-100 z-10' : 'opacity-0 pointer-events-none scale-y-50 translate-y-4'}`}>
+                  <div className={`absolute inset-0 flex items-center gap-2 ${disableMenuSmoothing ? '' : 'transition-all duration-300'} ${activeEditRow !== null && activeEditCell === null ? 'opacity-100 scale-y-100 z-10' : 'opacity-0 pointer-events-none scale-y-50 translate-y-4'}`}>
                     <span className="text-[11px] uppercase tracking-wider text-purple-400 font-bold w-12 shrink-0 truncate">Bar {activeEditRow !== null ? activeEditRow + 1 : ''}</span>
                     <input 
                       type="range" 
@@ -2533,7 +2534,7 @@ export default function App() {
                   </div>
 
                   {/* Specific Cell Subdivisions Slider */}
-                  <div className={`absolute inset-0 flex items-center gap-2 transition-all duration-300 ${activeEditCell !== null ? 'opacity-100 scale-y-100 z-20' : 'opacity-0 pointer-events-none scale-y-50 translate-y-4'}`}>
+                  <div className={`absolute inset-0 flex items-center gap-2 ${disableMenuSmoothing ? '' : 'transition-all duration-300'} ${activeEditCell !== null ? 'opacity-100 scale-y-100 z-20' : 'opacity-0 pointer-events-none scale-y-50 translate-y-4'}`}>
                     <span className="text-[11px] uppercase tracking-wider text-purple-400 font-bold w-12 shrink-0 truncate">Divs</span>
                     <input 
                       type="range" 
