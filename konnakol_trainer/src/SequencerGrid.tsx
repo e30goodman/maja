@@ -63,10 +63,11 @@ export type SequencerGridRowActions = {
 	setActiveEditCell: React.Dispatch<React.SetStateAction<string | null>>;
 	setIsPanelExpanded: React.Dispatch<React.SetStateAction<boolean>>;
 	setCustomMultipliers: React.Dispatch<React.SetStateAction<Record<number, number>>>;
-	setPulseMeterUnlinked: React.Dispatch<React.SetStateAction<Record<number, boolean>>>;
-	setCustomSyllables: React.Dispatch<React.SetStateAction<Record<number, number>>>;
 	setCustomSubdivisions: React.Dispatch<React.SetStateAction<Record<string, number>>>;
+	setCustomSyllables: React.Dispatch<React.SetStateAction<Record<number, number>>>;
+	setPulseMeterUnlinked: React.Dispatch<React.SetStateAction<Record<number, boolean>>>;
 	toggleAccent: (r: number, c: number) => void;
+	customSyllablesRef: React.MutableRefObject<Record<number, number>>;
 	pulseMeterUnlinkedRef: React.MutableRefObject<Record<number, boolean>>;
 };
 
@@ -202,12 +203,10 @@ const SequencerGridRow = React.memo(
 							try {
 								(e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
 							} catch {
-								/* duplicate capture etc. */
+								/* duplicate capture */
 							}
 							a.pulseUnlinkHoldTimerRef.current = window.setTimeout(() => {
 								a.isHoldingRef.current = true;
-								a.setActiveEditCell(null);
-								a.setActiveEditRow(null);
 								a.setPulseMeterUnlinked((prev) => {
 									const nextVal = !prev[rIdx];
 									const next = { ...prev, [rIdx]: nextVal };
@@ -265,7 +264,9 @@ const SequencerGridRow = React.memo(
 							a.setCustomSyllables((prev) => {
 								const current = prev[rIdx] !== undefined ? prev[rIdx] : a.syllables;
 								const next = current >= 9 ? 1 : current + 1;
-								return { ...prev, [rIdx]: next };
+								const out = { ...prev, [rIdx]: next };
+								a.customSyllablesRef.current = { ...out };
+								return out;
 							});
 						}}
 						onContextMenu={(e) => {
@@ -275,21 +276,23 @@ const SequencerGridRow = React.memo(
 							a.setCustomSyllables((prev) => {
 								const copy = { ...prev };
 								delete copy[rIdx];
+								a.customSyllablesRef.current = { ...copy };
 								return copy;
 							});
 							a.setPulseMeterUnlinked((prev) => {
 								const copy = { ...prev };
 								delete copy[rIdx];
+								a.pulseMeterUnlinkedRef.current = { ...copy };
 								return copy;
 							});
 						}}
-						title="Tap: +1 syllable in bar. Hold: unlink bar length from pulse (timing uses 4 base). Right-click: reset bar to global syllables."
-						className={`flex-1 rounded-md border flex items-center justify-center text-[12px] font-extrabold leading-none shadow-[inset_0_1px_3px_rgba(0,0,0,0.1)] min-h-[50%] transition-colors bg-[#1e2a45] border-[#2f4066] text-slate-400 hover:bg-[#253353] active:bg-[#1a253c] ${
+						title="Тап: число слогов в такте 1→…→9→1 (свой множитель пульсации на такт). Удерживай: пульс от четвёрки (gati). ПКМ: сброс такта к глобальному Syllbs и выкл. gati."
+						className={`flex-1 rounded-md border flex items-center justify-center text-[12px] font-extrabold leading-none shadow-[inset_0_1px_3px_rgba(0,0,0,0.1)] min-h-[50%] transition-colors select-none ${
 							activeEditRow === rIdx
-								? 'ring-2 ring-purple-500 shadow-purple-500/30'
+								? 'ring-2 ring-purple-500 shadow-purple-500/30 bg-[#1e2a45] border-[#2f4066] text-slate-400'
 								: pulseUnlinkedRow
-									? 'ring-1 ring-emerald-400/90 border-emerald-500/45 shadow-[0_0_14px_rgba(16,185,129,0.28)]'
-									: ''
+									? 'bg-teal-500/25 border-teal-400/70 text-teal-50 ring-1 ring-teal-400/80 shadow-[inset_0_1px_8px_rgba(20,184,166,0.25),0_0_12px_rgba(45,212,191,0.2)]'
+									: 'bg-[#1e2a45] border-[#2f4066] text-slate-400 hover:bg-[#253353] active:bg-[#1a253c]'
 						}`}
 					>
 						{rowSylls}

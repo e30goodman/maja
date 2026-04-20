@@ -729,7 +729,7 @@ export default function App() {
 
   /** Long-press по клетке такта (поддоли). */
   const holdTimerRef = useRef<number | null>(null);
-  /** Long-press по числу слогов в такте (unlink от глобального метра) — отдельно, чтобы клетки не сбивали таймер. */
+  /** Long-press по числу слогов в такте: gati / пульс от четвёрки (не смешивать с holdTimerRef клеток). */
   const pulseUnlinkHoldTimerRef = useRef<number | null>(null);
   const isHoldingRef = useRef(false);
   /** Long-press square: toggle «без щелчков по клеткам»; ding такта Ta не мьютится. */
@@ -976,10 +976,14 @@ export default function App() {
     window.addEventListener('pointercancel', stableWindowPointerEnd, true);
   }, [stableWindowPointerEnd]);
 
-  /** Глобальный Syllbs: жёсткий сброс сетки + синхронная перестройка sequenceRef (плеер не тянет старый размер). */
+  /** Глобальный Syllbs: общее число слогов + перестройка sequenceRef; акценты / поддоли / множители ряда сохраняются для оставшихся ячеек. */
   const applyGlobalSyllablesFromSlider = useCallback((raw: string) => {
     const next = parseInt(raw, 10);
-    if (!Number.isFinite(next) || next < 1 || next > 9) return;
+    if (!Number.isFinite(next) || next < 1 || next > 9) {
+      return;
+    }
+
+    const nBars = barsRef.current;
 
     setSyllables(next);
     syllablesRef.current = next;
@@ -987,15 +991,55 @@ export default function App() {
     setCustomSyllables({});
     customSyllablesRef.current = {};
 
-    const emptyAccents = new Set<string>();
-    setAccents(emptyAccents);
-    accentsRef.current = emptyAccents;
+    const prunedAccents = new Set<string>();
+    for (const k of accentsRef.current) {
+      const parts = k.split('-');
+      if (parts.length !== 2) continue;
+      const r = parseInt(parts[0], 10);
+      const c = parseInt(parts[1], 10);
+      if (Number.isFinite(r) && Number.isFinite(c) && r >= 0 && r < nBars && c >= 0 && c < next) {
+        prunedAccents.add(k);
+      }
+    }
+    setAccents(prunedAccents);
+    accentsRef.current = prunedAccents;
 
-    setCustomSubdivisions({});
-    customSubdivisionsRef.current = {};
+    const prevSub = customSubdivisionsRef.current;
+    const nextSub: Record<string, number> = {};
+    for (const [k, v] of Object.entries(prevSub)) {
+      const parts = k.split('-');
+      if (parts.length !== 2) continue;
+      const r = parseInt(parts[0], 10);
+      const c = parseInt(parts[1], 10);
+      if (Number.isFinite(r) && Number.isFinite(c) && r >= 0 && r < nBars && c >= 0 && c < next) {
+        const vn = typeof v === 'number' ? v : Number(v);
+        if (Number.isFinite(vn)) nextSub[k] = vn;
+      }
+    }
+    setCustomSubdivisions(nextSub);
+    customSubdivisionsRef.current = { ...nextSub };
 
-    setCustomMultipliers({});
-    customMultipliersRef.current = {};
+    const nextMult = { ...customMultipliersRef.current };
+    for (const rk of Object.keys(nextMult)) {
+      const r = Number(rk);
+      if (!Number.isFinite(r) || r < 0 || r >= nBars) {
+        delete nextMult[r];
+      }
+    }
+    setCustomMultipliers(nextMult);
+    customMultipliersRef.current = { ...nextMult };
+
+    setActiveEditCell((prev) => {
+      if (prev === null) return null;
+      const parts = prev.split('-');
+      if (parts.length !== 2) return null;
+      const r = parseInt(parts[0], 10);
+      const c = parseInt(parts[1], 10);
+      if (!Number.isFinite(r) || !Number.isFinite(c) || r < 0 || r >= nBars || c < 0 || c >= next) {
+        return null;
+      }
+      return prev;
+    });
 
     const newSeq: { r: number; c: number; activeSyllables: number }[] = [];
     for (let r = 0; r < barsRef.current; r++) {
@@ -1814,10 +1858,11 @@ export default function App() {
     setActiveEditCell,
     setIsPanelExpanded,
     setCustomMultipliers,
-    setPulseMeterUnlinked,
-    setCustomSyllables,
     setCustomSubdivisions,
+    setCustomSyllables,
+    setPulseMeterUnlinked,
     toggleAccent,
+    customSyllablesRef,
     pulseMeterUnlinkedRef,
   };
 
