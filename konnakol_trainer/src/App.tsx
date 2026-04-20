@@ -14,7 +14,23 @@ import {
 } from 'lucide-react';
 import { SequencerGrid, type SequencerGridRowActions } from './SequencerGrid';
 
-type PlayheadHighlightEvent = { t: number; pos: { r: number; c: number; absR: number } };
+type PlayheadPosition = { r: number; c: number; absR: number; voice: number; step: number };
+type PlayheadHighlightEvent = { t: number; pos: PlayheadPosition };
+
+function buildPolyChunks(barCount: number, voiceCount: number): number[][] {
+	const safeBars = Math.max(0, Math.floor(barCount));
+	const safeVoices = voiceCount === 3 || voiceCount === 4 ? voiceCount : 2;
+	const chunks: number[][] = [];
+	for (let i = 0; i < safeBars; i += safeVoices) {
+		const chunk: number[] = [];
+		for (let v = 0; v < safeVoices; v++) {
+			const barIdx = i + v;
+			if (barIdx < safeBars) chunk.push(barIdx);
+		}
+		if (chunk.length > 0) chunks.push(chunk);
+	}
+	return chunks;
+}
 
 function insertPlayheadSorted(queue: PlayheadHighlightEvent[], ev: PlayheadHighlightEvent) {
 	let lo = 0;
@@ -96,6 +112,11 @@ const CELL_SPEED_RANDOM_POOL = [2, 3, 4] as const;
 /** Random Speed (cell speed): только поддоли 2, 3 или 4. */
 function pickRandomCellSpeedSubdiv(): number {
 	return CELL_SPEED_RANDOM_POOL[Math.floor(Math.random() * CELL_SPEED_RANDOM_POOL.length)]!;
+}
+
+function parsePolyVoices(raw: unknown): 2 | 3 | 4 {
+	const n = parseInt(String(raw), 10);
+	return n === 3 || n === 4 ? n : 2;
 }
 
 /**
@@ -217,6 +238,8 @@ function applyRandomizerEffectsToBar(
 const SNAPSHOT_SLOT_COUNT = 7;
 const SNAPSHOT_STORAGE_KEY = 'konnakolTrainerSnapshotsV1';
 const LITE_UI_STORAGE_KEY = 'konnakol_lite_ui';
+const POLY_MODE_STORAGE_KEY = 'konnakol_poly_mode';
+const POLY_VOICES_STORAGE_KEY = 'konnakol_poly_voices';
 const APP_COMMIT_VERSION = 'd6d32e1';
 const TEMPO_THROTTLE_MS = 56;
 /** Clipboard export: kawaii magic marker for compact preset payload. */
@@ -844,6 +867,7 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [accents, setAccents] = useState<Set<string>>(() => new Set(seed.accents));
   const [activePos, setActivePos] = useState({ r: -1, c: -1, absR: -1 });
+  const [activePositions, setActivePositions] = useState<PlayheadPosition[]>([]);
   const playAbsBarRef = useRef(0);
   const [listOffset, setListOffset] = useState(0);
   const [customSyllables, setCustomSyllables] = useState<Record<number, number>>(() => ({ ...seed.customSyllables }));
@@ -876,6 +900,20 @@ export default function App() {
       return localStorage.getItem(LITE_UI_STORAGE_KEY) === '1';
     } catch {
       return false;
+    }
+  });
+  const [polyMode, setPolyMode] = useState(() => {
+    try {
+      return localStorage.getItem(POLY_MODE_STORAGE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [polyVoices, setPolyVoices] = useState<2 | 3 | 4>(() => {
+    try {
+      return parsePolyVoices(localStorage.getItem(POLY_VOICES_STORAGE_KEY));
+    } catch {
+      return 2;
     }
   });
   const randomSettingsPanelRef = useRef<HTMLDivElement | null>(null);
@@ -980,6 +1018,22 @@ export default function App() {
       /* ignore localStorage errors */
     }
   }, [lowPerfMode]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(POLY_MODE_STORAGE_KEY, polyMode ? '1' : '0');
+    } catch {
+      /* ignore localStorage errors */
+    }
+  }, [polyMode]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(POLY_VOICES_STORAGE_KEY, String(polyVoices));
+    } catch {
+      /* ignore localStorage errors */
+    }
+  }, [polyVoices]);
 
   const potatoAutoFreezeArmedRef = useRef(true);
   const prevLowPerfModeRef = useRef(lowPerfMode);
@@ -1123,6 +1177,8 @@ export default function App() {
   const nextNoteTimeRef = useRef(0);
   const currentStepRef = useRef(0);
   const isPlayingRef = useRef(false);
+  const polyModeRef = useRef(polyMode);
+  const polyVoicesRef = useRef<2 | 3 | 4>(polyVoices);
 
   const barsRef = useRef(bars);
   const syllablesRef = useRef(syllables);
@@ -1171,6 +1227,8 @@ export default function App() {
   useEffect(() => { chaosLevelRef.current = chaosLevel; }, [chaosLevel]);
   useEffect(() => { clickSoundRef.current = clickSound; }, [clickSound]);
   useEffect(() => { frozenScaleRef.current = frozenScale; }, [frozenScale]);
+  useEffect(() => { polyModeRef.current = polyMode; }, [polyMode]);
+  useEffect(() => { polyVoicesRef.current = polyVoices; }, [polyVoices]);
 
   const clampTempo = useCallback((n: number) => Math.min(400, Math.max(20, Math.round(n))), []);
 
@@ -1506,6 +1564,9 @@ export default function App() {
 
   const sequenceRef = useRef(sequence);
   sequenceRef.current = sequence; // Always keep ref atomic with render
+  const polyChunks = useMemo(() => buildPolyChunks(bars, polyVoices), [bars, polyVoices]);
+  const polyChunksRef = useRef(polyChunks);
+  polyChunksRef.current = polyChunks;
 
   // Auto-save preset whenever parameters change (пропуск во время drag Bars/Syllables — см. pointerup flush)
   useEffect(() => {
@@ -1744,10 +1805,16 @@ export default function App() {
 
   // Ensure currentStepRef bounds are respected if grid shrinks
   useEffect(() => {
+    if (polyMode) {
+      if (currentStepRef.current >= polyChunks.length) {
+        currentStepRef.current = 0;
+      }
+      return;
+    }
     if (currentStepRef.current >= sequence.length) {
       currentStepRef.current = 0;
     }
-  }, [sequence.length]);
+  }, [polyMode, polyChunks.length, sequence.length]);
 
   // Determine display metrics that drive auto-scrolling
   const displayScaleBars = frozenScale !== null ? Math.min(frozenScale, 10) : Math.min(bars, 10);
@@ -1759,6 +1826,11 @@ export default function App() {
   const setRowElStable = useCallback((absR: number, el: HTMLDivElement | null) => {
     rowRefs.current[absR] = el;
   }, []);
+  const primaryActivePos = useMemo(() => {
+    if (!polyMode || activePositions.length === 0) return activePos;
+    const master = activePositions.find((pos) => pos.voice === 0) ?? activePositions[0];
+    return { r: master.r, c: master.c, absR: master.absR };
+  }, [activePos, activePositions, polyMode]);
 
   /**
    * Автоскролл при воспроизведении.
@@ -1785,13 +1857,13 @@ export default function App() {
       frozenScale !== null && Math.min(frozenScale, 10) === 1 && bars > 1;
 
     if (frozenOneBarViewport) {
-      if (activePos.absR >= 0) {
+      if (primaryActivePos.absR >= 0) {
         const rowSylls =
-          customSyllables[activePos.r] !== undefined ? customSyllables[activePos.r] : syllables;
-        if (rowSylls >= 1 && activePos.c === rowSylls - 1) {
+          customSyllables[primaryActivePos.r] !== undefined ? customSyllables[primaryActivePos.r] : syllables;
+        if (rowSylls >= 1 && primaryActivePos.c === rowSylls - 1) {
           tid = window.setTimeout(() => {
             tid = null;
-            const nextAbs = activePos.absR + 1;
+            const nextAbs = primaryActivePos.absR + 1;
             const rowEl = rowRefs.current[nextAbs];
             if (rowEl) {
               rowEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1806,13 +1878,13 @@ export default function App() {
       return cleanup;
     }
 
-    if (activePos.absR >= 0 && gridRef.current) {
-      let logicalPage = Math.floor(activePos.absR / scrollStride);
+    if (primaryActivePos.absR >= 0 && gridRef.current) {
+      let logicalPage = Math.floor(primaryActivePos.absR / scrollStride);
       
-      if (activePos.absR > 0 && activePos.absR % scrollStride === 0) {
-        const rIdx = activePos.absR % bars;
+      if (primaryActivePos.absR > 0 && primaryActivePos.absR % scrollStride === 0) {
+        const rIdx = primaryActivePos.absR % bars;
         const rowSylls = customSyllables[rIdx] !== undefined ? customSyllables[rIdx] : syllables;
-        const isPastHalfway = activePos.c >= Math.floor(rowSylls / 2);
+        const isPastHalfway = primaryActivePos.c >= Math.floor(rowSylls / 2);
         
         if (!isPastHalfway) {
           logicalPage -= 1;
@@ -1832,9 +1904,9 @@ export default function App() {
 
     return cleanup;
   }, [
-    activePos.absR,
-    activePos.c,
-    activePos.r,
+    primaryActivePos.absR,
+    primaryActivePos.c,
+    primaryActivePos.r,
     isPlaying,
     scrollStride,
     customSyllables,
@@ -1909,11 +1981,26 @@ export default function App() {
     if (!isPlayingRef.current || !audioCtxRef.current) return;
     const ctx = audioCtxRef.current;
     const q = playheadQueueRef.current;
-    let lastPos: { r: number; c: number; absR: number } | null = null;
+    let lastPos: PlayheadPosition | null = null;
+    const polyLatestByVoice = new Map<number, PlayheadPosition>();
     while (q.length > 0 && q[0].t <= ctx.currentTime) {
-      lastPos = q.shift()!.pos;
+      const due = q.shift()!.pos;
+      if (polyModeRef.current) {
+        polyLatestByVoice.set(due.voice, due);
+      }
+      lastPos = due;
     }
-    if (lastPos !== null) setActivePos(lastPos);
+    if (polyModeRef.current) {
+      const nextActive = Array.from(polyLatestByVoice.values()).sort((a, b) => a.voice - b.voice);
+      if (nextActive.length > 0) {
+        setActivePositions(nextActive);
+        const primary = nextActive.find((pos) => pos.voice === 0) ?? nextActive[0];
+        setActivePos({ r: primary.r, c: primary.c, absR: primary.absR });
+      }
+    } else if (lastPos !== null) {
+      setActivePos({ r: lastPos.r, c: lastPos.c, absR: lastPos.absR });
+      setActivePositions([]);
+    }
     if (q.length === 0) return;
     const delayMs = Math.max(0, (q[0].t - ctx.currentTime) * 1000);
     playheadTimerRef.current = window.setTimeout(() => {
@@ -2053,64 +2140,91 @@ export default function App() {
     }
   };
 
+  const getLegacyNoteDurationSeconds = useCallback((rowIdx: number) => {
+    const rowSyllables = customSyllablesRef.current[rowIdx] !== undefined ? customSyllablesRef.current[rowIdx] : syllablesRef.current;
+    const pulseSyllables = pulseMeterUnlinkedRef.current[rowIdx] ? PULSE_METER_BASE_SYLLABLES : rowSyllables;
+    const mult = customMultipliersRef.current[rowIdx] || 1;
+    const effectiveBpm = tempoRef.current * (pulseSyllables / 4) * mult;
+    if (effectiveBpm <= 0) return 0.5;
+    return 60.0 / effectiveBpm;
+  }, []);
+
+  const getBarTimeWindowSeconds = useCallback((rowIdx: number) => {
+    const noteDuration = getLegacyNoteDurationSeconds(rowIdx);
+    const rowSyllables =
+      customSyllablesRef.current[rowIdx] !== undefined ? customSyllablesRef.current[rowIdx] : syllablesRef.current;
+    return noteDuration * Math.max(1, rowSyllables);
+  }, [getLegacyNoteDurationSeconds]);
+
+  const scheduleGridCellAtTime = useCallback(
+    (rIdx: number, cIdx: number, absR: number, time: number, voice: number, step: number, noteDuration: number) => {
+      if (!audioCtxRef.current) return;
+      const isAccent = accentsRef.current.has(`${rIdx}-${cIdx}`);
+      const subdivs = customSubdivisionsRef.current[`${rIdx}-${cIdx}`] || 1;
+      const subDuration = Math.max(0.001, noteDuration / Math.max(1, subdivs));
+      const muteMode = syllableReadMuteModeRef.current;
+      for (let sub = 0; sub < subdivs; sub++) {
+        const subTime = time + sub * subDuration;
+        const isFirstOfBar = cIdx === 0 && sub === 0;
+        if (isFirstOfBar && firstBeatAccentRef.current) {
+          playBarFirstHighClick(audioCtxRef.current, subTime, clickSoundRef.current);
+        }
+        const mainAccentClick = isAccent && sub === 0;
+        if (muteMode === 'full') continue;
+        const shouldPlayBeat = !onlyAccentsRef.current || isAccent;
+        if (!shouldPlayBeat) continue;
+        const isTaFirstBeatArticulation = cIdx === 0 && sub === 0 && firstBeatAccentRef.current;
+        const sharpAsChecked =
+          muteMode === 'no_accent_sharp' && mainAccentClick && !isTaFirstBeatArticulation
+            ? false
+            : mainAccentClick;
+        playSharpClick(
+          audioCtxRef.current,
+          subTime,
+          sharpAsChecked,
+          clickSoundRef.current,
+          onlyAccentsRef.current,
+        );
+      }
+      insertPlayheadSorted(playheadQueueRef.current, {
+        t: time,
+        pos: { r: rIdx, c: cIdx, absR, voice, step },
+      });
+      schedulePlayheadWake();
+    },
+    [],
+  );
+
   const scheduleNote = (stepIdx: number, absR: number, time: number) => {
     const seq = sequenceRef.current;
     const currentSeqItem = seq[stepIdx];
     if (!currentSeqItem) return;
 
     const { r: rIdx, c: cIdx } = currentSeqItem;
-    const isAccent = accentsRef.current.has(`${rIdx}-${cIdx}`);
-
-    if (!audioCtxRef.current) return;
-    
-    const subdivs = customSubdivisionsRef.current[`${rIdx}-${cIdx}`] || 1;
-    const mult = customMultipliersRef.current[rIdx] || 1;
-    const rowSyl = currentSeqItem.activeSyllables || syllablesRef.current;
-    const pulseSyllables = pulseMeterUnlinkedRef.current[rIdx] ? PULSE_METER_BASE_SYLLABLES : rowSyl;
-    const effectiveBpm = tempoRef.current * (pulseSyllables / 4) * mult;
-    const stepDuration = 60.0 / effectiveBpm;
-    const subDuration = stepDuration / subdivs;
-
-    /** Long-press квадрата: `full` — тишина по сетке; `no_accent_sharp` — акцентные доли со звуком пассивных. */
-    const muteMode = syllableReadMuteModeRef.current;
-    for (let sub = 0; sub < subdivs; sub++) {
-      const subTime = time + sub * subDuration;
-      const isFirstOfBar = cIdx === 0 && sub === 0;
-      
-      /** Первый удар «Ta»: всегда при включённом first beat, в т.ч. при long-press `full` (сетка дальше глушится отдельно). */
-      if (isFirstOfBar && firstBeatAccentRef.current) {
-        playBarFirstHighClick(audioCtxRef.current, subTime, clickSoundRef.current);
-      }
-
-      const mainAccentClick = isAccent && sub === 0;
-      if (muteMode === 'full') {
-        continue;
-      }
-      const shouldPlayBeat = !onlyAccentsRef.current || isAccent;
-      if (!shouldPlayBeat) {
-        continue;
-      }
-      /** В `no_accent_sharp` акценты — пассивный тембр, кроме первой доли с активным «Ta» (не глушить вместе с long-press). */
-      const isTaFirstBeatArticulation = cIdx === 0 && sub === 0 && firstBeatAccentRef.current;
-      const sharpAsChecked =
-        muteMode === 'no_accent_sharp' && mainAccentClick && !isTaFirstBeatArticulation
-          ? false
-          : mainAccentClick;
-      playSharpClick(
-        audioCtxRef.current,
-        subTime,
-        sharpAsChecked,
-        clickSoundRef.current,
-        onlyAccentsRef.current,
-      );
-    }
-
-    insertPlayheadSorted(playheadQueueRef.current, {
-      t: time,
-      pos: { r: rIdx, c: cIdx, absR },
-    });
-    schedulePlayheadWake();
+    const noteDuration = getLegacyNoteDurationSeconds(rIdx);
+    scheduleGridCellAtTime(rIdx, cIdx, absR, time, 0, stepIdx, noteDuration);
   };
+
+  const schedulePolyStep = useCallback((stepIdx: number, time: number) => {
+    const chunks = polyChunksRef.current;
+    if (chunks.length === 0) return 0.5;
+    const safeStep = ((stepIdx % chunks.length) + chunks.length) % chunks.length;
+    const chunk = chunks[safeStep];
+    if (!chunk || chunk.length === 0) return 0.5;
+    const masterBar = chunk[0]!;
+    const windowDuration = getBarTimeWindowSeconds(masterBar);
+    chunk.forEach((barIdx, voiceIdx) => {
+      const rowSyllables =
+        customSyllablesRef.current[barIdx] !== undefined ? customSyllablesRef.current[barIdx] : syllablesRef.current;
+      const noteDuration = windowDuration / Math.max(1, rowSyllables);
+      for (let cIdx = 0; cIdx < rowSyllables; cIdx++) {
+        const noteTime = time + cIdx * noteDuration;
+        const absR = safeStep * polyVoicesRef.current + voiceIdx;
+        scheduleGridCellAtTime(barIdx, cIdx, absR, noteTime, voiceIdx, safeStep, noteDuration);
+      }
+    });
+    return windowDuration;
+  }, [getBarTimeWindowSeconds, scheduleGridCellAtTime]);
 
   const scheduler = () => {
     if (!isPlayingRef.current || !audioCtxRef.current) return;
@@ -2118,8 +2232,15 @@ export default function App() {
       nextNoteTimeRef.current = audioCtxRef.current.currentTime + 0.05;
     }
     while (nextNoteTimeRef.current < audioCtxRef.current.currentTime + 0.1) {
-      scheduleNote(currentStepRef.current, playAbsBarRef.current, nextNoteTimeRef.current);
-      nextNote();
+      if (polyModeRef.current) {
+        const stepDuration = schedulePolyStep(currentStepRef.current, nextNoteTimeRef.current);
+        nextNoteTimeRef.current += stepDuration;
+        const chunkCount = Math.max(1, polyChunksRef.current.length);
+        currentStepRef.current = (currentStepRef.current + 1) % chunkCount;
+      } else {
+        scheduleNote(currentStepRef.current, playAbsBarRef.current, nextNoteTimeRef.current);
+        nextNote();
+      }
     }
     timerIDRef.current = window.setTimeout(scheduler, 25);
   };
@@ -2130,6 +2251,7 @@ export default function App() {
       isPlayingRef.current = false;
       clearPlayheadScheduling();
       setActivePos({ r: -1, c: -1, absR: -1 });
+      setActivePositions([]);
       currentStepRef.current = 0; // Reset pattern position to start
       if (timerIDRef.current) clearTimeout(timerIDRef.current);
       if (squareHoldTimerRef.current !== null) {
@@ -2154,10 +2276,15 @@ export default function App() {
       setIsPlaying(true);
       isPlayingRef.current = true;
       clearPlayheadScheduling();
+      setActivePositions([]);
       coldStartRef.current = true; // Mark cold start
-      
-      const startSeqItem = sequenceRef.current[currentStepRef.current];
-      playAbsBarRef.current = startSeqItem ? startSeqItem.r : 0;
+      if (polyModeRef.current) {
+        const startChunk = polyChunksRef.current[currentStepRef.current];
+        playAbsBarRef.current = startChunk?.[0] ?? 0;
+      } else {
+        const startSeqItem = sequenceRef.current[currentStepRef.current];
+        playAbsBarRef.current = startSeqItem ? startSeqItem.r : 0;
+      }
       
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       if (!audioCtxRef.current) {
@@ -2167,7 +2294,11 @@ export default function App() {
         audioCtxRef.current.resume();
       }
       // Guarantee loop limits if grid resized
-      if (currentStepRef.current >= sequenceRef.current.length) {
+      if (polyModeRef.current) {
+        if (currentStepRef.current >= polyChunksRef.current.length) {
+          currentStepRef.current = 0;
+        }
+      } else if (currentStepRef.current >= sequenceRef.current.length) {
         currentStepRef.current = 0;
       }
       nextNoteTimeRef.current = audioCtxRef.current.currentTime + 0.05;
@@ -2184,6 +2315,8 @@ export default function App() {
   customMultipliersRef.current = { ...customMultipliers };
   customSubdivisionsRef.current = { ...customSubdivisions };
   pulseMeterUnlinkedRef.current = { ...pulseMeterUnlinked };
+  polyModeRef.current = polyMode;
+  polyVoicesRef.current = polyVoices;
 
   sequencerGridRowActionsRef.current = {
     isHoldingRef,
@@ -2405,6 +2538,41 @@ export default function App() {
                   >
                     <span>Potato Mode</span>
                   </button>
+                  <div className="w-full h-px bg-[#1e2a45]/80 my-0.5"></div>
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold tracking-wider uppercase text-blue-300">Polyrhythm</span>
+                      <button
+                        type="button"
+                        onClick={() => setPolyMode((prev) => !prev)}
+                        className={`px-3 py-1.5 rounded-md text-[11px] font-bold border transition-colors ${
+                          polyMode
+                            ? 'bg-blue-500/20 border-blue-400/70 text-blue-200'
+                            : 'bg-[#1a253c]/50 border-[#2f4066] text-slate-400 hover:text-slate-300'
+                        }`}
+                      >
+                        {polyMode ? 'On' : 'Off'}
+                      </button>
+                    </div>
+                    {polyMode ? (
+                      <div className="grid grid-cols-3 gap-2">
+                        {[2, 3, 4].map((voices) => (
+                          <button
+                            key={voices}
+                            type="button"
+                            onClick={() => setPolyVoices(parsePolyVoices(voices))}
+                            className={`py-1.5 rounded-md text-xs font-bold border transition-colors ${
+                              polyVoices === voices
+                                ? 'bg-blue-600/25 border-blue-400/70 text-blue-200'
+                                : 'bg-[#1a253c]/40 border-[#23314f] text-slate-500 hover:text-slate-300'
+                            }`}
+                          >
+                            {voices} pulses
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
                     </div>
                   </div>
                 </div>
@@ -2712,6 +2880,9 @@ export default function App() {
           pulseMeterUnlinked={pulseMeterUnlinked}
           isPlaying={isPlaying}
           activePos={activePos}
+          activePositions={activePositions}
+          polyMode={polyMode}
+          polyVoices={polyVoices}
           displayScaleBars={displayScaleBars}
           useFixedFlex={useFixedFlex}
           allBarsFitViewport={allBarsFitViewport}
