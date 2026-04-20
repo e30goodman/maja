@@ -243,7 +243,7 @@ const POLY_VOICES_STORAGE_KEY = 'konnakol_poly_voices';
 const APP_COMMIT_VERSION = (() => {
 	const maybeCommit = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env
 		?.VITE_APP_COMMIT;
-	return typeof maybeCommit === 'string' && maybeCommit.length >= 7 ? maybeCommit.slice(0, 7) : '*16';
+	return typeof maybeCommit === 'string' && maybeCommit.length >= 7 ? maybeCommit.slice(0, 7) : '*17';
 })();
 const TEMPO_THROTTLE_MS = 56;
 /** Clipboard export: kawaii magic marker for compact preset payload. */
@@ -791,6 +791,8 @@ function createEmptySnapshot() {
 		/** 0 = legacy: первая доля Ta без явных ключей `r-0` считается включённой; 1 = карта `accents` для первых долей. */
 		accentMapVersion: 0,
 		syllableReadMuteMode: 'off' as SyllableReadMuteMode,
+		/** Звук 1 (Ta-динг): любые `r-c`, включая `r-0` (белая рамка в редакторе Ta без записи в `accents`). */
+		taDingKeys: new Set<string>(),
 	};
 }
 
@@ -874,12 +876,30 @@ function parseSnapshotRow(raw: unknown) {
 	}
 	if (typeof o.polyMode === 'boolean') d.polyMode = o.polyMode;
 	d.polyVoices = parsePolyVoices(o.polyVoices);
+	const tdkIn = o.taDingKeys;
+	if (Array.isArray(tdkIn)) {
+		const next = new Set<string>();
+		const nBars = d.bars;
+		for (const x of tdkIn) {
+			if (typeof x !== 'string') continue;
+			const parts = x.split('-');
+			if (parts.length !== 2) continue;
+			const r = parseInt(parts[0], 10);
+			const c = parseInt(parts[1], 10);
+			if (!Number.isFinite(r) || !Number.isFinite(c) || r < 0 || r >= nBars || c < 0) continue;
+			const rowSyl = d.customSyllables[r] !== undefined ? d.customSyllables[r] : d.syllables;
+			if (c >= rowSyl) continue;
+			next.add(x);
+		}
+		d.taDingKeys = next;
+	}
 	return d;
 }
 
 function snapSlotLooksUsed(s: ReturnType<typeof createEmptySnapshot>) {
 	if (s.tempo !== 100 || s.bars !== 4 || s.syllables !== 4) return true;
 	if (s.accents.size > 0) return true;
+	if (s.taDingKeys.size > 0) return true;
 	if (Object.keys(s.customSyllables).length > 0) return true;
 	if (Object.keys(s.customMultipliers).length > 0) return true;
 	if (Object.keys(s.customSubdivisions).length > 0) return true;
@@ -927,6 +947,7 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		accentMapVersion: (s as { accentMapVersion?: number }).accentMapVersion === 1 ? 1 : 0,
 		taEditorMode: false,
 		syllableReadMuteMode: s.syllableReadMuteMode,
+		taDingKeys: [...s.taDingKeys],
 	};
 }
 
@@ -1297,6 +1318,7 @@ export default function App() {
   // Metronome state
   const [isPlaying, setIsPlaying] = useState(false);
   const [accents, setAccents] = useState<Set<string>>(() => new Set(seed.accents));
+  const [taDingKeys, setTaDingKeys] = useState<Set<string>>(() => new Set(seed.taDingKeys));
   const [activePos, setActivePos] = useState({ r: -1, c: -1, absR: -1 });
   const [activePositions, setActivePositions] = useState<PlayheadPosition[]>([]);
   const playAbsBarRef = useRef(0);
@@ -1315,6 +1337,8 @@ export default function App() {
     (seed as { accentMapVersion?: number }).accentMapVersion === 1 ? 1 : 0,
   );
   const [isTaEditorMode, setIsTaEditorMode] = useState(false);
+  /** В режиме Ta-редактора: строки, где пользователь снял дефолтную белую метку на первой доле (без ключа taDing). */
+  const [firstBeatDingSuppressedRows, setFirstBeatDingSuppressedRows] = useState<Set<number>>(() => new Set());
 
   // Randomizer States
   const [randomModeEnabled, setRandomModeEnabled] = useState(seed.randomModeEnabled);
@@ -1383,6 +1407,13 @@ export default function App() {
           s.syllableReadMuteMode,
           (s as { syllableReadMuteLatched?: boolean }).syllableReadMuteLatched,
         ),
+        taDingKeys: (() => {
+          const raw = (s as { taDingKeys?: unknown }).taDingKeys;
+          if (raw instanceof Set) return new Set(raw as Set<string>);
+          if (Array.isArray(raw))
+            return new Set(raw.filter((x): x is string => typeof x === 'string'));
+          return new Set<string>();
+        })(),
       };
     }
     return out;
@@ -1583,8 +1614,12 @@ export default function App() {
     const emptyAcc = new Set<string>();
     setAccents(emptyAcc);
     accentsRef.current = emptyAcc;
+    const emptyTaDing = new Set<string>();
+    setTaDingKeys(emptyTaDing);
+    taDingKeysRef.current = emptyTaDing;
     setAccentMapVersion(0);
     setIsTaEditorMode(false);
+    setFirstBeatDingSuppressedRows(new Set());
     setTempo(defaults.tempo);
     tempoRef.current = defaults.tempo;
     const defaultBars = defaults.bars;
@@ -1646,6 +1681,7 @@ export default function App() {
   const syllablesRef = useRef(syllables);
   const tempoRef = useRef(tempo);
   const accentsRef = useRef<Set<string>>(accents);
+  const taDingKeysRef = useRef<Set<string>>(taDingKeys);
   const customSyllablesRef = useRef(customSyllables);
   const customMultipliersRef = useRef(customMultipliers);
   const customSubdivisionsRef = useRef(customSubdivisions);
@@ -1654,6 +1690,7 @@ export default function App() {
   const firstBeatAccentRef = useRef(firstBeatAccent);
   const accentMapVersionRef = useRef(accentMapVersion);
   const isTaEditorModeRef = useRef(isTaEditorMode);
+  const firstBeatDingSuppressedRowsRef = useRef(firstBeatDingSuppressedRows);
   const randomModeEnabledRef = useRef(randomModeEnabled);
   const randomPulsationRef = useRef(randomPulsation);
   const randomPatternRef = useRef(randomPattern);
@@ -1683,6 +1720,21 @@ export default function App() {
   useEffect(() => { customSyllablesRef.current = { ...customSyllables }; }, [customSyllables]);
   useEffect(() => { onlyAccentsRef.current = onlyAccents; }, [onlyAccents]);
   useEffect(() => { firstBeatAccentRef.current = firstBeatAccent; }, [firstBeatAccent]);
+  useEffect(() => {
+    setFirstBeatDingSuppressedRows((prev) => {
+      const next = new Set<number>();
+      for (const r of prev) {
+        if (r >= 0 && r < bars) next.add(r);
+      }
+      if (next.size === prev.size) {
+        for (const r of prev) {
+          if (!next.has(r)) return next;
+        }
+        return prev;
+      }
+      return next;
+    });
+  }, [bars]);
   useEffect(() => { randomModeEnabledRef.current = randomModeEnabled; }, [randomModeEnabled]);
   useEffect(() => { randomPulsationRef.current = randomPulsation; }, [randomPulsation]);
   useEffect(() => { randomPatternRef.current = randomPattern; }, [randomPattern]);
@@ -1753,6 +1805,7 @@ export default function App() {
     bars: barsRef.current,
     syllables: syllablesRef.current,
     accents: new Set(accentsRef.current),
+    taDingKeys: new Set(taDingKeysRef.current),
     customSyllables: { ...customSyllablesRef.current },
     customMultipliers: { ...customMultipliersRef.current },
     customSubdivisions: { ...customSubdivisionsRef.current },
@@ -1869,6 +1922,19 @@ export default function App() {
     setAccents(prunedAccents);
     accentsRef.current = prunedAccents;
 
+    const prunedTaDing = new Set<string>();
+    for (const k of taDingKeysRef.current) {
+      const parts = k.split('-');
+      if (parts.length !== 2) continue;
+      const r = parseInt(parts[0], 10);
+      const c = parseInt(parts[1], 10);
+      if (Number.isFinite(r) && Number.isFinite(c) && r >= 0 && r < nBars && c >= 0 && c < next) {
+        prunedTaDing.add(k);
+      }
+    }
+    setTaDingKeys(prunedTaDing);
+    taDingKeysRef.current = prunedTaDing;
+
     const prevSub = customSubdivisionsRef.current;
     const nextSub: Record<string, number> = {};
     for (const [k, v] of Object.entries(prevSub)) {
@@ -1980,11 +2046,19 @@ export default function App() {
         : Array.isArray(acc)
           ? acc.filter((x): x is string => typeof x === 'string')
           : [];
+    const tdk = raw.taDingKeys;
+    const taDingKeysArr =
+      tdk instanceof Set
+        ? [...tdk]
+        : Array.isArray(tdk)
+          ? tdk.filter((x): x is string => typeof x === 'string')
+          : [];
     return parseSnapshotRow({
       tempo: raw.tempo,
       bars: raw.bars,
       syllables: raw.syllables,
       accents: accentsArr,
+      taDingKeys: taDingKeysArr,
       sequencerCells: raw.sequencerCells,
       customSyllables: raw.customSyllables,
       customMultipliers: raw.customMultipliers,
@@ -2058,6 +2132,7 @@ export default function App() {
           bars,
           syllables,
           accents,
+          taDingKeys,
           customSyllables,
           customMultipliers,
           customSubdivisions,
@@ -2085,6 +2160,7 @@ export default function App() {
     bars,
     syllables,
     accents,
+    taDingKeys,
     customSyllables,
     customMultipliers,
     customSubdivisions,
@@ -2153,6 +2229,15 @@ export default function App() {
             : [],
       ),
     );
+    setTaDingKeys(
+      new Set(
+        Array.isArray(snap.taDingKeys)
+          ? snap.taDingKeys
+          : snap.taDingKeys instanceof Set
+            ? [...snap.taDingKeys]
+            : [],
+      ),
+    );
       setCustomSyllables({ ...snap.customSyllables });
       setCustomMultipliers({ ...(snap.customMultipliers || {}) });
       setCustomSubdivisions({ ...(snap.customSubdivisions || {}) });
@@ -2182,6 +2267,7 @@ export default function App() {
     setFirstBeatAccent(snap.firstBeatAccent !== false);
     setAccentMapVersion((snap as { accentMapVersion?: number }).accentMapVersion === 1 ? 1 : 0);
     setIsTaEditorMode(false);
+    setFirstBeatDingSuppressedRows(new Set());
     const nextMute = normalizeSyllableReadMuteModeFromSnapshot(
       snap.syllableReadMuteMode,
       (snap as { syllableReadMuteLatched?: boolean }).syllableReadMuteLatched,
@@ -2211,6 +2297,8 @@ export default function App() {
   ): ReturnType<typeof createEmptySnapshot> => ({
     ...s,
     accents: s.accents instanceof Set ? new Set(s.accents) : new Set(Array.isArray(s.accents) ? s.accents : []),
+    taDingKeys:
+      s.taDingKeys instanceof Set ? new Set(s.taDingKeys) : new Set(Array.isArray(s.taDingKeys) ? s.taDingKeys : []),
     customSyllables: { ...s.customSyllables },
     customMultipliers: { ...s.customMultipliers },
     customSubdivisions: { ...s.customSubdivisions },
@@ -2505,11 +2593,59 @@ export default function App() {
 
   const toggleAccent = useCallback((r: number, c: number) => {
     if (c === 0) setAccentMapVersion(1);
+    const key = `${r}-${c}`;
     setAccents((prev) => {
       const next = new Set(prev);
-      const key = `${r}-${c}`;
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleTaDing = useCallback((r: number, c: number) => {
+    if (c < 0) return;
+    const key = `${r}-${c}`;
+    if (!isTaEditorModeRef.current || c !== 0) {
+      setTaDingKeys((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      });
+      return;
+    }
+    const hadKey = taDingKeysRef.current.has(key);
+    const suppressed = firstBeatDingSuppressedRowsRef.current.has(r);
+    const fa = firstBeatAccentRef.current;
+    if (hadKey) {
+      setTaDingKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+      /* Иначе при снятии явного taDing на первой доле снова показывается дефолтный белый от `firstBeatAccent`. */
+      if (fa) {
+        setFirstBeatDingSuppressedRows((prev) => new Set(prev).add(r));
+      }
+      return;
+    }
+    if (fa && !suppressed) {
+      setFirstBeatDingSuppressedRows((prev) => new Set(prev).add(r));
+      return;
+    }
+    if (suppressed) {
+      setFirstBeatDingSuppressedRows((prev) => {
+        const n = new Set(prev);
+        n.delete(r);
+        return n;
+      });
+    }
+    setTaDingKeys((prev) => {
+      const next = new Set(prev);
+      next.add(key);
       return next;
     });
   }, []);
@@ -2658,9 +2794,11 @@ export default function App() {
       const subdivs = customSubdivisionsRef.current[`${rIdx}-${cIdx}`] || 1;
       const subDuration = Math.max(0.001, noteDuration / Math.max(1, subdivs));
       const muteMode = syllableReadMuteModeRef.current;
-      const useExplicitFirstBeatMap = accentMapVersionRef.current >= 1;
-      const firstBeatCellHit =
-        !useExplicitFirstBeatMap || accentsRef.current.has(`${rIdx}-0`);
+      const on0Accent = accentsRef.current.has(`${rIdx}-0`);
+      const on0Ding = taDingKeysRef.current.has(`${rIdx}-0`);
+      const supRow = firstBeatDingSuppressedRowsRef.current.has(rIdx);
+      const fa = firstBeatAccentRef.current;
+      const firstBeatCellHitRow = on0Accent || on0Ding || (fa && !supRow);
       for (let sub = 0; sub < subdivs; sub++) {
         const subTime = time + sub * subDuration;
         const polySlotKey = Math.round(subTime * 100000);
@@ -2669,7 +2807,7 @@ export default function App() {
         const shouldPlayFirstBeatTa =
           isFirstOfBar &&
           firstBeatAccentRef.current &&
-          firstBeatCellHit &&
+          firstBeatCellHitRow &&
           (!polyModeRef.current || voice === 0);
         if (shouldPlayFirstBeatTa) {
           playBarFirstHighClick(audioCtxRef.current, subTime, clickSoundRef.current);
@@ -2679,10 +2817,18 @@ export default function App() {
           continue;
         }
         if (muteMode === 'full') continue;
-        const shouldPlayBeat = !onlyAccentsRef.current || isAccent;
+        const isTaDingCell = cIdx >= 1 && taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
+        const shouldPlayTaDingSound =
+          sub === 0 && isTaDingCell && (!polyModeRef.current || voice === 0);
+        if (shouldPlayTaDingSound) {
+          playBarFirstHighClick(audioCtxRef.current, subTime, clickSoundRef.current);
+        }
+        const hasTaDingHere = taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
+        const shouldPlayBeat =
+          !onlyAccentsRef.current || isAccent || hasTaDingHere;
         if (!shouldPlayBeat) continue;
         const isTaFirstBeatArticulation =
-          cIdx === 0 && sub === 0 && firstBeatAccentRef.current && firstBeatCellHit;
+          cIdx === 0 && sub === 0 && firstBeatAccentRef.current && firstBeatCellHitRow;
         const sharpAsChecked =
           muteMode === 'no_accent_sharp' && mainAccentClick && !isTaFirstBeatArticulation
             ? false
@@ -2794,6 +2940,7 @@ export default function App() {
         audioCtxRef.current = null;
       }
     } else {
+      if (isTaEditorModeRef.current) return;
       setIsPanelExpanded(false);
       setShowRandomSettings(false);
       setIsPlaying(true);
@@ -2834,6 +2981,7 @@ export default function App() {
   barsRef.current = bars;
   syllablesRef.current = syllables;
   accentsRef.current = accents;
+  taDingKeysRef.current = taDingKeys;
   customSyllablesRef.current = { ...customSyllables };
   customMultipliersRef.current = { ...customMultipliers };
   customSubdivisionsRef.current = { ...customSubdivisions };
@@ -2842,6 +2990,13 @@ export default function App() {
   polyVoicesRef.current = polyVoices;
   accentMapVersionRef.current = accentMapVersion;
   isTaEditorModeRef.current = isTaEditorMode;
+  firstBeatAccentRef.current = firstBeatAccent;
+  firstBeatDingSuppressedRowsRef.current = firstBeatDingSuppressedRows;
+
+  const firstBeatEditorSuppressedRowsSorted: number[] = [];
+  for (const row of firstBeatDingSuppressedRows) firstBeatEditorSuppressedRowsSorted.push(row);
+  firstBeatEditorSuppressedRowsSorted.sort((a, b) => a - b);
+  const firstBeatEditorSuppressedSig = firstBeatEditorSuppressedRowsSorted.join(',');
 
   sequencerGridRowActionsRef.current = {
     isHoldingRef,
@@ -2858,6 +3013,7 @@ export default function App() {
     setCustomSyllables,
     setPulseMeterUnlinked,
     toggleAccent,
+    toggleTaDing,
     customSyllablesRef,
     pulseMeterUnlinkedRef,
   };
@@ -3400,10 +3556,13 @@ export default function App() {
           lowPerfMode={lowPerfMode}
           isTaEditorMode={isTaEditorMode}
           accentMapVersion={accentMapVersion}
+          firstBeatAccent={firstBeatAccent}
+          firstBeatEditorSuppressedSig={firstBeatEditorSuppressedSig}
           customSyllables={customSyllables}
           customSubdivisions={customSubdivisions}
           customMultipliers={customMultipliers}
           accents={accents}
+          taDingKeys={taDingKeys}
           pulseMeterUnlinked={pulseMeterUnlinked}
           isPlaying={isPlaying}
           activePos={activePos}
@@ -3488,13 +3647,7 @@ export default function App() {
                 if (isTaEditorModeRef.current) {
                   setIsTaEditorMode(false);
                 } else {
-                  setAccentMapVersion(1);
                   setIsTaEditorMode(true);
-                  setAccents((prev) => {
-                    const n = new Set(prev);
-                    for (let rr = 0; rr < barsRef.current; rr++) n.add(`${rr}-0`);
-                    return n;
-                  });
                 }
               }, SNAPSHOT_MENU_HOLD_MS);
             }}
@@ -3620,12 +3773,18 @@ export default function App() {
 
         {/* Play Button */}
         <div className="shrink-0 mb-2">
-          <button 
+          <button
+            type="button"
+            disabled={isTaEditorMode && !isPlaying}
+            aria-disabled={isTaEditorMode && !isPlaying}
             onClick={togglePlayback}
-            className={`w-full py-4 rounded-xl font-black text-lg tracking-[0.2em] flex items-center justify-center gap-2 ${lowPerfMode ? '' : 'shadow-[0_8px_20px_rgba(16,185,129,0.2)]'} transition-all transform active:scale-[0.98] ${
-              isPlaying 
-                ? 'bg-rose-500 hover:bg-rose-400 active:bg-rose-600 shadow-rose-500/20 text-white' 
-                : 'bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-950'
+            className={`w-full py-4 rounded-xl font-black text-lg tracking-[0.2em] flex items-center justify-center gap-2 ${lowPerfMode ? '' : 'shadow-[0_8px_20px_rgba(16,185,129,0.2)]'} transition-all transform ${
+              isTaEditorMode && !isPlaying
+                ? 'opacity-45 cursor-not-allowed bg-emerald-600/50 text-slate-800'
+                : 'active:scale-[0.98] ' +
+                  (isPlaying
+                    ? 'bg-rose-500 hover:bg-rose-400 active:bg-rose-600 shadow-rose-500/20 text-white'
+                    : 'bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-950')
             }`}
           >
             {isPlaying ? (

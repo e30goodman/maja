@@ -69,6 +69,7 @@ export type SequencerGridRowActions = {
 	setCustomSyllables: React.Dispatch<React.SetStateAction<Record<number, number>>>;
 	setPulseMeterUnlinked: React.Dispatch<React.SetStateAction<Record<number, boolean>>>;
 	toggleAccent: (r: number, c: number) => void;
+	toggleTaDing: (r: number, c: number) => void;
 	customSyllablesRef: React.MutableRefObject<Record<number, number>>;
 	pulseMeterUnlinkedRef: React.MutableRefObject<Record<number, boolean>>;
 };
@@ -85,6 +86,7 @@ type SequencerGridRowProps = {
 	rowMult: number;
 	subdivSig: string;
 	accentSig: string;
+	taDingSig: string;
 	pulseUnlinkedRow: boolean;
 	activeEditRow: number | null;
 	activeEditCell: string | null;
@@ -92,6 +94,9 @@ type SequencerGridRowProps = {
 	isPlaying: boolean;
 	isTaEditorMode: boolean;
 	accentMapVersion: number;
+	firstBeatAccent: boolean;
+	/** Сортированные r через запятую: снятые в редакторе дефолтные белые на первой доле. */
+	firstBeatEditorSuppressedSig: string;
 	rowCellLabels: string[][];
 	effectiveUseFixedFlex: boolean;
 	displayScaleBars: number;
@@ -114,6 +119,7 @@ function sequencerGridRowPropsEqual(a: SequencerGridRowProps, b: SequencerGridRo
 		a.rowMult === b.rowMult &&
 		a.subdivSig === b.subdivSig &&
 		a.accentSig === b.accentSig &&
+		a.taDingSig === b.taDingSig &&
 		a.pulseUnlinkedRow === b.pulseUnlinkedRow &&
 		a.activeEditRow === b.activeEditRow &&
 		a.activeEditCell === b.activeEditCell &&
@@ -121,6 +127,8 @@ function sequencerGridRowPropsEqual(a: SequencerGridRowProps, b: SequencerGridRo
 		a.isPlaying === b.isPlaying &&
 		a.isTaEditorMode === b.isTaEditorMode &&
 		a.accentMapVersion === b.accentMapVersion &&
+		a.firstBeatAccent === b.firstBeatAccent &&
+		a.firstBeatEditorSuppressedSig === b.firstBeatEditorSuppressedSig &&
 		a.rowCellLabels === b.rowCellLabels &&
 		a.effectiveUseFixedFlex === b.effectiveUseFixedFlex &&
 		a.displayScaleBars === b.displayScaleBars &&
@@ -145,6 +153,7 @@ const SequencerGridRow = React.memo(
 			rowMult,
 			subdivSig,
 			accentSig,
+			taDingSig,
 			pulseUnlinkedRow,
 			activeEditRow,
 			activeEditCell,
@@ -152,6 +161,8 @@ const SequencerGridRow = React.memo(
 			isPlaying,
 			isTaEditorMode,
 			accentMapVersion,
+			firstBeatAccent,
+			firstBeatEditorSuppressedSig,
 			rowCellLabels,
 			effectiveUseFixedFlex,
 			displayScaleBars,
@@ -165,6 +176,16 @@ const SequencerGridRow = React.memo(
 			[subdivSig],
 		);
 		const accentBits = accentSig;
+		const taDingBits = taDingSig;
+		const firstBeatRowSuppressed = useMemo(() => {
+			if (!firstBeatEditorSuppressedSig) return new Set<number>();
+			return new Set(
+				firstBeatEditorSuppressedSig
+					.split(',')
+					.map((x) => parseInt(x, 10))
+					.filter((n) => Number.isFinite(n)),
+			);
+		}, [firstBeatEditorSuppressedSig]);
 		return (
 			<div
 				ref={(el) => setRowEl(absR, el)}
@@ -343,23 +364,40 @@ const SequencerGridRow = React.memo(
 					{Array.from({ length: rowSylls }).map((_, cIdx) => {
 						const checkKey = `${rIdx}-${cIdx}`;
 						const isAccent = accentBits[cIdx] === '1';
+						const isTaDing = taDingBits[cIdx] === '1';
+						/** В редакторе Ta: белый ding на первой доле при глобальном Ta, пока строка не в «снятых». */
+						const showEditorDing =
+							isTaDing ||
+							(cIdx === 0 &&
+								isTaEditorMode &&
+								firstBeatAccent &&
+								!firstBeatRowSuppressed.has(rIdx));
 						const isActive = highlightCol === cIdx;
 						const subdivs = rowSubdivs[cIdx] ?? 1;
 						const cellBorder2 = 'border-2 box-border border-[#2f4066]';
+						const purpleAccentCell =
+							`bg-purple-900/40 border-2 box-border border-purple-500/50 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_4px_rgba(168,85,247,0.2)]'} hover:bg-purple-900/50 text-purple-100`;
 						let cellClasses = `bg-[#1e2a45] ${cellBorder2} ${lowPerfMode ? '' : 'shadow-[0_2px_4px_rgba(0,0,0,0.2)]'} hover:bg-[#253353] text-slate-300`;
-						if (isTaEditorMode && cIdx === 0) {
-							if (isAccent) {
+						if (isTaEditorMode) {
+							if (isAccent && showEditorDing) {
+								cellClasses = lowPerfMode
+									? `${purpleAccentCell} z-[1] ring-2 ring-inset ring-white`
+									: `${purpleAccentCell} z-[1] ring-2 ring-inset ring-white/95 shadow-[0_0_12px_rgba(255,255,255,0.18)]`;
+							} else if (showEditorDing) {
 								cellClasses = lowPerfMode
 									? 'bg-[#1e2a45] border-2 box-border border-white text-white z-[1]'
 									: 'bg-[#1e2a45] border-2 box-border border-white/95 text-white shadow-[0_0_14px_rgba(255,255,255,0.2)] z-[1] hover:bg-[#253353]';
-							} else {
-								cellClasses = `bg-[#141d30] border-2 box-border border-slate-600/60 ${lowPerfMode ? '' : 'opacity-90'} text-slate-500 hover:bg-[#1a253c]`;
+							} else if (isAccent) {
+								cellClasses = purpleAccentCell;
 							}
-						} else if (!isTaEditorMode && accentMapVersion >= 1 && cIdx === 0 && isAccent) {
-							cellClasses = `bg-[#1a2238] border-2 box-border border-purple-400/85 text-purple-100 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_3px_rgba(192,132,252,0.12)]'} hover:bg-[#222a45]`;
 						} else if (isAccent) {
-							cellClasses = `bg-purple-900/40 border-2 box-border border-purple-500/50 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_4px_rgba(168,85,247,0.2)]'} hover:bg-purple-900/50 text-purple-100`;
+							cellClasses = purpleAccentCell;
 						}
+						const accentForGlyph =
+							isAccent ||
+							(isTaEditorMode &&
+								(isTaDing ||
+									(cIdx === 0 && firstBeatAccent && !firstBeatRowSuppressed.has(rIdx))));
 						if (isActive) {
 							cellClasses = lowPerfMode
 								? 'bg-emerald-500/20 border-2 box-border border-emerald-500 z-10 text-emerald-100'
@@ -372,7 +410,6 @@ const SequencerGridRow = React.memo(
 								onPointerDown={() => {
 									const a = actionsRef.current;
 									if (!a) return;
-									if (isTaEditorMode) return;
 									a.isHoldingRef.current = false;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
 									a.holdTimerRef.current = window.setTimeout(() => {
@@ -392,13 +429,11 @@ const SequencerGridRow = React.memo(
 								onPointerUp={() => {
 									const a = actionsRef.current;
 									if (!a) return;
-									if (isTaEditorMode) return;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
 								}}
 								onPointerLeave={() => {
 									const a = actionsRef.current;
 									if (!a) return;
-									if (isTaEditorMode) return;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
 								}}
 								onClick={() => {
@@ -406,6 +441,10 @@ const SequencerGridRow = React.memo(
 									if (!a) return;
 									if (a.isHoldingRef.current) {
 										a.isHoldingRef.current = false;
+										return;
+									}
+									if (isTaEditorMode) {
+										a.toggleTaDing(rIdx, cIdx);
 										return;
 									}
 									a.toggleAccent(rIdx, cIdx);
@@ -433,7 +472,7 @@ const SequencerGridRow = React.memo(
 										<span
 											key={i}
 											className={`flex items-center justify-center w-full h-full min-w-0 overflow-hidden text-center px-px font-sans ${getSyllableStyles(rowSylls, subdivs)} ${
-												isActive || isAccent ? (lowPerfMode ? 'text-white' : 'drop-shadow-md') : 'text-slate-300'
+												isActive || accentForGlyph ? (lowPerfMode ? 'text-white' : 'drop-shadow-md') : 'text-slate-300'
 											} ${subdivs > 1 ? 'border-[0.5px] border-[#2f4066]/50' : ''}`}
 										>
 											{rowCellLabels[cIdx]?.[i] ?? 'Ta'}
@@ -458,6 +497,7 @@ export type SequencerGridProps = {
 	customSubdivisions: Record<string, number>;
 	customMultipliers: Record<number, number>;
 	accents: Set<string>;
+	taDingKeys: Set<string>;
 	pulseMeterUnlinked: Record<number, boolean>;
 	isPlaying: boolean;
 	activePos: { r: number; c: number; absR: number };
@@ -470,6 +510,8 @@ export type SequencerGridProps = {
 	lowPerfMode: boolean;
 	isTaEditorMode: boolean;
 	accentMapVersion: number;
+	firstBeatAccent: boolean;
+	firstBeatEditorSuppressedSig: string;
 	activeEditRow: number | null;
 	activeEditCell: string | null;
 	sequencerGridRowActionsRef: React.MutableRefObject<SequencerGridRowActions | null>;
@@ -484,6 +526,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	customSubdivisions,
 	customMultipliers,
 	accents,
+	taDingKeys,
 	pulseMeterUnlinked,
 	isPlaying,
 	activePos,
@@ -496,6 +539,8 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	lowPerfMode,
 	isTaEditorMode,
 	accentMapVersion,
+	firstBeatAccent,
+	firstBeatEditorSuppressedSig,
 	activeEditRow,
 	activeEditCell,
 	sequencerGridRowActionsRef,
@@ -535,6 +580,9 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 						const accentSig = Array.from({ length: rowSylls }, (_, c) =>
 							accents.has(`${rIdx}-${c}`) ? '1' : '0',
 						).join('');
+						const taDingSig = Array.from({ length: rowSylls }, (_, c) =>
+							taDingKeys.has(`${rIdx}-${c}`) ? '1' : '0',
+						).join('');
 						const pulseUnlinkedRow = Boolean(pulseMeterUnlinked[rIdx]);
 						const highlightCol = isPlaying
 							? activePos.absR === absR
@@ -553,6 +601,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 								rowMult={rowMult}
 								subdivSig={subdivSig}
 								accentSig={accentSig}
+								taDingSig={taDingSig}
 								pulseUnlinkedRow={pulseUnlinkedRow}
 								activeEditRow={activeEditRow}
 								activeEditCell={activeEditCell}
@@ -560,6 +609,8 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 								isPlaying={isPlaying}
 								isTaEditorMode={isTaEditorMode}
 								accentMapVersion={accentMapVersion}
+								firstBeatAccent={firstBeatAccent}
+								firstBeatEditorSuppressedSig={firstBeatEditorSuppressedSig}
 								rowCellLabels={rowCellLabels}
 								effectiveUseFixedFlex={effectiveUseFixedFlex}
 								displayScaleBars={displayScaleBars}
@@ -597,6 +648,9 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 									const accentSig = Array.from({ length: rowSylls }, (_, c) =>
 										accents.has(`${rIdx}-${c}`) ? '1' : '0',
 									).join('');
+									const taDingSig = Array.from({ length: rowSylls }, (_, c) =>
+										taDingKeys.has(`${rIdx}-${c}`) ? '1' : '0',
+									).join('');
 									const pulseUnlinkedRow = Boolean(pulseMeterUnlinked[rIdx]);
 									const voiceHighlight = activePositions.find(
 										(pos) => pos.step === stepIdx && pos.voice === voiceIdx,
@@ -614,6 +668,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 											rowMult={rowMult}
 											subdivSig={subdivSig}
 											accentSig={accentSig}
+											taDingSig={taDingSig}
 											pulseUnlinkedRow={pulseUnlinkedRow}
 											activeEditRow={activeEditRow}
 											activeEditCell={activeEditCell}
@@ -621,6 +676,8 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 									isPlaying={isPlaying}
 									isTaEditorMode={isTaEditorMode}
 									accentMapVersion={accentMapVersion}
+									firstBeatAccent={firstBeatAccent}
+									firstBeatEditorSuppressedSig={firstBeatEditorSuppressedSig}
 									rowCellLabels={rowCellLabels}
 									effectiveUseFixedFlex={effectiveUseFixedFlex}
 									displayScaleBars={displayScaleBars}
