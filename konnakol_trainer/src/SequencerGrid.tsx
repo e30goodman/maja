@@ -269,24 +269,7 @@ const SequencerGridRow = React.memo(
 								return out;
 							});
 						}}
-						onContextMenu={(e) => {
-							e.preventDefault();
-							const a = actionsRef.current;
-							if (!a) return;
-							a.setCustomSyllables((prev) => {
-								const copy = { ...prev };
-								delete copy[rIdx];
-								a.customSyllablesRef.current = { ...copy };
-								return copy;
-							});
-							a.setPulseMeterUnlinked((prev) => {
-								const copy = { ...prev };
-								delete copy[rIdx];
-								a.pulseMeterUnlinkedRef.current = { ...copy };
-								return copy;
-							});
-						}}
-						title="Тап: число слогов в такте 1→…→9→1 (свой множитель пульсации на такт). Удерживай: пульс от четвёрки (gati). ПКМ: сброс такта к глобальному Syllbs и выкл. gati."
+						onContextMenu={(e) => e.preventDefault()}
 						className={`flex-1 rounded-md border flex items-center justify-center text-[12px] font-extrabold leading-none shadow-[inset_0_1px_3px_rgba(0,0,0,0.1)] min-h-[50%] transition-colors select-none ${
 							activeEditRow === rIdx
 								? 'ring-2 ring-purple-500 shadow-purple-500/30 bg-[#1e2a45] border-[#2f4066] text-slate-400'
