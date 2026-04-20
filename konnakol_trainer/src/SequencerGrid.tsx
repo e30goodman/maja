@@ -79,6 +79,8 @@ type SequencerGridRowProps = {
 	stepLabel?: string;
 	voiceLabel?: string;
 	isPolyRow?: boolean;
+	polyMode: boolean;
+	polyVoices: 2 | 3 | 4;
 	rowSylls: number;
 	rowMult: number;
 	subdivSig: string;
@@ -104,6 +106,8 @@ function sequencerGridRowPropsEqual(a: SequencerGridRowProps, b: SequencerGridRo
 		a.stepLabel === b.stepLabel &&
 		a.voiceLabel === b.voiceLabel &&
 		a.isPolyRow === b.isPolyRow &&
+		a.polyMode === b.polyMode &&
+		a.polyVoices === b.polyVoices &&
 		a.rowSylls === b.rowSylls &&
 		a.rowMult === b.rowMult &&
 		a.subdivSig === b.subdivSig &&
@@ -131,6 +135,8 @@ const SequencerGridRow = React.memo(
 			stepLabel,
 			voiceLabel,
 			isPolyRow,
+			polyMode,
+			polyVoices,
 			rowSylls,
 			rowMult,
 			subdivSig,
@@ -174,12 +180,25 @@ const SequencerGridRow = React.memo(
 							a.setCustomMultipliers((prev) => {
 								const m = prev[rIdx] || 1;
 								const next = m === 1 ? 2 : m === 2 ? 3 : m === 3 ? 4 : 1;
+								const relatedIdx = (() => {
+									if (!polyMode) return null;
+									const chunkStart = Math.floor(rIdx / polyVoices) * polyVoices;
+									const voiceOffset = rIdx - chunkStart;
+									const rightIdx = chunkStart + voiceOffset + 1;
+									const leftIdx = chunkStart + voiceOffset - 1;
+									if (voiceOffset % 2 === 0 && rightIdx < chunkStart + polyVoices) return rightIdx;
+									if (leftIdx >= chunkStart) return leftIdx;
+									return null;
+								})();
 								if (next === 1) {
 									const copy = { ...prev };
 									delete copy[rIdx];
+									if (relatedIdx !== null) delete copy[relatedIdx];
 									return copy;
 								}
-								return { ...prev, [rIdx]: next };
+								const out = { ...prev, [rIdx]: next };
+								if (relatedIdx !== null) out[relatedIdx] = next;
+								return out;
 							});
 						}}
 						onContextMenu={(e) => {
@@ -189,6 +208,19 @@ const SequencerGridRow = React.memo(
 							a.setCustomMultipliers((prev) => {
 								const copy = { ...prev };
 								delete copy[rIdx];
+								if (polyMode) {
+									const chunkStart = Math.floor(rIdx / polyVoices) * polyVoices;
+									const voiceOffset = rIdx - chunkStart;
+									const rightIdx = chunkStart + voiceOffset + 1;
+									const leftIdx = chunkStart + voiceOffset - 1;
+									const relatedIdx =
+										voiceOffset % 2 === 0 && rightIdx < chunkStart + polyVoices
+											? rightIdx
+											: leftIdx >= chunkStart
+												? leftIdx
+												: null;
+									if (relatedIdx !== null) delete copy[relatedIdx];
+								}
 								return copy;
 							});
 						}}
@@ -298,7 +330,7 @@ const SequencerGridRow = React.memo(
 									: 'bg-[#1e2a45] border-[#2f4066] text-slate-400 hover:bg-[#253353] active:bg-[#1a253c]'
 						}`}
 					>
-						{voiceLabel ?? rowSylls}
+						{rowSylls}
 					</button>
 				</div>
 				<div className="flex flex-1 gap-1 items-stretch min-w-0">
@@ -507,6 +539,8 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 								displayScaleBars={displayScaleBars}
 								syllables={syllables}
 								lowPerfMode={lowPerfMode}
+								polyMode={polyMode}
+								polyVoices={polyVoices}
 								actionsRef={sequencerGridRowActionsRef}
 								setRowEl={setRowElStable}
 							/>
@@ -549,7 +583,6 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 											absR={absR}
 											rIdx={rIdx}
 											stepLabel={voiceIdx === 0 ? `${stepIdx + 1}` : ''}
-											voiceLabel={`v${voiceIdx + 1}`}
 											isPolyRow={true}
 											rowSylls={rowSylls}
 											rowMult={rowMult}
@@ -565,6 +598,8 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 											displayScaleBars={displayScaleBars}
 											syllables={syllables}
 											lowPerfMode={lowPerfMode}
+											polyMode={polyMode}
+											polyVoices={polyVoices}
 											actionsRef={sequencerGridRowActionsRef}
 											setRowEl={setRowElStable}
 										/>

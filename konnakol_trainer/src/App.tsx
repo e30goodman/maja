@@ -240,7 +240,7 @@ const SNAPSHOT_STORAGE_KEY = 'konnakolTrainerSnapshotsV1';
 const LITE_UI_STORAGE_KEY = 'konnakol_lite_ui';
 const POLY_MODE_STORAGE_KEY = 'konnakol_poly_mode';
 const POLY_VOICES_STORAGE_KEY = 'konnakol_poly_voices';
-const APP_COMMIT_VERSION = 'd6d32e1';
+const APP_COMMIT_VERSION = '545bc92';
 const TEMPO_THROTTLE_MS = 56;
 /** Clipboard export: kawaii magic marker for compact preset payload. */
 const SNAPSHOT_CLIPBOARD_MARKER = '(⁠ʘ⁠ᴗ⁠ʘ⁠)⁠♪:';
@@ -428,6 +428,8 @@ function createEmptySnapshot() {
 		pulseMeterUnlinked: {} as Record<number, boolean>,
 		/** Заморозка высоты ряда (число видимых тактов) или null. */
 		frozenScale: null as number | null,
+		polyMode: false,
+		polyVoices: 2 as 2 | 3 | 4,
 		onlyAccents: false,
 		firstBeatAccent: true,
 		syllableReadMuteMode: 'off' as SyllableReadMuteMode,
@@ -507,6 +509,8 @@ function parseSnapshotRow(raw: unknown) {
 		const fn = parseInt(String(fs), 10);
 		d.frozenScale = Number.isFinite(fn) && fn >= 1 && fn <= 100 ? fn : null;
 	}
+	if (typeof o.polyMode === 'boolean') d.polyMode = o.polyMode;
+	d.polyVoices = parsePolyVoices(o.polyVoices);
 	return d;
 }
 
@@ -524,6 +528,8 @@ function snapSlotLooksUsed(s: ReturnType<typeof createEmptySnapshot>) {
 	if (s.onlyAccents) return true;
 	if (s.firstBeatAccent === false) return true;
 	if (s.frozenScale != null) return true;
+	if (s.polyMode) return true;
+	if (s.polyVoices !== 2) return true;
 	if (s.syllableReadMuteMode !== 'off') return true;
 	return false;
 }
@@ -550,6 +556,8 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 			Object.entries(s.pulseMeterUnlinked || {}).filter(([, v]) => v),
 		) as Record<string, boolean>,
 		frozenScale: s.frozenScale ?? null,
+		polyMode: s.polyMode === true,
+		polyVoices: parsePolyVoices(s.polyVoices),
 		onlyAccents: s.onlyAccents,
 		firstBeatAccent: s.firstBeatAccent,
 		syllableReadMuteMode: s.syllableReadMuteMode,
@@ -557,11 +565,21 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 }
 
 function encodeSnapshotClipboard(s: ReturnType<typeof createEmptySnapshot>): string {
-	const gridToken = buildSnapshotGridToken(s);
-	const flags = buildSnapshotFlags(s);
-	const soundId = buildSnapshotSoundId(s);
-	const compact = `${s.tempo}.${s.bars}.${s.syllables}.${gridToken}.${s.chaosLevel}.${flags}.${soundId}`;
-	return SNAPSHOT_CLIPBOARD_MARKER + compact;
+	try {
+		const json = JSON.stringify(snapshotToJSON(s));
+		const bytes = new TextEncoder().encode(json);
+		let bin = '';
+		for (let i = 0; i < bytes.length; i++) {
+			bin += String.fromCharCode(bytes[i]!);
+		}
+		return SNAPSHOT_CLIPBOARD_MARKER + btoa(bin);
+	} catch {
+		const gridToken = buildSnapshotGridToken(s);
+		const flags = buildSnapshotFlags(s);
+		const soundId = buildSnapshotSoundId(s);
+		const compact = `${s.tempo}.${s.bars}.${s.syllables}.${gridToken}.${s.chaosLevel}.${flags}.${soundId}`;
+		return SNAPSHOT_CLIPBOARD_MARKER + compact;
+	}
 }
 
 function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmptySnapshot> | null {
@@ -939,6 +957,8 @@ export default function App() {
         panelExpanded: s.panelExpanded === true,
         pulseMeterUnlinked: { ...(s.pulseMeterUnlinked || {}) },
         frozenScale: typeof s.frozenScale === 'number' && s.frozenScale >= 1 ? s.frozenScale : null,
+        polyMode: s.polyMode === true,
+        polyVoices: parsePolyVoices(s.polyVoices),
         onlyAccents: s.onlyAccents === true,
         firstBeatAccent: s.firstBeatAccent !== false,
         syllableReadMuteMode: normalizeSyllableReadMuteModeFromSnapshot(
@@ -1037,6 +1057,24 @@ export default function App() {
 
   const potatoAutoFreezeArmedRef = useRef(true);
   const prevLowPerfModeRef = useRef(lowPerfMode);
+  const normalizeBarsForMode = useCallback((raw: number) => {
+    const rounded = Math.round(raw);
+    const clamped = Math.max(1, Math.min(100, rounded));
+    if (!polyModeRef.current) return clamped;
+    const voices = polyVoicesRef.current;
+    const minBars = voices;
+    const constrained = Math.max(minBars, clamped);
+    const down = Math.floor(constrained / voices) * voices;
+    const up = Math.ceil(constrained / voices) * voices;
+    let snapped = down;
+    if (down < minBars) snapped = up;
+    else if (up <= 100 && Math.abs(up - constrained) < Math.abs(constrained - down)) snapped = up;
+    if (snapped > 100) {
+      snapped = 100 - (100 % voices);
+      if (snapped < minBars) snapped = minBars;
+    }
+    return snapped;
+  }, []);
   useEffect(() => {
     const prev = prevLowPerfModeRef.current;
     prevLowPerfModeRef.current = lowPerfMode;
@@ -1049,21 +1087,22 @@ export default function App() {
 
   const applyBarsWithPotatoFreeze = useCallback(
     (next: number) => {
+      const normalizedNext = normalizeBarsForMode(next);
       const prevBars = barsRef.current;
-      setBars(next);
-      barsRef.current = next;
+      setBars(normalizedNext);
+      barsRef.current = normalizedNext;
       if (!lowPerfMode) return;
-      if (next <= 5) {
+      if (normalizedNext <= 5) {
         potatoAutoFreezeArmedRef.current = true;
         setFrozenScale(null);
         return;
       }
-      const crossedUpFromLow = prevBars <= 5 && next >= 6;
+      const crossedUpFromLow = prevBars <= 5 && normalizedNext >= 6;
       if (potatoAutoFreezeArmedRef.current && crossedUpFromLow) {
-        setFrozenScale(next);
+        setFrozenScale(normalizedNext);
       }
     },
-    [lowPerfMode],
+    [lowPerfMode, normalizeBarsForMode],
   );
 
   /** Long-press по клетке такта (поддоли). */
@@ -1173,6 +1212,7 @@ export default function App() {
   const timerIDRef = useRef<number | null>(null);
   const playheadQueueRef = useRef<PlayheadHighlightEvent[]>([]);
   const playheadTimerRef = useRef<number | null>(null);
+  const polyClickSlotsRef = useRef<Set<number>>(new Set());
   const sequencerGridRowActionsRef = useRef<SequencerGridRowActions | null>(null);
   const nextNoteTimeRef = useRef(0);
   const currentStepRef = useRef(0);
@@ -1229,6 +1269,13 @@ export default function App() {
   useEffect(() => { frozenScaleRef.current = frozenScale; }, [frozenScale]);
   useEffect(() => { polyModeRef.current = polyMode; }, [polyMode]);
   useEffect(() => { polyVoicesRef.current = polyVoices; }, [polyVoices]);
+  useEffect(() => {
+    if (!polyMode) return;
+    const normalized = normalizeBarsForMode(barsRef.current);
+    if (normalized !== barsRef.current) {
+      applyBarsWithPotatoFreeze(normalized);
+    }
+  }, [polyMode, polyVoices, normalizeBarsForMode, applyBarsWithPotatoFreeze]);
 
   const clampTempo = useCallback((n: number) => Math.min(400, Math.max(20, Math.round(n))), []);
 
@@ -1295,6 +1342,8 @@ export default function App() {
     panelExpanded: isPanelExpandedRef.current,
     pulseMeterUnlinked: { ...pulseMeterUnlinkedRef.current },
     frozenScale: frozenScaleRef.current,
+    polyMode: polyModeRef.current,
+    polyVoices: polyVoicesRef.current,
     onlyAccents: onlyAccentsRef.current,
     firstBeatAccent: firstBeatAccentRef.current,
     syllableReadMuteMode: syllableReadMuteModeRef.current,
@@ -1525,6 +1574,8 @@ export default function App() {
       panelExpanded: raw.panelExpanded,
       pulseMeterUnlinked: raw.pulseMeterUnlinked,
       frozenScale: raw.frozenScale,
+      polyMode: raw.polyMode,
+      polyVoices: raw.polyVoices,
       onlyAccents: raw.onlyAccents,
       firstBeatAccent: raw.firstBeatAccent,
       syllableReadMuteMode: raw.syllableReadMuteMode,
@@ -1594,6 +1645,8 @@ export default function App() {
           panelExpanded: isPanelExpanded,
           pulseMeterUnlinked: { ...pulseMeterUnlinked },
           frozenScale,
+          polyMode,
+          polyVoices,
           onlyAccents,
           firstBeatAccent,
           syllableReadMuteMode,
@@ -1618,6 +1671,8 @@ export default function App() {
     clickSound,
     isPanelExpanded,
     frozenScale,
+    polyMode,
+    polyVoices,
     onlyAccents,
     firstBeatAccent,
     syllableReadMuteMode,
@@ -1706,6 +1761,8 @@ export default function App() {
     setFrozenScale(
       typeof snap.frozenScale === 'number' && snap.frozenScale >= 1 ? snap.frozenScale : null,
     );
+    setPolyMode(snap.polyMode === true);
+    setPolyVoices(parsePolyVoices(snap.polyVoices));
     if (!options?.preservePanel) {
       setIsPanelExpanded(snap.panelExpanded === true);
     }
@@ -1730,6 +1787,8 @@ export default function App() {
     panelExpanded: s.panelExpanded === true,
     pulseMeterUnlinked: { ...(s.pulseMeterUnlinked || {}) },
     frozenScale: typeof s.frozenScale === 'number' && s.frozenScale >= 1 ? s.frozenScale : null,
+    polyMode: s.polyMode === true,
+    polyVoices: parsePolyVoices(s.polyVoices),
     onlyAccents: s.onlyAccents === true,
     firstBeatAccent: s.firstBeatAccent !== false,
     syllableReadMuteMode: normalizeSyllableReadMuteModeFromSnapshot(s.syllableReadMuteMode, undefined),
@@ -2165,11 +2224,20 @@ export default function App() {
       const muteMode = syllableReadMuteModeRef.current;
       for (let sub = 0; sub < subdivs; sub++) {
         const subTime = time + sub * subDuration;
+        const polySlotKey = Math.round(subTime * 100000);
+        const shouldDedupPolyClick = polyModeRef.current && polyClickSlotsRef.current.has(polySlotKey);
         const isFirstOfBar = cIdx === 0 && sub === 0;
-        if (isFirstOfBar && firstBeatAccentRef.current) {
+        const shouldPlayFirstBeatTa =
+          isFirstOfBar &&
+          firstBeatAccentRef.current &&
+          (!polyModeRef.current || voice === 0);
+        if (shouldPlayFirstBeatTa) {
           playBarFirstHighClick(audioCtxRef.current, subTime, clickSoundRef.current);
         }
         const mainAccentClick = isAccent && sub === 0;
+        if (shouldDedupPolyClick) {
+          continue;
+        }
         if (muteMode === 'full') continue;
         const shouldPlayBeat = !onlyAccentsRef.current || isAccent;
         if (!shouldPlayBeat) continue;
@@ -2185,6 +2253,9 @@ export default function App() {
           clickSoundRef.current,
           onlyAccentsRef.current,
         );
+        if (polyModeRef.current) {
+          polyClickSlotsRef.current.add(polySlotKey);
+        }
       }
       insertPlayheadSorted(playheadQueueRef.current, {
         t: time,
@@ -2208,6 +2279,7 @@ export default function App() {
   const schedulePolyStep = useCallback((stepIdx: number, time: number) => {
     const chunks = polyChunksRef.current;
     if (chunks.length === 0) return 0.5;
+    polyClickSlotsRef.current.clear();
     const safeStep = ((stepIdx % chunks.length) + chunks.length) % chunks.length;
     const chunk = chunks[safeStep];
     if (!chunk || chunk.length === 0) return 0.5;
@@ -2252,6 +2324,7 @@ export default function App() {
       clearPlayheadScheduling();
       setActivePos({ r: -1, c: -1, absR: -1 });
       setActivePositions([]);
+      polyClickSlotsRef.current.clear();
       currentStepRef.current = 0; // Reset pattern position to start
       if (timerIDRef.current) clearTimeout(timerIDRef.current);
       if (squareHoldTimerRef.current !== null) {
@@ -2270,6 +2343,10 @@ export default function App() {
       setSyllableReadMuteMode('off');
       squareHoldAteClickRef.current = false;
       randomDiceHoldAteClickRef.current = false;
+      if (audioCtxRef.current) {
+        audioCtxRef.current.close().catch(() => {});
+        audioCtxRef.current = null;
+      }
     } else {
       setIsPanelExpanded(false);
       setShowRandomSettings(false);
