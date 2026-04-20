@@ -51,6 +51,9 @@ jobs:
           rm -rf pages-artifact
           mkdir -p pages-artifact/konnakol/trainer
           cp -R konnakol_trainer/dist/. pages-artifact/konnakol/trainer/
+          cp maja/index.html pages-artifact/index.html
+          cp -R maja/images pages-artifact/images
+          cp promo.html pages-artifact/promo.html
       
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
