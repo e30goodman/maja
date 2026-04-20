@@ -45,11 +45,17 @@ jobs:
       
       - name: Setup Pages
         uses: actions/configure-pages@v4
+
+      - name: Prepare Pages artifact structure
+        run: |
+          rm -rf pages-artifact
+          mkdir -p pages-artifact/konnakol/trainer
+          cp -R konnakol_trainer/dist/. pages-artifact/konnakol/trainer/
       
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './konnakol_trainer/dist'
+          path: './pages-artifact'
       
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v4
