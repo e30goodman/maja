@@ -216,6 +216,7 @@ function applyRandomizerEffectsToBar(
 
 const SNAPSHOT_SLOT_COUNT = 7;
 const SNAPSHOT_STORAGE_KEY = 'konnakolTrainerSnapshotsV1';
+const APP_COMMIT_VERSION = '23c95c6';
 /** Clipboard export: kawaii magic marker for compact preset payload. */
 const SNAPSHOT_CLIPBOARD_MARKER = '(⁠ʘ⁠ᴗ⁠ʘ⁠)⁠♪:';
 /** Accept marker with/without zero-width separators from messengers. */
@@ -2203,6 +2204,9 @@ export default function App() {
                   <div className="flex justify-between items-center text-slate-300 font-bold text-[11px] uppercase tracking-wider">
                     <span className="flex items-center gap-2 drop-shadow-[0_0_8px_rgba(59,130,246,0.5)] text-blue-300">
                       <Dices size={14} /> Randomizer
+                    </span>
+                    <span className="text-[10px] font-medium normal-case tracking-normal text-slate-500">
+                      {APP_COMMIT_VERSION}
                     </span>
                   </div>
                   
