@@ -240,7 +240,11 @@ const SNAPSHOT_STORAGE_KEY = 'konnakolTrainerSnapshotsV1';
 const LITE_UI_STORAGE_KEY = 'konnakol_lite_ui';
 const POLY_MODE_STORAGE_KEY = 'konnakol_poly_mode';
 const POLY_VOICES_STORAGE_KEY = 'konnakol_poly_voices';
-const APP_COMMIT_VERSION = '3d87bb9';
+const APP_COMMIT_VERSION = (() => {
+	const maybeCommit = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env
+		?.VITE_APP_COMMIT;
+	return typeof maybeCommit === 'string' && maybeCommit.length >= 7 ? maybeCommit.slice(0, 7) : '3d87bb9';
+})();
 const TEMPO_THROTTLE_MS = 56;
 /** Clipboard export: kawaii magic marker for compact preset payload. */
 const SNAPSHOT_CLIPBOARD_MARKER = '(⁠ʘ⁠ᴗ⁠ʘ⁠)⁠♪:';
@@ -480,6 +484,181 @@ function decodeSubdivisionsToken(token: string, cells: Array<{ key: string }>): 
 		out[cells[idx]!.key] = val;
 	}
 	return out;
+}
+
+function toBase64Url(bytes: Uint8Array): string {
+	let bin = '';
+	for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
+	return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function fromBase64Url(token: string): Uint8Array | null {
+	const b64 = token.replace(/-/g, '+').replace(/_/g, '/');
+	const pad = (4 - (b64.length % 4)) % 4;
+	const padded = b64 + '='.repeat(pad);
+	try {
+		const bin = atob(padded);
+		const out = new Uint8Array(bin.length);
+		for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 0xff;
+		return out;
+	} catch {
+		return null;
+	}
+}
+
+function pushU16(out: number[], value: number) {
+	out.push((value >> 8) & 0xff, value & 0xff);
+}
+
+function readU16(bytes: Uint8Array, offset: number): number | null {
+	if (offset + 1 >= bytes.length) return null;
+	return (bytes[offset]! << 8) | bytes[offset + 1]!;
+}
+
+function packGridTokenV1(
+	snapshot: ReturnType<typeof createEmptySnapshot>,
+	cells: Array<{ key: string }>,
+	accents: Set<string>,
+): string {
+	const out: number[] = [];
+	const bars = Math.max(1, Math.min(255, snapshot.bars));
+	const syllables = Math.max(1, Math.min(9, snapshot.syllables));
+	out.push(0x50, 0x01, bars, syllables); // P + version + grid shape
+
+	const rowEntries = Object.entries(snapshot.customSyllables)
+		.map(([k, v]) => [parseInt(k, 10), parseInt(String(v), 10)] as const)
+		.filter(([r, v]) => Number.isFinite(r) && r >= 0 && r < bars && Number.isFinite(v) && v >= 1 && v <= 9)
+		.sort((a, b) => a[0] - b[0]);
+	out.push(Math.min(255, rowEntries.length));
+	for (let i = 0; i < Math.min(255, rowEntries.length); i++) {
+		const [r, v] = rowEntries[i]!;
+		out.push(r & 0xff, v & 0xff);
+	}
+
+	pushU16(out, Math.min(65535, cells.length));
+	let accByte = 0;
+	let accBit = 0;
+	for (let i = 0; i < cells.length; i++) {
+		if (accents.has(cells[i]!.key)) accByte |= 1 << accBit;
+		accBit++;
+		if (accBit === 8) {
+			out.push(accByte);
+			accByte = 0;
+			accBit = 0;
+		}
+	}
+	if (accBit !== 0) out.push(accByte);
+
+	const subEntries: Array<[number, number]> = [];
+	for (let i = 0; i < cells.length; i++) {
+		const v = snapshot.customSubdivisions[cells[i]!.key];
+		if (typeof v === 'number' && v >= 2 && v <= 9) subEntries.push([i, v]);
+	}
+	pushU16(out, Math.min(65535, subEntries.length));
+	for (let i = 0; i < Math.min(65535, subEntries.length); i++) {
+		const [idx, v] = subEntries[i]!;
+		pushU16(out, idx);
+		out.push(v & 0xff);
+	}
+
+	const multEntries = Object.entries(snapshot.customMultipliers)
+		.map(([k, v]) => [parseInt(k, 10), parseInt(String(v), 10)] as const)
+		.filter(([r, v]) => Number.isFinite(r) && r >= 0 && r < bars && Number.isFinite(v) && v >= 2 && v <= 4)
+		.sort((a, b) => a[0] - b[0]);
+	out.push(Math.min(255, multEntries.length));
+	for (let i = 0; i < Math.min(255, multEntries.length); i++) {
+		const [r, v] = multEntries[i]!;
+		out.push(r & 0xff, v & 0xff);
+	}
+
+	const pulseRows = Object.entries(snapshot.pulseMeterUnlinked || {})
+		.map(([k, v]) => [parseInt(k, 10), Boolean(v)] as const)
+		.filter(([r, v]) => Number.isFinite(r) && r >= 0 && r < bars && v)
+		.map(([r]) => r)
+		.sort((a, b) => a - b);
+	out.push(Math.min(255, pulseRows.length));
+	for (let i = 0; i < Math.min(255, pulseRows.length); i++) out.push(pulseRows[i]! & 0xff);
+
+	return `p1${toBase64Url(new Uint8Array(out))}`;
+}
+
+function unpackGridTokenV1(
+	token: string,
+	d: ReturnType<typeof createEmptySnapshot>,
+): boolean {
+	if (!token.startsWith('p1')) return false;
+	const bytes = fromBase64Url(token.slice(2));
+	if (!bytes || bytes.length < 6) return false;
+	let off = 0;
+	const magic = bytes[off++]!;
+	const version = bytes[off++]!;
+	if (magic !== 0x50 || version !== 0x01) return false;
+	const bars = bytes[off++]!;
+	const syllables = bytes[off++]!;
+	if (bars < 1 || bars > 100 || syllables < 1 || syllables > 9) return false;
+	d.bars = bars;
+	d.syllables = syllables;
+
+	const rowCount = bytes[off++]!;
+	const nextCustomSyllables: Record<number, number> = {};
+	for (let i = 0; i < rowCount; i++) {
+		if (off + 1 >= bytes.length) return false;
+		const r = bytes[off++]!;
+		const v = bytes[off++]!;
+		if (r < bars && v >= 1 && v <= 9) nextCustomSyllables[r] = v;
+	}
+	d.customSyllables = nextCustomSyllables;
+
+	const cellCount = readU16(bytes, off);
+	if (cellCount === null) return false;
+	off += 2;
+	const cells = buildCellIndexMapForSnapshot(d.bars, d.syllables, d.customSyllables);
+	const cappedCellCount = Math.min(cellCount, cells.length);
+	const accBytesLen = Math.ceil(cappedCellCount / 8);
+	if (off + accBytesLen > bytes.length) return false;
+	const nextAccents = new Set<string>();
+	for (let i = 0; i < cappedCellCount; i++) {
+		const byte = bytes[off + (i >> 3)]!;
+		if (((byte >> (i & 7)) & 1) === 1) nextAccents.add(cells[i]!.key);
+	}
+	off += accBytesLen;
+	d.accents = nextAccents;
+
+	const subCount = readU16(bytes, off);
+	if (subCount === null) return false;
+	off += 2;
+	const nextSub: Record<string, number> = {};
+	for (let i = 0; i < subCount; i++) {
+		const idx = readU16(bytes, off);
+		if (idx === null) return false;
+		off += 2;
+		if (off >= bytes.length) return false;
+		const v = bytes[off++]!;
+		if (idx < cells.length && v >= 2 && v <= 9) nextSub[cells[idx]!.key] = v;
+	}
+	d.customSubdivisions = nextSub;
+
+	if (off >= bytes.length) return false;
+	const multCount = bytes[off++]!;
+	const nextMult: Record<number, number> = {};
+	for (let i = 0; i < multCount; i++) {
+		if (off + 1 >= bytes.length) return false;
+		const r = bytes[off++]!;
+		const v = bytes[off++]!;
+		if (r < bars && v >= 2 && v <= 4) nextMult[r] = v;
+	}
+	d.customMultipliers = nextMult;
+
+	if (off >= bytes.length) return false;
+	const pulseCount = bytes[off++]!;
+	const nextPulse: Record<number, boolean> = {};
+	for (let i = 0; i < pulseCount; i++) {
+		if (off >= bytes.length) return false;
+		const r = bytes[off++]!;
+		if (r < bars) nextPulse[r] = true;
+	}
+	d.pulseMeterUnlinked = nextPulse;
+	return true;
 }
 
 function buildSnapshotFlags(s: ReturnType<typeof createEmptySnapshot>): number {
@@ -725,16 +904,8 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 
 function encodeSnapshotClipboard(s: ReturnType<typeof createEmptySnapshot>): string {
 	const accents = s.accents instanceof Set ? s.accents : new Set(Array.isArray(s.accents) ? s.accents : []);
-	const rowSyllablesToken = encodeSparseRowNumberMap(s.customSyllables, (value) => value >= 1 && value <= 9);
 	const cells = buildCellIndexMapForSnapshot(s.bars, s.syllables, s.customSyllables);
-	const accentToken = buildAccentTokenForVariableGrid(accents, cells);
-	const subdivisionsToken = encodeSubdivisionsToken(s.customSubdivisions, cells);
-	const multipliersToken = encodeSparseRowNumberMap(
-		s.customMultipliers,
-		(value) => value >= 1 && value <= 4 && value !== 1,
-	);
-	const pulseUnlinkedToken = encodePulseUnlinkedRowsToken(s.pulseMeterUnlinked || {});
-	const gridToken = [accentToken, rowSyllablesToken, subdivisionsToken, multipliersToken, pulseUnlinkedToken].join('|');
+	const gridToken = packGridTokenV1(s, cells, accents);
 	const flags = buildSnapshotFlags(s);
 	const soundId = buildSnapshotSoundId(s);
 	const compact = `${s.tempo}.${s.bars}.${s.syllables}.${gridToken}.${s.chaosLevel}.${flags}.${soundId}`;
@@ -818,7 +989,9 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 			d.chaosLevel = chaosLevel;
 			applySnapshotFlags(flags, d);
 			applySnapshotSoundId(soundId, d);
-			if (gridTokenRaw.includes('|')) {
+			if (gridTokenRaw.startsWith('p1')) {
+				if (!unpackGridTokenV1(gridTokenRaw, d)) return null;
+			} else if (gridTokenRaw.includes('|')) {
 				const [accentToken, rowSyllablesToken, subdivisionsToken, multipliersToken, pulseUnlinkedToken] =
 					gridTokenRaw.split('|');
 				d.customSyllables = decodeSparseRowNumberMap(

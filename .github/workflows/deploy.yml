@@ -41,6 +41,7 @@ jobs:
         working-directory: ./konnakol_trainer
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          VITE_APP_COMMIT: ${{ github.sha }}
         run: npm run build
       
       - name: Setup Pages
