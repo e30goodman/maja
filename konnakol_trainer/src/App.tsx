@@ -4014,6 +4014,7 @@ export default function App() {
               <div className="flex items-center w-12 justify-between pr-1 shrink-0">
                 <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold">Bars</span>
                 <button 
+                  type="button"
                   onClick={() => {
                     setFrozenScale((prev) => {
                       const next = prev !== null ? null : bars;
@@ -4029,7 +4030,7 @@ export default function App() {
                       ? `bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/50 ${lowPerfMode ? '' : 'shadow-[0_0_8px_rgba(59,130,246,0.3)]'}` 
                       : 'bg-[#1e2a45]/40 text-slate-400 hover:text-slate-200 hover:bg-[#1e2a45] ring-1 ring-[#2f4066]/30'
                   }`}
-                  title={frozenScale !== null ? "Unfreeze row height" : "Freeze current row height"}
+                  aria-label={frozenScale !== null ? 'Снять фиксацию высоты строк' : 'Зафиксировать масштаб строк'}
                 >
                   <Snowflake size={12} />
                 </button>
