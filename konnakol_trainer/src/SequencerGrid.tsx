@@ -457,35 +457,16 @@ const SequencerGridRow = React.memo(
 									if (!a) return;
 									const btn = e.currentTarget as HTMLButtonElement;
 									btn.setPointerCapture(e.pointerId);
-									const rect = btn.getBoundingClientRect();
 									if (isDead) {
 										if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
-										a.deadSwipeSessionRef.current = {
-											row: rIdx,
-											startCell: cIdx,
-											triggered: false,
-											fromCenter: true,
-											restoreMode: true,
-										startX: e.clientX,
-										startY: e.clientY,
-											rect: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
-										};
+										a.deadSwipeSessionRef.current = null;
 										a.holdTimerRef.current = window.setTimeout(() => {
 											a.isHoldingRef.current = true;
 											a.restoreDeadRow(rIdx);
 										}, 360);
 										return;
 									}
-									a.deadSwipeSessionRef.current = {
-										row: rIdx,
-										startCell: cIdx,
-										triggered: false,
-										fromCenter: true,
-										restoreMode: false,
-										startX: e.clientX,
-										startY: e.clientY,
-										rect: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
-									};
+									a.deadSwipeSessionRef.current = null;
 									if (isDeadCellsEditorMode) {
 										a.isHoldingRef.current = false;
 										if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
@@ -506,29 +487,6 @@ const SequencerGridRow = React.memo(
 											a.setIsPanelExpanded(true);
 										}
 									}, 400);
-								}}
-								onPointerMove={(e) => {
-									const a = actionsRef.current;
-									if (!a) return;
-									const s = a.deadSwipeSessionRef.current;
-									if (!s || s.triggered || s.row !== rIdx || s.startCell !== cIdx || !s.fromCenter) return;
-									const inside =
-										e.clientX >= s.rect.left &&
-										e.clientX <= s.rect.right &&
-										e.clientY >= s.rect.top &&
-										e.clientY <= s.rect.bottom;
-									const dx = e.clientX - s.startX;
-									const dy = Math.abs(e.clientY - s.startY);
-									// Touch-friendly: срабатываем либо по выходу из клетки, либо по мягкому свайпу вправо.
-									const SOFT_SWIPE_X = 12;
-									const SOFT_SWIPE_Y = 22;
-									const softRightSwipe = dx >= SOFT_SWIPE_X && dy <= SOFT_SWIPE_Y;
-									if (inside && !softRightSwipe) return;
-									s.triggered = true;
-									a.isHoldingRef.current = true;
-									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
-									if (s.restoreMode) a.restoreDeadRow(rIdx);
-									else a.triggerDeadCut(rIdx, cIdx);
 								}}
 								onPointerUp={(e) => {
 									const a = actionsRef.current;
