@@ -333,6 +333,8 @@ const SNAPSHOT_CLIPBOARD_PREFIX_LEGACY_COMPACT = 'METRONOME_CONFIG:';
 /** Legacy prefix with raw JSON after colon — still accepted when pasting. */
 const SNAPSHOT_CLIPBOARD_PREFIX_LEGACY = 'konnakolTrainerSnapshotV1:';
 /** Hold snapshot slot to open Copy / Paste menu. */
+const SNAPSHOT_SLOT_HOLD_MS = 300;
+/** Long-press Ta / ластик dead-editor / прочие UI-таймеры (~0,5 с). */
 const SNAPSHOT_MENU_HOLD_MS = 520;
 /** Удерживание кнопки «кости»: префилл всех тактов по активным фичам Randomizer. */
 const RANDOM_DICE_PREFILL_HOLD_MS = SNAPSHOT_MENU_HOLD_MS;
@@ -3838,7 +3840,7 @@ export default function App() {
                                 if (s == null) return;
                                 snapshotHoldAteClickRef.current = true;
                                 openSnapshotClipMenu(s);
-                              }, SNAPSHOT_MENU_HOLD_MS);
+                              }, SNAPSHOT_SLOT_HOLD_MS);
                             }}
                             onPointerUp={() => {
                               if (snapshotHoldTimerRef.current !== null) {
