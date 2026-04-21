@@ -290,7 +290,9 @@ function applyRandomizerEffectsToBar(
 			const tail = Math.max(0, Math.min(1, (chaos - 70) / 30));
 			// Экспоненциальная кривая 0..1 с быстрым ростом ближе к 100.
 			const exp01 = Math.expm1(3 * tail) / Math.expm1(3);
-			return Math.max(flatCap, Math.min(maxDeadPossible, Math.round(flatCap + exp01 * (maxDeadPossible - flatCap))));
+			// На 100% chaos цель: ~80% мертвых клеток в такте (с учетом дискретности длины).
+			const deadAt100 = Math.min(maxDeadPossible, Math.max(flatCap, Math.floor(curSyl * 0.8)));
+			return Math.max(flatCap, Math.min(deadAt100, Math.round(flatCap + exp01 * (deadAt100 - flatCap))));
 		})();
 		const baseDead = Math.max(0, curSyl - baseActive);
 		const deadCount = Math.min(baseDead, maxDeadForChaos);
