@@ -1745,6 +1745,11 @@ export default function App() {
     if (prev === lowPerfMode) return;
     potatoAutoFreezeArmedRef.current = true;
     if (!lowPerfMode) return;
+    /* Poly: не навязываем freeze по числу тактов — только кнопка-снежинка. */
+    if (polyModeRef.current) {
+      if (bars < 6) setFrozenScale(null);
+      return;
+    }
     if (bars >= 6) setFrozenScale(bars);
     else setFrozenScale(null);
   }, [lowPerfMode, bars]);
@@ -1761,6 +1766,8 @@ export default function App() {
         setFrozenScale(null);
         return;
       }
+      /* Poly: без авто-freeze при росте тактов (иначе «липнет» масштаб как при freeze). */
+      if (polyModeRef.current) return;
       const crossedUpFromLow = prevBars <= 5 && normalizedNext >= 6;
       if (potatoAutoFreezeArmedRef.current && crossedUpFromLow) {
         setFrozenScale(normalizedNext);
@@ -2022,6 +2029,8 @@ export default function App() {
       const next = clampTempo(raw);
       setTempoUi(next);
       pendingTempoRef.current = next;
+      /* Аудио читает tempoRef до рендера: иначе слайдер впереди слышимого темпа (полиритм — целый chunk). */
+      tempoRef.current = next;
       if (tempoThrottleTimerRef.current !== null) return;
       tempoThrottleTimerRef.current = window.setTimeout(() => {
         tempoThrottleTimerRef.current = null;
@@ -3147,26 +3156,29 @@ export default function App() {
           continue;
         }
         if (muteMode === 'full') continue;
+        const playbackMode = squarePlaybackModeRef.current;
         const isTaDingCell = cIdx >= 1 && taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
+        /** passive_only: сетка замьючена; слышен только глобальный Ta (shouldPlayFirstBeatTa выше), не ding-редактор. */
         const shouldPlayTaDingSound =
-          sub === 0 && isTaDingCell && (!polyModeRef.current || voice === 0);
+          playbackMode !== 'passive_only' &&
+          sub === 0 &&
+          isTaDingCell &&
+          (!polyModeRef.current || voice === 0);
         if (shouldPlayTaDingSound) {
           playBarFirstHighClick(audioCtxRef.current, subTime, clickSoundRef.current);
         }
         const hasTaDingHere = taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
-        const playbackMode = squarePlaybackModeRef.current;
         const dictantActive = dictantModeRef.current;
         const shouldPlayBeat =
           playbackMode === 'all_beats'
             ? (dictantActive ? isAccent || hasTaDingHere : true)
             : playbackMode === 'accent_only'
               ? isAccent || hasTaDingHere
-              : true;
+              : false;
         if (!shouldPlayBeat) continue;
         const isTaFirstBeatArticulation =
           cIdx === 0 && sub === 0 && firstBeatAccentRef.current && firstBeatCellHitRow;
         const sharpAsChecked = (() => {
-          if (playbackMode === 'passive_only') return false;
           if (dictantActive) return mainAccentClick;
           if (muteMode === 'no_accent_sharp' && mainAccentClick && !isTaFirstBeatArticulation) return false;
           return mainAccentClick;
@@ -3322,7 +3334,7 @@ export default function App() {
   };
 
   /* Синхронизация refs с render до pointerup flush (до useEffect по deps). */
-  tempoRef.current = tempo;
+  tempoRef.current = pendingTempoRef.current ?? tempo;
   barsRef.current = bars;
   syllablesRef.current = syllables;
   accentsRef.current = accents;
@@ -3400,6 +3412,31 @@ export default function App() {
     customSyllablesRef,
     pulseMeterUnlinkedRef,
   };
+
+  /** Квадрат: заливка/бордер по циклу all / accent / Ta-only; при диктанте — +teal ring (не затирать режим). */
+  const squarePlaybackButtonSurface =
+    syllableReadMuteMode !== 'off'
+      ? syllableReadMuteMode === 'full'
+        ? `border border-amber-400/90 ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(251,191,36,0.28)]'} text-amber-100`
+        : `border border-purple-400 ${lowPerfMode ? '' : 'shadow-[0_0_15px_rgba(192,132,252,0.4)]'} text-purple-200`
+      : squarePlaybackMode === 'accent_only'
+        ? `border border-purple-500/40 bg-purple-700/30 hover:bg-purple-700/40 active:bg-purple-700/20 text-purple-200`
+        : squarePlaybackMode === 'passive_only'
+          ? `border border-cyan-500/50 bg-cyan-700/25 hover:bg-cyan-700/35 active:bg-cyan-700/15 text-cyan-200`
+          : `border border-[#23314f] hover:bg-[#1a253c] active:bg-[#131b2c] text-slate-400 hover:text-slate-200`;
+  const squareDictantChrome = dictantMode
+    ? ` ring-2 ring-inset ring-teal-400/85${lowPerfMode ? '' : ' shadow-[0_0_14px_rgba(45,212,191,0.22)]'}`
+    : '';
+  const squarePlaybackModeLabel =
+    syllableReadMuteMode === 'full'
+      ? 'тишина по сетке (пресет)'
+      : syllableReadMuteMode === 'no_accent_sharp'
+        ? 'акценты со звуком пассивных (пресет)'
+        : squarePlaybackMode === 'accent_only'
+          ? 'только выделенные доли'
+          : squarePlaybackMode === 'passive_only'
+            ? 'только звук Ta'
+            : 'все доли';
 
   return (
     <div className="min-h-screen bg-[#0b101e] sm:bg-black/95 text-slate-200 p-0 sm:p-6 font-sans flex flex-col items-center justify-center">
@@ -4147,11 +4184,11 @@ export default function App() {
             <span className="font-bold text-[22px] tracking-wide">Ta</span>
           </button>
 
-          {/* All beats vs accent-only (square); долгое нажатие — режим диктант (бегунок только на 1-й доле; пассивные замьючены). */}
+          {/* All beats vs accent-only vs Ta-only grid mute (square); долгое нажатие — диктант. */}
           <button
             type="button"
             disabled={isDeadCellsEditorMode}
-            title="Коротко: цикл режимов все/акценты/пассивные. Удерживай ~0,4 с: диктант (бегунок только на первом слоге такта; пассивные щелчки выкл.). Повторное удержание — выход из диктанта."
+            title="Коротко: цикл все доли / только акценты / только звук Ta (остальная сетка без щелчков). Удерживай ~0,4 с: диктант (бегунок только на первом слоге такта; пассивные щелчки выкл.). Повторное удержание — выход из диктанта."
             onPointerDown={() => {
               if (isDeadCellsEditorMode) return;
               squareHoldAteClickRef.current = false;
@@ -4198,29 +4235,19 @@ export default function App() {
             className={`flex-1 rounded-xl flex justify-center items-center transition-all touch-none select-none relative bg-[#161f33] ${
               isDeadCellsEditorMode
                 ? 'border border-[#23314f] text-slate-600 opacity-45 cursor-not-allowed'
-                : dictantMode
-                ? `border border-teal-400/90 ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(45,212,191,0.28)]'} text-teal-100`
-                : syllableReadMuteMode !== 'off'
-                  ? syllableReadMuteMode === 'full'
-                    ? `border border-amber-400/90 ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(251,191,36,0.28)]'} text-amber-100`
-                    : `border border-purple-400 ${lowPerfMode ? '' : 'shadow-[0_0_15px_rgba(192,132,252,0.4)]'} text-purple-200`
-                  : squarePlaybackMode === 'accent_only'
-                    ? 'border border-purple-500/40 bg-purple-700/30 hover:bg-purple-700/40 active:bg-purple-700/20 text-purple-200'
-                    : squarePlaybackMode === 'passive_only'
-                      ? 'border border-cyan-500/50 bg-cyan-700/25 hover:bg-cyan-700/35 active:bg-cyan-700/15 text-cyan-200'
-                      : 'border border-[#23314f] hover:bg-[#1a253c] active:bg-[#131b2c] text-slate-400 hover:text-slate-200'
+                : `${squarePlaybackButtonSurface}${squareDictantChrome}`
             }`}
             aria-label={
               dictantMode
-                ? 'Режим диктант: бегунок только на первом слоге такта, пассивные щелчки выключены. Долгое удержание — выключить диктант'
+                ? `Диктант: бегунок только на первом слоге такта, пассивные щелчки выключены. Сейчас: ${squarePlaybackModeLabel}. Короткое нажатие — цикл режима воспроизведения. Долгое удержание — выключить диктант`
                 : syllableReadMuteMode === 'full'
                   ? 'Тишина по щелчкам сетки (из пресета). Короткое: цикл все/акценты/пассивные'
                   : syllableReadMuteMode === 'no_accent_sharp'
                     ? 'Акценты со звуком пассивных (из пресета). Короткое: цикл все/акценты/пассивные'
                     : squarePlaybackMode === 'accent_only'
-                      ? 'Только выделенные доли. Короткое: перейти к режиму только пассивных'
+                      ? 'Только выделенные доли. Короткое: перейти к режиму только Ta'
                       : squarePlaybackMode === 'passive_only'
-                        ? 'Только пассивные доли (фиолет слышно не будет). Короткое: перейти к режиму все доли'
+                        ? 'Только звук кнопки Ta (первая доля такта), сетка без щелчков. Короткое: перейти к режиму все доли'
                         : 'Все доли. Короткое: перейти к режиму только акцентов'
             }
           >
