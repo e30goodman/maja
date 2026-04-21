@@ -19,7 +19,9 @@ type PlayheadHighlightEvent = { t: number; pos: PlayheadPosition };
 
 function buildPolyChunks(barCount: number, voiceCount: number): number[][] {
 	const safeBars = Math.max(0, Math.floor(barCount));
-	const safeVoices = voiceCount === 3 || voiceCount === 4 ? voiceCount : 2;
+	// const safeVoices = voiceCount === 3 || voiceCount === 4 ? voiceCount : 2;
+	// 4-voice polyrythm temporarily disabled.
+	const safeVoices = voiceCount === 3 ? voiceCount : 2;
 	const chunks: number[][] = [];
 	for (let i = 0; i < safeBars; i += safeVoices) {
 		const chunk: number[] = [];
@@ -123,7 +125,9 @@ function pickRandomCellSpeedSubdiv(): number {
 
 function parsePolyVoices(raw: unknown): 2 | 3 | 4 {
 	const n = parseInt(String(raw), 10);
-	return n === 3 || n === 4 ? n : 2;
+	// return n === 3 || n === 4 ? n : 2;
+	// 4-voice polyrythm temporarily disabled.
+	return n === 3 ? n : 2;
 }
 
 /**
@@ -697,7 +701,7 @@ function buildSnapshotFlags(s: ReturnType<typeof createEmptySnapshot>): number {
 	if (s.firstBeatAccent) flags |= SNAPSHOT_FLAG_FIRST_BEAT_ACCENT;
 	if (s.polyMode) flags |= SNAPSHOT_FLAG_POLY_MODE;
 	if (s.polyVoices === 3) flags |= SNAPSHOT_FLAG_POLY_VOICES_3;
-	if (s.polyVoices === 4) flags |= SNAPSHOT_FLAG_POLY_VOICES_4;
+	// if (s.polyVoices === 4) flags |= SNAPSHOT_FLAG_POLY_VOICES_4; // 4-voice polyrythm temporarily disabled
 	return flags;
 }
 
@@ -711,11 +715,13 @@ function applySnapshotFlags(flags: number, d: ReturnType<typeof createEmptySnaps
 	d.onlyAccents = Boolean(flags & SNAPSHOT_FLAG_ONLY_ACCENTS);
 	d.firstBeatAccent = Boolean(flags & SNAPSHOT_FLAG_FIRST_BEAT_ACCENT);
 	d.polyMode = Boolean(flags & SNAPSHOT_FLAG_POLY_MODE);
-	d.polyVoices = (flags & SNAPSHOT_FLAG_POLY_VOICES_4)
-		? 4
-		: (flags & SNAPSHOT_FLAG_POLY_VOICES_3)
-			? 3
-			: 2;
+	// d.polyVoices = (flags & SNAPSHOT_FLAG_POLY_VOICES_4)
+	// 	? 4
+	// 	: (flags & SNAPSHOT_FLAG_POLY_VOICES_3)
+	// 		? 3
+	// 		: 2;
+	// 4-voice polyrythm temporarily disabled.
+	d.polyVoices = (flags & SNAPSHOT_FLAG_POLY_VOICES_3) ? 3 : 2;
 }
 
 function buildSnapshotSoundId(s: ReturnType<typeof createEmptySnapshot>): number {
@@ -3318,7 +3324,8 @@ export default function App() {
                     </div>
                     {polyMode ? (
                       <div className="grid grid-cols-3 gap-2">
-                        {[2, 3, 4].map((voices) => (
+                        {/* {[2, 3, 4].map((voices) => ( */}
+                        {[2, 3].map((voices) => (
                           <button
                             key={voices}
                             type="button"
@@ -3332,6 +3339,7 @@ export default function App() {
                             {voices} pulses
                           </button>
                         ))}
+                        {/* ))} */}
                       </div>
                     ) : null}
                   </div>
