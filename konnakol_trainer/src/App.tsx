@@ -244,22 +244,48 @@ function applyRandomizerEffectsToBar(
 	if (randomBarSpeed) {
 		// Dead Cells random:
 		// 1) базовая плотность как у accents (через pickAccentCountForBar),
-		// 2) до 70 chaos ограничиваем максимум 2 dead-клетками,
+		// 2) до 50 chaos используем мягкое распределение: в основном 0, реже 1, очень редко 2,
 		// 3) с 70+ chaos лимит dead-клеток растет по экспоненте,
 		// 4) шанс полного отсутствия dead-cells:
 		//    chaos < 50  -> 70%
 		//    50..69      -> 30%
 		const baseActive = Math.max(1, Math.min(curSyl, pickAccentCountForBar(chaos, curSyl)));
-		const noDeadChance = chaos < 50 ? 0.7 : chaos < 70 ? 0.3 : 0;
+		const maxDeadPossible = Math.max(0, curSyl - 1); // минимум одна активная клетка должна остаться.
+		if (maxDeadPossible <= 0) {
+			delete m.deadCells[prevBar];
+			didChange = true;
+			return didChange;
+		}
+		const flatCap = Math.min(2, maxDeadPossible);
+		if (chaos < 50) {
+			const t = Math.max(0, Math.min(1, chaos / 50));
+			// На низком хаосе: 0 доминирует; 1 встречается редко; 2 — очень редко.
+			const p0 = 0.9 - 0.2 * t; // 90% -> 70%
+			const p1 = 0.09 + 0.16 * t; // 9% -> 25%
+			const p2 = 1 - p0 - p1; // 1% -> 5%
+			const roll = Math.random();
+			const deadCountSoft = roll < p0 ? 0 : roll < p0 + p1 ? 1 : 2;
+			const deadCount = Math.min(deadCountSoft, flatCap);
+			const activeCount = Math.max(1, curSyl - deadCount);
+			if (activeCount >= curSyl) {
+				delete m.deadCells[prevBar];
+			} else {
+				m.deadCells[prevBar] = {
+					deadStart: activeCount,
+					displayLen: curSyl,
+					baseLen: curSyl,
+				};
+			}
+			didChange = true;
+			return didChange;
+		}
+		const noDeadChance = chaos < 70 ? 0.3 : 0;
 		if (noDeadChance > 0 && Math.random() < noDeadChance) {
 			delete m.deadCells[prevBar];
 			didChange = true;
 			return didChange;
 		}
 		const maxDeadForChaos = (() => {
-			const maxDeadPossible = Math.max(0, curSyl - 1); // минимум одна активная клетка должна остаться.
-			if (maxDeadPossible <= 0) return 0;
-			const flatCap = Math.min(2, maxDeadPossible);
 			if (chaos < 70) return flatCap;
 			const tail = Math.max(0, Math.min(1, (chaos - 70) / 30));
 			// Экспоненциальная кривая 0..1 с быстрым ростом ближе к 100.
