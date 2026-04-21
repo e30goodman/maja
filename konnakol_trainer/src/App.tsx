@@ -4196,7 +4196,7 @@ export default function App() {
                 <button 
             type="button"
             disabled={isDeadCellsEditorMode}
-            title="Коротко: рандом при PLAY. Удерживай ~0,5 с: заполнить все такты (Pulsation / Accents / Cell / Bar Speed из настроек)."
+            aria-label="Randomizer"
             onPointerDown={() => {
               if (isDeadCellsEditorMode) return;
               randomDiceHoldAteClickRef.current = false;
@@ -4323,7 +4323,6 @@ export default function App() {
           <button
             type="button"
             disabled={isDeadCellsEditorMode}
-            title="Коротко: цикл все доли / только акценты / только звук Ta (остальная сетка без щелчков). Удерживай ~0,4 с: диктант (бегунок шага только на первом слоге такта; во «все доли» щелчки по всей сетке, в остальных режимах квадрата — как без диктанта). Повторное удержание — выход из диктанта."
             onPointerDown={() => {
               if (isDeadCellsEditorMode) return;
               squareHoldAteClickRef.current = false;
@@ -4374,16 +4373,12 @@ export default function App() {
             }`}
             aria-label={
               dictantMode
-                ? `Диктант: бегунок только на первом слоге такта; во «все доли» слышна вся сетка, в других режимах квадрата — фильтр как без диктанта. Сейчас: ${squarePlaybackModeLabel}. Короткое нажатие — цикл режима воспроизведения. Долгое удержание — выключить диктант`
+                ? `Диктант. Сейчас: ${squarePlaybackModeLabel}`
                 : syllableReadMuteMode === 'full'
-                  ? 'Тишина по щелчкам сетки (из пресета). Короткое: цикл все/акценты/пассивные'
+                  ? `Тишина по сетке. Сейчас: ${squarePlaybackModeLabel}`
                   : syllableReadMuteMode === 'no_accent_sharp'
-                    ? 'Акценты со звуком пассивных (из пресета). Короткое: цикл все/акценты/пассивные'
-                    : squarePlaybackMode === 'accent_only'
-                      ? 'Только выделенные доли. Короткое: перейти к режиму только Ta'
-                      : squarePlaybackMode === 'passive_only'
-                        ? 'Только звук кнопки Ta (первая доля такта), сетка без щелчков. Короткое: перейти к режиму все доли'
-                        : 'Все доли. Короткое: перейти к режиму только акцентов'
+                    ? `Акценты как пассивные. Сейчас: ${squarePlaybackModeLabel}`
+                    : `Режим сетки: ${squarePlaybackModeLabel}`
             }
           >
             <span
