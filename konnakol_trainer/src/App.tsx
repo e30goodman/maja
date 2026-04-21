@@ -2989,7 +2989,8 @@ export default function App() {
         if (shouldPlayFirstBeatTa) {
           playBarFirstHighClick(audioCtxRef.current, subTime, clickSoundRef.current);
         }
-        const mainAccentClick = isAccent && sub === 0;
+        // Для акцентной (фиолетовой) клетки с делением все поддоли должны звучать активным тембром.
+        const mainAccentClick = isAccent && (subdivs > 1 || sub === 0);
         if (shouldDedupPolyClick) {
           continue;
         }
