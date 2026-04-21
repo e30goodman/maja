@@ -184,6 +184,8 @@ type BarRandomizerMutable = {
 	customMultipliers: Record<number, number>;
 };
 
+type DeadCellsMap = Record<number, { deadStart: number; displayLen: number; baseLen: number }>;
+
 /** Одна итерация рандома на такт `prevBar` (как на границе такта в плеере). */
 function applyRandomizerEffectsToBar(
 	prevBar: number,
@@ -253,7 +255,7 @@ const POLY_MODE_STORAGE_KEY = 'konnakol_poly_mode';
 const POLY_VOICES_STORAGE_KEY = 'konnakol_poly_voices';
 const APP_COMMIT_VERSION = (() => {
 	if (typeof __GIT_SHA7__ === 'string' && __GIT_SHA7__.length >= 7) return __GIT_SHA7__.slice(0, 7);
-	return 'bd376fe';
+	return '0177b73';
 })();
 const TEMPO_THROTTLE_MS = 56;
 /** Clipboard export: kawaii magic marker for compact preset payload. */
@@ -806,6 +808,7 @@ function createEmptySnapshot() {
 		syllableReadMuteMode: 'off' as SyllableReadMuteMode,
 		/** Диктант: только первый слог такта с зелёным бегунком; пассивные щелчки выключены. */
 		dictantMode: false,
+		deadCells: {} as DeadCellsMap,
 		/** Звук 1 (Ta-динг): любые `r-c`, включая `r-0` (белая рамка в редакторе Ta без записи в `accents`). */
 		taDingKeys: new Set<string>(),
 	};
@@ -899,6 +902,27 @@ function parseSnapshotRow(raw: unknown) {
 	}
 	if (typeof o.polyMode === 'boolean') d.polyMode = o.polyMode;
 	d.polyVoices = parsePolyVoices(o.polyVoices);
+	const deadRaw = o.deadCells;
+	if (deadRaw && typeof deadRaw === 'object') {
+		const nextDead: DeadCellsMap = {};
+		for (const [rk, rv] of Object.entries(deadRaw as Record<string, unknown>)) {
+			const r = parseInt(rk, 10);
+			if (!Number.isFinite(r) || r < 0 || r >= d.bars) continue;
+			if (!rv || typeof rv !== 'object') continue;
+			const robj = rv as Record<string, unknown>;
+			const deadStart = parseInt(String(robj.deadStart), 10);
+			const displayLen = parseInt(String(robj.displayLen), 10);
+			const baseLen = parseInt(String(robj.baseLen), 10);
+			if (!Number.isFinite(deadStart) || !Number.isFinite(displayLen) || !Number.isFinite(baseLen)) continue;
+			if (deadStart < 1 || displayLen < 1 || baseLen < 1) continue;
+			nextDead[r] = {
+				deadStart: Math.min(deadStart, 9),
+				displayLen: Math.min(displayLen, 9),
+				baseLen: Math.min(baseLen, 9),
+			};
+		}
+		d.deadCells = nextDead;
+	}
 	const tdkIn = o.taDingKeys;
 	if (Array.isArray(tdkIn)) {
 		const next = new Set<string>();
@@ -941,6 +965,7 @@ function snapSlotLooksUsed(s: ReturnType<typeof createEmptySnapshot>) {
 	if (s.syllableReadMuteMode !== 'off') return true;
 	if ((s as { accentMapVersion?: number }).accentMapVersion === 1) return true;
 	if ((s as { dictantMode?: boolean }).dictantMode === true) return true;
+	if ((s as { deadCells?: DeadCellsMap }).deadCells && Object.keys((s as { deadCells?: DeadCellsMap }).deadCells || {}).length > 0) return true;
 	return false;
 }
 
@@ -975,6 +1000,7 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		taEditorMode: false,
 		syllableReadMuteMode: s.syllableReadMuteMode,
 		dictantMode: s.dictantMode === true,
+		deadCells: (s as { deadCells?: DeadCellsMap }).deadCells ?? {},
 		taDingKeys: [...s.taDingKeys],
 	};
 }
@@ -1352,6 +1378,7 @@ export default function App() {
   const playAbsBarRef = useRef(0);
   const [listOffset, setListOffset] = useState(0);
   const [customSyllables, setCustomSyllables] = useState<Record<number, number>>(() => ({ ...seed.customSyllables }));
+  const [deadCells, setDeadCells] = useState<DeadCellsMap>(() => ({ ...((seed as { deadCells?: DeadCellsMap }).deadCells || {}) }));
   const [customMultipliers, setCustomMultipliers] = useState<Record<number, number>>(() => ({ ...seed.customMultipliers }));
   const [customSubdivisions, setCustomSubdivisions] = useState<Record<string, number>>(() => ({ ...seed.customSubdivisions }));
   const [pulseMeterUnlinked, setPulseMeterUnlinked] = useState<Record<number, boolean>>(() =>
@@ -1427,6 +1454,7 @@ export default function App() {
         ...s,
         accents: new Set(s.accents),
         customSyllables: { ...s.customSyllables },
+        deadCells: { ...((s as { deadCells?: DeadCellsMap }).deadCells || {}) },
         customMultipliers: { ...s.customMultipliers },
         customSubdivisions: { ...s.customSubdivisions },
         panelExpanded: s.panelExpanded === true,
@@ -1670,6 +1698,8 @@ export default function App() {
     syllablesRef.current = PULSE_METER_BASE_SYLLABLES;
     setCustomSyllables({});
     customSyllablesRef.current = {};
+    setDeadCells({});
+    deadCellsRef.current = {};
     setCustomMultipliers({});
     customMultipliersRef.current = {};
     setCustomSubdivisions({});
@@ -1724,6 +1754,7 @@ export default function App() {
   const accentsRef = useRef<Set<string>>(accents);
   const taDingKeysRef = useRef<Set<string>>(taDingKeys);
   const customSyllablesRef = useRef(customSyllables);
+  const deadCellsRef = useRef<DeadCellsMap>(deadCells);
   const customMultipliersRef = useRef(customMultipliers);
   const customSubdivisionsRef = useRef(customSubdivisions);
   const pulseMeterUnlinkedRef = useRef(pulseMeterUnlinked);
@@ -1749,6 +1780,14 @@ export default function App() {
   const sliderWindowListenersAttachedRef = useRef(false);
   const onWindowPointerEndCaptureRef = useRef<() => void>(() => {});
   const flushLiveSnapshotToActiveSlotRef = useRef<() => void>(() => {});
+  const deadSwipeSessionRef = useRef<{
+    row: number;
+    startCell: number;
+    triggered: boolean;
+    fromCenter: boolean;
+    restoreMode: boolean;
+    rect: { left: number; right: number; top: number; bottom: number };
+  } | null>(null);
 
   useEffect(() => { barsRef.current = bars; }, [bars]);
   useEffect(() => { syllablesRef.current = syllables; }, [syllables]);
@@ -1761,6 +1800,7 @@ export default function App() {
     pulseMeterUnlinkedRef.current = { ...pulseMeterUnlinked };
   }, [pulseMeterUnlinked]);
   useEffect(() => { customSyllablesRef.current = { ...customSyllables }; }, [customSyllables]);
+  useEffect(() => { deadCellsRef.current = { ...deadCells }; }, [deadCells]);
   useEffect(() => {
     onlyAccentsRef.current = squarePlaybackMode === 'accent_only';
     squarePlaybackModeRef.current = squarePlaybackMode;
@@ -1873,6 +1913,7 @@ export default function App() {
     accentMapVersion: accentMapVersionRef.current,
     syllableReadMuteMode: syllableReadMuteModeRef.current,
     dictantMode: dictantModeRef.current,
+    deadCells: { ...deadCellsRef.current },
   });
 
   const prefillAllTactsRandomizer = useCallback(() => {
@@ -2130,6 +2171,7 @@ export default function App() {
       syllableReadMuteMode: raw.syllableReadMuteMode,
       syllableReadMuteLatched: raw.syllableReadMuteLatched,
       dictantMode: (raw as { dictantMode?: boolean }).dictantMode,
+      deadCells: (raw as { deadCells?: DeadCellsMap }).deadCells,
     });
   };
 
@@ -2158,12 +2200,14 @@ export default function App() {
     const seq = [];
     for (let r = 0; r < bars; r++) {
       const syls = customSyllables[r] !== undefined ? customSyllables[r] : syllables;
-      for (let c = 0; c < syls; c++) {
-        seq.push({ r, c, activeSyllables: syls });
+      const deadStart = deadCells[r]?.deadStart;
+      const playable = typeof deadStart === 'number' ? Math.max(1, Math.min(syls, deadStart)) : syls;
+      for (let c = 0; c < playable; c++) {
+        seq.push({ r, c, activeSyllables: playable });
       }
     }
     return seq;
-  }, [bars, syllables, customSyllables]);
+  }, [bars, syllables, customSyllables, deadCells]);
 
   const sequenceRef = useRef(sequence);
   sequenceRef.current = sequence; // Always keep ref atomic with render
@@ -2186,6 +2230,7 @@ export default function App() {
           accents,
           taDingKeys,
           customSyllables,
+          deadCells,
           customMultipliers,
           customSubdivisions,
           randomModeEnabled,
@@ -2216,6 +2261,7 @@ export default function App() {
     accents,
     taDingKeys,
     customSyllables,
+    deadCells,
     customMultipliers,
     customSubdivisions,
     pulseMeterUnlinked,
@@ -2294,6 +2340,8 @@ export default function App() {
       ),
     );
       setCustomSyllables({ ...snap.customSyllables });
+      setDeadCells({ ...((snap as { deadCells?: DeadCellsMap }).deadCells || {}) });
+      deadCellsRef.current = { ...((snap as { deadCells?: DeadCellsMap }).deadCells || {}) };
       setCustomMultipliers({ ...(snap.customMultipliers || {}) });
       setCustomSubdivisions({ ...(snap.customSubdivisions || {}) });
     setRandomModeEnabled(
@@ -2361,6 +2409,7 @@ export default function App() {
     taDingKeys:
       s.taDingKeys instanceof Set ? new Set(s.taDingKeys) : new Set(Array.isArray(s.taDingKeys) ? s.taDingKeys : []),
     customSyllables: { ...s.customSyllables },
+    deadCells: { ...((s as { deadCells?: DeadCellsMap }).deadCells || {}) },
     customMultipliers: { ...s.customMultipliers },
     customSubdivisions: { ...s.customSubdivisions },
     panelExpanded: s.panelExpanded === true,
@@ -2721,6 +2770,36 @@ export default function App() {
     });
   }, []);
 
+  const triggerDeadCut = useCallback((barIndex: number, startCell: number) => {
+    const baseNow = customSyllablesRef.current[barIndex] !== undefined
+      ? customSyllablesRef.current[barIndex]
+      : syllablesRef.current;
+    const activeCount = Math.max(1, Math.min(baseNow, startCell));
+    const prevDead = deadCellsRef.current[barIndex];
+    const displayLen = prevDead?.displayLen ?? baseNow;
+    const baseLen = prevDead?.baseLen ?? baseNow;
+    setDeadCells((prev) => {
+      const next = {
+        ...prev,
+        [barIndex]: { deadStart: activeCount, displayLen, baseLen },
+      };
+      deadCellsRef.current = { ...next };
+      return next;
+    });
+  }, []);
+
+  const restoreDeadRow = useCallback((barIndex: number) => {
+    const meta = deadCellsRef.current[barIndex];
+    if (!meta) return;
+    setDeadCells((prev) => {
+      if (prev[barIndex] === undefined) return prev;
+      const next = { ...prev };
+      delete next[barIndex];
+      deadCellsRef.current = { ...next };
+      return next;
+    });
+  }, []);
+
   const nextNote = () => {
     try {
       const seq = sequenceRef.current;
@@ -2767,8 +2846,10 @@ export default function App() {
             const newSeq = [];
             for (let r = 0; r < barsRef.current; r++) {
               const syls = customSyllablesRef.current[r] !== undefined ? customSyllablesRef.current[r] : syllablesRef.current;
-              for (let c = 0; c < syls; c++) {
-                newSeq.push({ r, c, activeSyllables: syls });
+              const deadStart = deadCellsRef.current[r]?.deadStart;
+              const playable = typeof deadStart === 'number' ? Math.max(1, Math.min(syls, deadStart)) : syls;
+              for (let c = 0; c < playable; c++) {
+                newSeq.push({ r, c, activeSyllables: playable });
               }
             }
             sequenceRef.current = newSeq;
@@ -2800,7 +2881,11 @@ export default function App() {
       }
 
       const rowR = currentSeqItem.r;
-      const effectiveSyllables = currentSeqItem.activeSyllables || syllablesRef.current;
+      // Dead-cells не должны менять внутренний множитель темпа: считаем его от базовой пульсации такта.
+      const effectiveSyllables =
+        customSyllablesRef.current[rowR] !== undefined
+          ? customSyllablesRef.current[rowR]
+          : syllablesRef.current;
       const pulseSyllables = pulseMeterUnlinkedRef.current[rowR]
         ? PULSE_METER_BASE_SYLLABLES
         : effectiveSyllables;
@@ -3067,6 +3152,7 @@ export default function App() {
   accentsRef.current = accents;
   taDingKeysRef.current = taDingKeys;
   customSyllablesRef.current = { ...customSyllables };
+  deadCellsRef.current = { ...deadCells };
   customMultipliersRef.current = { ...customMultipliers };
   customSubdivisionsRef.current = { ...customSubdivisions };
   pulseMeterUnlinkedRef.current = { ...pulseMeterUnlinked };
@@ -3084,6 +3170,35 @@ export default function App() {
   for (const row of firstBeatDingSuppressedRows) firstBeatEditorSuppressedRowsSorted.push(row);
   firstBeatEditorSuppressedRowsSorted.sort((a, b) => a - b);
   const firstBeatEditorSuppressedSig = firstBeatEditorSuppressedRowsSorted.join(',');
+  const deadStartByRow = useMemo(() => {
+    const out: Record<number, number> = {};
+    for (const [rk, meta] of Object.entries(deadCells as DeadCellsMap)) {
+      const r = parseInt(rk, 10);
+      if (!Number.isFinite(r) || !meta) continue;
+      out[r] = meta.deadStart;
+    }
+    return out;
+  }, [deadCells]);
+  const deadDisplayByRow = useMemo(() => {
+    const out: Record<number, number> = {};
+    for (const [rk, meta] of Object.entries(deadCells as DeadCellsMap)) {
+      const r = parseInt(rk, 10);
+      if (!Number.isFinite(r) || !meta) continue;
+      out[r] = meta.displayLen;
+    }
+    return out;
+  }, [deadCells]);
+  const forceFirstBeatEditorFrames = useMemo(() => {
+    if (firstBeatEditorSuppressedRowsSorted.length > 0) return true;
+    // Если есть явные ding-метки не на дефолтной первой доле, держим белые рамки видимыми.
+    for (const key of taDingKeys) {
+      const parts = key.split('-');
+      if (parts.length !== 2) continue;
+      const c = parseInt(parts[1]!, 10);
+      if (Number.isFinite(c) && c > 0) return true;
+    }
+    return false;
+  }, [firstBeatEditorSuppressedRowsSorted, taDingKeys]);
 
   sequencerGridRowActionsRef.current = {
     isHoldingRef,
@@ -3098,6 +3213,10 @@ export default function App() {
     setCustomMultipliers,
     setCustomSubdivisions,
     setCustomSyllables,
+    triggerDeadCut,
+    restoreDeadRow,
+    deadSwipeSessionRef,
+    deadCellsRef,
     setPulseMeterUnlinked,
     toggleAccent,
     toggleTaDing,
@@ -3646,7 +3765,10 @@ export default function App() {
           isTaEditorMode={isTaEditorMode}
           accentMapVersion={accentMapVersion}
           firstBeatAccent={firstBeatAccent}
+          forceFirstBeatEditorFrames={forceFirstBeatEditorFrames}
           firstBeatEditorSuppressedSig={firstBeatEditorSuppressedSig}
+          deadStartByRow={deadStartByRow}
+          deadDisplayByRow={deadDisplayByRow}
           customSyllables={customSyllables}
           customSubdivisions={customSubdivisions}
           customMultipliers={customMultipliers}
@@ -3736,6 +3858,10 @@ export default function App() {
                 if (isTaEditorModeRef.current) {
                   setIsTaEditorMode(false);
                 } else {
+                  // Долгое удержание Ta из OFF: сначала включаем Ta, затем открываем редактор.
+                  if (!firstBeatAccentRef.current) {
+                    setFirstBeatAccent(true);
+                  }
                   setIsTaEditorMode(true);
                 }
               }, SNAPSHOT_MENU_HOLD_MS);

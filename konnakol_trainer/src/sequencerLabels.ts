@@ -2,12 +2,12 @@ export const KONNAKOL_PYRAMID: Record<number, string[]> = {
 	1: ['Ta'],
 	2: ['Ta', 'Ka'],
 	3: ['Ta', 'Ki', 'Ta'],
-	4: ['Ta', 'Ka', 'Dhi', 'Mi'],
+	4: ['Ta', 'Ka', 'Di', 'Mi'],
 	5: ['Ta', 'Ka', 'Ta', 'Ki', 'Ta'],
-	6: ['Ta', 'Ka', 'Dhi', 'Mi', 'Ta', 'Ka'],
-	7: ['Ta', 'Ka', 'Dhi', 'Mi', 'Ta', 'Ki', 'Ta'],
-	8: ['Ta', 'Ka', 'Dhi', 'Mi', 'Ta', 'Ka', 'Dju', 'Na'],
-	9: ['Ta', 'Ka', 'Dhi', 'Mi', 'Ta', 'Ka', 'Ta', 'Ki', 'Ta'],
+	6: ['Ta', 'Ka', 'Di', 'Mi', 'Ta', 'Ka'],
+	7: ['Ta', 'Ka', 'Di', 'Mi', 'Ta', 'Ki', 'Ta'],
+	8: ['Ta', 'Ka', 'Di', 'Mi', 'Ta', 'Ka', 'Ju', 'Nu'],
+	9: ['Ta', 'Ka', 'Di', 'Mi', 'Ta', 'Ka', 'Ta', 'Ki', 'Ta'],
 };
 
 /**
