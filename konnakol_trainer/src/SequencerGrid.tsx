@@ -64,6 +64,8 @@ export type SequencerGridRowActions = {
 		triggered: boolean;
 		fromCenter: boolean;
 		restoreMode: boolean;
+		startX: number;
+		startY: number;
 		rect: { left: number; right: number; top: number; bottom: number };
 	} | null>;
 	deadCellsRef: React.MutableRefObject<Record<number, { deadStart: number; displayLen: number; baseLen: number }>>;
@@ -461,6 +463,8 @@ const SequencerGridRow = React.memo(
 											triggered: false,
 											fromCenter: true,
 											restoreMode: true,
+										startX: e.clientX,
+										startY: e.clientY,
 											rect: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
 										};
 										a.holdTimerRef.current = window.setTimeout(() => {
@@ -475,6 +479,8 @@ const SequencerGridRow = React.memo(
 										triggered: false,
 										fromCenter: true,
 										restoreMode: false,
+										startX: e.clientX,
+										startY: e.clientY,
 										rect: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
 									};
 									a.isHoldingRef.current = false;
@@ -503,7 +509,13 @@ const SequencerGridRow = React.memo(
 										e.clientX <= s.rect.right &&
 										e.clientY >= s.rect.top &&
 										e.clientY <= s.rect.bottom;
-									if (inside) return;
+									const dx = e.clientX - s.startX;
+									const dy = Math.abs(e.clientY - s.startY);
+									// Touch-friendly: срабатываем либо по выходу из клетки, либо по мягкому свайпу вправо.
+									const SOFT_SWIPE_X = 12;
+									const SOFT_SWIPE_Y = 22;
+									const softRightSwipe = dx >= SOFT_SWIPE_X && dy <= SOFT_SWIPE_Y;
+									if (inside && !softRightSwipe) return;
 									s.triggered = true;
 									a.isHoldingRef.current = true;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);

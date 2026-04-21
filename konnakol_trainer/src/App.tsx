@@ -1786,6 +1786,8 @@ export default function App() {
     triggered: boolean;
     fromCenter: boolean;
     restoreMode: boolean;
+    startX: number;
+    startY: number;
     rect: { left: number; right: number; top: number; bottom: number };
   } | null>(null);
 
