@@ -472,6 +472,42 @@ function decodePulseUnlinkedRowsToken(token: string): Record<number, boolean> {
 	return out;
 }
 
+function encodeDeadCellsToken(deadCells: DeadCellsMap, bars: number): string {
+	const parts: string[] = [];
+	for (const [rk, meta] of Object.entries(deadCells || {})) {
+		const row = parseInt(rk, 10);
+		if (!Number.isFinite(row) || row < 0 || row >= bars) continue;
+		const deadStart = Math.max(1, Math.min(9, Math.floor(meta.deadStart)));
+		const displayLen = Math.max(1, Math.min(9, Math.floor(meta.displayLen)));
+		const baseLen = Math.max(1, Math.min(9, Math.floor(meta.baseLen)));
+		parts.push(`${row.toString(36)}:${deadStart.toString(36)}${displayLen.toString(36)}${baseLen.toString(36)}`);
+	}
+	if (parts.length === 0) return '0';
+	parts.sort();
+	return parts.join('_');
+}
+
+function decodeDeadCellsToken(token: string, bars: number): DeadCellsMap {
+	if (!token || token === '0') return {};
+	const out: DeadCellsMap = {};
+	for (const chunk of token.split('_')) {
+		const [rowRaw, packed] = chunk.split(':');
+		if (!rowRaw || !packed || packed.length < 3) continue;
+		const row = parseInt(rowRaw, 36);
+		if (!Number.isFinite(row) || row < 0 || row >= bars) continue;
+		const deadStart = parseInt(packed[0]!, 36);
+		const displayLen = parseInt(packed[1]!, 36);
+		const baseLen = parseInt(packed[2]!, 36);
+		if (!Number.isFinite(deadStart) || !Number.isFinite(displayLen) || !Number.isFinite(baseLen)) continue;
+		out[row] = {
+			deadStart: Math.max(1, Math.min(9, deadStart)),
+			displayLen: Math.max(1, Math.min(9, displayLen)),
+			baseLen: Math.max(1, Math.min(9, baseLen)),
+		};
+	}
+	return out;
+}
+
 function buildCellIndexMapForSnapshot(
 	bars: number,
 	syllables: number,
@@ -1074,9 +1110,10 @@ function encodeSnapshotClipboard(s: ReturnType<typeof createEmptySnapshot>): str
 	const accents = s.accents instanceof Set ? s.accents : new Set(Array.isArray(s.accents) ? s.accents : []);
 	const cells = buildCellIndexMapForSnapshot(s.bars, s.syllables, s.customSyllables);
 	const gridToken = packGridTokenPacked(s, cells, accents);
+	const deadCellsToken = encodeDeadCellsToken((s as { deadCells?: DeadCellsMap }).deadCells ?? {}, s.bars);
 	const flags = buildSnapshotFlags(s);
 	const soundId = buildSnapshotSoundId(s);
-	const compact = `${s.tempo}.${s.bars}.${s.syllables}.${gridToken}.${s.chaosLevel}.${flags}.${soundId}`;
+	const compact = `${s.tempo}.${s.bars}.${s.syllables}.${gridToken}.${deadCellsToken}.${s.chaosLevel}.${flags}.${soundId}`;
 	return SNAPSHOT_CLIPBOARD_MARKER + compact;
 }
 
@@ -1134,6 +1171,51 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 			d.chaosLevel = chaosLevel;
 			applySnapshotFlags(flags, d);
 			applySnapshotSoundId(soundId, d);
+			return d;
+		}
+		if (compactParts.length === 8) {
+			const [tempoRaw, barsRaw, syllablesRaw, gridTokenRaw, deadCellsRaw, chaosRaw, flagsRaw, soundRaw] =
+				compactParts;
+			const d = createEmptySnapshot();
+			const tempo = parseInt(tempoRaw, 10);
+			const bars = parseInt(barsRaw, 10);
+			const syllables = parseInt(syllablesRaw, 10);
+			const chaosLevel = parseInt(chaosRaw, 10);
+			const flags = parseInt(flagsRaw, 10);
+			const soundId = parseInt(soundRaw, 10);
+			if (!Number.isFinite(tempo) || tempo < 20 || tempo > 400) return null;
+			if (!Number.isFinite(bars) || bars < 1 || bars > 100) return null;
+			if (!Number.isFinite(syllables) || syllables < 1 || syllables > 9) return null;
+			if (!Number.isFinite(chaosLevel) || chaosLevel < 0 || chaosLevel > 100) return null;
+			if (!Number.isFinite(flags) || flags < 0) return null;
+			if (!Number.isFinite(soundId)) return null;
+			d.tempo = tempo;
+			d.bars = bars;
+			d.syllables = syllables;
+			d.chaosLevel = chaosLevel;
+			applySnapshotFlags(flags, d);
+			applySnapshotSoundId(soundId, d);
+			if (gridTokenRaw.startsWith('p1') || gridTokenRaw.startsWith('p2')) {
+				if (!unpackGridTokenPacked(gridTokenRaw, d)) return null;
+			} else if (gridTokenRaw.includes('|')) {
+				const [accentToken, rowSyllablesToken, subdivisionsToken, multipliersToken, pulseUnlinkedToken] =
+					gridTokenRaw.split('|');
+				d.customSyllables = decodeSparseRowNumberMap(
+					rowSyllablesToken || '0',
+					(value) => value >= 1 && value <= 9,
+				);
+				const cells = buildCellIndexMapForSnapshot(d.bars, d.syllables, d.customSyllables);
+				d.accents = hydrateAccentsFromVariableGridToken(accentToken || '0', cells);
+				d.customSubdivisions = decodeSubdivisionsToken(subdivisionsToken || '0', cells);
+				d.customMultipliers = decodeSparseRowNumberMap(
+					multipliersToken || '0',
+					(value) => value >= 1 && value <= 4 && value !== 1,
+				);
+				d.pulseMeterUnlinked = decodePulseUnlinkedRowsToken(pulseUnlinkedToken || '0');
+			} else {
+				hydrateSnapshotAccentsFromGridToken(gridTokenRaw, bars, syllables, d);
+			}
+			d.deadCells = decodeDeadCellsToken(deadCellsRaw, d.bars);
 			return d;
 		}
 		if (compactParts.length === 7) {
