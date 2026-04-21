@@ -1,9 +1,9 @@
 export const KONNAKOL_PYRAMID: Record<number, string[]> = {
 	1: ['Ta'],
 	2: ['Ta', 'Ka'],
-	3: ['Ta', 'Ki', 'Ta'],
+	/** В разбитой клетке последние две поддоли — Ta Ka вместо Ki Ta (как у двойки). */
+	3: ['Ta', 'Ta', 'Ka'],
 	4: ['Ta', 'Ka', 'Di', 'Mi'],
-	/** После «Ta Ka» два слога не Ki Ta (как в триоле), а Ta Ka — дуплекс вместо хвоста триоли. */
 	5: ['Ta', 'Ka', 'Ta', 'Ta', 'Ka'],
 	6: ['Ta', 'Ka', 'Di', 'Mi', 'Ta', 'Ka'],
 	7: ['Ta', 'Ka', 'Di', 'Mi', 'Ta', 'Ta', 'Ka'],
@@ -12,7 +12,7 @@ export const KONNAKOL_PYRAMID: Record<number, string[]> = {
 };
 
 /**
- * Подписи по клеткам: при **subdivs === 1** — паттерн такта + anti-repeat по хвосту (как в legacy; см. `KONNAKOL_PYRAMID`).
+ * Подписи по клеткам: при **subdivs === 1** — паттерн такта + **anti-repeat по хвосту** (см. ниже `lastTail` / сдвиг `start`).
  * При **subdivs > 1** — только фиксированная пирамида по числу поддолей (`Ta Ka`, `Ta Ka Dhi Mi`, …),
  * логика сдвига по такту **не** влияет на разбивку клетки.
  * После клетки **4** (Ta Ka Dhi Mi → хвост Mi) следующая клетка с **subdivs === 1** не показывает одну Mi — сразу **Ta**.

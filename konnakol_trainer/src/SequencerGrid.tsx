@@ -3,7 +3,7 @@ import { KONNAKOL_PYRAMID, buildRowCellSyllableLabels, getSyllableStyles } from 
 
 type PlayheadPosition = { r: number; c: number; absR: number; voice: number; step: number };
 
-/** Long-press по клетке: Ta (1) → Ta Ka (2) → триоль Ta Ki Ta (3) → Ta Ka Dhi Mi (4) → снова Ta. */
+/** Long-press по клетке: Ta (1) → Ta Ka (2) → триоль Ta Ta Ka (3) → Ta Ka Dhi Mi (4) → снова Ta. */
 function nextSubdivLongPress(current: number): number {
 	const c = current >= 1 && current <= 9 ? current : 1;
 	if (c === 1) return 2;
