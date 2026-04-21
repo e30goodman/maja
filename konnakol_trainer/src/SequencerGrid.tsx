@@ -106,6 +106,7 @@ type SequencerGridRowProps = {
 	highlightCol: number | null;
 	isPlaying: boolean;
 	isTaEditorMode: boolean;
+	isDeadCellsEditorMode: boolean;
 	accentMapVersion: number;
 	firstBeatAccent: boolean;
 	forceFirstBeatEditorFrames: boolean;
@@ -142,6 +143,7 @@ function sequencerGridRowPropsEqual(a: SequencerGridRowProps, b: SequencerGridRo
 		a.highlightCol === b.highlightCol &&
 		a.isPlaying === b.isPlaying &&
 		a.isTaEditorMode === b.isTaEditorMode &&
+		a.isDeadCellsEditorMode === b.isDeadCellsEditorMode &&
 		a.accentMapVersion === b.accentMapVersion &&
 		a.firstBeatAccent === b.firstBeatAccent &&
 		a.forceFirstBeatEditorFrames === b.forceFirstBeatEditorFrames &&
@@ -179,6 +181,7 @@ const SequencerGridRow = React.memo(
 			highlightCol,
 			isPlaying,
 			isTaEditorMode,
+			isDeadCellsEditorMode,
 			accentMapVersion,
 			firstBeatAccent,
 			forceFirstBeatEditorFrames,
@@ -483,6 +486,11 @@ const SequencerGridRow = React.memo(
 										startY: e.clientY,
 										rect: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
 									};
+									if (isDeadCellsEditorMode) {
+										a.isHoldingRef.current = false;
+										if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
+										return;
+									}
 									a.isHoldingRef.current = false;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
 									a.holdTimerRef.current = window.setTimeout(() => {
@@ -546,6 +554,11 @@ const SequencerGridRow = React.memo(
 								onClick={() => {
 									const a = actionsRef.current;
 									if (!a) return;
+									if (isDeadCellsEditorMode) {
+										if (isDead) a.restoreDeadRow(rIdx);
+										else a.triggerDeadCut(rIdx, cIdx);
+										return;
+									}
 									if (isDead) return;
 									if (a.isHoldingRef.current) {
 										a.isHoldingRef.current = false;
@@ -625,6 +638,7 @@ export type SequencerGridProps = {
 	allBarsFitViewport: boolean;
 	lowPerfMode: boolean;
 	isTaEditorMode: boolean;
+	isDeadCellsEditorMode: boolean;
 	accentMapVersion: number;
 	firstBeatAccent: boolean;
 	forceFirstBeatEditorFrames: boolean;
@@ -657,6 +671,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	allBarsFitViewport,
 	lowPerfMode,
 	isTaEditorMode,
+	isDeadCellsEditorMode,
 	accentMapVersion,
 	firstBeatAccent,
 	forceFirstBeatEditorFrames,
@@ -730,6 +745,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 								highlightCol={highlightCol}
 								isPlaying={isPlaying}
 								isTaEditorMode={isTaEditorMode}
+								isDeadCellsEditorMode={isDeadCellsEditorMode}
 								accentMapVersion={accentMapVersion}
 								firstBeatAccent={firstBeatAccent}
 								forceFirstBeatEditorFrames={forceFirstBeatEditorFrames}
@@ -800,6 +816,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 									highlightCol={highlightCol}
 									isPlaying={isPlaying}
 									isTaEditorMode={isTaEditorMode}
+									isDeadCellsEditorMode={isDeadCellsEditorMode}
 									accentMapVersion={accentMapVersion}
 									firstBeatAccent={firstBeatAccent}
 									forceFirstBeatEditorFrames={forceFirstBeatEditorFrames}

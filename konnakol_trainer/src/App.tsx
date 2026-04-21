@@ -1398,6 +1398,7 @@ export default function App() {
     (seed as { accentMapVersion?: number }).accentMapVersion === 1 ? 1 : 0,
   );
   const [isTaEditorMode, setIsTaEditorMode] = useState(false);
+  const [isDeadCellsEditorMode, setIsDeadCellsEditorMode] = useState(false);
   /** В режиме Ta-редактора: строки, где пользователь снял дефолтную белую метку на первой доле (без ключа taDing). */
   const [firstBeatDingSuppressedRows, setFirstBeatDingSuppressedRows] = useState<Set<number>>(() => new Set());
 
@@ -1633,6 +1634,8 @@ export default function App() {
   const randomDiceHoldAteClickRef = useRef(false);
   const taHoldTimerRef = useRef<number | null>(null);
   const taHoldAteClickRef = useRef(false);
+  const eraserHoldTimerRef = useRef<number | null>(null);
+  const eraserHoldAteClickRef = useRef(false);
   const [randomDiceMintFlash, setRandomDiceMintFlash] = useState(false);
   const randomDiceMintFlashClearRef = useRef<number | null>(null);
   const [syllableReadMuteMode, setSyllableReadMuteMode] = useState<SyllableReadMuteMode>(() =>
@@ -1688,6 +1691,7 @@ export default function App() {
     setSquarePlaybackMode('all_beats');
     setDictantMode(false);
     setIsTaEditorMode(false);
+    setIsDeadCellsEditorMode(false);
     setFirstBeatDingSuppressedRows(new Set());
     setTempo(defaults.tempo);
     tempoRef.current = defaults.tempo;
@@ -1764,6 +1768,7 @@ export default function App() {
   const firstBeatAccentRef = useRef(firstBeatAccent);
   const accentMapVersionRef = useRef(accentMapVersion);
   const isTaEditorModeRef = useRef(isTaEditorMode);
+  const isDeadCellsEditorModeRef = useRef(isDeadCellsEditorMode);
   const firstBeatDingSuppressedRowsRef = useRef(firstBeatDingSuppressedRows);
   const randomModeEnabledRef = useRef(randomModeEnabled);
   const randomPulsationRef = useRef(randomPulsation);
@@ -2642,6 +2647,10 @@ export default function App() {
         window.clearTimeout(taHoldTimerRef.current);
         taHoldTimerRef.current = null;
       }
+      if (eraserHoldTimerRef.current !== null) {
+        window.clearTimeout(eraserHoldTimerRef.current);
+        eraserHoldTimerRef.current = null;
+      }
       if (randomDiceMintFlashClearRef.current !== null) {
         window.clearTimeout(randomDiceMintFlashClearRef.current);
         randomDiceMintFlashClearRef.current = null;
@@ -3097,6 +3106,10 @@ export default function App() {
         window.clearTimeout(taHoldTimerRef.current);
         taHoldTimerRef.current = null;
       }
+      if (eraserHoldTimerRef.current !== null) {
+        window.clearTimeout(eraserHoldTimerRef.current);
+        eraserHoldTimerRef.current = null;
+      }
       if (randomDiceMintFlashClearRef.current !== null) {
         window.clearTimeout(randomDiceMintFlashClearRef.current);
         randomDiceMintFlashClearRef.current = null;
@@ -3106,12 +3119,13 @@ export default function App() {
       squareHoldAteClickRef.current = false;
       randomDiceHoldAteClickRef.current = false;
       taHoldAteClickRef.current = false;
+      eraserHoldAteClickRef.current = false;
       if (audioCtxRef.current) {
         audioCtxRef.current.close().catch(() => {});
         audioCtxRef.current = null;
       }
     } else {
-      if (isTaEditorModeRef.current) return;
+  if (isTaEditorModeRef.current || isDeadCellsEditorModeRef.current) return;
       setIsPanelExpanded(false);
       setShowRandomSettings(false);
       setIsPlaying(true);
@@ -3162,6 +3176,7 @@ export default function App() {
   polyVoicesRef.current = polyVoices;
   accentMapVersionRef.current = accentMapVersion;
   isTaEditorModeRef.current = isTaEditorMode;
+  isDeadCellsEditorModeRef.current = isDeadCellsEditorMode;
   firstBeatAccentRef.current = firstBeatAccent;
   squarePlaybackModeRef.current = squarePlaybackMode;
   onlyAccentsRef.current = squarePlaybackMode === 'accent_only';
@@ -3316,8 +3331,52 @@ export default function App() {
           </button>
           )}
           <button 
-            onClick={clearSequencer}
-            className="p-3 bg-[#161f33] rounded-xl border border-[#23314f] text-slate-400 hover:text-red-400 hover:border-red-500/30 active:bg-red-500/20 transition-all duration-200"
+            onPointerDown={() => {
+              eraserHoldAteClickRef.current = false;
+              if (eraserHoldTimerRef.current !== null) {
+                window.clearTimeout(eraserHoldTimerRef.current);
+                eraserHoldTimerRef.current = null;
+              }
+              eraserHoldTimerRef.current = window.setTimeout(() => {
+                eraserHoldTimerRef.current = null;
+                eraserHoldAteClickRef.current = true;
+                setIsDeadCellsEditorMode((prev) => {
+                  const next = !prev;
+                  if (next) setIsTaEditorMode(false);
+                  return next;
+                });
+              }, SNAPSHOT_MENU_HOLD_MS);
+            }}
+            onPointerUp={() => {
+              if (eraserHoldTimerRef.current !== null) {
+                window.clearTimeout(eraserHoldTimerRef.current);
+                eraserHoldTimerRef.current = null;
+              }
+            }}
+            onPointerLeave={() => {
+              if (eraserHoldTimerRef.current !== null) {
+                window.clearTimeout(eraserHoldTimerRef.current);
+                eraserHoldTimerRef.current = null;
+              }
+            }}
+            onPointerCancel={() => {
+              if (eraserHoldTimerRef.current !== null) {
+                window.clearTimeout(eraserHoldTimerRef.current);
+                eraserHoldTimerRef.current = null;
+              }
+            }}
+            onClick={() => {
+              if (eraserHoldAteClickRef.current) {
+                eraserHoldAteClickRef.current = false;
+                return;
+              }
+              clearSequencer();
+            }}
+            className={`p-3 rounded-xl border transition-all duration-200 ${
+              isDeadCellsEditorMode
+                ? `bg-red-600/25 border-red-400/70 text-red-200 ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(248,113,113,0.35)]'}`
+                : 'bg-[#161f33] border-[#23314f] text-slate-400 hover:text-red-400 hover:border-red-500/30 active:bg-red-500/20'
+            }`}
             title="Clear Sequencer"
           >
             <Eraser size={20} />
@@ -3765,6 +3824,7 @@ export default function App() {
           syllables={syllables}
           lowPerfMode={lowPerfMode}
           isTaEditorMode={isTaEditorMode}
+          isDeadCellsEditorMode={isDeadCellsEditorMode}
           accentMapVersion={accentMapVersion}
           firstBeatAccent={firstBeatAccent}
           forceFirstBeatEditorFrames={forceFirstBeatEditorFrames}
@@ -3796,8 +3856,10 @@ export default function App() {
           {/* Randomizer: tap — live random при PLAY; удерживание — префилл всех тактов по галочкам Settings. */}
                 <button 
             type="button"
+            disabled={isDeadCellsEditorMode}
             title="Коротко: рандом при PLAY. Удерживай ~0,5 с: заполнить все такты (Pulsation / Accents / Cell / Bar Speed из настроек)."
             onPointerDown={() => {
+              if (isDeadCellsEditorMode) return;
               randomDiceHoldAteClickRef.current = false;
               if (randomDiceHoldTimerRef.current !== null) {
                 window.clearTimeout(randomDiceHoldTimerRef.current);
@@ -3810,24 +3872,28 @@ export default function App() {
               }, RANDOM_DICE_PREFILL_HOLD_MS);
                   }}
                   onPointerUp={() => {
+              if (isDeadCellsEditorMode) return;
               if (randomDiceHoldTimerRef.current !== null) {
                 window.clearTimeout(randomDiceHoldTimerRef.current);
                 randomDiceHoldTimerRef.current = null;
               }
                   }}
                   onPointerLeave={() => {
+              if (isDeadCellsEditorMode) return;
               if (randomDiceHoldTimerRef.current !== null) {
                 window.clearTimeout(randomDiceHoldTimerRef.current);
                 randomDiceHoldTimerRef.current = null;
               }
             }}
             onPointerCancel={() => {
+              if (isDeadCellsEditorMode) return;
               if (randomDiceHoldTimerRef.current !== null) {
                 window.clearTimeout(randomDiceHoldTimerRef.current);
                 randomDiceHoldTimerRef.current = null;
               }
                       }}
                       onClick={() => {
+              if (isDeadCellsEditorMode) return;
               if (randomDiceHoldAteClickRef.current) {
                 randomDiceHoldAteClickRef.current = false;
                 return;
@@ -3837,6 +3903,8 @@ export default function App() {
             className={`flex-1 rounded-xl border flex justify-center items-center transition-all duration-200 relative ${
               randomDiceMintFlash
                 ? `bg-teal-500/25 border-teal-300/75 text-teal-100 ${lowPerfMode ? '' : 'shadow-[0_0_22px_rgba(45,212,191,0.55)]'} ring-2 ring-teal-300/70`
+                : isDeadCellsEditorMode
+                ? 'bg-[#161f33] border-[#23314f] text-slate-600 opacity-45 cursor-not-allowed'
                 : randomModeEnabled
                 ? `bg-blue-600/30 border-blue-400/60 ${lowPerfMode ? '' : 'shadow-[0_0_15px_rgba(59,130,246,0.3)]'} text-blue-200`
                 : 'bg-[#161f33] border-[#23314f] text-slate-400 hover:text-slate-200 hover:bg-[#1a253c]'
@@ -3848,7 +3916,9 @@ export default function App() {
           {/* First Beat Accent ("Ta"): tap — глобальный Ta; удерживание — режим правки первых долей по сетке. */}
           <button
             type="button"
+            disabled={isDeadCellsEditorMode}
             onPointerDown={() => {
+              if (isDeadCellsEditorMode) return;
               taHoldAteClickRef.current = false;
               if (taHoldTimerRef.current !== null) {
                 window.clearTimeout(taHoldTimerRef.current);
@@ -3869,24 +3939,28 @@ export default function App() {
               }, SNAPSHOT_MENU_HOLD_MS);
             }}
             onPointerUp={() => {
+              if (isDeadCellsEditorMode) return;
               if (taHoldTimerRef.current !== null) {
                 window.clearTimeout(taHoldTimerRef.current);
                 taHoldTimerRef.current = null;
               }
             }}
             onPointerLeave={() => {
+              if (isDeadCellsEditorMode) return;
               if (taHoldTimerRef.current !== null) {
                 window.clearTimeout(taHoldTimerRef.current);
                 taHoldTimerRef.current = null;
               }
             }}
             onPointerCancel={() => {
+              if (isDeadCellsEditorMode) return;
               if (taHoldTimerRef.current !== null) {
                 window.clearTimeout(taHoldTimerRef.current);
                 taHoldTimerRef.current = null;
               }
             }}
             onClick={() => {
+              if (isDeadCellsEditorMode) return;
               if (taHoldAteClickRef.current) {
                 taHoldAteClickRef.current = false;
                 return;
@@ -3894,7 +3968,9 @@ export default function App() {
               setFirstBeatAccent((prev) => !prev);
             }}
             className={`flex-1 rounded-xl flex justify-center items-center transition-all bg-[#161f33] ${
-              isTaEditorMode
+              isDeadCellsEditorMode
+                ? 'border border-[#23314f] text-slate-600 opacity-45 cursor-not-allowed'
+                : isTaEditorMode
                 ? `border-2 border-white/90 text-white ${lowPerfMode ? '' : 'shadow-[0_0_18px_rgba(255,255,255,0.25)]'}`
                 : firstBeatAccent
                   ? `border border-purple-400 ${lowPerfMode ? '' : 'shadow-[0_0_15px_rgba(192,132,252,0.4)]'} text-purple-200`
@@ -3907,8 +3983,10 @@ export default function App() {
           {/* All beats vs accent-only (square); долгое нажатие — режим диктант (бегунок только на 1-й доле; пассивные замьючены). */}
           <button
             type="button"
+            disabled={isDeadCellsEditorMode}
             title="Коротко: цикл режимов все/акценты/пассивные. Удерживай ~0,4 с: диктант (бегунок только на первом слоге такта; пассивные щелчки выкл.). Повторное удержание — выход из диктанта."
             onPointerDown={() => {
+              if (isDeadCellsEditorMode) return;
               squareHoldAteClickRef.current = false;
               if (squareHoldTimerRef.current !== null) {
                 window.clearTimeout(squareHoldTimerRef.current);
@@ -3921,24 +3999,28 @@ export default function App() {
               }, 400);
             }}
             onPointerUp={() => {
+              if (isDeadCellsEditorMode) return;
               if (squareHoldTimerRef.current !== null) {
                 window.clearTimeout(squareHoldTimerRef.current);
                 squareHoldTimerRef.current = null;
               }
             }}
             onPointerLeave={() => {
+              if (isDeadCellsEditorMode) return;
               if (squareHoldTimerRef.current !== null) {
                 window.clearTimeout(squareHoldTimerRef.current);
                 squareHoldTimerRef.current = null;
               }
             }}
             onPointerCancel={() => {
+              if (isDeadCellsEditorMode) return;
               if (squareHoldTimerRef.current !== null) {
                 window.clearTimeout(squareHoldTimerRef.current);
                 squareHoldTimerRef.current = null;
               }
             }}
             onClick={() => {
+              if (isDeadCellsEditorMode) return;
               if (squareHoldAteClickRef.current) {
                 squareHoldAteClickRef.current = false;
                 return;
@@ -3947,7 +4029,9 @@ export default function App() {
             }}
             onContextMenu={(e) => e.preventDefault()}
             className={`flex-1 rounded-xl flex justify-center items-center transition-all touch-none select-none relative bg-[#161f33] ${
-              dictantMode
+              isDeadCellsEditorMode
+                ? 'border border-[#23314f] text-slate-600 opacity-45 cursor-not-allowed'
+                : dictantMode
                 ? `border border-teal-400/90 ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(45,212,191,0.28)]'} text-teal-100`
                 : syllableReadMuteMode !== 'off'
                   ? syllableReadMuteMode === 'full'
@@ -3997,11 +4081,11 @@ export default function App() {
         <div className="shrink-0 mb-2">
           <button
             type="button"
-            disabled={isTaEditorMode && !isPlaying}
-            aria-disabled={isTaEditorMode && !isPlaying}
+            disabled={(isTaEditorMode || isDeadCellsEditorMode) && !isPlaying}
+            aria-disabled={(isTaEditorMode || isDeadCellsEditorMode) && !isPlaying}
             onClick={togglePlayback}
             className={`w-full py-4 rounded-xl font-black text-lg tracking-[0.2em] flex items-center justify-center gap-2 ${lowPerfMode ? '' : 'shadow-[0_8px_20px_rgba(16,185,129,0.2)]'} transition-all transform ${
-              isTaEditorMode && !isPlaying
+              (isTaEditorMode || isDeadCellsEditorMode) && !isPlaying
                 ? 'opacity-45 cursor-not-allowed bg-emerald-600/50 text-slate-800'
                 : 'active:scale-[0.98] ' +
                   (isPlaying
