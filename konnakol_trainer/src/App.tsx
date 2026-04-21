@@ -339,7 +339,7 @@ const SNAPSHOT_CLIPBOARD_PREFIX_LEGACY = 'konnakolTrainerSnapshotV1:';
 const SNAPSHOT_SLOT_HOLD_MS = 300;
 /** Long-press Ta / ластик dead-editor / прочие UI-таймеры (~0,5 с). */
 const SNAPSHOT_MENU_HOLD_MS = 520;
-/** Удерживание кнопки «кости»: префилл всех тактов по активным фичам Randomizer. */
+/** Удерживание кнопки «кости»: переключение режима Randomizer (вкл/выкл рандом на границах тактов). */
 const RANDOM_DICE_PREFILL_HOLD_MS = SNAPSHOT_MENU_HOLD_MS;
 
 const SNAPSHOT_FLAG_RANDOM_MODE_ENABLED = 1 << 0;
@@ -4193,7 +4193,7 @@ export default function App() {
 
         {/* Bottom Actions */}
         <div className="flex gap-3 mt-1 shrink-0 h-[60px]">
-          {/* Randomizer: tap — live random при PLAY; удерживание — префилл всех тактов по галочкам Settings. */}
+          {/* Randomizer: короткий тап — префилл всех тактов по галочкам Settings; удерживание — вкл/выкл режима. */}
                 <button 
             type="button"
             disabled={isDeadCellsEditorMode}
@@ -4207,7 +4207,7 @@ export default function App() {
               }
               randomDiceHoldTimerRef.current = window.setTimeout(() => {
                 randomDiceHoldTimerRef.current = null;
-                prefillAllTactsRandomizer();
+                setRandomModeEnabled((prev) => !prev);
                 randomDiceHoldAteClickRef.current = true;
               }, RANDOM_DICE_PREFILL_HOLD_MS);
                   }}
@@ -4238,7 +4238,7 @@ export default function App() {
                 randomDiceHoldAteClickRef.current = false;
                 return;
               }
-              setRandomModeEnabled((prev) => !prev);
+              prefillAllTactsRandomizer();
             }}
             className={`flex-1 rounded-xl border flex justify-center items-center transition-all duration-200 relative ${
               randomDiceMintFlash
