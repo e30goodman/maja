@@ -182,6 +182,7 @@ type BarRandomizerMutable = {
 	accents: Set<string>;
 	customSubdivisions: Record<string, number>;
 	customMultipliers: Record<number, number>;
+	deadCells: DeadCellsMap;
 };
 
 type DeadCellsMap = Record<number, { deadStart: number; displayLen: number; baseLen: number }>;
@@ -241,7 +242,17 @@ function applyRandomizerEffectsToBar(
 	}
 
 	if (randomBarSpeed) {
-		m.customMultipliers[prevBar] = pickBarSpeedMultiplier(chaos);
+		// Dead Cells random: используем тот же канон плотности, что и accents (через pickAccentCountForBar).
+		const activeCount = Math.max(1, Math.min(curSyl, pickAccentCountForBar(chaos, curSyl)));
+		if (activeCount >= curSyl) {
+			delete m.deadCells[prevBar];
+		} else {
+			m.deadCells[prevBar] = {
+				deadStart: activeCount,
+				displayLen: curSyl,
+				baseLen: curSyl,
+			};
+		}
 		didChange = true;
 	}
 
@@ -1956,6 +1967,7 @@ export default function App() {
     const cs = { ...customSyllablesRef.current };
     const cd = { ...customSubdivisionsRef.current };
     const cm = { ...customMultipliersRef.current };
+    const dc = { ...deadCellsRef.current };
     const acc = new Set<string>(accentsRef.current);
 
     let any = false;
@@ -1966,6 +1978,7 @@ export default function App() {
           accents: acc,
           customSubdivisions: cd,
           customMultipliers: cm,
+          deadCells: dc,
         })
       ) {
         any = true;
@@ -1976,6 +1989,7 @@ export default function App() {
     customSyllablesRef.current = cs;
     customSubdivisionsRef.current = cd;
     customMultipliersRef.current = cm;
+    deadCellsRef.current = dc;
     accentsRef.current = acc;
 
     startTransition(() => {
@@ -1983,6 +1997,7 @@ export default function App() {
       setAccents(new Set(acc));
       setCustomSubdivisions({ ...cd });
       setCustomMultipliers({ ...cm });
+      setDeadCells({ ...dc });
     });
   }, []);
 
@@ -2847,6 +2862,7 @@ export default function App() {
             accents: accentsRef.current,
             customSubdivisions: customSubdivisionsRef.current,
             customMultipliers: customMultipliersRef.current,
+            deadCells: deadCellsRef.current,
           };
           const didChange = applyRandomizerEffectsToBar(
             prevBar,
@@ -2886,7 +2902,7 @@ export default function App() {
                 if (randomPulsationRef.current) setCustomSyllables({ ...customSyllablesRef.current });
               if (randomPatternRef.current) setAccents(new Set(accentsRef.current));
                 if (randomSpeedRef.current) setCustomSubdivisions({ ...customSubdivisionsRef.current });
-                if (randomBarSpeedRef.current) setCustomMultipliers({ ...customMultipliersRef.current });
+                if (randomBarSpeedRef.current) setDeadCells({ ...deadCellsRef.current });
               });
             }, 0);
           }
@@ -3455,7 +3471,7 @@ export default function App() {
                             : 'bg-[#1a253c]/40 border-[#23314f] text-slate-500 hover:text-slate-400 hover:bg-[#1a253c]/80'
                         }`}
                      >
-                        Bar Speed
+                        Dead Cells
                      </button>
                   </div>
 
