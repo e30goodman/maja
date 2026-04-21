@@ -323,6 +323,9 @@ const APP_COMMIT_VERSION = (() => {
 	return 'ad25156';
 })();
 const TEMPO_THROTTLE_MS = 56;
+/** Удержание −/+ темпа: после задержки шаг ±5 каждые 0,1 с. */
+const TEMPO_HOLD_REPEAT_MS = 100;
+const TEMPO_HOLD_REPEAT_STEP = 5;
 /** Clipboard export: kawaii magic marker for compact preset payload. */
 const SNAPSHOT_CLIPBOARD_MARKER = '(⁠ʘ⁠ᴗ⁠ʘ⁠)⁠♪:';
 /** Accept marker with/without zero-width separators from messengers. */
@@ -1653,6 +1656,10 @@ export default function App() {
   const persistSnapshotsTimerRef = useRef<number | null>(null);
   const tempoThrottleTimerRef = useRef<number | null>(null);
   const pendingTempoRef = useRef<number | null>(null);
+  const tempoHoldTimeoutRef = useRef<number | null>(null);
+  const tempoHoldIntervalRef = useRef<number | null>(null);
+  const tempoMinusHoldAteClickRef = useRef(false);
+  const tempoPlusHoldAteClickRef = useRef(false);
   const clipboardToastTimerRef = useRef<number | null>(null);
   const [clipboardToast, setClipboardToast] = useState<string | null>(null);
 
@@ -2057,6 +2064,47 @@ export default function App() {
     setTempo(pending);
     tempoRef.current = pending;
   }, []);
+
+  const clearTempoHoldRepeat = useCallback(() => {
+    if (tempoHoldTimeoutRef.current !== null) {
+      window.clearTimeout(tempoHoldTimeoutRef.current);
+      tempoHoldTimeoutRef.current = null;
+    }
+    if (tempoHoldIntervalRef.current !== null) {
+      window.clearInterval(tempoHoldIntervalRef.current);
+      tempoHoldIntervalRef.current = null;
+    }
+  }, []);
+
+  const beginTempoMinusHold = useCallback(() => {
+    tempoMinusHoldAteClickRef.current = false;
+    clearTempoHoldRepeat();
+    tempoHoldTimeoutRef.current = window.setTimeout(() => {
+      tempoHoldTimeoutRef.current = null;
+      tempoMinusHoldAteClickRef.current = true;
+      applyTempoImmediate(tempoRef.current - TEMPO_HOLD_REPEAT_STEP);
+      tempoHoldIntervalRef.current = window.setInterval(() => {
+        applyTempoImmediate(tempoRef.current - TEMPO_HOLD_REPEAT_STEP);
+      }, TEMPO_HOLD_REPEAT_MS);
+    }, TEMPO_HOLD_REPEAT_MS);
+  }, [applyTempoImmediate, clearTempoHoldRepeat]);
+
+  const beginTempoPlusHold = useCallback(() => {
+    tempoPlusHoldAteClickRef.current = false;
+    clearTempoHoldRepeat();
+    tempoHoldTimeoutRef.current = window.setTimeout(() => {
+      tempoHoldTimeoutRef.current = null;
+      tempoPlusHoldAteClickRef.current = true;
+      applyTempoImmediate(tempoRef.current + TEMPO_HOLD_REPEAT_STEP);
+      tempoHoldIntervalRef.current = window.setInterval(() => {
+        applyTempoImmediate(tempoRef.current + TEMPO_HOLD_REPEAT_STEP);
+      }, TEMPO_HOLD_REPEAT_MS);
+    }, TEMPO_HOLD_REPEAT_MS);
+  }, [applyTempoImmediate, clearTempoHoldRepeat]);
+
+  const endTempoHoldRepeat = useCallback(() => {
+    clearTempoHoldRepeat();
+  }, [clearTempoHoldRepeat]);
 
   const buildLiveSnapshotFromRefs = (): ReturnType<typeof createEmptySnapshot> => ({
     tempo: tempoRef.current,
@@ -2795,6 +2843,14 @@ export default function App() {
         window.clearTimeout(tempoThrottleTimerRef.current);
         tempoThrottleTimerRef.current = null;
       }
+      if (tempoHoldTimeoutRef.current !== null) {
+        window.clearTimeout(tempoHoldTimeoutRef.current);
+        tempoHoldTimeoutRef.current = null;
+      }
+      if (tempoHoldIntervalRef.current !== null) {
+        window.clearInterval(tempoHoldIntervalRef.current);
+        tempoHoldIntervalRef.current = null;
+      }
       if (timerIDRef.current) clearTimeout(timerIDRef.current);
       if (snapshotHoldTimerRef.current !== null) {
         window.clearTimeout(snapshotHoldTimerRef.current);
@@ -3151,13 +3207,17 @@ export default function App() {
           (!polyModeRef.current || voice === 0);
         if (shouldPlayFirstBeatTa) {
           playBarFirstHighClick(audioCtxRef.current, subTime, clickSoundRef.current);
+          /** Тот же составной тембр, что у Ta на сетке: ding + пассив (важно для `passive_only`, где сетка не идёт в playSharpClick). */
+          playSharpClick(audioCtxRef.current, subTime, false, clickSoundRef.current, false);
+          if (polyModeRef.current) {
+            polyClickSlotsRef.current.add(polySlotKey);
+          }
         }
         // Для акцентной (фиолетовой) клетки с делением все поддоли должны звучать активным тембром.
         const mainAccentClick = isAccent && (subdivs > 1 || sub === 0);
         if (shouldDedupPolyClick) {
           continue;
         }
-        if (muteMode === 'full') continue;
         const playbackMode = squarePlaybackModeRef.current;
         const isTaDingCell = cIdx >= 1 && taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
         /** passive_only: сетка замьючена; слышен только глобальный Ta (shouldPlayFirstBeatTa выше), не ding-редактор. */
@@ -3166,9 +3226,18 @@ export default function App() {
           sub === 0 &&
           isTaDingCell &&
           (!polyModeRef.current || voice === 0);
+        /**
+         * Составной тембр Ta: всегда ding + пассивный слой (те же параметры, что у пассивной доли в `playSharpClick`).
+         * До `muteMode === 'full'`, чтобы полный мьют сетки не резал второй слой Ta.
+         */
         if (shouldPlayTaDingSound) {
           playBarFirstHighClick(audioCtxRef.current, subTime, clickSoundRef.current);
+          playSharpClick(audioCtxRef.current, subTime, false, clickSoundRef.current, false);
+          if (polyModeRef.current) {
+            polyClickSlotsRef.current.add(polySlotKey);
+          }
         }
+        if (muteMode === 'full') continue;
         const hasTaDingHere = taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
         const dictantActive = dictantModeRef.current;
         const shouldPlayBeat =
@@ -3185,12 +3254,29 @@ export default function App() {
           if (muteMode === 'no_accent_sharp' && mainAccentClick && !isTaFirstBeatArticulation) return false;
           return mainAccentClick;
         })();
+        /** Пассив Ta уже в составном тембре — не дублировать тот же щелчок сетки (в т.ч. при no_accent_sharp / мьютах пассива). */
+        if (shouldPlayTaDingSound && !sharpAsChecked) {
+          continue;
+        }
+        /** Первая доля уже сыграла ding+пассив — не дублировать пассив сетки на (0,0). */
+        if (shouldPlayFirstBeatTa && !sharpAsChecked) {
+          continue;
+        }
+        /**
+         * На Ta+фиолет акцент пассив уже сыгран вторым слоем Ta; в accent_only смесь 800+920 дала бы второй 800.
+         * То же для первой доли с акцентом: пассив уже в составном ударе выше.
+         * Оставляем только верх акцента (ветка `playSharpClick(..., accentOnlyPlayback: false)` для classic).
+         */
+        const accentOnlyPlayback =
+          (playbackMode !== 'all_beats' || dictantActive) &&
+          !(shouldPlayTaDingSound && isAccent) &&
+          !(shouldPlayFirstBeatTa && isAccent);
         playSharpClick(
           audioCtxRef.current,
           subTime,
           sharpAsChecked,
           clickSoundRef.current,
-          playbackMode !== 'all_beats' || dictantActive,
+          accentOnlyPlayback,
         );
         if (polyModeRef.current) {
           polyClickSlotsRef.current.add(polySlotKey);
@@ -3262,6 +3348,9 @@ export default function App() {
     if (isPlaying) {
       setIsPlaying(false);
       isPlayingRef.current = false;
+      clearTempoHoldRepeat();
+      tempoMinusHoldAteClickRef.current = false;
+      tempoPlusHoldAteClickRef.current = false;
       clearPlayheadScheduling();
       setActivePos({ r: -1, c: -1, absR: -1 });
       setActivePositions([]);
@@ -3465,7 +3554,18 @@ export default function App() {
             <div className="flex-1 flex items-center gap-2 min-w-0 py-2 px-1.5 bg-[#161f33] rounded-xl border border-[#23314f] touch-none">
           <button 
                 type="button"
-                onClick={() => applyTempoImmediate(tempoUi - 1)}
+                title="Коротко: −1 BPM. Удерживай: −5 каждые 0,1 с"
+                onPointerDown={beginTempoMinusHold}
+                onPointerUp={endTempoHoldRepeat}
+                onPointerLeave={endTempoHoldRepeat}
+                onPointerCancel={endTempoHoldRepeat}
+                onClick={() => {
+                  if (tempoMinusHoldAteClickRef.current) {
+                    tempoMinusHoldAteClickRef.current = false;
+                    return;
+                  }
+                  applyTempoImmediate(tempoUi - 1);
+                }}
                 className="p-2 bg-[#23314f] rounded-lg text-slate-300 hover:bg-[#2c3d63] active:bg-[#1b253b] transition-colors shrink-0"
               >
                 <Minus size={18} strokeWidth={2.5} />
@@ -3514,7 +3614,18 @@ export default function App() {
               </div>
               <button
                 type="button"
-                onClick={() => applyTempoImmediate(tempoUi + 1)}
+                title="Коротко: +1 BPM. Удерживай: +5 каждые 0,1 с"
+                onPointerDown={beginTempoPlusHold}
+                onPointerUp={endTempoHoldRepeat}
+                onPointerLeave={endTempoHoldRepeat}
+                onPointerCancel={endTempoHoldRepeat}
+                onClick={() => {
+                  if (tempoPlusHoldAteClickRef.current) {
+                    tempoPlusHoldAteClickRef.current = false;
+                    return;
+                  }
+                  applyTempoImmediate(tempoUi + 1);
+                }}
                 className="p-2 bg-[#23314f] rounded-lg text-slate-300 hover:bg-[#2c3d63] active:bg-[#1b253b] transition-colors shrink-0"
               >
                 <Plus size={18} strokeWidth={2.5} />
@@ -3739,7 +3850,18 @@ export default function App() {
                   <div className="flex items-center gap-2">
                     <button 
                       type="button"
-                      onClick={() => applyTempoImmediate(tempoUi - 1)}
+                      title="Коротко: −1 BPM. Удерживай: −5 каждые 0,1 с"
+                      onPointerDown={beginTempoMinusHold}
+                      onPointerUp={endTempoHoldRepeat}
+                      onPointerLeave={endTempoHoldRepeat}
+                      onPointerCancel={endTempoHoldRepeat}
+                      onClick={() => {
+                        if (tempoMinusHoldAteClickRef.current) {
+                          tempoMinusHoldAteClickRef.current = false;
+                          return;
+                        }
+                        applyTempoImmediate(tempoUi - 1);
+                      }}
                       className="p-2 bg-[#23314f] rounded-lg text-slate-300 hover:bg-[#2c3d63] active:bg-[#1b253b] transition-colors shrink-0"
                     >
                       <Minus size={18} strokeWidth={2.5} />
@@ -3790,7 +3912,18 @@ export default function App() {
                     </div>
                     <button 
                       type="button"
-                      onClick={() => applyTempoImmediate(tempoUi + 1)}
+                      title="Коротко: +1 BPM. Удерживай: +5 каждые 0,1 с"
+                      onPointerDown={beginTempoPlusHold}
+                      onPointerUp={endTempoHoldRepeat}
+                      onPointerLeave={endTempoHoldRepeat}
+                      onPointerCancel={endTempoHoldRepeat}
+                      onClick={() => {
+                        if (tempoPlusHoldAteClickRef.current) {
+                          tempoPlusHoldAteClickRef.current = false;
+                          return;
+                        }
+                        applyTempoImmediate(tempoUi + 1);
+                      }}
                       className="p-2 bg-[#23314f] rounded-lg text-slate-300 hover:bg-[#2c3d63] active:bg-[#1b253b] transition-colors shrink-0"
                     >
                       <Plus size={18} strokeWidth={2.5} />
