@@ -3173,7 +3173,7 @@ export default function App() {
         const dictantActive = dictantModeRef.current;
         const shouldPlayBeat =
           playbackMode === 'all_beats'
-            ? (dictantActive ? isAccent || hasTaDingHere : true)
+            ? true
             : playbackMode === 'accent_only'
               ? isAccent || hasTaDingHere
               : false;
@@ -4190,7 +4190,7 @@ export default function App() {
           <button
             type="button"
             disabled={isDeadCellsEditorMode}
-            title="Коротко: цикл все доли / только акценты / только звук Ta (остальная сетка без щелчков). Удерживай ~0,4 с: диктант (бегунок только на первом слоге такта; пассивные щелчки выкл.). Повторное удержание — выход из диктанта."
+            title="Коротко: цикл все доли / только акценты / только звук Ta (остальная сетка без щелчков). Удерживай ~0,4 с: диктант (бегунок шага только на первом слоге такта; во «все доли» щелчки по всей сетке, в остальных режимах квадрата — как без диктанта). Повторное удержание — выход из диктанта."
             onPointerDown={() => {
               if (isDeadCellsEditorMode) return;
               squareHoldAteClickRef.current = false;
@@ -4241,7 +4241,7 @@ export default function App() {
             }`}
             aria-label={
               dictantMode
-                ? `Диктант: бегунок только на первом слоге такта, пассивные щелчки выключены. Сейчас: ${squarePlaybackModeLabel}. Короткое нажатие — цикл режима воспроизведения. Долгое удержание — выключить диктант`
+                ? `Диктант: бегунок только на первом слоге такта; во «все доли» слышна вся сетка, в других режимах квадрата — фильтр как без диктанта. Сейчас: ${squarePlaybackModeLabel}. Короткое нажатие — цикл режима воспроизведения. Долгое удержание — выключить диктант`
                 : syllableReadMuteMode === 'full'
                   ? 'Тишина по щелчкам сетки (из пресета). Короткое: цикл все/акценты/пассивные'
                   : syllableReadMuteMode === 'no_accent_sharp'
