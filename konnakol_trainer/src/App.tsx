@@ -242,8 +242,24 @@ function applyRandomizerEffectsToBar(
 	}
 
 	if (randomBarSpeed) {
-		// Dead Cells random: используем тот же канон плотности, что и accents (через pickAccentCountForBar).
-		const activeCount = Math.max(1, Math.min(curSyl, pickAccentCountForBar(chaos, curSyl)));
+		// Dead Cells random:
+		// 1) базовая плотность как у accents (через pickAccentCountForBar),
+		// 2) до 70 chaos ограничиваем максимум 2 dead-клетками,
+		// 3) с 70+ chaos лимит dead-клеток растет по экспоненте.
+		const baseActive = Math.max(1, Math.min(curSyl, pickAccentCountForBar(chaos, curSyl)));
+		const maxDeadForChaos = (() => {
+			const maxDeadPossible = Math.max(0, curSyl - 1); // минимум одна активная клетка должна остаться.
+			if (maxDeadPossible <= 0) return 0;
+			const flatCap = Math.min(2, maxDeadPossible);
+			if (chaos < 70) return flatCap;
+			const tail = Math.max(0, Math.min(1, (chaos - 70) / 30));
+			// Экспоненциальная кривая 0..1 с быстрым ростом ближе к 100.
+			const exp01 = Math.expm1(3 * tail) / Math.expm1(3);
+			return Math.max(flatCap, Math.min(maxDeadPossible, Math.round(flatCap + exp01 * (maxDeadPossible - flatCap))));
+		})();
+		const baseDead = Math.max(0, curSyl - baseActive);
+		const deadCount = Math.min(baseDead, maxDeadForChaos);
+		const activeCount = Math.max(1, curSyl - deadCount);
 		if (activeCount >= curSyl) {
 			delete m.deadCells[prevBar];
 		} else {
