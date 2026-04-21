@@ -3,15 +3,16 @@ export const KONNAKOL_PYRAMID: Record<number, string[]> = {
 	2: ['Ta', 'Ka'],
 	3: ['Ta', 'Ki', 'Ta'],
 	4: ['Ta', 'Ka', 'Di', 'Mi'],
-	5: ['Ta', 'Ka', 'Ta', 'Ki', 'Ta'],
+	/** После «Ta Ka» два слога не Ki Ta (как в триоле), а Ta Ka — дуплекс вместо хвоста триоли. */
+	5: ['Ta', 'Ka', 'Ta', 'Ta', 'Ka'],
 	6: ['Ta', 'Ka', 'Di', 'Mi', 'Ta', 'Ka'],
-	7: ['Ta', 'Ka', 'Di', 'Mi', 'Ta', 'Ki', 'Ta'],
+	7: ['Ta', 'Ka', 'Di', 'Mi', 'Ta', 'Ta', 'Ka'],
 	8: ['Ta', 'Ka', 'Di', 'Mi', 'Ta', 'Ka', 'Ju', 'Nu'],
-	9: ['Ta', 'Ka', 'Di', 'Mi', 'Ta', 'Ka', 'Ta', 'Ki', 'Ta'],
+	9: ['Ta', 'Ka', 'Di', 'Mi', 'Ta', 'Ka', 'Ta', 'Ta', 'Ka'],
 };
 
 /**
- * Подписи по клеткам: при **subdivs === 1** — паттерн такта + anti-repeat по хвосту (как в legacy).
+ * Подписи по клеткам: при **subdivs === 1** — паттерн такта + anti-repeat по хвосту (как в legacy; см. `KONNAKOL_PYRAMID`).
  * При **subdivs > 1** — только фиксированная пирамида по числу поддолей (`Ta Ka`, `Ta Ka Dhi Mi`, …),
  * логика сдвига по такту **не** влияет на разбивку клетки.
  * После клетки **4** (Ta Ka Dhi Mi → хвост Mi) следующая клетка с **subdivs === 1** не показывает одну Mi — сразу **Ta**.
