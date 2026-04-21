@@ -119,6 +119,8 @@ type SequencerGridRowProps = {
 	displayScaleBars: number;
 	syllables: number;
 	lowPerfMode: boolean;
+	/** В плоском poly: визуальный разрыв между шагами (не влияет на аудио). */
+	polyStepTopRule?: boolean;
 	actionsRef: React.MutableRefObject<SequencerGridRowActions | null>;
 	setRowEl: (absR: number, el: HTMLDivElement | null) => void;
 };
@@ -155,6 +157,7 @@ function sequencerGridRowPropsEqual(a: SequencerGridRowProps, b: SequencerGridRo
 		a.displayScaleBars === b.displayScaleBars &&
 		a.syllables === b.syllables &&
 		a.lowPerfMode === b.lowPerfMode &&
+		(a.polyStepTopRule ?? false) === (b.polyStepTopRule ?? false) &&
 		a.actionsRef === b.actionsRef &&
 		a.setRowEl === b.setRowEl
 	);
@@ -193,6 +196,7 @@ const SequencerGridRow = React.memo(
 			displayScaleBars,
 			syllables,
 			lowPerfMode,
+			polyStepTopRule = false,
 			actionsRef,
 			setRowEl,
 		} = p;
@@ -216,7 +220,9 @@ const SequencerGridRow = React.memo(
 				ref={(el) => setRowEl(absR, el)}
 				className={`flex items-stretch bg-[#161f33] border border-[#23314f] min-h-0 relative ${
 					displayScaleBars > 7 ? 'gap-1 p-1 rounded-lg' : 'gap-2 p-1.5 rounded-xl'
-				} ${isPolyRow ? 'border-l-4 border-l-blue-500/45' : ''} ${!effectiveUseFixedFlex ? 'flex-1' : ''}`}
+				} ${isPolyRow ? 'border-l-4 border-l-blue-500/45' : ''} ${
+					polyStepTopRule ? 'mt-1.5 border-t border-[#2a3d66]/90 pt-1.5' : ''
+				} ${!effectiveUseFixedFlex ? 'flex-1' : ''}`}
 				style={{
 					flex: effectiveUseFixedFlex
 						? `0 0 calc((100% - ${(displayScaleBars - 1) * 6}px) / ${displayScaleBars})`
@@ -648,6 +654,15 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 		customSubdivisions,
 	);
 
+	/**
+	 * Legacy: при play и длинной ленте — дубли строк для скролла (playAbsBar растёт).
+	 * Poly: playhead absR всегда 0..bars-1 — дубликаты дали бы ложную подсветку; только bars строк.
+	 */
+	const virtualRowCount = useMemo(() => {
+		if (polyMode || !isPlaying || allBarsFitViewport) return bars;
+		return Math.max(bars, activePos.absR + displayScaleBars * 2);
+	}, [polyMode, isPlaying, allBarsFitViewport, bars, displayScaleBars, activePos.absR]);
+
 	return (
 		<div
 			ref={gridRef}
@@ -657,145 +672,90 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 					: '[&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[#2f4066] [&::-webkit-scrollbar-thumb]:rounded-full'
 			}`}
 		>
-			{!polyMode
-				? Array.from({
-						length:
-							isPlaying && !allBarsFitViewport
-								? Math.max(bars, activePos.absR + displayScaleBars * 2)
-								: bars,
-					}).map((_, absR) => {
-						const rIdx = absR % bars;
-						const rowSylls = customSyllables[rIdx] !== undefined ? customSyllables[rIdx] : syllables;
-						const rowCellLabels = rowCellLabelsCache[rIdx] ?? [];
-						const rowMult = customMultipliers[rIdx] || 1;
-						const effectiveUseFixedFlex = useFixedFlex || (isPlaying && !allBarsFitViewport);
-						const subdivSig = Array.from({ length: rowSylls }, (_, c) =>
-							String(customSubdivisions[`${rIdx}-${c}`] ?? 1),
-						).join(',');
-						const accentSig = Array.from({ length: rowSylls }, (_, c) =>
-							accents.has(`${rIdx}-${c}`) ? '1' : '0',
-						).join('');
-						const taDingSig = Array.from({ length: rowSylls }, (_, c) =>
-							taDingKeys.has(`${rIdx}-${c}`) ? '1' : '0',
-						).join('');
-						const pulseUnlinkedRow = Boolean(pulseMeterUnlinked[rIdx]);
-						const highlightCol = isPlaying
-							? activePos.absR === absR
-								? activePos.c
-								: null
-							: activePos.r === rIdx
+			{Array.from({ length: virtualRowCount }).map((_, absR) => {
+				const rIdx = absR % bars;
+				const rowSylls = customSyllables[rIdx] !== undefined ? customSyllables[rIdx] : syllables;
+				const rowCellLabels = rowCellLabelsCache[rIdx] ?? [];
+				const rowMult = customMultipliers[rIdx] || 1;
+				const effectiveUseFixedFlex = useFixedFlex || (isPlaying && !allBarsFitViewport);
+				const subdivSig = Array.from({ length: rowSylls }, (_, c) =>
+					String(customSubdivisions[`${rIdx}-${c}`] ?? 1),
+				).join(',');
+				const accentSig = Array.from({ length: rowSylls }, (_, c) =>
+					accents.has(`${rIdx}-${c}`) ? '1' : '0',
+				).join('');
+				const taDingSig = Array.from({ length: rowSylls }, (_, c) =>
+					taDingKeys.has(`${rIdx}-${c}`) ? '1' : '0',
+				).join('');
+				const pulseUnlinkedRow = Boolean(pulseMeterUnlinked[rIdx]);
+
+				let highlightCol: number | null;
+				let stepLabel: string | undefined;
+				let isPolyRow: boolean | undefined;
+				let polyStepTopRule = false;
+				if (!polyMode) {
+					highlightCol = isPlaying
+						? activePos.absR === absR
+							? activePos.c
+							: null
+						: activePos.r === rIdx
+							? activePos.c
+							: null;
+				} else {
+					const voiceIdx = rIdx % polyVoices;
+					const stepIdx = Math.floor(rIdx / polyVoices);
+					const voiceHighlight = activePositions.find(
+						(pos) => pos.step === stepIdx && pos.voice === voiceIdx,
+					);
+					highlightCol =
+						isPlaying && voiceHighlight
+							? voiceHighlight.c
+							: !isPlaying && activePos.r === rIdx
 								? activePos.c
 								: null;
+					stepLabel = voiceIdx === 0 ? `${stepIdx + 1}` : '';
+					isPolyRow = true;
+					polyStepTopRule = stepIdx > 0 && voiceIdx === 0;
+				}
 
-						return (
-							<SequencerGridRow
-								key={absR}
-								absR={absR}
-								rIdx={rIdx}
-								rowSylls={rowSylls}
-								rowMult={rowMult}
-								subdivSig={subdivSig}
-								accentSig={accentSig}
-								taDingSig={taDingSig}
-								pulseUnlinkedRow={pulseUnlinkedRow}
-								activeEditRow={activeEditRow}
-								activeEditCell={activeEditCell}
-								highlightCol={highlightCol}
-								isPlaying={isPlaying}
-								isTaEditorMode={isTaEditorMode}
-								isDeadCellsEditorMode={isDeadCellsEditorMode}
-								accentMapVersion={accentMapVersion}
-								firstBeatAccent={firstBeatAccent}
-								forceFirstBeatEditorFrames={forceFirstBeatEditorFrames}
-								firstBeatEditorSuppressedSig={firstBeatEditorSuppressedSig}
-								deadStartByRow={deadStartByRow}
-								deadDisplayByRow={deadDisplayByRow}
-								rowCellLabels={rowCellLabels}
-								effectiveUseFixedFlex={effectiveUseFixedFlex}
-								displayScaleBars={displayScaleBars}
-								syllables={syllables}
-								lowPerfMode={lowPerfMode}
-								polyMode={polyMode}
-								polyVoices={polyVoices}
-								actionsRef={sequencerGridRowActionsRef}
-								setRowEl={setRowElStable}
-							/>
-						);
-					})
-				: Array.from({ length: Math.ceil(bars / polyVoices) }).map((_, stepIdx) => {
-						const stepRows = Array.from({ length: polyVoices })
-							.map((__, voiceIdx) => ({
-								voiceIdx,
-								rIdx: stepIdx * polyVoices + voiceIdx,
-							}))
-							.filter((row) => row.rIdx < bars);
-						return (
-							<div
-								key={`step-${stepIdx}`}
-								className="rounded-xl border border-[#2a3d66] bg-[#101a2b]/80 p-1.5 flex flex-col gap-1"
-							>
-								{stepRows.map(({ voiceIdx, rIdx }) => {
-									const absR = stepIdx * polyVoices + voiceIdx;
-									const rowSylls =
-										customSyllables[rIdx] !== undefined ? customSyllables[rIdx] : syllables;
-									const rowCellLabels = rowCellLabelsCache[rIdx] ?? [];
-									const rowMult = customMultipliers[rIdx] || 1;
-									const effectiveUseFixedFlex = false;
-									const subdivSig = Array.from({ length: rowSylls }, (_, c) =>
-										String(customSubdivisions[`${rIdx}-${c}`] ?? 1),
-									).join(',');
-									const accentSig = Array.from({ length: rowSylls }, (_, c) =>
-										accents.has(`${rIdx}-${c}`) ? '1' : '0',
-									).join('');
-									const taDingSig = Array.from({ length: rowSylls }, (_, c) =>
-										taDingKeys.has(`${rIdx}-${c}`) ? '1' : '0',
-									).join('');
-									const pulseUnlinkedRow = Boolean(pulseMeterUnlinked[rIdx]);
-									const voiceHighlight = activePositions.find(
-										(pos) => pos.step === stepIdx && pos.voice === voiceIdx,
-									);
-									const highlightCol =
-										isPlaying && voiceHighlight ? voiceHighlight.c : !isPlaying && activePos.r === rIdx ? activePos.c : null;
-									return (
-										<SequencerGridRow
-											key={absR}
-											absR={absR}
-											rIdx={rIdx}
-											stepLabel={voiceIdx === 0 ? `${stepIdx + 1}` : ''}
-											isPolyRow={true}
-											rowSylls={rowSylls}
-											rowMult={rowMult}
-											subdivSig={subdivSig}
-											accentSig={accentSig}
-											taDingSig={taDingSig}
-											pulseUnlinkedRow={pulseUnlinkedRow}
-											activeEditRow={activeEditRow}
-											activeEditCell={activeEditCell}
-									highlightCol={highlightCol}
-									isPlaying={isPlaying}
-									isTaEditorMode={isTaEditorMode}
-									isDeadCellsEditorMode={isDeadCellsEditorMode}
-									accentMapVersion={accentMapVersion}
-									firstBeatAccent={firstBeatAccent}
-									forceFirstBeatEditorFrames={forceFirstBeatEditorFrames}
-									firstBeatEditorSuppressedSig={firstBeatEditorSuppressedSig}
-									deadStartByRow={deadStartByRow}
-									deadDisplayByRow={deadDisplayByRow}
-									rowCellLabels={rowCellLabels}
-									effectiveUseFixedFlex={effectiveUseFixedFlex}
-									displayScaleBars={displayScaleBars}
-									syllables={syllables}
-									lowPerfMode={lowPerfMode}
-									polyMode={polyMode}
-									polyVoices={polyVoices}
-									actionsRef={sequencerGridRowActionsRef}
-									setRowEl={setRowElStable}
-								/>
-									);
-								})}
-							</div>
-						);
-					})}
+				return (
+					<SequencerGridRow
+						key={absR}
+						absR={absR}
+						rIdx={rIdx}
+						stepLabel={stepLabel}
+						isPolyRow={isPolyRow}
+						rowSylls={rowSylls}
+						rowMult={rowMult}
+						subdivSig={subdivSig}
+						accentSig={accentSig}
+						taDingSig={taDingSig}
+						pulseUnlinkedRow={pulseUnlinkedRow}
+						activeEditRow={activeEditRow}
+						activeEditCell={activeEditCell}
+						highlightCol={highlightCol}
+						isPlaying={isPlaying}
+						isTaEditorMode={isTaEditorMode}
+						isDeadCellsEditorMode={isDeadCellsEditorMode}
+						accentMapVersion={accentMapVersion}
+						firstBeatAccent={firstBeatAccent}
+						forceFirstBeatEditorFrames={forceFirstBeatEditorFrames}
+						firstBeatEditorSuppressedSig={firstBeatEditorSuppressedSig}
+						deadStartByRow={deadStartByRow}
+						deadDisplayByRow={deadDisplayByRow}
+						rowCellLabels={rowCellLabels}
+						effectiveUseFixedFlex={effectiveUseFixedFlex}
+						displayScaleBars={displayScaleBars}
+						syllables={syllables}
+						lowPerfMode={lowPerfMode}
+						polyStepTopRule={polyStepTopRule}
+						polyMode={polyMode}
+						polyVoices={polyVoices}
+						actionsRef={sequencerGridRowActionsRef}
+						setRowEl={setRowElStable}
+					/>
+				);
+			})}
 		</div>
 	);
 });
