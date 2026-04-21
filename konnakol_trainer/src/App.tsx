@@ -3370,6 +3370,10 @@ export default function App() {
                 eraserHoldAteClickRef.current = false;
                 return;
               }
+              if (isDeadCellsEditorModeRef.current) {
+                setIsDeadCellsEditorMode(false);
+                return;
+              }
               clearSequencer();
             }}
             className={`p-3 rounded-xl border transition-all duration-200 ${
