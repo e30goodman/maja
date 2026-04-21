@@ -295,7 +295,8 @@ function applyRandomizerEffectsToBar(
 			return Math.max(flatCap, Math.min(deadAt100, Math.round(flatCap + exp01 * (deadAt100 - flatCap))));
 		})();
 		const baseDead = Math.max(0, curSyl - baseActive);
-		const deadCount = Math.min(baseDead, maxDeadForChaos);
+		// Для high-chaos (>70) приоритет у целевой dead-кривой, а не у акцентной плотности.
+		const deadCount = chaos >= 70 ? maxDeadForChaos : Math.min(baseDead, maxDeadForChaos);
 		const activeCount = Math.max(1, curSyl - deadCount);
 		if (activeCount >= curSyl) {
 			delete m.deadCells[prevBar];
