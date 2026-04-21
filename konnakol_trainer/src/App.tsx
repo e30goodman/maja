@@ -1714,6 +1714,13 @@ export default function App() {
     frozenScaleRef.current = null;
   };
 
+  useEffect(() => {
+    if (!polyMode) return;
+    if (isDeadCellsEditorModeRef.current) {
+      setIsDeadCellsEditorMode(false);
+    }
+  }, [polyMode]);
+
   const toggleRandomFeature = (feature: 'pulsation' | 'pattern' | 'speed' | 'barSpeed') => {
     let willBeEnabled = false;
     if (feature === 'pulsation') {
@@ -3332,6 +3339,7 @@ export default function App() {
           )}
           <button 
             onPointerDown={() => {
+              if (polyMode) return;
               eraserHoldAteClickRef.current = false;
               if (eraserHoldTimerRef.current !== null) {
                 window.clearTimeout(eraserHoldTimerRef.current);
@@ -3377,7 +3385,9 @@ export default function App() {
               clearSequencer();
             }}
             className={`p-3 rounded-xl border transition-all duration-200 ${
-              isDeadCellsEditorMode
+              polyMode
+                ? 'bg-[#161f33] border-[#23314f] text-slate-600'
+                : isDeadCellsEditorMode
                 ? `bg-red-600/25 border-red-400/70 text-red-200 ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(248,113,113,0.35)]'}`
                 : 'bg-[#161f33] border-[#23314f] text-slate-400 hover:text-red-400 hover:border-red-500/30 active:bg-red-500/20'
             }`}
