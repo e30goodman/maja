@@ -248,10 +248,8 @@ const LITE_UI_STORAGE_KEY = 'konnakol_lite_ui';
 const POLY_MODE_STORAGE_KEY = 'konnakol_poly_mode';
 const POLY_VOICES_STORAGE_KEY = 'konnakol_poly_voices';
 const APP_COMMIT_VERSION = (() => {
-	const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.VITE_APP_COMMIT;
-	if (typeof env === 'string' && env.length >= 7) return env.slice(0, 7);
 	if (typeof __GIT_SHA7__ === 'string' && __GIT_SHA7__.length >= 7) return __GIT_SHA7__.slice(0, 7);
-	return '4c1f5c9';
+	return 'bd376fe';
 })();
 const TEMPO_THROTTLE_MS = 56;
 /** Clipboard export: kawaii magic marker for compact preset payload. */
@@ -2895,9 +2893,10 @@ export default function App() {
         }
         const hasTaDingHere = taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
         const playbackMode = squarePlaybackModeRef.current;
+        const dictantActive = dictantModeRef.current;
         const shouldPlayBeat =
           playbackMode === 'all_beats'
-            ? true
+            ? (dictantActive ? isAccent || hasTaDingHere : true)
             : playbackMode === 'accent_only'
               ? isAccent || hasTaDingHere
               : true;
@@ -2906,6 +2905,7 @@ export default function App() {
           cIdx === 0 && sub === 0 && firstBeatAccentRef.current && firstBeatCellHitRow;
         const sharpAsChecked = (() => {
           if (playbackMode === 'passive_only') return false;
+          if (dictantActive) return mainAccentClick;
           if (muteMode === 'no_accent_sharp' && mainAccentClick && !isTaFirstBeatArticulation) return false;
           return mainAccentClick;
         })();
@@ -2914,7 +2914,7 @@ export default function App() {
           subTime,
           sharpAsChecked,
           clickSoundRef.current,
-          playbackMode !== 'all_beats' || dictantModeRef.current,
+          playbackMode !== 'all_beats' || dictantActive,
         );
         if (polyModeRef.current) {
           polyClickSlotsRef.current.add(polySlotKey);
