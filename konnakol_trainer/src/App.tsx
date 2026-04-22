@@ -2397,6 +2397,9 @@ type StructuralSliderProps = {
   onBeginDrag?: () => void;
 };
 
+/** Ширина «рукоятки» в px (совпадает с w-4 в классе слайдера) — только по ней принимаем pointerdown, не по дорожке. */
+const STRUCTURAL_SLIDER_THUMB_PX = 16;
+
 function StructuralSlider({
   label,
   min,
@@ -2411,6 +2414,11 @@ function StructuralSlider({
   const committedValueRef = useRef(value);
   const lastLiveValueRef = useRef(value);
   const pointerActiveRef = useRef(false);
+  const localValueRef = useRef(value);
+
+  useEffect(() => {
+    localValueRef.current = localValue;
+  }, [localValue]);
 
   useEffect(() => {
     setLocalValue(value);
@@ -2447,6 +2455,17 @@ function StructuralSlider({
     [onLiveChange],
   );
 
+  const isPointerDownOnThumb = useCallback((clientX: number, el: HTMLInputElement) => {
+    const rect = el.getBoundingClientRect();
+    const span = Math.max(1, max - min);
+    const v = localValueRef.current;
+    const frac = (v - min) / span;
+    const tw = STRUCTURAL_SLIDER_THUMB_PX;
+    const trackInner = Math.max(0, rect.width - tw);
+    const thumbCenterX = rect.left + frac * trackInner + tw / 2;
+    return Math.abs(clientX - thumbCenterX) <= tw * 0.95;
+  }, [max, min]);
+
   return (
     <input
       aria-label={label}
@@ -2454,7 +2473,12 @@ function StructuralSlider({
       min={String(min)}
       max={String(max)}
       value={localValue}
-      onPointerDown={() => {
+      onPointerDown={(e) => {
+        if (!isPointerDownOnThumb(e.clientX, e.currentTarget)) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
         pointerActiveRef.current = true;
         onBeginDrag?.();
       }}
