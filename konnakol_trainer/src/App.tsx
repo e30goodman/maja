@@ -325,7 +325,7 @@ const POLY_MODE_STORAGE_KEY = 'konnakol_poly_mode';
 const POLY_VOICES_STORAGE_KEY = 'konnakol_poly_voices';
 const APP_COMMIT_VERSION = (() => {
 	if (typeof __GIT_SHA7__ === 'string' && __GIT_SHA7__.length >= 7) return __GIT_SHA7__.slice(0, 7);
-	return 'efbcd08';
+	return 'c7797cb';
 })();
 const TEMPO_THROTTLE_MS = 56;
 /** Удержание −/+ темпа: после задержки шаг ±5 каждые 0,1 с. */
@@ -920,10 +920,10 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 		noiseType: 'highpass',
 		noiseFreq: 5600,
 		noiseFreqAccent: 1390,
-		altNoiseFreq: 5200,
+		altNoiseFreq: 1490,
 		volume: 0.7,
 		volumeAccent: 3,
-		volumeAlt: 1.7,
+		volumeAlt: 2.25,
 		layers: {
 			accent: [
 				{
@@ -958,13 +958,15 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 					noiseFilterType: 'highpass',
 					params: { volume: 1.4, decay: 0.065, freq: 410, hpFreq: 20, lpFreq: 12000 },
 					mute: false,
+					solo: false,
 				},
 				{
 					type: 'noise',
-					sweep: false,
+					sweep: true,
 					noiseFilterType: 'highpass',
-					params: { volume: 1.7, decay: 0.065, freq: 5200, hpFreq: 5000, lpFreq: 12000 },
+					params: { volume: 2.25, decay: 0.065, freq: 1490, hpFreq: 5000, lpFreq: 12280 },
 					mute: false,
+					solo: false,
 				},
 				{
 					type: 'none',
