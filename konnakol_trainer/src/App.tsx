@@ -192,6 +192,31 @@ type BarRandomizerMutable = {
 
 type DeadCellsMap = Record<number, { deadStart: number; displayLen: number; baseLen: number }>;
 
+type SequencerSeqItem = { r: number; c: number; activeSyllables: number };
+
+/**
+ * Порядок долей в legacy (не poly): только живые клетки `c < deadStart`.
+ * Иначе мёртвые слоги занимают время в `nextNote`, хотя клик уже глушится в `emitGridSubAudio`.
+ */
+function buildLegacyPlaybackSequence(
+	barCount: number,
+	customSyllables: Record<number, number>,
+	baseSyllables: number,
+	deadCells: DeadCellsMap,
+): SequencerSeqItem[] {
+	const seq: SequencerSeqItem[] = [];
+	for (let r = 0; r < barCount; r++) {
+		const syls = customSyllables[r] !== undefined ? customSyllables[r] : baseSyllables;
+		const ds = deadCells[r]?.deadStart;
+		const lastLiveExclusive =
+			typeof ds === 'number' ? Math.min(Math.max(0, Math.floor(ds)), syls) : syls;
+		for (let c = 0; c < lastLiveExclusive; c++) {
+			seq.push({ r, c, activeSyllables: syls });
+		}
+	}
+	return seq;
+}
+
 /** Одна итерация рандома на такт `prevBar` (как на границе такта в плеере). */
 function applyRandomizerEffectsToBar(
 	prevBar: number,
@@ -3581,18 +3606,17 @@ export default function App() {
       return prev;
     });
 
-    const newSeq: { r: number; c: number; activeSyllables: number }[] = [];
-    for (let r = 0; r < nBars; r++) {
-      const syls = next;
-      for (let c = 0; c < syls; c++) {
-        newSeq.push({ r, c, activeSyllables: syls });
-      }
-    }
+    const newSeq = buildLegacyPlaybackSequence(nBars, {}, next, nextDc);
 
     if (sequenceRef.current.length > 0 && newSeq.length > 0) {
       const oldItem = sequenceRef.current[currentStepRef.current];
       if (oldItem) {
-        const targetC = Math.min(oldItem.c, next - 1);
+        const rowMeta = nextDc[oldItem.r];
+        const rowDs = rowMeta?.deadStart;
+        const lastLiveExclusive =
+          typeof rowDs === 'number' ? Math.min(Math.max(0, Math.floor(rowDs)), next) : next;
+        const targetC =
+          lastLiveExclusive > 0 ? Math.min(oldItem.c, lastLiveExclusive - 1) : 0;
         const newIdx = newSeq.findIndex((item) => item.r === oldItem.r && item.c === targetC);
         currentStepRef.current = newIdx !== -1 ? newIdx : 0;
       } else {
@@ -3717,16 +3741,10 @@ export default function App() {
   const allBarsFitViewport = bars <= displayScaleBars;
   const disableMenuSmoothing = lowPerfMode || bars > 8 || syllables >= 9;
 
-  const sequence = React.useMemo(() => {
-    const seq = [];
-    for (let r = 0; r < bars; r++) {
-      const syls = customSyllables[r] !== undefined ? customSyllables[r] : syllables;
-      for (let c = 0; c < syls; c++) {
-        seq.push({ r, c, activeSyllables: syls });
-      }
-    }
-    return seq;
-  }, [bars, syllables, customSyllables]);
+  const sequence = React.useMemo(
+    () => buildLegacyPlaybackSequence(bars, customSyllables, syllables, deadCells),
+    [bars, syllables, customSyllables, deadCells],
+  );
 
   const sequenceRef = useRef(sequence);
   sequenceRef.current = sequence; // Always keep ref atomic with render
@@ -4393,14 +4411,12 @@ export default function App() {
           );
 
           if (didChange) {
-            const newSeq = [];
-            for (let r = 0; r < barsRef.current; r++) {
-              const syls = customSyllablesRef.current[r] !== undefined ? customSyllablesRef.current[r] : syllablesRef.current;
-              for (let c = 0; c < syls; c++) {
-                newSeq.push({ r, c, activeSyllables: syls });
-              }
-            }
-            sequenceRef.current = newSeq;
+            sequenceRef.current = buildLegacyPlaybackSequence(
+              barsRef.current,
+              customSyllablesRef.current,
+              syllablesRef.current,
+              deadCellsRef.current,
+            );
             
             const targetStepIndex = sequenceRef.current.findIndex(item => item.r === targetR && item.c === 0);
             if (targetStepIndex !== -1) {
