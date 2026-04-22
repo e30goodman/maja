@@ -4732,9 +4732,12 @@ export default function App() {
     const chunk = chunks[safeStep];
     if (!chunk || chunk.length === 0) return 0.5;
     const masterBar = chunk[0]!;
-    const chunkWall = getBarTimeWindowSeconds(masterBar);
-    const chunkEnd = time + chunkWall;
     const EPS = 1e-9;
+    /** Длительность шага планировщика: по самому длинному такту в чанке. Раньше только master → второй голос обрезался по чужому окну и «ждал». */
+    const stepWallSec = Math.max(
+      EPS * 100,
+      ...chunk.map((bIdx) => getBarTimeWindowSeconds(bIdx)),
+    );
     /** Следующая доля после c; мёртвая или за концом такта → снова клетка 0. */
     const nextPolyCell = (barIdx: number, c: number, rowSyl: number): number => {
       const n = c + 1;
@@ -4749,6 +4752,7 @@ export default function App() {
       const dBar = getBarTimeWindowSeconds(barIdx) / Math.max(1, rowSyllables);
       const absR = safeStep * polyVoicesRef.current + voiceIdx;
       const isMasterTrack = barIdx === masterBar && voiceIdx === 0;
+      const voiceChunkEnd = time + getBarTimeWindowSeconds(barIdx);
       const prev = polyNextBeatRef.current[barIdx];
       let tNext: number;
       let cNext: number;
@@ -4763,7 +4767,7 @@ export default function App() {
       const maxSteps = Math.max(96, rowSyllables * 16);
       while (guard < maxSteps) {
         guard += 1;
-        const allowAtChunkEnd = isMasterTrack ? tNext < chunkEnd - EPS : tNext <= chunkEnd + EPS;
+        const allowAtChunkEnd = isMasterTrack ? tNext < voiceChunkEnd - EPS : tNext <= voiceChunkEnd + EPS;
         if (!allowAtChunkEnd) break;
         scheduleGridCellAtTime(barIdx, cNext, absR, tNext, voiceIdx, safeStep, dBar);
         const cAfter = nextPolyCell(barIdx, cNext, rowSyllables);
@@ -4773,7 +4777,7 @@ export default function App() {
       }
       polyNextBeatRef.current[barIdx] = { t: tNext, c: cNext };
     });
-    return chunkWall;
+    return stepWallSec;
   }, [getBarTimeWindowSeconds, scheduleGridCellAtTime]);
 
   const scheduler = () => {
