@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, startTransition } from 'react';
+import { flushSync } from 'react-dom';
 import {
 	Settings,
 	Minus,
@@ -12,7 +13,6 @@ import {
 	Eraser,
 	Copy,
 	ClipboardPaste,
-	SlidersHorizontal,
 } from 'lucide-react';
 import { SequencerGrid, type SequencerGridRowActions } from './SequencerGrid';
 import { getMetronomeSummingInput, METRA_LOOKAHEAD_MS, METRA_SCHEDULE_AHEAD_SEC } from './metraAudioBus';
@@ -325,7 +325,7 @@ const POLY_MODE_STORAGE_KEY = 'konnakol_poly_mode';
 const POLY_VOICES_STORAGE_KEY = 'konnakol_poly_voices';
 const APP_COMMIT_VERSION = (() => {
 	if (typeof __GIT_SHA7__ === 'string' && __GIT_SHA7__.length >= 7) return __GIT_SHA7__.slice(0, 7);
-	return 'a6283b8';
+	return 'dev';
 })();
 const TEMPO_THROTTLE_MS = 56;
 /** Удержание −/+ темпа: после задержки шаг ±5 каждые 0,1 с. */
@@ -369,6 +369,10 @@ const CLICK_ENV_ATTACK_SEC = 0.002;
 const CLICK_LAYER_VOLUME_GATE = 0.001;
 const CLICK_DECAY_MIN_SEC = 0.001;
 const CLICK_DECAY_MAX_SEC = 3;
+/** Отложенный щелчок: ref-read максимально близко к атаке (квадрат / диктант mid-beat). */
+const GRID_CLICK_AUDIO_DEFER_LEAD_SEC = 0.0016;
+/** Если до атаки меньше — без setTimeout (снижает гонки с poly lookahead). */
+const GRID_CLICK_DEFER_IF_AHEAD_SEC = 0.0035;
 
 type ClickSoundPreset =
 	| 'classic'
@@ -2701,8 +2705,6 @@ export default function App() {
   // Click Sound
   const [clickSound, setClickSound] = useState<ClickSoundPreset>(seed.clickSound);
   const [isClickSoundSelectorOpen, setIsClickSoundSelectorOpen] = useState(false);
-  const [mixerPanelOpen, setMixerPanelOpen] = useState(false);
-  const [, setMixerUiTick] = useState(0);
 
   // Preset Snapshot State (7 slots; persisted in localStorage)
   const [activeSnapshot, setActiveSnapshot] = useState(initialBoot.activeSnapshot);
@@ -3072,7 +3074,18 @@ export default function App() {
   const playheadQueueRef = useRef<PlayheadHighlightEvent[]>([]);
   const playheadTimerRef = useRef<number | null>(null);
   const previewResetTimerRef = useRef<number | null>(null);
-  const polyClickSlotsRef = useRef<Set<number>>(new Set());
+  /** Полиметр: ключ включает голос (и строку), иначе совпадение subTime глушит параллельные линии. */
+  const polyClickSlotsRef = useRef<Set<string>>(new Set());
+  /** Таймеры отложенных щелчков (см. GRID_CLICK_*): сброс при стопе / превью / старте. */
+  const pendingGridClickTimerIdsRef = useRef<number[]>([]);
+  /** playTwoBars preview: emit разрешён без isPlaying. */
+  const gridPreviewAudioActiveRef = useRef(false);
+  const clearPendingGridClickTimers = () => {
+    for (const id of pendingGridClickTimerIdsRef.current) {
+      window.clearTimeout(id);
+    }
+    pendingGridClickTimerIdsRef.current = [];
+  };
   const sequencerGridRowActionsRef = useRef<SequencerGridRowActions | null>(null);
   const nextNoteTimeRef = useRef(0);
   const currentStepRef = useRef(0);
@@ -3105,6 +3118,8 @@ export default function App() {
   const randomBarSpeedRef = useRef(randomBarSpeed);
   const chaosLevelRef = useRef(chaosLevel);
   const clickSoundRef = useRef(clickSound);
+  /** Последний пресет, для которого вызван cloneClickMixerFromLibrary (см. блок синхронизации в render). */
+  const clickSoundMixerClonedKeyRef = useRef<ClickSoundPreset | null>(null);
   const frozenScaleRef = useRef(frozenScale);
 
   /** Пока тянут глобальные слайдеры Bars/Syllables — не писать `snapshots` из эффекта; flush на pointerup. */
@@ -3162,27 +3177,7 @@ export default function App() {
   useEffect(() => { randomSpeedRef.current = randomSpeed; }, [randomSpeed]);
   useEffect(() => { randomBarSpeedRef.current = randomBarSpeed; }, [randomBarSpeed]);
   useEffect(() => { chaosLevelRef.current = chaosLevel; }, [chaosLevel]);
-  useEffect(() => { clickSoundRef.current = clickSound; }, [clickSound]);
 
-  useEffect(() => {
-    cloneClickMixerFromLibrary(clickSound);
-    setMixerUiTick((x) => x + 1);
-  }, [clickSound]);
-
-  const syncMixerVoiceBus = useCallback((voice: MetroVoiceKey) => {
-    const ctx = audioCtxRef.current;
-    const g = clickMixerGroupRef.current;
-    if (!ctx || !g) return;
-    getVoiceLayerSumInput(ctx, voice);
-    applyVoiceGroupChain(ctx, voice, g[voice].groupHpHz, g[voice].groupLpHz, g[voice].groupMasterLinear);
-  }, []);
-
-  useEffect(() => {
-    if (!mixerPanelOpen) return;
-    const ctx = audioCtxRef.current;
-    if (!ctx) return;
-    (['accent', 'alt', 'passive'] as const).forEach((v) => syncMixerVoiceBus(v));
-  }, [mixerPanelOpen, syncMixerVoiceBus]);
   useEffect(() => { frozenScaleRef.current = frozenScale; }, [frozenScale]);
   useEffect(() => { polyModeRef.current = polyMode; }, [polyMode]);
   useEffect(() => { polyVoicesRef.current = polyVoices; }, [polyVoices]);
@@ -4122,6 +4117,8 @@ export default function App() {
         playheadTimerRef.current = null;
       }
       playheadQueueRef.current = [];
+      gridPreviewAudioActiveRef.current = false;
+      clearPendingGridClickTimers();
       if (audioCtxRef.current) audioCtxRef.current.close().catch(() => {});
     };
   }, []);
@@ -4421,44 +4418,41 @@ export default function App() {
   const scheduleGridCellAtTime = useCallback(
     (rIdx: number, cIdx: number, absR: number, time: number, voice: number, step: number, noteDuration: number) => {
       if (!audioCtxRef.current) return;
-      const isAccent = accentsRef.current.has(`${rIdx}-${cIdx}`);
       const subdivs = customSubdivisionsRef.current[`${rIdx}-${cIdx}`] || 1;
       const subDuration = Math.max(0.001, noteDuration / Math.max(1, subdivs));
-      const muteMode = syllableReadMuteModeRef.current;
-      const on0Accent = accentsRef.current.has(`${rIdx}-0`);
-      const on0Ding = taDingKeysRef.current.has(`${rIdx}-0`);
-      const supRow = firstBeatDingSuppressedRowsRef.current.has(rIdx);
-      const fa = firstBeatAccentRef.current;
-      const firstBeatCellHitRow = on0Accent || on0Ding || (fa && !supRow);
-      for (let sub = 0; sub < subdivs; sub++) {
-        const subTime = time + sub * subDuration;
-        const polySlotKey = Math.round(subTime * 100000);
+
+      const emitGridSubAudio = (sub: number, subTime: number) => {
+        const ctx = audioCtxRef.current;
+        if (!ctx) return;
+        if (!isPlayingRef.current && !gridPreviewAudioActiveRef.current) return;
+        const isAccent = accentsRef.current.has(`${rIdx}-${cIdx}`);
+        const muteMode = syllableReadMuteModeRef.current;
+        const on0Accent = accentsRef.current.has(`${rIdx}-0`);
+        const on0Ding = taDingKeysRef.current.has(`${rIdx}-0`);
+        const supRow = firstBeatDingSuppressedRowsRef.current.has(rIdx);
+        const fa = firstBeatAccentRef.current;
+        const firstBeatCellHitRow = on0Accent || on0Ding || (fa && !supRow);
+        const polySlotKey = polyModeRef.current
+          ? `${voice}:${rIdx}:${Math.round(subTime * 1_000_000)}`
+          : '';
         const shouldDedupPolyClick = polyModeRef.current && polyClickSlotsRef.current.has(polySlotKey);
         const isFirstOfBar = cIdx === 0 && sub === 0;
-        /** Фиолетовый акцент на этой поддоле (до веток Ta / dedup). */
         const mainAccentClick = isAccent && (subdivs > 1 || sub === 0);
         const shouldPlayFirstBeatTa =
-          isFirstOfBar &&
-          firstBeatAccentRef.current &&
-          firstBeatCellHitRow &&
-          (!polyModeRef.current || voice === 0);
+          isFirstOfBar && firstBeatAccentRef.current && firstBeatCellHitRow;
         if (shouldPlayFirstBeatTa) {
-          playBarFirstHighClick(audioCtxRef.current, subTime, clickSoundRef.current);
+          playBarFirstHighClick(ctx, subTime, clickSoundRef.current);
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
           }
         }
         if (shouldDedupPolyClick) {
-          continue;
+          return;
         }
         const playbackMode = squarePlaybackModeRef.current;
         const taEnabled = firstBeatAccentRef.current;
         const isTaDingCell = taEnabled && cIdx >= 1 && taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
-        /** В т.ч. в passive_only: Ta-разметка по сетке должна звучать (не мьютить кастомные позиции). */
-        const shouldPlayTaDingSound =
-          sub === 0 &&
-          isTaDingCell &&
-          (!polyModeRef.current || voice === 0);
+        const shouldPlayTaDingSound = sub === 0 && isTaDingCell;
         const hasTaDingHere = taEnabled && taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
         const dictantActive = dictantModeRef.current;
         const shouldPlayBeat =
@@ -4474,31 +4468,20 @@ export default function App() {
           if (muteMode === 'no_accent_sharp' && mainAccentClick && !isTaFirstBeatArticulation) return false;
           return mainAccentClick;
         })();
-        /**
-         * Составной тембр Ta: всегда ding + пассивный слой (те же параметры, что у пассивной доли в `playSharpClick`).
-         * До `muteMode === 'full'`, чтобы полный мьют сетки не резал второй слой Ta.
-         */
         if (shouldPlayTaDingSound) {
-          playBarFirstHighClick(audioCtxRef.current, subTime, clickSoundRef.current);
+          playBarFirstHighClick(ctx, subTime, clickSoundRef.current);
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
           }
         }
-        if (muteMode === 'full') continue;
-        if (!shouldPlayBeat) continue;
-        /** Пассив Ta уже в составном тембре — не дублировать тот же щелчок сетки (в т.ч. при no_accent_sharp / мьютах пассива). */
+        if (muteMode === 'full') return;
+        if (!shouldPlayBeat) return;
         if (shouldPlayTaDingSound && !sharpAsChecked && playbackMode !== 'all_beats') {
-          continue;
+          return;
         }
-        /** Первая доля уже сыграла ding+пассив — не дублировать пассив сетки на (0,0). */
         if (shouldPlayFirstBeatTa && !sharpAsChecked && playbackMode !== 'all_beats') {
-          continue;
+          return;
         }
-        /**
-         * На Ta+фиолет акцент пассив уже сыгран вторым слоем Ta; в accent_only смесь 800+920 дала бы второй 800.
-         * То же для первой доли с акцентом: пассив уже в составном ударе выше.
-         * Оставляем только верх акцента (ветка `playSharpClick(..., accentOnlyPlayback: false)` для classic).
-         */
         const accentOnlyPlayback =
           (playbackMode !== 'all_beats' || dictantActive) &&
           !(shouldPlayTaDingSound && isAccent) &&
@@ -4508,29 +4491,35 @@ export default function App() {
             ? 'accent'
             : shouldPlayFirstBeatTa
               ? 'base'
-            : shouldPlayTaDingSound
-              ? 'base'
-              : 'base';
-        playSharpClick(
-          audioCtxRef.current,
-          subTime,
-          sharpAsChecked,
-          clickSoundRef.current,
-          accentOnlyPlayback,
-          voiceRole,
-        );
+              : shouldPlayTaDingSound
+                ? 'base'
+                : 'base';
+        playSharpClick(ctx, subTime, sharpAsChecked, clickSoundRef.current, accentOnlyPlayback, voiceRole);
         if (sharpAsChecked && playbackMode === 'all_beats' && !shouldPlayFirstBeatTa && !shouldPlayTaDingSound) {
-          playSharpClick(
-            audioCtxRef.current,
-            subTime,
-            false,
-            clickSoundRef.current,
-            false,
-            'alt',
-          );
+          playSharpClick(ctx, subTime, false, clickSoundRef.current, false, 'alt');
         }
         if (polyModeRef.current) {
           polyClickSlotsRef.current.add(polySlotKey);
+        }
+      };
+
+      for (let sub = 0; sub < subdivs; sub++) {
+        const subTime = time + sub * subDuration;
+        const ctx = audioCtxRef.current;
+        if (!ctx) continue;
+        const allowDefer = isPlayingRef.current || gridPreviewAudioActiveRef.current;
+        const defer =
+          allowDefer && subTime - ctx.currentTime > GRID_CLICK_DEFER_IF_AHEAD_SEC;
+        if (defer) {
+          const delayMs = Math.max(0, (subTime - ctx.currentTime - GRID_CLICK_AUDIO_DEFER_LEAD_SEC) * 1000);
+          const subI = sub;
+          const subTimeI = subTime;
+          const id = window.setTimeout(() => {
+            emitGridSubAudio(subI, subTimeI);
+          }, delayMs);
+          pendingGridClickTimerIdsRef.current.push(id);
+        } else {
+          emitGridSubAudio(sub, subTime);
         }
       }
       if (!dictantModeRef.current || cIdx === 0) {
@@ -4551,6 +4540,8 @@ export default function App() {
       window.clearTimeout(previewResetTimerRef.current);
       previewResetTimerRef.current = null;
     }
+    gridPreviewAudioActiveRef.current = false;
+    clearPendingGridClickTimers();
     if (audioCtxRef.current) {
       audioCtxRef.current.close().catch(() => {});
       audioCtxRef.current = null;
@@ -4560,6 +4551,7 @@ export default function App() {
       audioCtxRef.current.resume();
     }
     if (!audioCtxRef.current) return;
+    gridPreviewAudioActiveRef.current = true;
     {
       const ctxBoot = audioCtxRef.current;
       const gBoot = clickMixerGroupRef.current;
@@ -4574,6 +4566,8 @@ export default function App() {
     setActivePos({ r: -1, c: -1, absR: -1 });
     setActivePositions([]);
     clickSoundRef.current = soundPreset;
+    clickSoundMixerClonedKeyRef.current = soundPreset;
+    cloneClickMixerFromLibrary(soundPreset);
     const barsCount = Math.max(1, barsRef.current);
     let cursor = audioCtxRef.current.currentTime + METRA_SCHEDULE_AHEAD_SEC;
     for (let i = 0; i < 2; i++) {
@@ -4594,6 +4588,8 @@ export default function App() {
     const resetDelayMs = Math.max(120, (cursor - audioCtxRef.current.currentTime) * 1000 + 80);
     previewResetTimerRef.current = window.setTimeout(() => {
       previewResetTimerRef.current = null;
+      gridPreviewAudioActiveRef.current = false;
+      clearPendingGridClickTimers();
       clearPlayheadScheduling();
       setActivePos({ r: -1, c: -1, absR: -1 });
       setActivePositions([]);
@@ -4613,7 +4609,6 @@ export default function App() {
   const schedulePolyStep = useCallback((stepIdx: number, time: number) => {
     const chunks = polyChunksRef.current;
     if (chunks.length === 0) return 0.5;
-    polyClickSlotsRef.current.clear();
     const safeStep = ((stepIdx % chunks.length) + chunks.length) % chunks.length;
     const chunk = chunks[safeStep];
     if (!chunk || chunk.length === 0) return 0.5;
@@ -4668,6 +4663,8 @@ export default function App() {
       clearPlayheadScheduling();
       setActivePos({ r: -1, c: -1, absR: -1 });
       setActivePositions([]);
+      clearPendingGridClickTimers();
+      gridPreviewAudioActiveRef.current = false;
       polyClickSlotsRef.current.clear();
       currentStepRef.current = 0; // Reset pattern position to start
       if (timerIDRef.current) clearTimeout(timerIDRef.current);
@@ -4752,6 +4749,8 @@ export default function App() {
       } else if (currentStepRef.current >= sequenceRef.current.length) {
         currentStepRef.current = 0;
       }
+      clearPendingGridClickTimers();
+      polyClickSlotsRef.current.clear();
       nextNoteTimeRef.current = audioCtxRef.current.currentTime + METRA_SCHEDULE_AHEAD_SEC;
       scheduler();
     }
@@ -4778,6 +4777,11 @@ export default function App() {
   onlyAccentsRef.current = squarePlaybackMode === 'accent_only';
   dictantModeRef.current = dictantMode;
   firstBeatDingSuppressedRowsRef.current = firstBeatDingSuppressedRows;
+  clickSoundRef.current = clickSound;
+  if (clickSoundMixerClonedKeyRef.current !== clickSound) {
+    clickSoundMixerClonedKeyRef.current = clickSound;
+    cloneClickMixerFromLibrary(clickSound);
+  }
 
   const firstBeatEditorSuppressedRowsSorted: number[] = [];
   for (const row of firstBeatDingSuppressedRows) firstBeatEditorSuppressedRowsSorted.push(row);
@@ -4888,18 +4892,6 @@ export default function App() {
             className="p-3 bg-[#161f33] rounded-xl border border-[#23314f] text-slate-400 hover:text-slate-200 transition-colors"
           >
             <Settings size={20} />
-          </button>
-          <button
-            type="button"
-            title="Mixer: три шины (акцент / alt / пассив) — сумма слоёв → HP → LP → мастер; громкости = параметры слоёв"
-            onClick={() => setMixerPanelOpen((o) => !o)}
-            className={`shrink-0 p-3 rounded-xl border transition-colors ${
-              mixerPanelOpen
-                ? 'bg-blue-600/25 border-blue-400/60 text-blue-100'
-                : 'bg-[#161f33] border-[#23314f] text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <SlidersHorizontal size={20} strokeWidth={2.25} />
           </button>
           {!isPanelExpanded && !showRandomSettings ? (
             <div className="flex-1 flex items-center gap-2 min-w-0 py-2 px-1.5 bg-[#161f33] rounded-xl border border-[#23314f] touch-none">
@@ -5022,99 +5014,6 @@ export default function App() {
             <Eraser size={20} />
           </button>
         </div>
-
-        {mixerPanelOpen ? (
-          <div className="rounded-xl border border-[#2f4066]/80 bg-[#12192a] p-2 shrink-0 max-h-[40vh] overflow-y-auto">
-            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-1 px-0.5 leading-tight">
-              Mixer · слои → сумма → HP → LP → мастер (на каждый голос)
-            </div>
-            <div className="flex gap-1.5 overflow-x-auto pb-0.5">
-              {(['accent', 'alt', 'passive'] as const).map((voice) => {
-                const clone = clickMixerLayerClonesRef.current;
-                const grp = clickMixerGroupRef.current;
-                if (!clone || !grp) {
-                  return <div key={voice} className="min-w-[104px] flex-1 rounded-lg bg-[#0b101e]/50" />;
-                }
-                const title = voice === 'accent' ? 'Акцент' : voice === 'alt' ? 'Alt' : 'Пассив';
-                return (
-                  <div
-                    key={voice}
-                    className="min-w-[104px] flex-1 rounded-lg border border-[#23314f]/90 bg-[#0b101e]/85 p-1.5 flex flex-col gap-1"
-                  >
-                    <div className="text-[10px] font-bold text-blue-200/90 text-center border-b border-[#23314f]/60 pb-0.5">
-                      {title}
-                    </div>
-                    <label className="flex flex-col gap-0.5 text-[9px] text-slate-500">
-                      Группа HP
-                      <input
-                        type="range"
-                        min={20}
-                        max={8000}
-                        value={grp[voice].groupHpHz}
-                        onInput={(e) => {
-                          grp[voice].groupHpHz = Number(e.currentTarget.value);
-                          syncMixerVoiceBus(voice);
-                          setMixerUiTick((x) => x + 1);
-                        }}
-                        className="w-full h-1.5 accent-blue-500"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-0.5 text-[9px] text-slate-500">
-                      Группа LP
-                      <input
-                        type="range"
-                        min={500}
-                        max={20000}
-                        value={grp[voice].groupLpHz}
-                        onInput={(e) => {
-                          grp[voice].groupLpHz = Number(e.currentTarget.value);
-                          syncMixerVoiceBus(voice);
-                          setMixerUiTick((x) => x + 1);
-                        }}
-                        className="w-full h-1.5 accent-blue-500"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-0.5 text-[9px] text-slate-500">
-                      Мастер гр.
-                      <input
-                        type="range"
-                        min={0}
-                        max={200}
-                        value={Math.round(grp[voice].groupMasterLinear * 100)}
-                        onInput={(e) => {
-                          grp[voice].groupMasterLinear = Number(e.currentTarget.value) / 100;
-                          syncMixerVoiceBus(voice);
-                          setMixerUiTick((x) => x + 1);
-                        }}
-                        className="w-full h-1.5 accent-emerald-500"
-                      />
-                    </label>
-                    <div className="text-[9px] text-slate-600 border-t border-[#23314f]/50 pt-1 mt-0.5">Слои</div>
-                    {clone[voice].map((layer, i) => (
-                      <label key={i} className="flex flex-col gap-0.5 text-[9px] text-slate-500">
-                        <span className="truncate">
-                          L{i + 1} · {layer.type}
-                        </span>
-                        <input
-                          type="range"
-                          min={0}
-                          max={300}
-                          step={1}
-                          value={Math.round(layer.params.volume * 100)}
-                          onInput={(e) => {
-                            layer.params.volume = Number(e.currentTarget.value) / 100;
-                            setMixerUiTick((x) => x + 1);
-                          }}
-                          className="w-full h-1.5 accent-amber-500"
-                        />
-                      </label>
-                    ))}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ) : null}
 
         {/* Global Settings (Tempo & Row Selectors) */}
         <div className="relative bg-[#161f33] rounded-2xl border border-[#23314f] flex flex-col shrink-0 mb-3">
@@ -5273,7 +5172,11 @@ export default function App() {
                       <span className="text-[11px] font-bold tracking-wider uppercase text-blue-300">Polyrhythm</span>
                       <button
                         type="button"
-                        onClick={() => setPolyMode((prev) => !prev)}
+                        onClick={() => {
+                          flushSync(() => {
+                            setPolyMode((prev) => !prev);
+                          });
+                        }}
                         className={`px-3 py-1.5 rounded-md text-[11px] font-bold border transition-colors ${
                           polyMode
                             ? 'bg-blue-500/20 border-blue-400/70 text-blue-200'
@@ -5290,7 +5193,11 @@ export default function App() {
                           <button
                             key={voices}
                             type="button"
-                            onClick={() => setPolyVoices(parsePolyVoices(voices))}
+                            onClick={() => {
+                              flushSync(() => {
+                                setPolyVoices(parsePolyVoices(voices));
+                              });
+                            }}
                             className={`py-1.5 rounded-md text-xs font-bold border transition-colors ${
                               polyVoices === voices
                                 ? 'bg-blue-600/25 border-blue-400/70 text-blue-200'
@@ -5829,7 +5736,9 @@ export default function App() {
                 return;
               }
               if (isTaEditorModeRef.current) return;
-              setFirstBeatAccent((prev) => !prev);
+              flushSync(() => {
+                setFirstBeatAccent((prev) => !prev);
+              });
             }}
             className={`flex-1 rounded-xl flex justify-center items-center transition-all bg-[#161f33] ${
               isDeadCellsEditorMode
@@ -5858,7 +5767,9 @@ export default function App() {
               squareHoldTimerRef.current = window.setTimeout(() => {
                 squareHoldTimerRef.current = null;
                 squareHoldAteClickRef.current = true;
-                setDictantMode((d) => !d);
+                flushSync(() => {
+                  setDictantMode((d) => !d);
+                });
               }, 400);
             }}
             onPointerUp={() => {
@@ -5888,7 +5799,9 @@ export default function App() {
                 squareHoldAteClickRef.current = false;
                 return;
               }
-              setSquarePlaybackMode((prev) => nextSquarePlaybackMode(prev));
+              flushSync(() => {
+                setSquarePlaybackMode((prev) => nextSquarePlaybackMode(prev));
+              });
             }}
             onContextMenu={(e) => e.preventDefault()}
             className={`flex-1 rounded-xl flex justify-center items-center transition-all touch-none select-none relative bg-[#161f33] ${
