@@ -2455,14 +2455,13 @@ function StructuralSlider({
   );
 }
 
-type TempoSliderSlot = 'hdr' | 'pnl';
+type TempoSliderSlot = 'hdr' | 'pnl' | 'tap';
 
 type TempoSliderTrackProps = {
 	tempoUi: number;
 	tempoRef: React.MutableRefObject<number>;
 	scheduleTempoCommit: (raw: number) => void;
 	flushTempoCommit: () => void;
-	onBeginTempoBpmInlineEdit: () => void;
 	tempoInlineEditing: boolean;
 	tempoInlineFocusSlot: TempoSliderSlot | null;
 	tempoSliderSlot: TempoSliderSlot;
@@ -2478,7 +2477,6 @@ function TempoSliderTrack({
 	tempoRef,
 	scheduleTempoCommit,
 	flushTempoCommit,
-	onBeginTempoBpmInlineEdit,
 	tempoInlineEditing,
 	tempoInlineFocusSlot,
 	tempoSliderSlot,
@@ -2488,7 +2486,6 @@ function TempoSliderTrack({
 	onCancelTempoInline,
 	className = '',
 }: TempoSliderTrackProps) {
-	const moveCancelSq = TEMPO_MANUAL_MAX_MOVE_PX * TEMPO_MANUAL_MAX_MOVE_PX;
 	const inlineInputRef = useRef<HTMLInputElement>(null);
 	const isInlineThumb = tempoInlineEditing && tempoInlineFocusSlot === tempoSliderSlot;
 	useLayoutEffect(() => {
@@ -2503,10 +2500,7 @@ function TempoSliderTrack({
 			className={`${className} cursor-pointer touch-none`.trim()}
 			onPointerDown={(e) => {
 				const el = e.currentTarget;
-				let longPressTimer: number | null = null;
 				let finished = false;
-				const startX = e.clientX;
-				const startY = e.clientY;
 				const rect = el.getBoundingClientRect();
 				const thumbHalf = 24;
 				const updateTempo = (clientX: number) => {
@@ -2518,10 +2512,6 @@ function TempoSliderTrack({
 				const cleanup = () => {
 					if (finished) return;
 					finished = true;
-					if (longPressTimer !== null) {
-						window.clearTimeout(longPressTimer);
-						longPressTimer = null;
-					}
 					flushTempoCommit();
 					el.removeEventListener('pointermove', onMove);
 					el.removeEventListener('pointerup', onUp);
@@ -2534,14 +2524,6 @@ function TempoSliderTrack({
 				};
 				const onMove = (moveEvt: PointerEvent) => {
 					if (finished) return;
-					const dx = moveEvt.clientX - startX;
-					const dy = moveEvt.clientY - startY;
-					if (dx * dx + dy * dy > moveCancelSq) {
-						if (longPressTimer !== null) {
-							window.clearTimeout(longPressTimer);
-							longPressTimer = null;
-						}
-					}
 					updateTempo(moveEvt.clientX);
 				};
 				const onUp = () => {
@@ -2549,24 +2531,6 @@ function TempoSliderTrack({
 				};
 				el.setPointerCapture(e.pointerId);
 				updateTempo(e.clientX);
-				longPressTimer = window.setTimeout(() => {
-					if (finished) return;
-					finished = true;
-					if (longPressTimer !== null) {
-						window.clearTimeout(longPressTimer);
-						longPressTimer = null;
-					}
-					flushTempoCommit();
-					el.removeEventListener('pointermove', onMove);
-					el.removeEventListener('pointerup', onUp);
-					el.removeEventListener('pointercancel', onUp);
-					try {
-						el.releasePointerCapture(e.pointerId);
-					} catch {
-						/* */
-					}
-					onBeginTempoBpmInlineEdit();
-				}, TEMPO_MANUAL_HOLD_MS);
 				el.addEventListener('pointermove', onMove);
 				el.addEventListener('pointerup', onUp);
 				el.addEventListener('pointercancel', onUp);
@@ -2627,6 +2591,7 @@ export default function App() {
   const [tempoInlineFocusSlot, setTempoInlineFocusSlot] = useState<TempoSliderSlot | null>(null);
   const [tempoManualText, setTempoManualText] = useState('');
   const skipTempoInlineBlurCommitRef = useRef(false);
+  const tempoTapInlineInputRef = useRef<HTMLInputElement>(null);
   const [bars, setBars] = useState(seed.bars);
   const [syllables, setSyllables] = useState(seed.syllables);
 
@@ -2976,6 +2941,8 @@ export default function App() {
   const syllableReadMuteModeRef = useRef(syllableReadMuteMode);
   syllableReadMuteModeRef.current = syllableReadMuteMode;
   const tapTimesRef = useRef<number[]>([]);
+  const tapBpmHoldTimerRef = useRef<number | null>(null);
+  const tapBpmHoldAteClickRef = useRef(false);
 
   const handleTap = () => {
     const now = Date.now();
@@ -3076,6 +3043,8 @@ export default function App() {
   const previewResetTimerRef = useRef<number | null>(null);
   /** Полиметр: ключ включает голос (и строку), иначе совпадение subTime глушит параллельные линии. */
   const polyClickSlotsRef = useRef<Set<string>>(new Set());
+  /** Поли + dead: следующая доля такта `barIdx` (абсолютное время и индекс клетки), чтобы не «ждать» границу чанка мастера. */
+  const polyNextBeatRef = useRef<Record<number, { t: number; c: number }>>({});
   /** Таймеры отложенных щелчков (см. GRID_CLICK_*): сброс при стопе / превью / старте. */
   const pendingGridClickTimerIdsRef = useRef<number[]>([]);
   /** playTwoBars preview: emit разрешён без isPlaying. */
@@ -3151,6 +3120,36 @@ export default function App() {
   }, [pulseMeterUnlinked]);
   useEffect(() => { customSyllablesRef.current = { ...customSyllables }; }, [customSyllables]);
   useEffect(() => { deadCellsRef.current = { ...deadCells }; }, [deadCells]);
+
+  /** Dead-cells meta не должна блокировать снижение пульсации: при меньшем числе слогов в такте убираем «пустые» хвосты и запись, если первый мёртвый индекс ≥ длины такта. */
+  useEffect(() => {
+    setDeadCells((prev) => {
+      let changed = false;
+      const out: DeadCellsMap = { ...prev };
+      for (const rk of Object.keys(prev)) {
+        const r = parseInt(rk, 10);
+        if (!Number.isFinite(r) || r < 0 || r >= bars) {
+          delete out[r];
+          changed = true;
+          continue;
+        }
+        const rowSyl = customSyllables[r] !== undefined ? customSyllables[r] : syllables;
+        const meta = prev[r];
+        if (!meta) continue;
+        if (meta.deadStart >= rowSyl) {
+          delete out[r];
+          changed = true;
+          continue;
+        }
+        if (meta.displayLen !== rowSyl || meta.baseLen !== rowSyl) {
+          out[r] = { deadStart: meta.deadStart, displayLen: rowSyl, baseLen: rowSyl };
+          changed = true;
+        }
+      }
+      return changed ? out : prev;
+    });
+  }, [customSyllables, syllables, bars]);
+
   useEffect(() => {
     onlyAccentsRef.current = squarePlaybackMode === 'accent_only';
     squarePlaybackModeRef.current = squarePlaybackMode;
@@ -3308,6 +3307,83 @@ export default function App() {
     setTempoInlineEditing(false);
     setTempoInlineFocusSlot(null);
   }, [tempoManualText, applyTempoImmediate]);
+
+  useLayoutEffect(() => {
+    if (!tempoInlineEditing || tempoInlineFocusSlot !== 'tap') return;
+    const el = tempoTapInlineInputRef.current;
+    if (!el) return;
+    el.focus();
+    el.select?.();
+  }, [tempoInlineEditing, tempoInlineFocusSlot]);
+
+  const onTapButtonPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      tapBpmHoldAteClickRef.current = false;
+      if (tapBpmHoldTimerRef.current !== null) {
+        window.clearTimeout(tapBpmHoldTimerRef.current);
+        tapBpmHoldTimerRef.current = null;
+      }
+      const btn = e.currentTarget;
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const moveCancelSq = TEMPO_MANUAL_MAX_MOVE_PX * TEMPO_MANUAL_MAX_MOVE_PX;
+      let finished = false;
+      const clearHoldTimer = () => {
+        if (tapBpmHoldTimerRef.current !== null) {
+          window.clearTimeout(tapBpmHoldTimerRef.current);
+          tapBpmHoldTimerRef.current = null;
+        }
+      };
+      const endGesture = () => {
+        if (finished) return;
+        finished = true;
+        clearHoldTimer();
+        btn.removeEventListener('pointermove', onMove);
+        btn.removeEventListener('pointerup', onUp);
+        btn.removeEventListener('pointercancel', onUp);
+        try {
+          btn.releasePointerCapture(e.pointerId);
+        } catch {
+          /* */
+        }
+      };
+      const onMove = (moveEvt: PointerEvent) => {
+        if (finished) return;
+        const dx = moveEvt.clientX - startX;
+        const dy = moveEvt.clientY - startY;
+        if (dx * dx + dy * dy > moveCancelSq) clearHoldTimer();
+      };
+      const onUp = () => {
+        endGesture();
+      };
+      try {
+        btn.setPointerCapture(e.pointerId);
+      } catch {
+        /* */
+      }
+      tapBpmHoldTimerRef.current = window.setTimeout(() => {
+        tapBpmHoldTimerRef.current = null;
+        if (finished) return;
+        finished = true;
+        clearHoldTimer();
+        btn.removeEventListener('pointermove', onMove);
+        btn.removeEventListener('pointerup', onUp);
+        btn.removeEventListener('pointercancel', onUp);
+        try {
+          btn.releasePointerCapture(e.pointerId);
+        } catch {
+          /* */
+        }
+        tapBpmHoldAteClickRef.current = true;
+        const slot: TempoSliderSlot = isPanelExpandedRef.current ? 'pnl' : 'tap';
+        beginTempoInlineEdit(slot);
+      }, TEMPO_MANUAL_HOLD_MS);
+      btn.addEventListener('pointermove', onMove);
+      btn.addEventListener('pointerup', onUp);
+      btn.addEventListener('pointercancel', onUp);
+    },
+    [beginTempoInlineEdit],
+  );
 
   const buildLiveSnapshotFromRefs = (): ReturnType<typeof createEmptySnapshot> => ({
     tempo: tempoRef.current,
@@ -3508,20 +3584,15 @@ export default function App() {
     const newSeq: { r: number; c: number; activeSyllables: number }[] = [];
     for (let r = 0; r < nBars; r++) {
       const syls = next;
-      const deadStart = nextDc[r]?.deadStart;
-      const playable = typeof deadStart === 'number' ? Math.max(1, Math.min(syls, deadStart)) : syls;
-      for (let c = 0; c < playable; c++) {
-        newSeq.push({ r, c, activeSyllables: playable });
+      for (let c = 0; c < syls; c++) {
+        newSeq.push({ r, c, activeSyllables: syls });
       }
     }
 
     if (sequenceRef.current.length > 0 && newSeq.length > 0) {
       const oldItem = sequenceRef.current[currentStepRef.current];
       if (oldItem) {
-        const rowDead = nextDc[oldItem.r]?.deadStart;
-        const rowPlayable =
-          typeof rowDead === 'number' ? Math.max(1, Math.min(next, rowDead)) : next;
-        const targetC = Math.min(oldItem.c, rowPlayable - 1);
+        const targetC = Math.min(oldItem.c, next - 1);
         const newIdx = newSeq.findIndex((item) => item.r === oldItem.r && item.c === targetC);
         currentStepRef.current = newIdx !== -1 ? newIdx : 0;
       } else {
@@ -3650,14 +3721,12 @@ export default function App() {
     const seq = [];
     for (let r = 0; r < bars; r++) {
       const syls = customSyllables[r] !== undefined ? customSyllables[r] : syllables;
-      const deadStart = deadCells[r]?.deadStart;
-      const playable = typeof deadStart === 'number' ? Math.max(1, Math.min(syls, deadStart)) : syls;
-      for (let c = 0; c < playable; c++) {
-        seq.push({ r, c, activeSyllables: playable });
+      for (let c = 0; c < syls; c++) {
+        seq.push({ r, c, activeSyllables: syls });
       }
     }
     return seq;
-  }, [bars, syllables, customSyllables, deadCells]);
+  }, [bars, syllables, customSyllables]);
 
   const sequenceRef = useRef(sequence);
   sequenceRef.current = sequence; // Always keep ref atomic with render
@@ -4315,10 +4384,8 @@ export default function App() {
             const newSeq = [];
             for (let r = 0; r < barsRef.current; r++) {
               const syls = customSyllablesRef.current[r] !== undefined ? customSyllablesRef.current[r] : syllablesRef.current;
-              const deadStart = deadCellsRef.current[r]?.deadStart;
-              const playable = typeof deadStart === 'number' ? Math.max(1, Math.min(syls, deadStart)) : syls;
-              for (let c = 0; c < playable; c++) {
-                newSeq.push({ r, c, activeSyllables: playable });
+              for (let c = 0; c < syls; c++) {
+                newSeq.push({ r, c, activeSyllables: syls });
               }
             }
             sequenceRef.current = newSeq;
@@ -4425,6 +4492,8 @@ export default function App() {
         const ctx = audioCtxRef.current;
         if (!ctx) return;
         if (!isPlayingRef.current && !gridPreviewAudioActiveRef.current) return;
+        const deadCut = deadCellsRef.current[rIdx]?.deadStart;
+        if (typeof deadCut === 'number' && cIdx >= deadCut) return;
         const isAccent = accentsRef.current.has(`${rIdx}-${cIdx}`);
         const muteMode = syllableReadMuteModeRef.current;
         const on0Accent = accentsRef.current.has(`${rIdx}-0`);
@@ -4576,14 +4645,12 @@ export default function App() {
         customSyllablesRef.current[rowIdx] !== undefined
           ? customSyllablesRef.current[rowIdx]
           : syllablesRef.current;
-      const deadStart = deadCellsRef.current[rowIdx]?.deadStart;
-      const playable = typeof deadStart === 'number' ? Math.max(1, Math.min(rowSyllables, deadStart)) : rowSyllables;
       const noteDuration = getLegacyNoteDurationSeconds(rowIdx);
-      for (let cIdx = 0; cIdx < playable; cIdx++) {
+      for (let cIdx = 0; cIdx < rowSyllables; cIdx++) {
         const noteTime = cursor + cIdx * noteDuration;
         scheduleGridCellAtTime(rowIdx, cIdx, rowIdx, noteTime, 0, cIdx, noteDuration);
       }
-      cursor += noteDuration * Math.max(1, playable);
+      cursor += noteDuration * Math.max(1, rowSyllables);
     }
     const resetDelayMs = Math.max(120, (cursor - audioCtxRef.current.currentTime) * 1000 + 80);
     previewResetTimerRef.current = window.setTimeout(() => {
@@ -4613,21 +4680,48 @@ export default function App() {
     const chunk = chunks[safeStep];
     if (!chunk || chunk.length === 0) return 0.5;
     const masterBar = chunk[0]!;
-    const windowDuration = getBarTimeWindowSeconds(masterBar);
+    const chunkWall = getBarTimeWindowSeconds(masterBar);
+    const chunkEnd = time + chunkWall;
+    const EPS = 1e-9;
+    /** Следующая доля после c; мёртвая или за концом такта → снова клетка 0. */
+    const nextPolyCell = (barIdx: number, c: number, rowSyl: number): number => {
+      const n = c + 1;
+      if (n >= rowSyl) return 0;
+      const ds = deadCellsRef.current[barIdx]?.deadStart;
+      if (typeof ds === 'number' && n >= ds) return 0;
+      return n;
+    };
     chunk.forEach((barIdx, voiceIdx) => {
       const rowSyllables =
         customSyllablesRef.current[barIdx] !== undefined ? customSyllablesRef.current[barIdx] : syllablesRef.current;
-      const deadStart = deadCellsRef.current[barIdx]?.deadStart;
-      const playable =
-        typeof deadStart === 'number' ? Math.max(1, Math.min(rowSyllables, deadStart)) : rowSyllables;
-      const noteDuration = windowDuration / Math.max(1, rowSyllables);
-      for (let cIdx = 0; cIdx < playable; cIdx++) {
-        const noteTime = time + cIdx * noteDuration;
-        const absR = safeStep * polyVoicesRef.current + voiceIdx;
-        scheduleGridCellAtTime(barIdx, cIdx, absR, noteTime, voiceIdx, safeStep, noteDuration);
+      const dBar = getBarTimeWindowSeconds(barIdx) / Math.max(1, rowSyllables);
+      const absR = safeStep * polyVoicesRef.current + voiceIdx;
+      const isMasterTrack = barIdx === masterBar && voiceIdx === 0;
+      const prev = polyNextBeatRef.current[barIdx];
+      let tNext: number;
+      let cNext: number;
+      if (prev === undefined || !Number.isFinite(prev.t) || prev.t < time - EPS) {
+        tNext = time;
+        cNext = 0;
+      } else {
+        tNext = Math.max(time, prev.t);
+        cNext = prev.c;
       }
+      let guard = 0;
+      const maxSteps = Math.max(96, rowSyllables * 16);
+      while (guard < maxSteps) {
+        guard += 1;
+        const allowAtChunkEnd = isMasterTrack ? tNext < chunkEnd - EPS : tNext <= chunkEnd + EPS;
+        if (!allowAtChunkEnd) break;
+        scheduleGridCellAtTime(barIdx, cNext, absR, tNext, voiceIdx, safeStep, dBar);
+        const cAfter = nextPolyCell(barIdx, cNext, rowSyllables);
+        if (cAfter === cNext) break;
+        cNext = cAfter;
+        tNext += dBar;
+      }
+      polyNextBeatRef.current[barIdx] = { t: tNext, c: cNext };
     });
-    return windowDuration;
+    return chunkWall;
   }, [getBarTimeWindowSeconds, scheduleGridCellAtTime]);
 
   const scheduler = () => {
@@ -4666,6 +4760,7 @@ export default function App() {
       clearPendingGridClickTimers();
       gridPreviewAudioActiveRef.current = false;
       polyClickSlotsRef.current.clear();
+      polyNextBeatRef.current = {};
       currentStepRef.current = 0; // Reset pattern position to start
       if (timerIDRef.current) clearTimeout(timerIDRef.current);
       if (squareHoldTimerRef.current !== null) {
@@ -4751,6 +4846,7 @@ export default function App() {
       }
       clearPendingGridClickTimers();
       polyClickSlotsRef.current.clear();
+      polyNextBeatRef.current = {};
       nextNoteTimeRef.current = audioCtxRef.current.currentTime + METRA_SCHEDULE_AHEAD_SEC;
       scheduler();
     }
@@ -4918,7 +5014,6 @@ export default function App() {
                 tempoRef={tempoRef}
                 scheduleTempoCommit={scheduleTempoCommit}
                 flushTempoCommit={flushTempoCommit}
-                onBeginTempoBpmInlineEdit={() => beginTempoInlineEdit('hdr')}
                 tempoInlineEditing={tempoInlineEditing}
                 tempoInlineFocusSlot={tempoInlineFocusSlot}
                 tempoSliderSlot="hdr"
@@ -4950,11 +5045,46 @@ export default function App() {
           ) : (
             <button
               type="button"
-            onClick={handleTap}
-            className="flex-1 py-3 bg-[#161f33] rounded-xl border border-[#23314f] font-semibold text-slate-300 tracking-wide hover:bg-[#1a253c] active:bg-purple-900/50 active:border-purple-500/50 active:text-purple-100 transition-all active:scale-95 duration-75"
-          >
-            Tap
-          </button>
+              title="Коротко: Tap темпа. Удерживай: ввод BPM с клавиатуры"
+              onPointerDown={onTapButtonPointerDown}
+              onClick={() => {
+                if (tapBpmHoldAteClickRef.current) {
+                  tapBpmHoldAteClickRef.current = false;
+                  return;
+                }
+                handleTap();
+              }}
+              className="flex-1 py-3 bg-[#161f33] rounded-xl border border-[#23314f] font-semibold text-slate-300 tracking-wide hover:bg-[#1a253c] active:bg-purple-900/50 active:border-purple-500/50 active:text-purple-100 transition-all active:scale-95 duration-75 min-h-[48px] flex items-center justify-center"
+            >
+              {tempoInlineEditing && tempoInlineFocusSlot === 'tap' ? (
+                <input
+                  ref={tempoTapInlineInputRef}
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  spellCheck={false}
+                  aria-label="BPM"
+                  className="min-w-0 w-full max-w-[7rem] mx-auto bg-transparent text-center text-sm font-bold text-slate-100 outline-none tabular-nums"
+                  value={tempoManualText}
+                  onChange={(e) => setTempoManualText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      commitTempoInlineEdit();
+                    }
+                    if (e.key === 'Escape') {
+                      e.preventDefault();
+                      cancelTempoInlineEdit();
+                    }
+                  }}
+                  onBlur={() => commitTempoInlineEdit()}
+                  onClick={(ev) => ev.stopPropagation()}
+                  onPointerDown={(ev) => ev.stopPropagation()}
+                />
+              ) : (
+                'Tap'
+              )}
+            </button>
           )}
           <button 
             onPointerDown={() => {
@@ -5005,9 +5135,7 @@ export default function App() {
             className={`p-3 rounded-xl border transition-all duration-200 ${
               isDeadCellsEditorMode
                 ? `bg-red-600/25 border-red-400/70 text-red-200 ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(248,113,113,0.35)]'}`
-                : polyMode
-                  ? 'bg-[#161f33] border-[#23314f] text-slate-600'
-                  : 'bg-[#161f33] border-[#23314f] text-slate-400 hover:text-red-400 hover:border-red-500/30 active:bg-red-500/20'
+                : 'bg-[#161f33] border-[#23314f] text-slate-400 hover:text-red-400 hover:border-red-500/30 active:bg-red-500/20'
             }`}
             title="Clear Sequencer"
           >
@@ -5244,7 +5372,6 @@ export default function App() {
                       tempoRef={tempoRef}
                       scheduleTempoCommit={scheduleTempoCommit}
                       flushTempoCommit={flushTempoCommit}
-                      onBeginTempoBpmInlineEdit={() => beginTempoInlineEdit('pnl')}
                       tempoInlineEditing={tempoInlineEditing}
                       tempoInlineFocusSlot={tempoInlineFocusSlot}
                       tempoSliderSlot="pnl"

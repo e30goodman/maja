@@ -404,8 +404,6 @@ const SequencerGridRow = React.memo(
 						const checkKey = `${rIdx}-${cIdx}`;
 						const deadStart = deadStartByRow[rIdx];
 						const isDead = typeof deadStart === 'number' ? cIdx >= deadStart : cIdx >= rowSylls;
-						const activeCount =
-							typeof deadStart === 'number' ? Math.max(1, Math.min(rowSylls, deadStart)) : rowSylls;
 						const isAccent = accentBits[cIdx] === '1';
 						const isTaDing = taDingBits[cIdx] === '1';
 						/** В редакторе Ta: белый ding на первой доле при глобальном Ta, пока строка не в «снятых». */
@@ -457,10 +455,16 @@ const SequencerGridRow = React.memo(
 								(isTaDing ||
 									(cIdx === 0 && firstBeatAccent && !firstBeatRowSuppressed.has(rIdx)))) ||
 							(!isTaEditorMode && showNonEditorDing);
-						if (!isDead && isActive) {
-							cellClasses = lowPerfMode
-								? 'bg-emerald-500/20 border-2 box-border border-emerald-500 z-10 text-emerald-100'
-								: 'bg-emerald-500/20 border-2 box-border border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)] z-10 text-emerald-100';
+						if (isActive) {
+							if (isDead) {
+								cellClasses = lowPerfMode
+									? 'bg-slate-700/35 border-2 box-border border-slate-500/70 z-10 text-slate-400'
+									: 'bg-slate-700/40 border-2 box-border border-slate-500/80 shadow-[0_0_10px_rgba(100,116,139,0.22)] z-10 text-slate-300';
+							} else {
+								cellClasses = lowPerfMode
+									? 'bg-emerald-500/20 border-2 box-border border-emerald-500 z-10 text-emerald-100'
+									: 'bg-emerald-500/20 border-2 box-border border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)] z-10 text-emerald-100';
+							}
 						}
 						return (
 							<button
@@ -578,7 +582,7 @@ const SequencerGridRow = React.memo(
 											{isDead
 												? ''
 												: subdivs === 1
-													? (KONNAKOL_PYRAMID[activeCount]?.[cIdx] ?? rowCellLabels[cIdx]?.[i] ?? 'Ta')
+													? (KONNAKOL_PYRAMID[rowSylls]?.[cIdx] ?? rowCellLabels[cIdx]?.[i] ?? 'Ta')
 													: (rowCellLabels[cIdx]?.[i] ?? 'Ta')}
 										</span>
 									))}
