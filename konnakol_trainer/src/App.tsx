@@ -1971,6 +1971,7 @@ export default function App() {
   /** Закрыть окно Randomizer / Settings по клику вне панели (и вне кнопки-шестерёнки). */
   useEffect(() => {
     if (!showRandomSettings) return;
+    if (isClickSoundSelectorOpen) return;
     const onPointerDown = (e: PointerEvent) => {
       const node = e.target as Node | null;
       if (!node) return;
@@ -1980,7 +1981,7 @@ export default function App() {
     };
     document.addEventListener('pointerdown', onPointerDown, true);
     return () => document.removeEventListener('pointerdown', onPointerDown, true);
-  }, [showRandomSettings]);
+  }, [showRandomSettings, isClickSoundSelectorOpen]);
 
   useEffect(() => {
     try {
