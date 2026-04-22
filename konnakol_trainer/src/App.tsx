@@ -325,7 +325,7 @@ const POLY_MODE_STORAGE_KEY = 'konnakol_poly_mode';
 const POLY_VOICES_STORAGE_KEY = 'konnakol_poly_voices';
 const APP_COMMIT_VERSION = (() => {
 	if (typeof __GIT_SHA7__ === 'string' && __GIT_SHA7__.length >= 7) return __GIT_SHA7__.slice(0, 7);
-	return 'c7797cb';
+	return '77205ff';
 })();
 const TEMPO_THROTTLE_MS = 56;
 /** Удержание −/+ темпа: после задержки шаг ±5 каждые 0,1 с. */
@@ -3365,6 +3365,9 @@ export default function App() {
     }
 
     const nBars = barsRef.current;
+    const prevSyllables = syllablesRef.current;
+    const prevCustom = { ...customSyllablesRef.current };
+    const prevDead = { ...deadCellsRef.current };
 
     setSyllables(next);
     syllablesRef.current = next;
@@ -3423,6 +3426,20 @@ export default function App() {
     setCustomMultipliers(nextMult);
     customMultipliersRef.current = { ...nextMult };
 
+    const nextDc: DeadCellsMap = {};
+    for (const rk of Object.keys(prevDead)) {
+      const r = parseInt(rk, 10);
+      const meta = prevDead[r];
+      if (!Number.isFinite(r) || r < 0 || r >= nBars || !meta) continue;
+      const oldRowSyl = Math.max(1, prevCustom[r] !== undefined ? prevCustom[r]! : prevSyllables);
+      const live = Math.max(1, Math.min(oldRowSyl, meta.deadStart));
+      const newLive = Math.max(1, Math.min(next, Math.round((live * next) / oldRowSyl)));
+      if (newLive >= next) continue;
+      nextDc[r] = { deadStart: newLive, displayLen: next, baseLen: next };
+    }
+    setDeadCells(nextDc);
+    deadCellsRef.current = nextDc;
+
     setActiveEditCell((prev) => {
       if (prev === null) return null;
       const parts = prev.split('-');
@@ -3436,16 +3453,22 @@ export default function App() {
     });
 
     const newSeq: { r: number; c: number; activeSyllables: number }[] = [];
-    for (let r = 0; r < barsRef.current; r++) {
-      for (let c = 0; c < next; c++) {
-        newSeq.push({ r, c, activeSyllables: next });
+    for (let r = 0; r < nBars; r++) {
+      const syls = next;
+      const deadStart = nextDc[r]?.deadStart;
+      const playable = typeof deadStart === 'number' ? Math.max(1, Math.min(syls, deadStart)) : syls;
+      for (let c = 0; c < playable; c++) {
+        newSeq.push({ r, c, activeSyllables: playable });
       }
     }
 
     if (sequenceRef.current.length > 0 && newSeq.length > 0) {
       const oldItem = sequenceRef.current[currentStepRef.current];
       if (oldItem) {
-        const targetC = Math.min(oldItem.c, next - 1);
+        const rowDead = nextDc[oldItem.r]?.deadStart;
+        const rowPlayable =
+          typeof rowDead === 'number' ? Math.max(1, Math.min(next, rowDead)) : next;
+        const targetC = Math.min(oldItem.c, rowPlayable - 1);
         const newIdx = newSeq.findIndex((item) => item.r === oldItem.r && item.c === targetC);
         currentStepRef.current = newIdx !== -1 ? newIdx : 0;
       } else {
