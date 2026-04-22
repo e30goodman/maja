@@ -8,6 +8,7 @@ import {
 	Snowflake,
 	ChevronUp,
 	ChevronDown,
+	ChevronLeft,
 	Eraser,
 	Copy,
 	ClipboardPaste,
@@ -355,6 +356,257 @@ const SNAPSHOT_FLAG_POLY_VOICES_3 = 1 << 9;
 const SNAPSHOT_FLAG_POLY_VOICES_4 = 1 << 10;
 const SNAPSHOT_SOUND_ID_CLASSIC = 0;
 const SNAPSHOT_SOUND_ID_OLDSCHOOL = 1;
+const AUDIO_START_GUARD_SEC = 0.004;
+const AUDIO_SCHEDULE_LEAD_SEC = 0.08;
+
+type ClickSoundPreset =
+	| 'classic'
+	| 'oldschool'
+	| 'standard'
+	| 'modern_daw'
+	| 'woodblock'
+	| 'punchy'
+	| 'sharp_digital'
+	| 'deep_sub'
+	| 'laser_snap'
+	| 'hi_hat'
+	| 'glass_drop'
+	| 'plastic_knock'
+	| 'metallic'
+	| 'clock_tick'
+	| 'cowbell'
+	| 'analog_synth'
+	| 'vinyl_crackle'
+	| 'dry_click'
+	| 'soft_ping'
+	| 'noise_burst'
+	| 'eight_bit';
+
+type ClickSoundConfig = {
+	oscType?: OscillatorType;
+	baseFreq: number;
+	accentFreq: number;
+	altFreq: number;
+	decay: number;
+	decayAccent?: number;
+	decayAlt?: number;
+	sweep?: boolean;
+	noise?: boolean;
+	noiseType?: BiquadFilterType;
+	noiseFreq?: number;
+	noiseFreqAccent?: number;
+	altNoiseFreq?: number;
+	volume: number;
+	volumeAccent?: number;
+	volumeAlt?: number;
+};
+
+const CLICK_SOUND_PRESET_ORDER: ClickSoundPreset[] = [
+	'classic',
+	'oldschool',
+	'standard',
+	'modern_daw',
+	'woodblock',
+	'punchy',
+	'sharp_digital',
+	'deep_sub',
+	'laser_snap',
+	'hi_hat',
+	'glass_drop',
+	'plastic_knock',
+	'metallic',
+	'clock_tick',
+	'cowbell',
+	'analog_synth',
+	'vinyl_crackle',
+	'dry_click',
+	'soft_ping',
+	'noise_burst',
+	'eight_bit',
+];
+
+const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
+	classic: {
+		oscType: 'sine',
+		baseFreq: 800,
+		accentFreq: 920,
+		altFreq: 800,
+		decay: 0.04,
+		volume: 0.4,
+		volumeAccent: 0.5,
+		volumeAlt: 0.4,
+	},
+	oldschool: {
+		oscType: 'triangle',
+		baseFreq: 250,
+		accentFreq: 500,
+		altFreq: 250,
+		decay: 0.02,
+		decayAccent: 0.04,
+		decayAlt: 0.02,
+		sweep: true,
+		volume: 0.48,
+		volumeAccent: 0.9,
+		volumeAlt: 0.48,
+	},
+	standard: { oscType: 'sine', baseFreq: 1000, accentFreq: 1500, altFreq: 1250, decay: 0.03, volume: 1 },
+	modern_daw: {
+		oscType: 'sine',
+		baseFreq: 1500,
+		accentFreq: 3840,
+		altFreq: 2840,
+		decay: 0.015,
+		sweep: true,
+		volume: 0.9,
+		volumeAccent: 1.4,
+		volumeAlt: 1.3,
+	},
+	woodblock: { oscType: 'triangle', baseFreq: 600, accentFreq: 800, altFreq: 700, decay: 0.05, volume: 1.5 },
+	punchy: { oscType: 'sine', baseFreq: 500, accentFreq: 1000, altFreq: 750, decay: 0.05, sweep: true, volume: 1.5 },
+	sharp_digital: { oscType: 'square', baseFreq: 800, accentFreq: 1200, altFreq: 1000, decay: 0.02, volume: 0.6 },
+	deep_sub: { oscType: 'sine', baseFreq: 300, accentFreq: 400, altFreq: 350, decay: 0.06, volume: 1.5 },
+	laser_snap: { oscType: 'sawtooth', baseFreq: 1000, accentFreq: 2000, altFreq: 1500, decay: 0.03, sweep: true, volume: 0.5 },
+	hi_hat: {
+		baseFreq: 0,
+		accentFreq: 0,
+		altFreq: 0,
+		decay: 0.041,
+		decayAlt: 0.065,
+		decayAccent: 0.081,
+		noise: true,
+		noiseType: 'highpass',
+		noiseFreq: 5600,
+		altNoiseFreq: 5200,
+		volume: 0.7,
+		volumeAccent: 2.5,
+		volumeAlt: 1.7,
+	},
+	glass_drop: { oscType: 'sine', baseFreq: 2500, accentFreq: 3500, altFreq: 3000, decay: 0.04, volume: 0.8 },
+	plastic_knock: {
+		oscType: 'triangle',
+		sweep: true,
+		volume: 0.3,
+		decay: 0.025,
+		baseFreq: 400,
+		volumeAccent: 2.3,
+		decayAccent: 0.025,
+		accentFreq: 1890,
+		volumeAlt: 1.6,
+		decayAlt: 0.025,
+		altFreq: 1410,
+	},
+	metallic: {
+		oscType: 'square',
+		baseFreq: 1500,
+		accentFreq: 2500,
+		altFreq: 2000,
+		decay: 0.015,
+		noise: true,
+		noiseType: 'highpass',
+		noiseFreq: 4000,
+		altNoiseFreq: 5000,
+		volume: 0.4,
+	},
+	clock_tick: {
+		baseFreq: 0,
+		accentFreq: 0,
+		altFreq: 0,
+		decay: 0.01,
+		decayAlt: 0.017,
+		noise: true,
+		noiseType: 'highpass',
+		noiseFreq: 2500,
+		noiseFreqAccent: 4800,
+		altNoiseFreq: 3700,
+		volume: 0.5,
+		volumeAccent: 2.2,
+		volumeAlt: 1.7,
+	},
+	cowbell: { oscType: 'square', baseFreq: 540, accentFreq: 800, altFreq: 670, decay: 0.08, volume: 0.3 },
+	analog_synth: { oscType: 'sawtooth', baseFreq: 500, accentFreq: 800, altFreq: 650, decay: 0.04, volume: 0.5 },
+	vinyl_crackle: {
+		baseFreq: 0,
+		accentFreq: 0,
+		altFreq: 0,
+		decay: 0.04,
+		noise: true,
+		noiseType: 'bandpass',
+		noiseFreq: 3900,
+		noiseFreqAccent: 6000,
+		altNoiseFreq: 5500,
+		volume: 0.4,
+		volumeAccent: 2.2,
+		volumeAlt: 1.6,
+	},
+	dry_click: {
+		oscType: 'square',
+		baseFreq: 1200,
+		accentFreq: 1600,
+		altFreq: 1400,
+		decay: 0.008,
+		volume: 0.5,
+		volumeAccent: 1.2,
+		volumeAlt: 1.1,
+	},
+	soft_ping: { oscType: 'sine', baseFreq: 700, accentFreq: 900, altFreq: 800, decay: 0.1, volume: 1.2 },
+	noise_burst: {
+		baseFreq: 0,
+		accentFreq: 0,
+		altFreq: 0,
+		decay: 0.05,
+		noise: true,
+		noiseType: 'lowpass',
+		noiseFreq: 5000,
+		noiseFreqAccent: 7500,
+		altNoiseFreq: 6300,
+		volume: 0.3,
+		volumeAccent: 1.6,
+		volumeAlt: 1.1,
+	},
+	eight_bit: {
+		oscType: 'square',
+		baseFreq: 440,
+		accentFreq: 660,
+		altFreq: 550,
+		decay: 0.023,
+		sweep: true,
+		volume: 0.2,
+		volumeAccent: 0.9,
+		volumeAlt: 0.6,
+	},
+};
+
+function isClickSoundPreset(value: unknown): value is ClickSoundPreset {
+	return typeof value === 'string' && CLICK_SOUND_PRESET_ORDER.includes(value as ClickSoundPreset);
+}
+
+type ClickSoundUiPreset = {
+	id: string;
+	label: string;
+	mappedSound: ClickSoundPreset;
+};
+const CLICK_SOUND_PRESET_META: ClickSoundUiPreset[] = [
+	{ id: 'preset-01', label: 'Classic', mappedSound: 'classic' },
+	{ id: 'preset-02', label: 'Old School', mappedSound: 'oldschool' },
+	{ id: 'preset-03', label: 'Standard', mappedSound: 'standard' },
+	{ id: 'preset-04', label: 'Modern DAW', mappedSound: 'modern_daw' },
+	{ id: 'preset-05', label: 'Woodblock', mappedSound: 'woodblock' },
+	{ id: 'preset-06', label: 'Punchy', mappedSound: 'punchy' },
+	{ id: 'preset-07', label: 'Sharp Digital', mappedSound: 'sharp_digital' },
+	{ id: 'preset-08', label: 'Deep Sub', mappedSound: 'deep_sub' },
+	{ id: 'preset-10', label: 'Hi-Hat', mappedSound: 'hi_hat' },
+	{ id: 'preset-11', label: 'Glass Drop', mappedSound: 'glass_drop' },
+	{ id: 'preset-12', label: 'Plastic Knock', mappedSound: 'plastic_knock' },
+	{ id: 'preset-13', label: 'Metallic', mappedSound: 'metallic' },
+	{ id: 'preset-14', label: 'Clock Tick', mappedSound: 'clock_tick' },
+	{ id: 'preset-15', label: 'Cowbell', mappedSound: 'cowbell' },
+	{ id: 'preset-16', label: 'Analog Synth', mappedSound: 'analog_synth' },
+	{ id: 'preset-17', label: 'Vinyl Crackle', mappedSound: 'vinyl_crackle' },
+	{ id: 'preset-18', label: 'Dry Click', mappedSound: 'dry_click' },
+	{ id: 'preset-19', label: 'Soft Ping', mappedSound: 'soft_ping' },
+	{ id: 'preset-20', label: 'Noise Burst', mappedSound: 'noise_burst' },
+	{ id: 'preset-21', label: '8-Bit', mappedSound: 'eight_bit' },
+];
 
 function buildSnapshotGridToken(s: ReturnType<typeof createEmptySnapshot>): string {
 	const accents = s.accents instanceof Set ? s.accents : new Set(Array.isArray(s.accents) ? s.accents : []);
@@ -833,11 +1085,20 @@ function applySnapshotFlags(flags: number, d: ReturnType<typeof createEmptySnaps
 }
 
 function buildSnapshotSoundId(s: ReturnType<typeof createEmptySnapshot>): number {
-	return s.clickSound === 'oldschool' ? SNAPSHOT_SOUND_ID_OLDSCHOOL : SNAPSHOT_SOUND_ID_CLASSIC;
+	const idx = CLICK_SOUND_PRESET_ORDER.indexOf(s.clickSound);
+	return idx >= 0 ? idx : SNAPSHOT_SOUND_ID_CLASSIC;
 }
 
 function applySnapshotSoundId(soundId: number, d: ReturnType<typeof createEmptySnapshot>) {
-	d.clickSound = soundId === SNAPSHOT_SOUND_ID_OLDSCHOOL ? 'oldschool' : 'classic';
+	if (soundId === SNAPSHOT_SOUND_ID_OLDSCHOOL) {
+		d.clickSound = 'oldschool';
+		return;
+	}
+	if (soundId >= 0 && soundId < CLICK_SOUND_PRESET_ORDER.length) {
+		d.clickSound = CLICK_SOUND_PRESET_ORDER[soundId]!;
+		return;
+	}
+	d.clickSound = 'classic';
 }
 
 type SequencerCellJSON = { accent: boolean; pulsation: number };
@@ -897,7 +1158,7 @@ function createEmptySnapshot() {
 		randomBarSpeed: false,
 		chaosLevel: 15,
 		/** Classic = legacy maja без `konnakol_metronome`: акцент / пассив + Ta на первой доле. */
-		clickSound: 'classic' as 'classic' | 'oldschool',
+		clickSound: 'classic' as ClickSoundPreset,
 		/** Верхняя панель: темп + слайдеры (Chevron) развёрнута. */
 		panelExpanded: false,
 		/** Ряд r: длительность клетки от PULSE_METER_BASE_SYLLABLES, не от customSyllables[r]. */
@@ -969,8 +1230,9 @@ function parseSnapshotRow(raw: unknown) {
 			d.chaosLevel = legacy <= 0 ? 18 : Math.min(100, 12 + legacy * 9);
 		}
 	}
-	if (o.clickSound === 'oldschool') d.clickSound = 'oldschool';
-	else d.clickSound = 'classic'; // default + legacy `modern`
+	if (isClickSoundPreset(o.clickSound)) d.clickSound = o.clickSound;
+	else if (o.clickSound === 'old-school') d.clickSound = 'oldschool';
+	else d.clickSound = 'classic';
 	if (typeof o.panelExpanded === 'boolean') d.panelExpanded = o.panelExpanded;
 	if (o.sequencerCells && typeof o.sequencerCells === 'object') {
 		hydrateSequencerFromCells(o.sequencerCells, d);
@@ -1317,105 +1579,91 @@ const playSharpClick = (
   ctx: AudioContext,
   time: number,
   isChecked: boolean,
-  soundType: 'classic' | 'oldschool' = 'classic',
+  soundType: ClickSoundPreset = 'classic',
   accentOnlyPlayback = false,
 ) => {
-  // Old school = same as legacy maja `konnakol_metronome` (triangle + pitch sweep).
-  if (soundType === 'oldschool') {
+  const cfg = CLICK_SOUND_LIBRARY[soundType] ?? CLICK_SOUND_LIBRARY.classic;
+  const t0 = Math.max(time, ctx.currentTime + AUDIO_START_GUARD_SEC);
+  const decay = isChecked ? (cfg.decayAccent ?? cfg.decay) : cfg.decay;
+  const baseVolume = isChecked ? (cfg.volumeAccent ?? cfg.volume) : cfg.volume;
+  const volume = accentOnlyPlayback && isChecked ? baseVolume * 0.72 : baseVolume;
+  const freq = isChecked ? cfg.accentFreq : cfg.baseFreq;
+  if (volume > 0 && cfg.oscType) {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(isChecked ? 500 : 250, time);
-    osc.frequency.exponentialRampToValueAtTime(isChecked ? 120 : 80, time + (isChecked ? 0.04 : 0.02));
-    /** Пассивный oldschool: +20% к пику относительно legacy (без UI-слайдера). */
-    const OLDSCHOOL_PASSIVE_PEAK_MUL = 1.2;
-    const peak = isChecked ? 0.9 : 0.4 * OLDSCHOOL_PASSIVE_PEAK_MUL;
-    const decay = isChecked ? 0.04 : 0.02;
-    gain.gain.setValueAtTime(0, time);
-    gain.gain.linearRampToValueAtTime(peak, time + 0.002);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + decay);
+    osc.type = cfg.oscType;
+    osc.frequency.setValueAtTime(Math.max(1, freq), t0);
+    if (cfg.sweep) {
+      osc.frequency.exponentialRampToValueAtTime(Math.max(10, Math.max(1, freq) * 0.1), t0 + decay);
+    }
+    gain.gain.cancelScheduledValues(t0);
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(volume, t0 + 0.002);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + decay);
     osc.connect(gain);
     gain.connect(ctx.destination);
-    osc.start(time);
-    osc.stop(time + Math.max(0.05, decay + 0.01));
-    return;
+    osc.start(t0);
+    osc.stop(t0 + decay + 0.05);
   }
-
-  if (isChecked && accentOnlyPlayback) {
-    /** Только акценты: слой пассива + акцента, суммарный пик как у одиночного classic-акцента (~0.34). */
-    const decay = 0.04;
-    const oscLo = ctx.createOscillator();
-    const oscHi = ctx.createOscillator();
-    const gLo = ctx.createGain();
-    const gHi = ctx.createGain();
-    oscLo.type = 'sine';
-    oscHi.type = 'sine';
-    oscLo.frequency.setValueAtTime(800, time);
-    oscHi.frequency.setValueAtTime(920, time);
-    const peakLo = 0.11;
-    const peakHi = 0.23;
-    gLo.gain.setValueAtTime(0, time);
-    gLo.gain.linearRampToValueAtTime(peakLo, time + 0.002);
-    gLo.gain.exponentialRampToValueAtTime(0.001, time + decay);
-    gHi.gain.setValueAtTime(0, time);
-    gHi.gain.linearRampToValueAtTime(peakHi, time + 0.002);
-    gHi.gain.exponentialRampToValueAtTime(0.001, time + decay);
-    oscLo.connect(gLo);
-    oscHi.connect(gHi);
-    gLo.connect(ctx.destination);
-    gHi.connect(ctx.destination);
-    oscLo.start(time);
-    oscHi.start(time);
-    oscLo.stop(time + decay + 0.012);
-    oscHi.stop(time + decay + 0.012);
-    return;
+  if (cfg.noise) {
+    const noiseLen = Math.max(1, Math.floor(ctx.sampleRate * decay));
+    const noiseBuf = ctx.createBuffer(1, noiseLen, ctx.sampleRate);
+    const output = noiseBuf.getChannelData(0);
+    for (let i = 0; i < output.length; i++) output[i] = Math.random() * 2 - 1;
+    const noiseSrc = ctx.createBufferSource();
+    noiseSrc.buffer = noiseBuf;
+    const noiseFilter = ctx.createBiquadFilter();
+    noiseFilter.type = cfg.noiseType || 'highpass';
+    noiseFilter.frequency.value = Math.max(10, isChecked ? (cfg.noiseFreqAccent ?? cfg.noiseFreq ?? 1000) : (cfg.noiseFreq ?? 1000));
+    const noiseGain = ctx.createGain();
+    const nVol = Math.max(0, volume * 0.5);
+    noiseGain.gain.cancelScheduledValues(t0);
+    noiseGain.gain.setValueAtTime(0, t0);
+    noiseGain.gain.linearRampToValueAtTime(nVol, t0 + 0.002);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, t0 + decay);
+    noiseSrc.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(ctx.destination);
+    noiseSrc.start(t0);
+    noiseSrc.stop(t0 + decay + 0.05);
   }
-
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
-  osc.type = 'sine';
-  /** Classic (legacy maja, не konnakol_metronome): акцент 920 / пассив 800. */
-  osc.frequency.setValueAtTime(isChecked ? 920 : 800, time);
-  const peak = isChecked ? 0.34 : 0.28;
-  const decay = 0.04;
-  gain.gain.setValueAtTime(0, time);
-  gain.gain.linearRampToValueAtTime(peak, time + 0.002);
-  gain.gain.exponentialRampToValueAtTime(0.001, time + decay);
-  osc.connect(gain);
-  gain.connect(ctx.destination);
-  osc.start(time);
-  osc.stop(time + decay + 0.01);
 };
 
-const playBarFirstHighClick = (ctx: AudioContext, time: number, soundType: 'classic' | 'oldschool' = 'classic') => {
+const playBarFirstHighClick = (ctx: AudioContext, time: number, soundType: ClickSoundPreset = 'classic') => {
+  const t0 = Math.max(time, ctx.currentTime + AUDIO_START_GUARD_SEC);
+  if (soundType === 'classic') {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1550, t0);
+    osc.frequency.exponentialRampToValueAtTime(520, t0 + 0.028);
+    gain.gain.cancelScheduledValues(t0);
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(0.36, t0 + 0.002);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.0336);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + 0.06);
+    return;
+  }
   if (soundType === 'oldschool') {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = 'triangle';
-    osc.frequency.setValueAtTime(920, time);
-    osc.frequency.exponentialRampToValueAtTime(210, time + 0.03);
-    gain.gain.setValueAtTime(0, time);
-    gain.gain.linearRampToValueAtTime(0.78, time + 0.002);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.035);
+    osc.frequency.setValueAtTime(920, t0);
+    osc.frequency.exponentialRampToValueAtTime(210, t0 + 0.03);
+    gain.gain.cancelScheduledValues(t0);
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(0.78, t0 + 0.002);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.035);
     osc.connect(gain);
     gain.connect(ctx.destination);
-    osc.start(time);
-    osc.stop(time + 0.06);
+    osc.start(t0);
+    osc.stop(t0 + 0.06);
     return;
   }
-
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
-  osc.type = 'sine';
-  osc.frequency.setValueAtTime(1550, time);
-  osc.frequency.exponentialRampToValueAtTime(520, time + 0.035);
-  gain.gain.setValueAtTime(0, time);
-  gain.gain.linearRampToValueAtTime(0.30, time + 0.002);
-  gain.gain.exponentialRampToValueAtTime(0.001, time + 0.042);
-  osc.connect(gain);
-  gain.connect(ctx.destination);
-  osc.start(time);
-  osc.stop(time + 0.06);
+  playSharpClick(ctx, time, true, soundType, false);
 };
 
 type StructuralSliderProps = {
@@ -1594,7 +1842,8 @@ export default function App() {
   const coldStartRef = useRef(true);
 
   // Click Sound
-  const [clickSound, setClickSound] = useState<'classic' | 'oldschool'>(seed.clickSound);
+  const [clickSound, setClickSound] = useState<ClickSoundPreset>(seed.clickSound);
+  const [isClickSoundSelectorOpen, setIsClickSoundSelectorOpen] = useState(false);
 
   // Preset Snapshot State (7 slots; persisted in localStorage)
   const [activeSnapshot, setActiveSnapshot] = useState(initialBoot.activeSnapshot);
@@ -1689,6 +1938,35 @@ export default function App() {
       setActiveEditRow(null);
     }
   }, [isPanelExpanded]);
+
+  useEffect(() => {
+    if (!showRandomSettings || !isPanelExpanded) {
+      setIsClickSoundSelectorOpen(false);
+    }
+  }, [showRandomSettings, isPanelExpanded]);
+
+  useEffect(() => {
+    if (isClickSoundSelectorOpen) return;
+    if (previewResetTimerRef.current !== null) {
+      window.clearTimeout(previewResetTimerRef.current);
+      previewResetTimerRef.current = null;
+    }
+    clearPlayheadScheduling();
+    setActivePos({ r: -1, c: -1, absR: -1 });
+    setActivePositions([]);
+    if (!isPlayingRef.current && audioCtxRef.current) {
+      audioCtxRef.current.close().catch(() => {});
+      audioCtxRef.current = null;
+    }
+  }, [isClickSoundSelectorOpen]);
+
+  useEffect(() => {
+    if (showRandomSettings || isClickSoundSelectorOpen) {
+      setFrozenScale(2);
+      return;
+    }
+    setFrozenScale(null);
+  }, [showRandomSettings, isClickSoundSelectorOpen]);
 
   /** Закрыть окно Randomizer / Settings по клику вне панели (и вне кнопки-шестерёнки). */
   useEffect(() => {
@@ -1914,6 +2192,7 @@ export default function App() {
   const timerIDRef = useRef<number | null>(null);
   const playheadQueueRef = useRef<PlayheadHighlightEvent[]>([]);
   const playheadTimerRef = useRef<number | null>(null);
+  const previewResetTimerRef = useRef<number | null>(null);
   const polyClickSlotsRef = useRef<Set<number>>(new Set());
   const sequencerGridRowActionsRef = useRef<SequencerGridRowActions | null>(null);
   const nextNoteTimeRef = useRef(0);
@@ -2588,7 +2867,7 @@ export default function App() {
         ? snap.chaosLevel
         : 0,
     );
-    setClickSound(snap.clickSound === 'oldschool' ? 'oldschool' : 'classic');
+    setClickSound(isClickSoundPreset(snap.clickSound) ? snap.clickSound : 'classic');
     setPulseMeterUnlinked(normalizePulseMeterUnlinked(snap.pulseMeterUnlinked));
     const modeFromSnap = (snap as { squarePlaybackMode?: unknown }).squarePlaybackMode;
     if (modeFromSnap === 'all_beats' || modeFromSnap === 'accent_only' || modeFromSnap === 'passive_only') {
@@ -2852,6 +3131,10 @@ export default function App() {
         tempoHoldIntervalRef.current = null;
       }
       if (timerIDRef.current) clearTimeout(timerIDRef.current);
+      if (previewResetTimerRef.current !== null) {
+        window.clearTimeout(previewResetTimerRef.current);
+        previewResetTimerRef.current = null;
+      }
       if (snapshotHoldTimerRef.current !== null) {
         window.clearTimeout(snapshotHoldTimerRef.current);
         snapshotHoldTimerRef.current = null;
@@ -3207,8 +3490,6 @@ export default function App() {
           (!polyModeRef.current || voice === 0);
         if (shouldPlayFirstBeatTa) {
           playBarFirstHighClick(audioCtxRef.current, subTime, clickSoundRef.current);
-          /** Тот же составной тембр, что у Ta на сетке: ding + пассив (важно для `passive_only`, где сетка не идёт в playSharpClick). */
-          playSharpClick(audioCtxRef.current, subTime, false, clickSoundRef.current, false);
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
           }
@@ -3219,10 +3500,10 @@ export default function App() {
           continue;
         }
         const playbackMode = squarePlaybackModeRef.current;
-        const isTaDingCell = cIdx >= 1 && taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
-        /** passive_only: сетка замьючена; слышен только глобальный Ta (shouldPlayFirstBeatTa выше), не ding-редактор. */
+        const taEnabled = firstBeatAccentRef.current;
+        const isTaDingCell = taEnabled && cIdx >= 1 && taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
+        /** В т.ч. в passive_only: Ta-разметка по сетке должна звучать (не мьютить кастомные позиции). */
         const shouldPlayTaDingSound =
-          playbackMode !== 'passive_only' &&
           sub === 0 &&
           isTaDingCell &&
           (!polyModeRef.current || voice === 0);
@@ -3232,13 +3513,12 @@ export default function App() {
          */
         if (shouldPlayTaDingSound) {
           playBarFirstHighClick(audioCtxRef.current, subTime, clickSoundRef.current);
-          playSharpClick(audioCtxRef.current, subTime, false, clickSoundRef.current, false);
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
           }
         }
         if (muteMode === 'full') continue;
-        const hasTaDingHere = taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
+        const hasTaDingHere = taEnabled && taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
         const dictantActive = dictantModeRef.current;
         const shouldPlayBeat =
           playbackMode === 'all_beats'
@@ -3293,6 +3573,52 @@ export default function App() {
     [],
   );
 
+  const playTwoBarsPreviewFromGrid = useCallback((soundPreset: ClickSoundPreset) => {
+    if (isPlayingRef.current || isTaEditorModeRef.current || isDeadCellsEditorModeRef.current) return;
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (previewResetTimerRef.current !== null) {
+      window.clearTimeout(previewResetTimerRef.current);
+      previewResetTimerRef.current = null;
+    }
+    if (audioCtxRef.current) {
+      audioCtxRef.current.close().catch(() => {});
+      audioCtxRef.current = null;
+    }
+    audioCtxRef.current = new AudioContextClass();
+    if (audioCtxRef.current.state === 'suspended') {
+      audioCtxRef.current.resume();
+    }
+    if (!audioCtxRef.current) return;
+    clearPlayheadScheduling();
+    setActivePos({ r: -1, c: -1, absR: -1 });
+    setActivePositions([]);
+    clickSoundRef.current = soundPreset;
+    const barsCount = Math.max(1, barsRef.current);
+    let cursor = audioCtxRef.current.currentTime + AUDIO_SCHEDULE_LEAD_SEC;
+    for (let i = 0; i < 2; i++) {
+      const rowIdx = i % barsCount;
+      const rowSyllables =
+        customSyllablesRef.current[rowIdx] !== undefined
+          ? customSyllablesRef.current[rowIdx]
+          : syllablesRef.current;
+      const deadStart = deadCellsRef.current[rowIdx]?.deadStart;
+      const playable = typeof deadStart === 'number' ? Math.max(1, Math.min(rowSyllables, deadStart)) : rowSyllables;
+      const noteDuration = getLegacyNoteDurationSeconds(rowIdx);
+      for (let cIdx = 0; cIdx < playable; cIdx++) {
+        const noteTime = cursor + cIdx * noteDuration;
+        scheduleGridCellAtTime(rowIdx, cIdx, rowIdx, noteTime, 0, cIdx, noteDuration);
+      }
+      cursor += noteDuration * Math.max(1, playable);
+    }
+    const resetDelayMs = Math.max(120, (cursor - audioCtxRef.current.currentTime) * 1000 + 80);
+    previewResetTimerRef.current = window.setTimeout(() => {
+      previewResetTimerRef.current = null;
+      clearPlayheadScheduling();
+      setActivePos({ r: -1, c: -1, absR: -1 });
+      setActivePositions([]);
+    }, resetDelayMs);
+  }, [clearPlayheadScheduling, getLegacyNoteDurationSeconds, scheduleGridCellAtTime]);
+
   const scheduleNote = (stepIdx: number, absR: number, time: number) => {
     const seq = sequenceRef.current;
     const currentSeqItem = seq[stepIdx];
@@ -3328,7 +3654,7 @@ export default function App() {
   const scheduler = () => {
     if (!isPlayingRef.current || !audioCtxRef.current) return;
     if (audioCtxRef.current.currentTime > nextNoteTimeRef.current + 0.5) {
-      nextNoteTimeRef.current = audioCtxRef.current.currentTime + 0.05;
+      nextNoteTimeRef.current = audioCtxRef.current.currentTime + AUDIO_SCHEDULE_LEAD_SEC;
     }
     while (nextNoteTimeRef.current < audioCtxRef.current.currentTime + 0.1) {
       if (polyModeRef.current) {
@@ -3345,6 +3671,10 @@ export default function App() {
   };
 
   const togglePlayback = () => {
+    if (previewResetTimerRef.current !== null) {
+      window.clearTimeout(previewResetTimerRef.current);
+      previewResetTimerRef.current = null;
+    }
     if (isPlaying) {
       setIsPlaying(false);
       isPlayingRef.current = false;
@@ -3389,8 +3719,10 @@ export default function App() {
       }
     } else {
   if (isTaEditorModeRef.current || isDeadCellsEditorModeRef.current) return;
-      setIsPanelExpanded(false);
-      setShowRandomSettings(false);
+      if (!isClickSoundSelectorOpen) {
+        setIsPanelExpanded(false);
+        setShowRandomSettings(false);
+      }
       setIsPlaying(true);
       isPlayingRef.current = true;
       clearPlayheadScheduling();
@@ -3469,6 +3801,7 @@ export default function App() {
     return out;
   }, [deadCells]);
   const forceFirstBeatEditorFrames = useMemo(() => {
+    if (!firstBeatAccent) return false;
     if (firstBeatEditorSuppressedRowsSorted.length > 0) return true;
     // Если есть явные ding-метки не на дефолтной первой доле, держим белые рамки видимыми.
     for (const key of taDingKeys) {
@@ -3478,7 +3811,11 @@ export default function App() {
       if (Number.isFinite(c) && c > 0) return true;
     }
     return false;
-  }, [firstBeatEditorSuppressedRowsSorted, taDingKeys]);
+  }, [firstBeatAccent, firstBeatEditorSuppressedRowsSorted, taDingKeys]);
+  const visibleTaDingKeys = useMemo(
+    () => (firstBeatAccent ? taDingKeys : new Set<string>()),
+    [firstBeatAccent, taDingKeys],
+  );
 
   sequencerGridRowActionsRef.current = {
     isHoldingRef,
@@ -3709,6 +4046,45 @@ export default function App() {
                 className={`overflow-hidden flex flex-col ${disableMenuSmoothing ? '' : 'transition-all duration-300'} ${isPanelExpanded ? 'px-2.5 py-4 gap-5' : 'px-2.5 py-0 gap-0'}`}
               >
                 <div className="flex flex-col gap-4 px-1 pb-1">
+                  {isClickSoundSelectorOpen ? (
+                    <div className="bg-[#0b101e] border border-[#2f4066]/50 rounded-xl p-3 flex flex-col gap-3 min-h-[400px]">
+                      <div className="flex items-center justify-between">
+                        <button
+                          type="button"
+                          onClick={() => setIsClickSoundSelectorOpen(false)}
+                          className="w-8 h-8 rounded-lg bg-[#131722] border border-[#1f2438] flex items-center justify-center text-[#5b6385] hover:text-[#c0c5db] hover:bg-[#1a2030] transition-colors"
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <span className="font-bold text-[11px] uppercase tracking-wider text-[#a4abc5]">Select Click</span>
+                        <div className="w-8 h-8" />
+                      </div>
+                      <div className="grid grid-cols-4 gap-2.5 flex-1 content-start">
+                        {CLICK_SOUND_PRESET_META.map((preset) => {
+                          const isSelected = clickSound === preset.mappedSound;
+                          return (
+                            <button
+                              key={preset.id}
+                              type="button"
+                              onClick={() => {
+                                setClickSound(preset.mappedSound);
+                                clickSoundRef.current = preset.mappedSound;
+                                playTwoBarsPreviewFromGrid(preset.mappedSound);
+                              }}
+                              className={`rounded-xl border p-3 min-h-[64px] text-center flex items-center justify-center transition-all ${
+                                isSelected
+                                  ? 'bg-[#24365c] border-[#5a7cc5] text-white'
+                                  : 'bg-[#131a2a] border-[#2a385b] text-slate-300 hover:text-white hover:bg-[#1a243b]'
+                              }`}
+                            >
+                              <div className="text-[10px] font-semibold leading-tight">{preset.label}</div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    <>
                   <div className="flex justify-between items-center text-slate-300 font-bold text-[11px] uppercase tracking-wider">
                     <span className={`flex items-center gap-2 text-blue-300 ${lowPerfMode ? '' : 'drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]'}`}>
                       <Dices size={14} /> Randomizer
@@ -3783,12 +4159,17 @@ export default function App() {
 
                   <div className="w-full h-px bg-[#1e2a45]/80 my-0.5"></div>
 
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-3">
                     <span className={`text-[11px] font-bold tracking-wider uppercase text-blue-300 ${lowPerfMode ? '' : 'drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]'}`}>Click Sound</span>
-                    <div className="flex bg-[#0b101e] p-[3px] rounded-lg border border-[#2f4066]/50">
-                       <button onClick={() => setClickSound('classic')} className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${clickSound === 'classic' ? 'bg-[#364976] text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}>Classic</button>
-                       <button onClick={() => setClickSound('oldschool')} className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${clickSound === 'oldschool' ? 'bg-[#364976] text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}>Oldschool</button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsClickSoundSelectorOpen(true)}
+                      className="bg-[#0b101e] border border-[#2f4066]/50 hover:bg-[#151d2f] px-3 py-1.5 rounded-lg flex items-center transition-all group"
+                    >
+                      <span className="text-slate-300 text-[11px] font-semibold group-hover:text-white transition-colors">
+                        {CLICK_SOUND_PRESET_META.find((preset) => preset.mappedSound === clickSound)?.label ?? 'Classic'}
+                      </span>
+                    </button>
                   </div>
 
                   <div className="w-full h-px bg-[#1e2a45]/80 my-0.5"></div>
@@ -3840,6 +4221,8 @@ export default function App() {
                       </div>
                     ) : null}
                   </div>
+                  </>
+                  )}
                     </div>
                   </div>
                 </div>
@@ -4175,7 +4558,7 @@ export default function App() {
           customSubdivisions={customSubdivisions}
           customMultipliers={customMultipliers}
           accents={accents}
-          taDingKeys={taDingKeys}
+          taDingKeys={visibleTaDingKeys}
           pulseMeterUnlinked={pulseMeterUnlinked}
           isPlaying={isPlaying}
           activePos={activePos}
@@ -4305,6 +4688,7 @@ export default function App() {
                 taHoldAteClickRef.current = false;
                 return;
               }
+              if (isTaEditorModeRef.current) return;
               setFirstBeatAccent((prev) => !prev);
             }}
             className={`flex-1 rounded-xl flex justify-center items-center transition-all bg-[#161f33] ${
