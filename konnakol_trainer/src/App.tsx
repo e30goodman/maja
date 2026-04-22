@@ -14,6 +14,8 @@ import {
 	ClipboardPaste,
 } from 'lucide-react';
 import { SequencerGrid, type SequencerGridRowActions } from './SequencerGrid';
+import { getMetronomeSummingInput, METRA_LOOKAHEAD_MS, METRA_SCHEDULE_AHEAD_SEC } from './metraAudioBus';
+import { metroEnvelopeEndFromPeak, scheduleLayerToBus } from './metroLayerGraph';
 
 type PlayheadPosition = { r: number; c: number; absR: number; voice: number; step: number };
 type PlayheadHighlightEvent = { t: number; pos: PlayheadPosition };
@@ -321,7 +323,7 @@ const POLY_MODE_STORAGE_KEY = 'konnakol_poly_mode';
 const POLY_VOICES_STORAGE_KEY = 'konnakol_poly_voices';
 const APP_COMMIT_VERSION = (() => {
 	if (typeof __GIT_SHA7__ === 'string' && __GIT_SHA7__.length >= 7) return __GIT_SHA7__.slice(0, 7);
-	return '2734ddf';
+	return '5e0934e';
 })();
 const TEMPO_THROTTLE_MS = 56;
 /** Удержание −/+ темпа: после задержки шаг ±5 каждые 0,1 с. */
@@ -357,7 +359,11 @@ const SNAPSHOT_FLAG_POLY_VOICES_4 = 1 << 10;
 const SNAPSHOT_SOUND_ID_CLASSIC = 0;
 const SNAPSHOT_SOUND_ID_OLDSCHOOL = 1;
 const AUDIO_START_GUARD_SEC = 0.004;
-const AUDIO_SCHEDULE_LEAD_SEC = 0.08;
+/** Percussion AD envelope: linear attack (s), exponential decay floor vs peak (-60 dB rel.). */
+const CLICK_ENV_ATTACK_SEC = 0.002;
+const CLICK_LAYER_VOLUME_GATE = 0.001;
+const CLICK_DECAY_MIN_SEC = 0.001;
+const CLICK_DECAY_MAX_SEC = 3;
 
 type ClickSoundPreset =
 	| 'classic'
@@ -756,7 +762,7 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 		decayAccent: 0.015,
 		decayAlt: 0.013,
 		sweep: true,
-		volume: 0.85,
+		volume: 0,
 		volumeAccent: 1.1,
 		volumeAlt: 1.65,
 		layers: {
@@ -816,12 +822,14 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 					sweep: true,
 					noiseFilterType: 'highpass',
 					params: { volume: 0.85, decay: 0.013, freq: 1390, hpFreq: 1000, lpFreq: 20000 },
+					mute: false,
 				},
 				{
 					type: 'none',
 					sweep: false,
 					noiseFilterType: 'highpass',
 					params: { volume: 0, decay: 0.015, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+					mute: false,
 				},
 				{
 					type: 'none',
@@ -1224,7 +1232,7 @@ const CLICK_SOUND_PRESET_META: ClickSoundUiPreset[] = [
 	{ id: 'preset-14', label: 'Clock Tick', mappedSound: 'clock_tick' },
 	{ id: 'preset-15', label: 'Cowbell', mappedSound: 'cowbell' },
 	{ id: 'preset-16', label: 'Analog Synth', mappedSound: 'analog_synth' },
-	{ id: 'preset-17', label: 'Vinyl Crackle', mappedSound: 'vinyl_crackle' },
+	{ id: 'preset-17', label: 'Cajon', mappedSound: 'vinyl_crackle' },
 	{ id: 'preset-18', label: 'Dry Click', mappedSound: 'dry_click' },
 	{ id: 'preset-19', label: 'Soft Ping', mappedSound: 'soft_ping' },
 	{ id: 'preset-20', label: 'Noise Burst', mappedSound: 'noise_burst' },
@@ -2237,84 +2245,45 @@ const playSharpClick = (
 ) => {
   const cfg = CLICK_SOUND_LIBRARY[soundType] ?? CLICK_SOUND_LIBRARY.classic;
   const t0 = Math.max(time, ctx.currentTime + AUDIO_START_GUARD_SEC);
+  const masterIn = getMetronomeSummingInput(ctx);
   const voiceKey = voiceRole === 'accent' ? 'accent' : voiceRole === 'alt' ? 'alt' : 'passive';
   const layers = (cfg.layers ?? buildLegacyVoiceLayers(cfg))[voiceKey];
-  const activeLayers = layers.filter((layer) => layer.mute !== true && layer.params.volume > 0 && layer.type !== 'none');
+  const activeLayers = layers.filter(
+    (layer) => layer.mute !== true && layer.params.volume > CLICK_LAYER_VOLUME_GATE && layer.type !== 'none',
+  );
   const soloLayers = activeLayers.filter((layer) => layer.solo === true);
   const runLayers = soloLayers.length > 0 ? soloLayers : activeLayers;
   for (const layer of runLayers) {
-    const layerDecay = Math.max(0.001, layer.params.decay);
+    const layerDecay = Math.min(CLICK_DECAY_MAX_SEC, Math.max(CLICK_DECAY_MIN_SEC, layer.params.decay));
     const layerVol = accentOnlyPlayback && voiceRole === 'accent' ? layer.params.volume * 0.72 : layer.params.volume;
-    if (layer.type === 'noise') {
-      const noiseLen = Math.max(1, Math.floor(ctx.sampleRate * layerDecay));
-      const noiseBuf = ctx.createBuffer(1, noiseLen, ctx.sampleRate);
-      const output = noiseBuf.getChannelData(0);
-      for (let i = 0; i < output.length; i++) output[i] = Math.random() * 2 - 1;
-      const noiseSrc = ctx.createBufferSource();
-      noiseSrc.buffer = noiseBuf;
-      const noiseFilter = ctx.createBiquadFilter();
-      noiseFilter.type = layer.noiseFilterType;
-      noiseFilter.frequency.value = Math.max(10, layer.params.freq);
-      const noiseGain = ctx.createGain();
-      noiseGain.gain.cancelScheduledValues(t0);
-      noiseGain.gain.setValueAtTime(0, t0);
-      noiseGain.gain.linearRampToValueAtTime(layerVol, t0 + 0.002);
-      noiseGain.gain.exponentialRampToValueAtTime(0.001, t0 + layerDecay);
-      noiseSrc.connect(noiseFilter);
-      noiseFilter.connect(noiseGain);
-      noiseGain.connect(ctx.destination);
-      noiseSrc.start(t0);
-      noiseSrc.stop(t0 + layerDecay + 0.05);
-      continue;
-    }
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = layer.type as OscillatorType;
-    osc.frequency.setValueAtTime(Math.max(1, layer.params.freq), t0);
-    if (layer.sweep) {
-      osc.frequency.exponentialRampToValueAtTime(Math.max(10, Math.max(1, layer.params.freq) * 0.1), t0 + layerDecay);
-    }
-    gain.gain.cancelScheduledValues(t0);
-    gain.gain.setValueAtTime(0, t0);
-    gain.gain.linearRampToValueAtTime(layerVol, t0 + 0.002);
-    gain.gain.exponentialRampToValueAtTime(0.001, t0 + layerDecay);
-    const hpFilter = ctx.createBiquadFilter();
-    hpFilter.type = 'highpass';
-    hpFilter.frequency.value = Math.max(10, layer.params.hpFreq);
-    const lpFilter = ctx.createBiquadFilter();
-    lpFilter.type = 'lowpass';
-    lpFilter.frequency.value = Math.max(20, layer.params.lpFreq);
-    osc.connect(hpFilter);
-    hpFilter.connect(lpFilter);
-    lpFilter.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(t0);
-    osc.stop(t0 + layerDecay + 0.05);
+    scheduleLayerToBus(ctx, t0, layer, layerVol, layerDecay, masterIn);
   }
 };
 
 const playBarFirstHighClick = (ctx: AudioContext, time: number, soundType: ClickSoundPreset = 'classic') => {
   const t0 = Math.max(time, ctx.currentTime + AUDIO_START_GUARD_SEC);
+  const masterIn = getMetronomeSummingInput(ctx);
   if (soundType === 'classic') {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     const hpFilter = ctx.createBiquadFilter();
     hpFilter.type = 'highpass';
-    hpFilter.frequency.value = 1600;
+    hpFilter.frequency.setValueAtTime(1600, t0);
     const lpFilter = ctx.createBiquadFilter();
     lpFilter.type = 'lowpass';
-    lpFilter.frequency.value = 20000;
+    lpFilter.frequency.setValueAtTime(20000, t0);
     osc.type = 'sine';
     osc.frequency.setValueAtTime(1550, t0);
     osc.frequency.exponentialRampToValueAtTime(520, t0 + 0.028);
+    const classicPeak = 0.36;
     gain.gain.cancelScheduledValues(t0);
     gain.gain.setValueAtTime(0, t0);
-    gain.gain.linearRampToValueAtTime(0.36, t0 + 0.002);
-    gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.0336);
-    osc.connect(hpFilter);
+    gain.gain.linearRampToValueAtTime(classicPeak, t0 + CLICK_ENV_ATTACK_SEC);
+    gain.gain.exponentialRampToValueAtTime(metroEnvelopeEndFromPeak(classicPeak), t0 + 0.0336);
+    osc.connect(gain);
+    gain.connect(hpFilter);
     hpFilter.connect(lpFilter);
-    lpFilter.connect(gain);
-    gain.connect(ctx.destination);
+    lpFilter.connect(masterIn);
     osc.start(t0);
     osc.stop(t0 + 0.06);
     return;
@@ -2328,17 +2297,18 @@ const playBarFirstHighClick = (ctx: AudioContext, time: number, soundType: Click
     osc.frequency.setValueAtTime(920, t0);
     osc.frequency.exponentialRampToValueAtTime(210, t0 + 0.03);
     hpFilter.type = 'highpass';
-    hpFilter.frequency.value = 1200;
+    hpFilter.frequency.setValueAtTime(1200, t0);
     lpFilter.type = 'lowpass';
-    lpFilter.frequency.value = 20000;
+    lpFilter.frequency.setValueAtTime(20000, t0);
+    const oldschoolPeak = 0.78;
     gain.gain.cancelScheduledValues(t0);
     gain.gain.setValueAtTime(0, t0);
-    gain.gain.linearRampToValueAtTime(0.78, t0 + 0.002);
-    gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.035);
-    osc.connect(hpFilter);
+    gain.gain.linearRampToValueAtTime(oldschoolPeak, t0 + CLICK_ENV_ATTACK_SEC);
+    gain.gain.exponentialRampToValueAtTime(metroEnvelopeEndFromPeak(oldschoolPeak), t0 + 0.035);
+    osc.connect(gain);
+    gain.connect(hpFilter);
     hpFilter.connect(lpFilter);
-    lpFilter.connect(gain);
-    gain.connect(ctx.destination);
+    lpFilter.connect(masterIn);
     osc.start(t0);
     osc.stop(t0 + 0.06);
     return;
@@ -4312,7 +4282,7 @@ export default function App() {
     setActivePositions([]);
     clickSoundRef.current = soundPreset;
     const barsCount = Math.max(1, barsRef.current);
-    let cursor = audioCtxRef.current.currentTime + AUDIO_SCHEDULE_LEAD_SEC;
+    let cursor = audioCtxRef.current.currentTime + METRA_SCHEDULE_AHEAD_SEC;
     for (let i = 0; i < 2; i++) {
       const rowIdx = i % barsCount;
       const rowSyllables =
@@ -4372,9 +4342,9 @@ export default function App() {
   const scheduler = () => {
     if (!isPlayingRef.current || !audioCtxRef.current) return;
     if (audioCtxRef.current.currentTime > nextNoteTimeRef.current + 0.5) {
-      nextNoteTimeRef.current = audioCtxRef.current.currentTime + AUDIO_SCHEDULE_LEAD_SEC;
+      nextNoteTimeRef.current = audioCtxRef.current.currentTime + METRA_SCHEDULE_AHEAD_SEC;
     }
-    while (nextNoteTimeRef.current < audioCtxRef.current.currentTime + 0.1) {
+    while (nextNoteTimeRef.current < audioCtxRef.current.currentTime + METRA_SCHEDULE_AHEAD_SEC) {
       if (polyModeRef.current) {
         const stepDuration = schedulePolyStep(currentStepRef.current, nextNoteTimeRef.current);
         nextNoteTimeRef.current += stepDuration;
@@ -4385,7 +4355,7 @@ export default function App() {
         nextNote();
       }
     }
-    timerIDRef.current = window.setTimeout(scheduler, 25);
+    timerIDRef.current = window.setTimeout(scheduler, METRA_LOOKAHEAD_MS);
   };
 
   const togglePlayback = () => {
@@ -4469,7 +4439,7 @@ export default function App() {
       } else if (currentStepRef.current >= sequenceRef.current.length) {
         currentStepRef.current = 0;
       }
-      nextNoteTimeRef.current = audioCtxRef.current.currentTime + 0.05;
+      nextNoteTimeRef.current = audioCtxRef.current.currentTime + METRA_SCHEDULE_AHEAD_SEC;
       scheduler();
     }
   };
