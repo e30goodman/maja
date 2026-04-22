@@ -12,9 +12,11 @@ import {
 	Eraser,
 	Copy,
 	ClipboardPaste,
+	SlidersHorizontal,
 } from 'lucide-react';
 import { SequencerGrid, type SequencerGridRowActions } from './SequencerGrid';
 import { getMetronomeSummingInput, METRA_LOOKAHEAD_MS, METRA_SCHEDULE_AHEAD_SEC } from './metraAudioBus';
+import { applyVoiceGroupChain, getVoiceLayerSumInput, type MetroVoiceKey } from './metroSoundBus';
 import { metroEnvelopeEndFromPeak, scheduleLayerToBus } from './metroLayerGraph';
 
 type PlayheadPosition = { r: number; c: number; absR: number; voice: number; step: number };
@@ -323,7 +325,7 @@ const POLY_MODE_STORAGE_KEY = 'konnakol_poly_mode';
 const POLY_VOICES_STORAGE_KEY = 'konnakol_poly_voices';
 const APP_COMMIT_VERSION = (() => {
 	if (typeof __GIT_SHA7__ === 'string' && __GIT_SHA7__.length >= 7) return __GIT_SHA7__.slice(0, 7);
-	return '874ce00';
+	return 'efbcd08';
 })();
 const TEMPO_THROTTLE_MS = 56;
 /** Удержание −/+ темпа: после задержки шаг ±5 каждые 0,1 с. */
@@ -2243,6 +2245,30 @@ function loadSnapshotStorage(): {
 	return { activeSnapshot, snapshots };
 }
 
+type ClickMixerGroup = { groupHpHz: number; groupLpHz: number; groupMasterLinear: number };
+
+const clickMixerLayerClonesRef: {
+	current: { accent: ClickLayerConfig[]; alt: ClickLayerConfig[]; passive: ClickLayerConfig[] } | null;
+} = { current: null };
+
+const clickMixerGroupRef: { current: Record<MetroVoiceKey, ClickMixerGroup> | null } = { current: null };
+
+function cloneClickMixerFromLibrary(soundType: ClickSoundPreset): void {
+	const cfg = CLICK_SOUND_LIBRARY[soundType] ?? CLICK_SOUND_LIBRARY.classic;
+	const built = cfg.layers ?? buildLegacyVoiceLayers(cfg);
+	clickMixerLayerClonesRef.current = {
+		accent: structuredClone(built.accent),
+		alt: structuredClone(built.alt),
+		passive: structuredClone(built.passive),
+	};
+	const def = (): ClickMixerGroup => ({ groupHpHz: 20, groupLpHz: 20000, groupMasterLinear: 1 });
+	clickMixerGroupRef.current = {
+		accent: def(),
+		alt: def(),
+		passive: def(),
+	};
+}
+
 /**
  * @param accentOnlyPlayback When true, only accented steps sound — blend accent with passive timbre.
  *   When false, passive steps also sound — accented hits use accent-only (high) to avoid doubling + clipping.
@@ -2257,9 +2283,10 @@ const playSharpClick = (
 ) => {
   const cfg = CLICK_SOUND_LIBRARY[soundType] ?? CLICK_SOUND_LIBRARY.classic;
   const t0 = Math.max(time, ctx.currentTime + AUDIO_START_GUARD_SEC);
-  const masterIn = getMetronomeSummingInput(ctx);
-  const voiceKey = voiceRole === 'accent' ? 'accent' : voiceRole === 'alt' ? 'alt' : 'passive';
-  const layers = (cfg.layers ?? buildLegacyVoiceLayers(cfg))[voiceKey];
+  const voiceKey: MetroVoiceKey = voiceRole === 'accent' ? 'accent' : voiceRole === 'alt' ? 'alt' : 'passive';
+  const busIn = getVoiceLayerSumInput(ctx, voiceKey);
+  const libLayers = (cfg.layers ?? buildLegacyVoiceLayers(cfg))[voiceKey];
+  const layers = clickMixerLayerClonesRef.current?.[voiceKey] ?? libLayers;
   const activeLayers = layers.filter(
     (layer) => layer.mute !== true && layer.params.volume > CLICK_LAYER_VOLUME_GATE && layer.type !== 'none',
   );
@@ -2268,7 +2295,7 @@ const playSharpClick = (
   for (const layer of runLayers) {
     const layerDecay = Math.min(CLICK_DECAY_MAX_SEC, Math.max(CLICK_DECAY_MIN_SEC, layer.params.decay));
     const layerVol = accentOnlyPlayback && voiceRole === 'accent' ? layer.params.volume * 0.72 : layer.params.volume;
-    scheduleLayerToBus(ctx, t0, layer, layerVol, layerDecay, masterIn);
+    scheduleLayerToBus(ctx, t0, layer, layerVol, layerDecay, busIn);
   }
 };
 
@@ -2618,6 +2645,8 @@ export default function App() {
   // Click Sound
   const [clickSound, setClickSound] = useState<ClickSoundPreset>(seed.clickSound);
   const [isClickSoundSelectorOpen, setIsClickSoundSelectorOpen] = useState(false);
+  const [mixerPanelOpen, setMixerPanelOpen] = useState(false);
+  const [, setMixerUiTick] = useState(0);
 
   // Preset Snapshot State (7 slots; persisted in localStorage)
   const [activeSnapshot, setActiveSnapshot] = useState(initialBoot.activeSnapshot);
@@ -3072,6 +3101,26 @@ export default function App() {
   useEffect(() => { randomBarSpeedRef.current = randomBarSpeed; }, [randomBarSpeed]);
   useEffect(() => { chaosLevelRef.current = chaosLevel; }, [chaosLevel]);
   useEffect(() => { clickSoundRef.current = clickSound; }, [clickSound]);
+
+  useEffect(() => {
+    cloneClickMixerFromLibrary(clickSound);
+    setMixerUiTick((x) => x + 1);
+  }, [clickSound]);
+
+  const syncMixerVoiceBus = useCallback((voice: MetroVoiceKey) => {
+    const ctx = audioCtxRef.current;
+    const g = clickMixerGroupRef.current;
+    if (!ctx || !g) return;
+    getVoiceLayerSumInput(ctx, voice);
+    applyVoiceGroupChain(ctx, voice, g[voice].groupHpHz, g[voice].groupLpHz, g[voice].groupMasterLinear);
+  }, []);
+
+  useEffect(() => {
+    if (!mixerPanelOpen) return;
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    (['accent', 'alt', 'passive'] as const).forEach((v) => syncMixerVoiceBus(v));
+  }, [mixerPanelOpen, syncMixerVoiceBus]);
   useEffect(() => { frozenScaleRef.current = frozenScale; }, [frozenScale]);
   useEffect(() => { polyModeRef.current = polyMode; }, [polyMode]);
   useEffect(() => { polyVoicesRef.current = polyVoices; }, [polyVoices]);
@@ -4433,6 +4482,16 @@ export default function App() {
       audioCtxRef.current.resume();
     }
     if (!audioCtxRef.current) return;
+    {
+      const ctxBoot = audioCtxRef.current;
+      const gBoot = clickMixerGroupRef.current;
+      if (gBoot) {
+        for (const v of ['accent', 'alt', 'passive'] as const) {
+          getVoiceLayerSumInput(ctxBoot, v);
+          applyVoiceGroupChain(ctxBoot, v, gBoot[v].groupHpHz, gBoot[v].groupLpHz, gBoot[v].groupMasterLinear);
+        }
+      }
+    }
     clearPlayheadScheduling();
     setActivePos({ r: -1, c: -1, absR: -1 });
     setActivePositions([]);
@@ -4587,6 +4646,16 @@ export default function App() {
       if (audioCtxRef.current.state === 'suspended') {
         audioCtxRef.current.resume();
       }
+      {
+        const ctxBoot = audioCtxRef.current;
+        const gBoot = clickMixerGroupRef.current;
+        if (ctxBoot && gBoot) {
+          for (const v of ['accent', 'alt', 'passive'] as const) {
+            getVoiceLayerSumInput(ctxBoot, v);
+            applyVoiceGroupChain(ctxBoot, v, gBoot[v].groupHpHz, gBoot[v].groupLpHz, gBoot[v].groupMasterLinear);
+          }
+        }
+      }
       // Guarantee loop limits if grid resized
       if (polyModeRef.current) {
         if (currentStepRef.current >= polyChunksRef.current.length) {
@@ -4731,6 +4800,18 @@ export default function App() {
           >
             <Settings size={20} />
           </button>
+          <button
+            type="button"
+            title="Mixer: три шины (акцент / alt / пассив) — сумма слоёв → HP → LP → мастер; громкости = параметры слоёв"
+            onClick={() => setMixerPanelOpen((o) => !o)}
+            className={`shrink-0 p-3 rounded-xl border transition-colors ${
+              mixerPanelOpen
+                ? 'bg-blue-600/25 border-blue-400/60 text-blue-100'
+                : 'bg-[#161f33] border-[#23314f] text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <SlidersHorizontal size={20} strokeWidth={2.25} />
+          </button>
           {!isPanelExpanded && !showRandomSettings ? (
             <div className="flex-1 flex items-center gap-2 min-w-0 py-2 px-1.5 bg-[#161f33] rounded-xl border border-[#23314f] touch-none">
           <button 
@@ -4846,6 +4927,99 @@ export default function App() {
             <Eraser size={20} />
           </button>
         </div>
+
+        {mixerPanelOpen ? (
+          <div className="rounded-xl border border-[#2f4066]/80 bg-[#12192a] p-2 shrink-0 max-h-[40vh] overflow-y-auto">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-1 px-0.5 leading-tight">
+              Mixer · слои → сумма → HP → LP → мастер (на каждый голос)
+            </div>
+            <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+              {(['accent', 'alt', 'passive'] as const).map((voice) => {
+                const clone = clickMixerLayerClonesRef.current;
+                const grp = clickMixerGroupRef.current;
+                if (!clone || !grp) {
+                  return <div key={voice} className="min-w-[104px] flex-1 rounded-lg bg-[#0b101e]/50" />;
+                }
+                const title = voice === 'accent' ? 'Акцент' : voice === 'alt' ? 'Alt' : 'Пассив';
+                return (
+                  <div
+                    key={voice}
+                    className="min-w-[104px] flex-1 rounded-lg border border-[#23314f]/90 bg-[#0b101e]/85 p-1.5 flex flex-col gap-1"
+                  >
+                    <div className="text-[10px] font-bold text-blue-200/90 text-center border-b border-[#23314f]/60 pb-0.5">
+                      {title}
+                    </div>
+                    <label className="flex flex-col gap-0.5 text-[9px] text-slate-500">
+                      Группа HP
+                      <input
+                        type="range"
+                        min={20}
+                        max={8000}
+                        value={grp[voice].groupHpHz}
+                        onInput={(e) => {
+                          grp[voice].groupHpHz = Number(e.currentTarget.value);
+                          syncMixerVoiceBus(voice);
+                          setMixerUiTick((x) => x + 1);
+                        }}
+                        className="w-full h-1.5 accent-blue-500"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-0.5 text-[9px] text-slate-500">
+                      Группа LP
+                      <input
+                        type="range"
+                        min={500}
+                        max={20000}
+                        value={grp[voice].groupLpHz}
+                        onInput={(e) => {
+                          grp[voice].groupLpHz = Number(e.currentTarget.value);
+                          syncMixerVoiceBus(voice);
+                          setMixerUiTick((x) => x + 1);
+                        }}
+                        className="w-full h-1.5 accent-blue-500"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-0.5 text-[9px] text-slate-500">
+                      Мастер гр.
+                      <input
+                        type="range"
+                        min={0}
+                        max={200}
+                        value={Math.round(grp[voice].groupMasterLinear * 100)}
+                        onInput={(e) => {
+                          grp[voice].groupMasterLinear = Number(e.currentTarget.value) / 100;
+                          syncMixerVoiceBus(voice);
+                          setMixerUiTick((x) => x + 1);
+                        }}
+                        className="w-full h-1.5 accent-emerald-500"
+                      />
+                    </label>
+                    <div className="text-[9px] text-slate-600 border-t border-[#23314f]/50 pt-1 mt-0.5">Слои</div>
+                    {clone[voice].map((layer, i) => (
+                      <label key={i} className="flex flex-col gap-0.5 text-[9px] text-slate-500">
+                        <span className="truncate">
+                          L{i + 1} · {layer.type}
+                        </span>
+                        <input
+                          type="range"
+                          min={0}
+                          max={300}
+                          step={1}
+                          value={Math.round(layer.params.volume * 100)}
+                          onInput={(e) => {
+                            layer.params.volume = Number(e.currentTarget.value) / 100;
+                            setMixerUiTick((x) => x + 1);
+                          }}
+                          className="w-full h-1.5 accent-amber-500"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
 
         {/* Global Settings (Tempo & Row Selectors) */}
         <div className="relative bg-[#161f33] rounded-2xl border border-[#23314f] flex flex-col shrink-0 mb-3">
