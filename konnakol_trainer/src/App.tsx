@@ -894,7 +894,8 @@ function packGridTokenPacked(
 	const bars = Math.max(1, Math.min(255, snapshot.bars));
 	const syllables = Math.max(1, Math.min(9, snapshot.syllables));
 	const useV2 = (snapshot.accentMapVersion ?? 0) >= 1;
-	const gridVersion = useV2 ? 0x02 : 0x01;
+	const useV3 = true; // v3: adds taDing bitmap; backward parser keeps p1/p2 support.
+	const gridVersion = useV3 ? 0x03 : useV2 ? 0x02 : 0x01;
 	out.push(0x50, gridVersion, bars, syllables);
 
 	const rowEntries = Object.entries(snapshot.customSyllables)
@@ -920,6 +921,21 @@ function packGridTokenPacked(
 		}
 	}
 	if (accBit !== 0) out.push(accByte);
+
+	if (gridVersion >= 0x03) {
+		let taByte = 0;
+		let taBit = 0;
+		for (let i = 0; i < cells.length; i++) {
+			if (snapshot.taDingKeys.has(cells[i]!.key)) taByte |= 1 << taBit;
+			taBit++;
+			if (taBit === 8) {
+				out.push(taByte);
+				taByte = 0;
+				taBit = 0;
+			}
+		}
+		if (taBit !== 0) out.push(taByte);
+	}
 
 	const subEntries: Array<[number, number]> = [];
 	for (let i = 0; i < cells.length; i++) {
@@ -955,7 +971,7 @@ function packGridTokenPacked(
 		out.push(Math.min(255, Math.max(0, Math.floor(snapshot.accentMapVersion ?? 1))) & 0xff);
 	}
 
-	const prefix = useV2 ? 'p2' : 'p1';
+	const prefix = gridVersion === 0x03 ? 'p3' : useV2 ? 'p2' : 'p1';
 	return `${prefix}${toBase64Url(new Uint8Array(out))}`;
 }
 
@@ -964,7 +980,8 @@ function unpackGridTokenPacked(
 	d: ReturnType<typeof createEmptySnapshot>,
 ): boolean {
 	let b64 = token;
-	if (token.startsWith('p2')) b64 = token.slice(2);
+	if (token.startsWith('p3')) b64 = token.slice(2);
+	else if (token.startsWith('p2')) b64 = token.slice(2);
 	else if (token.startsWith('p1')) b64 = token.slice(2);
 	else return false;
 	const bytes = fromBase64Url(b64);
@@ -972,7 +989,7 @@ function unpackGridTokenPacked(
 	let off = 0;
 	const magic = bytes[off++]!;
 	const version = bytes[off++]!;
-	if (magic !== 0x50 || (version !== 0x01 && version !== 0x02)) return false;
+	if (magic !== 0x50 || (version !== 0x01 && version !== 0x02 && version !== 0x03)) return false;
 	const bars = bytes[off++]!;
 	const syllables = bytes[off++]!;
 	if (bars < 1 || bars > 100 || syllables < 1 || syllables > 9) return false;
@@ -1003,6 +1020,18 @@ function unpackGridTokenPacked(
 	}
 	off += accBytesLen;
 	d.accents = nextAccents;
+
+	if (version >= 0x03) {
+		const taBytesLen = Math.ceil(cappedCellCount / 8);
+		if (off + taBytesLen > bytes.length) return false;
+		const nextTa = new Set<string>();
+		for (let i = 0; i < cappedCellCount; i++) {
+			const byte = bytes[off + (i >> 3)]!;
+			if (((byte >> (i & 7)) & 1) === 1) nextTa.add(cells[i]!.key);
+		}
+		off += taBytesLen;
+		d.taDingKeys = nextTa;
+	}
 
 	const subCount = readU16(bytes, off);
 	if (subCount === null) return false;
@@ -1462,7 +1491,7 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 			d.chaosLevel = chaosLevel;
 			applySnapshotFlags(flags, d);
 			applySnapshotSoundId(soundId, d);
-			if (gridTokenRaw.startsWith('p1') || gridTokenRaw.startsWith('p2')) {
+			if (gridTokenRaw.startsWith('p1') || gridTokenRaw.startsWith('p2') || gridTokenRaw.startsWith('p3')) {
 				if (!unpackGridTokenPacked(gridTokenRaw, d)) return null;
 			} else if (gridTokenRaw.includes('|')) {
 				const [accentToken, rowSyllablesToken, subdivisionsToken, multipliersToken, pulseUnlinkedToken] =
@@ -1506,7 +1535,7 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 			d.chaosLevel = chaosLevel;
 			applySnapshotFlags(flags, d);
 			applySnapshotSoundId(soundId, d);
-			if (gridTokenRaw.startsWith('p1') || gridTokenRaw.startsWith('p2')) {
+			if (gridTokenRaw.startsWith('p1') || gridTokenRaw.startsWith('p2') || gridTokenRaw.startsWith('p3')) {
 				if (!unpackGridTokenPacked(gridTokenRaw, d)) return null;
 			} else if (gridTokenRaw.includes('|')) {
 				const [accentToken, rowSyllablesToken, subdivisionsToken, multipliersToken, pulseUnlinkedToken] =
