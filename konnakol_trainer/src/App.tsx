@@ -323,7 +323,7 @@ const POLY_MODE_STORAGE_KEY = 'konnakol_poly_mode';
 const POLY_VOICES_STORAGE_KEY = 'konnakol_poly_voices';
 const APP_COMMIT_VERSION = (() => {
 	if (typeof __GIT_SHA7__ === 'string' && __GIT_SHA7__.length >= 7) return __GIT_SHA7__.slice(0, 7);
-	return '9a28015';
+	return '874ce00';
 })();
 const TEMPO_THROTTLE_MS = 56;
 /** Удержание −/+ темпа: после задержки шаг ±5 каждые 0,1 с. */
@@ -913,27 +913,32 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 		altFreq: 0,
 		decay: 0.041,
 		decayAlt: 0.065,
-		decayAccent: 0.081,
+		decayAccent: 0.093,
 		noise: true,
 		noiseType: 'highpass',
 		noiseFreq: 5600,
+		noiseFreqAccent: 1390,
 		altNoiseFreq: 5200,
 		volume: 0.7,
-		volumeAccent: 2.5,
+		volumeAccent: 3,
 		volumeAlt: 1.7,
 		layers: {
 			accent: [
 				{
-					type: 'none',
-					sweep: false,
+					type: 'triangle',
+					sweep: true,
 					noiseFilterType: 'highpass',
-					params: { volume: 0, decay: 0.081, freq: 0, hpFreq: 5000, lpFreq: 12000 },
+					params: { volume: 3, decay: 0.093, freq: 20, hpFreq: 20, lpFreq: 630 },
+					mute: false,
+					solo: false,
 				},
 				{
 					type: 'noise',
 					sweep: false,
 					noiseFilterType: 'highpass',
-					params: { volume: 2.5, decay: 0.081, freq: 1000, hpFreq: 5000, lpFreq: 12000 },
+					params: { volume: 0.5, decay: 0.081, freq: 1390, hpFreq: 5000, lpFreq: 12000 },
+					mute: false,
+					solo: false,
 				},
 				{
 					type: 'none',
@@ -946,16 +951,18 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 			],
 			alt: [
 				{
-					type: 'none',
-					sweep: false,
+					type: 'triangle',
+					sweep: true,
 					noiseFilterType: 'highpass',
-					params: { volume: 0, decay: 0.065, freq: 0, hpFreq: 5000, lpFreq: 12000 },
+					params: { volume: 1.4, decay: 0.065, freq: 410, hpFreq: 20, lpFreq: 12000 },
+					mute: false,
 				},
 				{
 					type: 'noise',
 					sweep: false,
 					noiseFilterType: 'highpass',
 					params: { volume: 1.7, decay: 0.065, freq: 5200, hpFreq: 5000, lpFreq: 12000 },
+					mute: false,
 				},
 				{
 					type: 'none',
@@ -972,12 +979,14 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 					sweep: false,
 					noiseFilterType: 'highpass',
 					params: { volume: 0, decay: 0.041, freq: 0, hpFreq: 5000, lpFreq: 12000 },
+					mute: false,
 				},
 				{
 					type: 'noise',
 					sweep: false,
 					noiseFilterType: 'highpass',
 					params: { volume: 0.7, decay: 0.041, freq: 5600, hpFreq: 5000, lpFreq: 12000 },
+					mute: false,
 				},
 				{
 					type: 'none',
@@ -1228,7 +1237,7 @@ const CLICK_SOUND_PRESET_META: ClickSoundUiPreset[] = [
 	{ id: 'preset-06', label: 'Punchy', mappedSound: 'punchy' },
 	{ id: 'preset-07', label: 'Sharp Digital', mappedSound: 'sharp_digital' },
 	{ id: 'preset-08', label: 'Deep Sub', mappedSound: 'deep_sub' },
-	{ id: 'preset-10', label: 'Hi-Hat', mappedSound: 'hi_hat' },
+	{ id: 'preset-10', label: 'Drum machine', mappedSound: 'hi_hat' },
 	{ id: 'preset-11', label: 'Glass Drop', mappedSound: 'glass_drop' },
 	{ id: 'preset-12', label: 'Plastic Knock', mappedSound: 'plastic_knock' },
 	{ id: 'preset-13', label: 'Metallic', mappedSound: 'metallic' },
