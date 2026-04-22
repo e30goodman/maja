@@ -4045,7 +4045,11 @@ export default function App() {
   }, []);
   const primaryActivePos = useMemo(() => {
     if (!polyMode || activePositions.length === 0) return activePos;
-    const master = activePositions.find((pos) => pos.voice === 0) ?? activePositions[0];
+    const masters = activePositions.filter((pos) => pos.voice === 0);
+    const master =
+      masters.length > 0
+        ? masters.reduce((a, b) => (a.absR >= b.absR ? a : b))
+        : activePositions[0];
     return { r: master.r, c: master.c, absR: master.absR };
   }, [activePos, activePositions, polyMode]);
 
@@ -4221,19 +4225,27 @@ export default function App() {
     const ctx = audioCtxRef.current;
     const q = playheadQueueRef.current;
     let lastPos: PlayheadPosition | null = null;
-    const polyLatestByVoice = new Map<number, PlayheadPosition>();
+    /** Поли: одна позиция на пару (step, voice). Ключ только по voice затирал соседний такт → моргание. */
+    const polyLatestByStepVoice = new Map<number, PlayheadPosition>();
+    const polySlotKey = (p: PlayheadPosition) => p.step * 32 + p.voice;
     while (q.length > 0 && q[0].t <= ctx.currentTime) {
       const due = q.shift()!.pos;
       if (polyModeRef.current) {
-        polyLatestByVoice.set(due.voice, due);
+        polyLatestByStepVoice.set(polySlotKey(due), due);
       }
       lastPos = due;
     }
     if (polyModeRef.current) {
-      const nextActive = Array.from(polyLatestByVoice.values()).sort((a, b) => a.voice - b.voice);
+      const nextActive = Array.from(polyLatestByStepVoice.values()).sort((a, b) =>
+        a.step !== b.step ? a.step - b.step : a.voice - b.voice,
+      );
       if (nextActive.length > 0) {
         setActivePositions(nextActive);
-        const primary = nextActive.find((pos) => pos.voice === 0) ?? nextActive[0];
+        const masters = nextActive.filter((pos) => pos.voice === 0);
+        const primary =
+          masters.length > 0
+            ? masters.reduce((a, b) => (a.absR >= b.absR ? a : b))
+            : nextActive[0];
         setActivePos({ r: primary.r, c: primary.c, absR: primary.absR });
       }
     } else if (lastPos !== null) {
