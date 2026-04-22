@@ -323,12 +323,15 @@ const POLY_MODE_STORAGE_KEY = 'konnakol_poly_mode';
 const POLY_VOICES_STORAGE_KEY = 'konnakol_poly_voices';
 const APP_COMMIT_VERSION = (() => {
 	if (typeof __GIT_SHA7__ === 'string' && __GIT_SHA7__.length >= 7) return __GIT_SHA7__.slice(0, 7);
-	return '5e0934e';
+	return '9a28015';
 })();
 const TEMPO_THROTTLE_MS = 56;
 /** Удержание −/+ темпа: после задержки шаг ±5 каждые 0,1 с. */
 const TEMPO_HOLD_REPEAT_MS = 100;
 const TEMPO_HOLD_REPEAT_STEP = 5;
+/** Long press on tempo slider track (without much move) → manual BPM entry. */
+const TEMPO_MANUAL_HOLD_MS = 520;
+const TEMPO_MANUAL_MAX_MOVE_PX = 14;
 /** Clipboard export: kawaii magic marker for compact preset payload. */
 const SNAPSHOT_CLIPBOARD_MARKER = '(⁠ʘ⁠ᴗ⁠ʘ⁠)⁠♪:';
 /** Accept marker with/without zero-width separators from messengers. */
@@ -2410,12 +2413,124 @@ function StructuralSlider({
   );
 }
 
+type TempoSliderTrackProps = {
+	tempoUi: number;
+	tempoRef: React.MutableRefObject<number>;
+	scheduleTempoCommit: (raw: number) => void;
+	flushTempoCommit: () => void;
+	onOpenManualBpm: () => void;
+	className?: string;
+};
+
+function TempoSliderTrack({
+	tempoUi,
+	tempoRef,
+	scheduleTempoCommit,
+	flushTempoCommit,
+	onOpenManualBpm,
+	className = '',
+}: TempoSliderTrackProps) {
+	const moveCancelSq = TEMPO_MANUAL_MAX_MOVE_PX * TEMPO_MANUAL_MAX_MOVE_PX;
+	return (
+		<div
+			className={`${className} cursor-pointer touch-none`.trim()}
+			title="Потяни — задать темп. Удерживай ~0,5 с почти без движения — ручной ввод BPM."
+			onPointerDown={(e) => {
+				const el = e.currentTarget;
+				let longPressTimer: number | null = null;
+				let finished = false;
+				const startX = e.clientX;
+				const startY = e.clientY;
+				const rect = el.getBoundingClientRect();
+				const thumbHalf = 24;
+				const updateTempo = (clientX: number) => {
+					const activeWidth = rect.width - thumbHalf * 2;
+					const x = Math.max(0, Math.min(activeWidth, clientX - rect.left - thumbHalf));
+					const percent = x / Math.max(1, activeWidth);
+					scheduleTempoCommit(Math.round(20 + percent * 380));
+				};
+				const cleanup = () => {
+					if (finished) return;
+					finished = true;
+					if (longPressTimer !== null) {
+						window.clearTimeout(longPressTimer);
+						longPressTimer = null;
+					}
+					flushTempoCommit();
+					el.removeEventListener('pointermove', onMove);
+					el.removeEventListener('pointerup', onUp);
+					el.removeEventListener('pointercancel', onUp);
+					try {
+						el.releasePointerCapture(e.pointerId);
+					} catch {
+						/* already released */
+					}
+				};
+				const onMove = (moveEvt: PointerEvent) => {
+					if (finished) return;
+					const dx = moveEvt.clientX - startX;
+					const dy = moveEvt.clientY - startY;
+					if (dx * dx + dy * dy > moveCancelSq) {
+						if (longPressTimer !== null) {
+							window.clearTimeout(longPressTimer);
+							longPressTimer = null;
+						}
+					}
+					updateTempo(moveEvt.clientX);
+				};
+				const onUp = () => {
+					cleanup();
+				};
+				el.setPointerCapture(e.pointerId);
+				updateTempo(e.clientX);
+				longPressTimer = window.setTimeout(() => {
+					if (finished) return;
+					finished = true;
+					if (longPressTimer !== null) {
+						window.clearTimeout(longPressTimer);
+						longPressTimer = null;
+					}
+					flushTempoCommit();
+					el.removeEventListener('pointermove', onMove);
+					el.removeEventListener('pointerup', onUp);
+					el.removeEventListener('pointercancel', onUp);
+					try {
+						el.releasePointerCapture(e.pointerId);
+					} catch {
+						/* */
+					}
+					onOpenManualBpm();
+				}, TEMPO_MANUAL_HOLD_MS);
+				el.addEventListener('pointermove', onMove);
+				el.addEventListener('pointerup', onUp);
+				el.addEventListener('pointercancel', onUp);
+			}}
+		>
+			<div className="absolute w-full h-1.5 bg-[#0b101e] rounded-full overflow-hidden">
+				<div
+					className="h-full bg-[#364976]"
+					style={{ width: `calc(24px + ${((tempoUi - 20) / 380)} * calc(100% - 48px))` }}
+				/>
+			</div>
+			<div
+				className="absolute z-10 bg-[#23314f] border border-[#2f4066] px-3 w-12 text-center py-1 rounded-full text-sm font-bold shadow-md -translate-x-1/2 flex items-center justify-center select-none"
+				style={{ left: `calc(24px + ${((tempoUi - 20) / 380)} * calc(100% - 48px))` }}
+			>
+				{tempoUi}
+			</div>
+		</div>
+	);
+}
+
 export default function App() {
   const initialBoot = useMemo(() => loadSnapshotStorage(), []);
   const seed = initialBoot.snapshots[initialBoot.activeSnapshot];
 
   const [tempo, setTempo] = useState(seed.tempo);
   const [tempoUi, setTempoUi] = useState(seed.tempo);
+  const [tempoManualOpen, setTempoManualOpen] = useState(false);
+  const [tempoManualText, setTempoManualText] = useState('');
+  const tempoManualInputRef = useRef<HTMLInputElement>(null);
   const [bars, setBars] = useState(seed.bars);
   const [syllables, setSyllables] = useState(seed.syllables);
 
@@ -3048,6 +3163,38 @@ export default function App() {
   const endTempoHoldRepeat = useCallback(() => {
     clearTempoHoldRepeat();
   }, [clearTempoHoldRepeat]);
+
+  const openTempoManualDialog = useCallback(() => {
+    setTempoManualText(String(Math.round(tempoRef.current)));
+    setTempoManualOpen(true);
+  }, []);
+
+  const cancelTempoManualDialog = useCallback(() => {
+    setTempoManualOpen(false);
+  }, []);
+
+  const commitTempoManualDialog = useCallback(() => {
+    const raw = tempoManualText.trim();
+    const n = parseInt(raw, 10);
+    if (!Number.isFinite(n)) {
+      setTempoManualOpen(false);
+      return;
+    }
+    applyTempoImmediate(n);
+    setTempoManualOpen(false);
+  }, [tempoManualText, applyTempoImmediate]);
+
+  useEffect(() => {
+    if (!tempoManualOpen) return;
+    const id = window.requestAnimationFrame(() => {
+      const el = tempoManualInputRef.current;
+      if (el) {
+        el.focus();
+        el.select?.();
+      }
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [tempoManualOpen]);
 
   const buildLiveSnapshotFromRefs = (): ReturnType<typeof createEmptySnapshot> => ({
     tempo: tempoRef.current,
@@ -4595,48 +4742,14 @@ export default function App() {
               >
                 <Minus size={18} strokeWidth={2.5} />
               </button>
-              <div
-                className="flex-1 relative flex items-center h-8 min-w-0 cursor-pointer touch-none"
-                onPointerDown={(e) => {
-                  const el = e.currentTarget;
-                  el.setPointerCapture(e.pointerId);
-                  const rect = el.getBoundingClientRect();
-                  const thumbHalf = 24;
-                  const updateTempo = (clientX: number) => {
-                    const activeWidth = rect.width - thumbHalf * 2;
-                    const x = Math.max(0, Math.min(activeWidth, clientX - rect.left - thumbHalf));
-                    const percent = x / Math.max(1, activeWidth);
-                    scheduleTempoCommit(Math.round(20 + percent * 380));
-                  };
-                  updateTempo(e.clientX);
-                  const onMove = (moveEvt: PointerEvent) => {
-                    updateTempo(moveEvt.clientX);
-                  };
-                  const onUp = () => {
-                    flushTempoCommit();
-                    el.removeEventListener('pointermove', onMove);
-                    el.removeEventListener('pointerup', onUp);
-                    el.removeEventListener('pointercancel', onUp);
-                    el.releasePointerCapture(e.pointerId);
-                  };
-                  el.addEventListener('pointermove', onMove);
-                  el.addEventListener('pointerup', onUp);
-                  el.addEventListener('pointercancel', onUp);
-                }}
-              >
-                <div className="absolute w-full h-1.5 bg-[#0b101e] rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-[#364976]"
-                    style={{ width: `calc(24px + ${((tempoUi - 20) / 380)} * calc(100% - 48px))` }}
-                  />
-                </div>
-                <div
-                  className="absolute z-10 bg-[#23314f] border border-[#2f4066] px-3 w-12 text-center py-1 rounded-full text-sm font-bold shadow-md -translate-x-1/2 flex items-center justify-center select-none"
-                  style={{ left: `calc(24px + ${((tempoUi - 20) / 380)} * calc(100% - 48px))` }}
-                >
-                  {tempoUi}
-                </div>
-              </div>
+              <TempoSliderTrack
+                tempoUi={tempoUi}
+                tempoRef={tempoRef}
+                scheduleTempoCommit={scheduleTempoCommit}
+                flushTempoCommit={flushTempoCommit}
+                onOpenManualBpm={openTempoManualDialog}
+                className="flex-1 relative flex items-center h-8 min-w-0"
+              />
               <button
                 type="button"
                 title="Коротко: +1 BPM. Удерживай: +5 каждые 0,1 с"
@@ -4937,50 +5050,14 @@ export default function App() {
                     >
                       <Minus size={18} strokeWidth={2.5} />
                     </button>
-                    <div 
-                      className="flex-1 relative flex items-center h-8 cursor-pointer touch-none"
-                      onPointerDown={(e) => {
-                        const el = e.currentTarget;
-                        el.setPointerCapture(e.pointerId);
-                        const rect = el.getBoundingClientRect();
-                        const updateTempo = (clientX: number) => {
-                          const thumbHalf = 24;
-                          const activeWidth = rect.width - thumbHalf * 2;
-                          const x = Math.max(0, Math.min(activeWidth, clientX - rect.left - thumbHalf));
-                          const percent = x / Math.max(1, activeWidth);
-                          scheduleTempoCommit(Math.round(20 + percent * 380));
-                        };
-                        updateTempo(e.clientX);
-                        
-                        const onMove = (moveEvt: PointerEvent) => {
-                          updateTempo(moveEvt.clientX);
-                        };
-                        const onUp = () => {
-                          flushTempoCommit();
-                          el.removeEventListener('pointermove', onMove);
-                          el.removeEventListener('pointerup', onUp);
-                          el.removeEventListener('pointercancel', onUp);
-                          el.releasePointerCapture(e.pointerId);
-                        };
-                        
-                        el.addEventListener('pointermove', onMove);
-                        el.addEventListener('pointerup', onUp);
-                        el.addEventListener('pointercancel', onUp);
-                      }}
-                    >
-                      <div className="absolute w-full h-1.5 bg-[#0b101e] rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-[#364976]" 
-                          style={{ width: `calc(24px + ${((tempoUi - 20) / 380)} * calc(100% - 48px))` }}
-                        />
-                      </div>
-                      <div 
-                        className="absolute z-10 bg-[#23314f] border border-[#2f4066] px-3 w-12 text-center py-1 rounded-full text-sm font-bold shadow-md -translate-x-1/2 flex items-center justify-center select-none"
-                        style={{ left: `calc(24px + ${((tempoUi - 20) / 380)} * calc(100% - 48px))` }}
-                      >
-                        {tempoUi}
-                      </div>
-                    </div>
+                    <TempoSliderTrack
+                      tempoUi={tempoUi}
+                      tempoRef={tempoRef}
+                      scheduleTempoCommit={scheduleTempoCommit}
+                      flushTempoCommit={flushTempoCommit}
+                      onOpenManualBpm={openTempoManualDialog}
+                      className="flex-1 relative flex items-center h-8"
+                    />
                     <button 
                       type="button"
                       title="Коротко: +1 BPM. Удерживай: +5 каждые 0,1 с"
@@ -5499,6 +5576,64 @@ export default function App() {
         </div>
 
       </div>
+
+      {tempoManualOpen ? (
+        <>
+          <div
+            className="fixed inset-0 z-[199] bg-black/55"
+            aria-hidden
+            onPointerDown={cancelTempoManualDialog}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="tempo-manual-title"
+            className="fixed left-1/2 top-[18%] z-[200] w-[min(92vw,280px)] -translate-x-1/2 rounded-xl border border-[#2f4066] bg-[#161f33] p-4 shadow-2xl ring-1 ring-black/30"
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <h2 id="tempo-manual-title" className="text-sm font-bold text-slate-200">
+              Темп (BPM)
+            </h2>
+            <input
+              ref={tempoManualInputRef}
+              type="number"
+              inputMode="numeric"
+              min={20}
+              max={400}
+              className="mt-3 w-full rounded-lg border border-[#2f4066] bg-[#0b101e] px-3 py-2 text-lg font-mono text-slate-100 outline-none focus:ring-2 focus:ring-blue-500/50"
+              value={tempoManualText}
+              onChange={(e) => setTempoManualText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  commitTempoManualDialog();
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  cancelTempoManualDialog();
+                }
+              }}
+            />
+            <p className="mt-1.5 text-[11px] text-slate-500">Диапазон 20–400</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-[#2f4066] bg-[#1a253c] px-3 py-1.5 text-xs font-bold text-slate-300 hover:bg-[#23314f]"
+                onClick={cancelTempoManualDialog}
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                className="rounded-lg border border-blue-500/60 bg-blue-600/30 px-3 py-1.5 text-xs font-bold text-blue-100 hover:bg-blue-600/45"
+                onClick={commitTempoManualDialog}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
 
       {snapshotClipMenu ? (
         <>
