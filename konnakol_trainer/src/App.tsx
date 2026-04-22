@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback, startTransition } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, startTransition } from 'react';
 import {
 	Settings,
 	Minus,
@@ -325,13 +325,13 @@ const POLY_MODE_STORAGE_KEY = 'konnakol_poly_mode';
 const POLY_VOICES_STORAGE_KEY = 'konnakol_poly_voices';
 const APP_COMMIT_VERSION = (() => {
 	if (typeof __GIT_SHA7__ === 'string' && __GIT_SHA7__.length >= 7) return __GIT_SHA7__.slice(0, 7);
-	return '77205ff';
+	return 'dd17d5c';
 })();
 const TEMPO_THROTTLE_MS = 56;
 /** Удержание −/+ темпа: после задержки шаг ±5 каждые 0,1 с. */
 const TEMPO_HOLD_REPEAT_MS = 100;
 const TEMPO_HOLD_REPEAT_STEP = 5;
-/** Long press on tempo slider track (without much move) → manual BPM entry. */
+/** Long press on tempo slider track (without much move) → inline BPM on thumb. */
 const TEMPO_MANUAL_HOLD_MS = 520;
 const TEMPO_MANUAL_MAX_MOVE_PX = 14;
 /** Clipboard export: kawaii magic marker for compact preset payload. */
@@ -2451,12 +2451,21 @@ function StructuralSlider({
   );
 }
 
+type TempoSliderSlot = 'hdr' | 'pnl';
+
 type TempoSliderTrackProps = {
 	tempoUi: number;
 	tempoRef: React.MutableRefObject<number>;
 	scheduleTempoCommit: (raw: number) => void;
 	flushTempoCommit: () => void;
-	onOpenManualBpm: () => void;
+	onBeginTempoBpmInlineEdit: () => void;
+	tempoInlineEditing: boolean;
+	tempoInlineFocusSlot: TempoSliderSlot | null;
+	tempoSliderSlot: TempoSliderSlot;
+	tempoManualText: string;
+	onTempoManualTextChange: (v: string) => void;
+	onCommitTempoInline: () => void;
+	onCancelTempoInline: () => void;
 	className?: string;
 };
 
@@ -2465,14 +2474,29 @@ function TempoSliderTrack({
 	tempoRef,
 	scheduleTempoCommit,
 	flushTempoCommit,
-	onOpenManualBpm,
+	onBeginTempoBpmInlineEdit,
+	tempoInlineEditing,
+	tempoInlineFocusSlot,
+	tempoSliderSlot,
+	tempoManualText,
+	onTempoManualTextChange,
+	onCommitTempoInline,
+	onCancelTempoInline,
 	className = '',
 }: TempoSliderTrackProps) {
 	const moveCancelSq = TEMPO_MANUAL_MAX_MOVE_PX * TEMPO_MANUAL_MAX_MOVE_PX;
+	const inlineInputRef = useRef<HTMLInputElement>(null);
+	const isInlineThumb = tempoInlineEditing && tempoInlineFocusSlot === tempoSliderSlot;
+	useLayoutEffect(() => {
+		if (!isInlineThumb) return;
+		const el = inlineInputRef.current;
+		if (!el) return;
+		el.focus();
+		el.select?.();
+	}, [isInlineThumb]);
 	return (
 		<div
 			className={`${className} cursor-pointer touch-none`.trim()}
-			title="Потяни — задать темп. Удерживай ~0,5 с почти без движения — ручной ввод BPM."
 			onPointerDown={(e) => {
 				const el = e.currentTarget;
 				let longPressTimer: number | null = null;
@@ -2537,7 +2561,7 @@ function TempoSliderTrack({
 					} catch {
 						/* */
 					}
-					onOpenManualBpm();
+					onBeginTempoBpmInlineEdit();
 				}, TEMPO_MANUAL_HOLD_MS);
 				el.addEventListener('pointermove', onMove);
 				el.addEventListener('pointerup', onUp);
@@ -2551,10 +2575,39 @@ function TempoSliderTrack({
 				/>
 			</div>
 			<div
-				className="absolute z-10 bg-[#23314f] border border-[#2f4066] px-3 w-12 text-center py-1 rounded-full text-sm font-bold shadow-md -translate-x-1/2 flex items-center justify-center select-none"
+				className="absolute z-10 box-border w-14 min-w-14 max-w-14 overflow-hidden bg-[#23314f] border border-[#2f4066] px-1.5 text-center py-1 rounded-full text-sm font-bold shadow-md -translate-x-1/2 flex items-center justify-center select-none"
 				style={{ left: `calc(24px + ${((tempoUi - 20) / 380)} * calc(100% - 48px))` }}
 			>
-				{tempoUi}
+				{isInlineThumb ? (
+					<input
+						ref={inlineInputRef}
+						type="text"
+						inputMode="numeric"
+						autoComplete="off"
+						spellCheck={false}
+						aria-label="BPM"
+						className="min-w-0 w-full max-w-full shrink bg-transparent text-center text-sm font-bold text-slate-100 outline-none tabular-nums"
+						value={tempoManualText}
+						onChange={(e) => onTempoManualTextChange(e.target.value)}
+						onKeyDown={(e) => {
+							if (e.key === 'Enter') {
+								e.preventDefault();
+								onCommitTempoInline();
+							}
+							if (e.key === 'Escape') {
+								e.preventDefault();
+								onCancelTempoInline();
+							}
+						}}
+						onBlur={() => onCommitTempoInline()}
+						onClick={(e) => e.stopPropagation()}
+						onPointerDown={(e) => e.stopPropagation()}
+					/>
+				) : tempoInlineEditing ? (
+					<span className="block min-w-0 w-full truncate tabular-nums text-slate-300">{tempoManualText}</span>
+				) : (
+					<span className="block min-w-0 w-full truncate tabular-nums">{tempoUi}</span>
+				)}
 			</div>
 		</div>
 	);
@@ -2566,9 +2619,10 @@ export default function App() {
 
   const [tempo, setTempo] = useState(seed.tempo);
   const [tempoUi, setTempoUi] = useState(seed.tempo);
-  const [tempoManualOpen, setTempoManualOpen] = useState(false);
+  const [tempoInlineEditing, setTempoInlineEditing] = useState(false);
+  const [tempoInlineFocusSlot, setTempoInlineFocusSlot] = useState<TempoSliderSlot | null>(null);
   const [tempoManualText, setTempoManualText] = useState('');
-  const tempoManualInputRef = useRef<HTMLInputElement>(null);
+  const skipTempoInlineBlurCommitRef = useRef(false);
   const [bars, setBars] = useState(seed.bars);
   const [syllables, setSyllables] = useState(seed.syllables);
 
@@ -2739,6 +2793,17 @@ export default function App() {
   const isPanelExpandedRef = useRef(seed.panelExpanded === true);
   isPanelExpandedRef.current = isPanelExpanded;
 
+  /** Удержание на стрелке сворачивания → заморозка: панель не сворачивается по тапу и при старте PLAY, пока не снять тем же жестом. */
+  const [panelCollapseFrozen, setPanelCollapseFrozen] = useState(false);
+  const panelCollapseFrozenRef = useRef(false);
+  const panelChevronHoldTimerRef = useRef<number | null>(null);
+  const panelChevronHoldLongPressReadyRef = useRef(false);
+  const panelChevronHoldAteClickRef = useRef(false);
+
+  useEffect(() => {
+    panelCollapseFrozenRef.current = panelCollapseFrozen;
+  }, [panelCollapseFrozen]);
+
   useEffect(() => {
     if (!isPanelExpanded) {
       setActiveEditCell(null);
@@ -2886,6 +2951,8 @@ export default function App() {
   const holdTimerRef = useRef<number | null>(null);
   /** Long-press по числу слогов в такте: gati / пульс от четвёрки (не смешивать с holdTimerRef клеток). */
   const pulseUnlinkHoldTimerRef = useRef<number | null>(null);
+  /** Следующий click по кнопке пульса — только «съесть» после long-press unlink (не путать с isHoldingRef от сетки). */
+  const pulseUnlinkJustFiredRef = useRef(false);
   const isHoldingRef = useRef(false);
   /** Long-press square: toggle «без щелчков по клеткам»; ding такта Ta не мьютится. */
   const squareHoldTimerRef = useRef<number | null>(null);
@@ -2973,13 +3040,6 @@ export default function App() {
     setFrozenScale(null);
     frozenScaleRef.current = null;
   };
-
-  useEffect(() => {
-    if (!polyMode) return;
-    if (isDeadCellsEditorModeRef.current) {
-      setIsDeadCellsEditorMode(false);
-    }
-  }, [polyMode]);
 
   const toggleRandomFeature = (feature: 'pulsation' | 'pattern' | 'speed' | 'barSpeed') => {
     let willBeEnabled = false;
@@ -3224,37 +3284,35 @@ export default function App() {
     clearTempoHoldRepeat();
   }, [clearTempoHoldRepeat]);
 
-  const openTempoManualDialog = useCallback(() => {
+  const beginTempoInlineEdit = useCallback((slot: TempoSliderSlot) => {
+    skipTempoInlineBlurCommitRef.current = false;
     setTempoManualText(String(Math.round(tempoRef.current)));
-    setTempoManualOpen(true);
+    setTempoInlineFocusSlot(slot);
+    setTempoInlineEditing(true);
   }, []);
 
-  const cancelTempoManualDialog = useCallback(() => {
-    setTempoManualOpen(false);
+  const cancelTempoInlineEdit = useCallback(() => {
+    skipTempoInlineBlurCommitRef.current = true;
+    setTempoInlineEditing(false);
+    setTempoInlineFocusSlot(null);
   }, []);
 
-  const commitTempoManualDialog = useCallback(() => {
+  const commitTempoInlineEdit = useCallback(() => {
+    if (skipTempoInlineBlurCommitRef.current) {
+      skipTempoInlineBlurCommitRef.current = false;
+      return;
+    }
     const raw = tempoManualText.trim();
     const n = parseInt(raw, 10);
     if (!Number.isFinite(n)) {
-      setTempoManualOpen(false);
+      setTempoInlineEditing(false);
+      setTempoInlineFocusSlot(null);
       return;
     }
     applyTempoImmediate(n);
-    setTempoManualOpen(false);
+    setTempoInlineEditing(false);
+    setTempoInlineFocusSlot(null);
   }, [tempoManualText, applyTempoImmediate]);
-
-  useEffect(() => {
-    if (!tempoManualOpen) return;
-    const id = window.requestAnimationFrame(() => {
-      const el = tempoManualInputRef.current;
-      if (el) {
-        el.focus();
-        el.select?.();
-      }
-    });
-    return () => window.cancelAnimationFrame(id);
-  }, [tempoManualOpen]);
 
   const buildLiveSnapshotFromRefs = (): ReturnType<typeof createEmptySnapshot> => ({
     tempo: tempoRef.current,
@@ -4377,6 +4435,8 @@ export default function App() {
         const polySlotKey = Math.round(subTime * 100000);
         const shouldDedupPolyClick = polyModeRef.current && polyClickSlotsRef.current.has(polySlotKey);
         const isFirstOfBar = cIdx === 0 && sub === 0;
+        /** Фиолетовый акцент на этой поддоле (до веток Ta / dedup). */
+        const mainAccentClick = isAccent && (subdivs > 1 || sub === 0);
         const shouldPlayFirstBeatTa =
           isFirstOfBar &&
           firstBeatAccentRef.current &&
@@ -4388,8 +4448,6 @@ export default function App() {
             polyClickSlotsRef.current.add(polySlotKey);
           }
         }
-        // Для акцентной (фиолетовой) клетки с делением все поддоли должны звучать активным тембром.
-        const mainAccentClick = isAccent && (subdivs > 1 || sub === 0);
         if (shouldDedupPolyClick) {
           continue;
         }
@@ -4401,6 +4459,21 @@ export default function App() {
           sub === 0 &&
           isTaDingCell &&
           (!polyModeRef.current || voice === 0);
+        const hasTaDingHere = taEnabled && taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
+        const dictantActive = dictantModeRef.current;
+        const shouldPlayBeat =
+          playbackMode === 'all_beats'
+            ? true
+            : playbackMode === 'accent_only'
+              ? isAccent || hasTaDingHere
+              : false;
+        const isTaFirstBeatArticulation =
+          cIdx === 0 && sub === 0 && firstBeatAccentRef.current && firstBeatCellHitRow;
+        const sharpAsChecked = (() => {
+          if (dictantActive) return mainAccentClick;
+          if (muteMode === 'no_accent_sharp' && mainAccentClick && !isTaFirstBeatArticulation) return false;
+          return mainAccentClick;
+        })();
         /**
          * Составной тембр Ta: всегда ding + пассивный слой (те же параметры, что у пассивной доли в `playSharpClick`).
          * До `muteMode === 'full'`, чтобы полный мьют сетки не резал второй слой Ta.
@@ -4412,22 +4485,7 @@ export default function App() {
           }
         }
         if (muteMode === 'full') continue;
-        const hasTaDingHere = taEnabled && taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
-        const dictantActive = dictantModeRef.current;
-        const shouldPlayBeat =
-          playbackMode === 'all_beats'
-            ? true
-            : playbackMode === 'accent_only'
-              ? isAccent || hasTaDingHere
-              : false;
         if (!shouldPlayBeat) continue;
-        const isTaFirstBeatArticulation =
-          cIdx === 0 && sub === 0 && firstBeatAccentRef.current && firstBeatCellHitRow;
-        const sharpAsChecked = (() => {
-          if (dictantActive) return mainAccentClick;
-          if (muteMode === 'no_accent_sharp' && mainAccentClick && !isTaFirstBeatArticulation) return false;
-          return mainAccentClick;
-        })();
         /** Пассив Ta уже в составном тембре — не дублировать тот же щелчок сетки (в т.ч. при no_accent_sharp / мьютах пассива). */
         if (shouldPlayTaDingSound && !sharpAsChecked && playbackMode !== 'all_beats') {
           continue;
@@ -4461,12 +4519,7 @@ export default function App() {
           accentOnlyPlayback,
           voiceRole,
         );
-        if (
-          sharpAsChecked &&
-          playbackMode === 'all_beats' &&
-          !shouldPlayFirstBeatTa &&
-          !shouldPlayTaDingSound
-        ) {
+        if (sharpAsChecked && playbackMode === 'all_beats' && !shouldPlayFirstBeatTa && !shouldPlayTaDingSound) {
           playSharpClick(
             audioCtxRef.current,
             subTime,
@@ -4569,8 +4622,11 @@ export default function App() {
     chunk.forEach((barIdx, voiceIdx) => {
       const rowSyllables =
         customSyllablesRef.current[barIdx] !== undefined ? customSyllablesRef.current[barIdx] : syllablesRef.current;
+      const deadStart = deadCellsRef.current[barIdx]?.deadStart;
+      const playable =
+        typeof deadStart === 'number' ? Math.max(1, Math.min(rowSyllables, deadStart)) : rowSyllables;
       const noteDuration = windowDuration / Math.max(1, rowSyllables);
-      for (let cIdx = 0; cIdx < rowSyllables; cIdx++) {
+      for (let cIdx = 0; cIdx < playable; cIdx++) {
         const noteTime = time + cIdx * noteDuration;
         const absR = safeStep * polyVoicesRef.current + voiceIdx;
         scheduleGridCellAtTime(barIdx, cIdx, absR, noteTime, voiceIdx, safeStep, noteDuration);
@@ -4631,6 +4687,11 @@ export default function App() {
         window.clearTimeout(eraserHoldTimerRef.current);
         eraserHoldTimerRef.current = null;
       }
+      if (panelChevronHoldTimerRef.current !== null) {
+        window.clearTimeout(panelChevronHoldTimerRef.current);
+        panelChevronHoldTimerRef.current = null;
+      }
+      panelChevronHoldLongPressReadyRef.current = false;
       if (randomDiceMintFlashClearRef.current !== null) {
         window.clearTimeout(randomDiceMintFlashClearRef.current);
         randomDiceMintFlashClearRef.current = null;
@@ -4646,9 +4707,11 @@ export default function App() {
         audioCtxRef.current = null;
       }
     } else {
-  if (isTaEditorModeRef.current || isDeadCellsEditorModeRef.current) return;
+      if (isTaEditorModeRef.current || isDeadCellsEditorModeRef.current) return;
       if (!isClickSoundSelectorOpen) {
-        setIsPanelExpanded(false);
+        if (!panelCollapseFrozenRef.current) {
+          setIsPanelExpanded(false);
+        }
         setShowRandomSettings(false);
       }
       setIsPlaying(true);
@@ -4759,6 +4822,7 @@ export default function App() {
     isHoldingRef,
     holdTimerRef,
     pulseUnlinkHoldTimerRef,
+    pulseUnlinkJustFiredRef,
     isPanelExpandedRef,
     showRandomSettingsRef,
     syllables,
@@ -4862,7 +4926,14 @@ export default function App() {
                 tempoRef={tempoRef}
                 scheduleTempoCommit={scheduleTempoCommit}
                 flushTempoCommit={flushTempoCommit}
-                onOpenManualBpm={openTempoManualDialog}
+                onBeginTempoBpmInlineEdit={() => beginTempoInlineEdit('hdr')}
+                tempoInlineEditing={tempoInlineEditing}
+                tempoInlineFocusSlot={tempoInlineFocusSlot}
+                tempoSliderSlot="hdr"
+                tempoManualText={tempoManualText}
+                onTempoManualTextChange={setTempoManualText}
+                onCommitTempoInline={commitTempoInlineEdit}
+                onCancelTempoInline={cancelTempoInlineEdit}
                 className="flex-1 relative flex items-center h-8 min-w-0"
               />
               <button
@@ -4895,7 +4966,6 @@ export default function App() {
           )}
           <button 
             onPointerDown={() => {
-              if (polyMode) return;
               eraserHoldAteClickRef.current = false;
               if (eraserHoldTimerRef.current !== null) {
                 window.clearTimeout(eraserHoldTimerRef.current);
@@ -4941,11 +5011,11 @@ export default function App() {
               clearSequencer();
             }}
             className={`p-3 rounded-xl border transition-all duration-200 ${
-              polyMode
-                ? 'bg-[#161f33] border-[#23314f] text-slate-600'
-                : isDeadCellsEditorMode
+              isDeadCellsEditorMode
                 ? `bg-red-600/25 border-red-400/70 text-red-200 ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(248,113,113,0.35)]'}`
-                : 'bg-[#161f33] border-[#23314f] text-slate-400 hover:text-red-400 hover:border-red-500/30 active:bg-red-500/20'
+                : polyMode
+                  ? 'bg-[#161f33] border-[#23314f] text-slate-600'
+                  : 'bg-[#161f33] border-[#23314f] text-slate-400 hover:text-red-400 hover:border-red-500/30 active:bg-red-500/20'
             }`}
             title="Clear Sequencer"
           >
@@ -5168,17 +5238,21 @@ export default function App() {
 
                   <div className="w-full h-px bg-[#1e2a45]/80 my-0.5"></div>
 
-                  <div className="flex items-center justify-between gap-3">
-                    <span className={`text-[11px] font-bold tracking-wider uppercase text-blue-300 ${lowPerfMode ? '' : 'drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]'}`}>Click Sound</span>
-                    <button
-                      type="button"
-                      onClick={() => setIsClickSoundSelectorOpen(true)}
-                      className="bg-[#0b101e] border border-[#2f4066]/50 hover:bg-[#151d2f] px-3 py-1.5 rounded-lg flex items-center transition-all group"
-                    >
-                      <span className="text-slate-300 text-[11px] font-semibold group-hover:text-white transition-colors">
-                        {CLICK_SOUND_PRESET_META.find((preset) => preset.mappedSound === clickSound)?.label ?? 'Classic'}
-                      </span>
-                    </button>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`shrink-0 text-[11px] font-bold tracking-wider uppercase text-blue-300 ${lowPerfMode ? '' : 'drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]'}`}>
+                      Click Sound
+                    </span>
+                    <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setIsClickSoundSelectorOpen(true)}
+                        className="group flex min-w-0 max-w-[min(100%,11rem)] flex-1 items-center justify-center rounded-lg border border-[#2f4066]/50 bg-[#0b101e] px-2 py-1 transition-all hover:bg-[#151d2f] sm:max-w-[13rem]"
+                      >
+                        <span className="truncate text-center text-[11px] font-semibold text-slate-300 transition-colors group-hover:text-white">
+                          {CLICK_SOUND_PRESET_META.find((preset) => preset.mappedSound === clickSound)?.label ?? 'Classic'}
+                        </span>
+                      </button>
+                    </div>
                   </div>
 
                   <div className="w-full h-px bg-[#1e2a45]/80 my-0.5"></div>
@@ -5263,7 +5337,14 @@ export default function App() {
                       tempoRef={tempoRef}
                       scheduleTempoCommit={scheduleTempoCommit}
                       flushTempoCommit={flushTempoCommit}
-                      onOpenManualBpm={openTempoManualDialog}
+                      onBeginTempoBpmInlineEdit={() => beginTempoInlineEdit('pnl')}
+                      tempoInlineEditing={tempoInlineEditing}
+                      tempoInlineFocusSlot={tempoInlineFocusSlot}
+                      tempoSliderSlot="pnl"
+                      tempoManualText={tempoManualText}
+                      onTempoManualTextChange={setTempoManualText}
+                      onCommitTempoInline={commitTempoInlineEdit}
+                      onCancelTempoInline={cancelTempoInlineEdit}
                       className="flex-1 relative flex items-center h-8"
                     />
                     <button 
@@ -5505,12 +5586,98 @@ export default function App() {
           </div>
           ) : null}
           
-          {/* Collapse Arrow Toggle */}
-          <button 
-            onClick={() => setIsPanelExpanded(!isPanelExpanded)}
-            className="absolute bottom-0 left-4 translate-y-1/2 w-8 h-8 bg-[#1e2a45] rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-[#2c3d63] transition-colors shadow-lg border border-[#2f4066] z-30"
+          {/* Collapse Arrow Toggle: тап — свернуть/развернуть; удержание как слот снепшота — заморозка сворачивания (снять повторным удержанием). */}
+          <button
+            type="button"
+            onPointerDown={(e) => {
+              const el = e.currentTarget;
+              panelChevronHoldLongPressReadyRef.current = false;
+              panelChevronHoldAteClickRef.current = false;
+              if (panelChevronHoldTimerRef.current !== null) {
+                window.clearTimeout(panelChevronHoldTimerRef.current);
+                panelChevronHoldTimerRef.current = null;
+              }
+              try {
+                el.setPointerCapture(e.pointerId);
+              } catch {
+                /* already captured */
+              }
+              panelChevronHoldTimerRef.current = window.setTimeout(() => {
+                panelChevronHoldTimerRef.current = null;
+                panelChevronHoldLongPressReadyRef.current = true;
+              }, SNAPSHOT_SLOT_HOLD_MS);
+            }}
+            onPointerUp={(e) => {
+              const el = e.currentTarget;
+              if (panelChevronHoldTimerRef.current !== null) {
+                window.clearTimeout(panelChevronHoldTimerRef.current);
+                panelChevronHoldTimerRef.current = null;
+              }
+              const ready = panelChevronHoldLongPressReadyRef.current;
+              panelChevronHoldLongPressReadyRef.current = false;
+              if (ready) {
+                setPanelCollapseFrozen((f) => !f);
+                panelChevronHoldAteClickRef.current = true;
+              }
+              try {
+                el.releasePointerCapture(e.pointerId);
+              } catch {
+                /* */
+              }
+            }}
+            onPointerLeave={() => {
+              if (panelChevronHoldTimerRef.current !== null) {
+                window.clearTimeout(panelChevronHoldTimerRef.current);
+                panelChevronHoldTimerRef.current = null;
+              }
+            }}
+            onPointerCancel={(e) => {
+              const el = e.currentTarget;
+              if (panelChevronHoldTimerRef.current !== null) {
+                window.clearTimeout(panelChevronHoldTimerRef.current);
+                panelChevronHoldTimerRef.current = null;
+              }
+              panelChevronHoldLongPressReadyRef.current = false;
+              try {
+                el.releasePointerCapture(e.pointerId);
+              } catch {
+                /* */
+              }
+            }}
+            onClick={() => {
+              if (panelChevronHoldAteClickRef.current) {
+                panelChevronHoldAteClickRef.current = false;
+                return;
+              }
+              setIsPanelExpanded((prev) => {
+                if (panelCollapseFrozenRef.current && prev) return true;
+                return !prev;
+              });
+            }}
+            className={`group absolute bottom-0 left-4 z-30 flex h-8 w-8 translate-y-1/2 touch-none select-none items-center justify-center overflow-hidden rounded-full border shadow-lg ${
+              panelCollapseFrozen
+                ? 'border-teal-300/55 text-emerald-100 shadow-[0_0_18px_rgba(110,231,183,0.4)] ring-2 ring-emerald-300/45'
+                : 'border-[#2f4066] text-slate-400 hover:text-white'
+            }`}
           >
-            {isPanelExpanded ? <ChevronUp size={16} strokeWidth={3} /> : <ChevronDown size={16} strokeWidth={3} />}
+            {/* Тройной серый «пирог» — всегда снизу; мятный слой только в режиме заморозки. */}
+            <span
+              className="pointer-events-none absolute inset-0 z-0 rounded-full"
+              aria-hidden
+            >
+              <span className="absolute inset-0 rounded-full bg-[#323e56]" />
+              <span className="absolute inset-[2px] rounded-full bg-[#2a3448]" />
+              <span className="absolute inset-[5px] rounded-full bg-[#1e2a45]" />
+            </span>
+            {panelCollapseFrozen ? (
+              <span
+                className="pointer-events-none absolute inset-0 z-[1] rounded-full bg-emerald-300/22 shadow-[inset_0_0_12px_rgba(52,211,153,0.28)]"
+                aria-hidden
+              />
+            ) : null}
+            <span className="relative z-[3] flex items-center justify-center">
+              {isPanelExpanded ? <ChevronUp size={16} strokeWidth={3} /> : <ChevronDown size={16} strokeWidth={3} />}
+            </span>
           </button>
         </div>
 
@@ -5784,64 +5951,6 @@ export default function App() {
         </div>
 
       </div>
-
-      {tempoManualOpen ? (
-        <>
-          <div
-            className="fixed inset-0 z-[199] bg-black/55"
-            aria-hidden
-            onPointerDown={cancelTempoManualDialog}
-          />
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="tempo-manual-title"
-            className="fixed left-1/2 top-[18%] z-[200] w-[min(92vw,280px)] -translate-x-1/2 rounded-xl border border-[#2f4066] bg-[#161f33] p-4 shadow-2xl ring-1 ring-black/30"
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            <h2 id="tempo-manual-title" className="text-sm font-bold text-slate-200">
-              Темп (BPM)
-            </h2>
-            <input
-              ref={tempoManualInputRef}
-              type="number"
-              inputMode="numeric"
-              min={20}
-              max={400}
-              className="mt-3 w-full rounded-lg border border-[#2f4066] bg-[#0b101e] px-3 py-2 text-lg font-mono text-slate-100 outline-none focus:ring-2 focus:ring-blue-500/50"
-              value={tempoManualText}
-              onChange={(e) => setTempoManualText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  commitTempoManualDialog();
-                }
-                if (e.key === 'Escape') {
-                  e.preventDefault();
-                  cancelTempoManualDialog();
-                }
-              }}
-            />
-            <p className="mt-1.5 text-[11px] text-slate-500">Диапазон 20–400</p>
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                className="rounded-lg border border-[#2f4066] bg-[#1a253c] px-3 py-1.5 text-xs font-bold text-slate-300 hover:bg-[#23314f]"
-                onClick={cancelTempoManualDialog}
-              >
-                Отмена
-              </button>
-              <button
-                type="button"
-                className="rounded-lg border border-blue-500/60 bg-blue-600/30 px-3 py-1.5 text-xs font-bold text-blue-100 hover:bg-blue-600/45"
-                onClick={commitTempoManualDialog}
-              >
-                OK
-              </button>
-            </div>
-          </div>
-        </>
-      ) : null}
 
       {snapshotClipMenu ? (
         <>

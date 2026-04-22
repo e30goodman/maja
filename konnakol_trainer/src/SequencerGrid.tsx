@@ -58,6 +58,8 @@ export type SequencerGridRowActions = {
 	isHoldingRef: React.MutableRefObject<boolean>;
 	holdTimerRef: React.MutableRefObject<number | null>;
 	pulseUnlinkHoldTimerRef: React.MutableRefObject<number | null>;
+	/** true только после long-press unlink на кнопке пульса — подавить один click, не глотать клик после long-press клетки. */
+	pulseUnlinkJustFiredRef: React.MutableRefObject<boolean>;
 	deadSwipeSessionRef: React.MutableRefObject<{
 		row: number;
 		startCell: number;
@@ -308,6 +310,7 @@ const SequencerGridRow = React.memo(
 						onPointerDown={(e) => {
 							const a = actionsRef.current;
 							if (!a) return;
+							a.pulseUnlinkJustFiredRef.current = false;
 							a.isHoldingRef.current = false;
 							if (a.pulseUnlinkHoldTimerRef.current) clearTimeout(a.pulseUnlinkHoldTimerRef.current);
 							try {
@@ -316,6 +319,7 @@ const SequencerGridRow = React.memo(
 								/* duplicate capture */
 							}
 							a.pulseUnlinkHoldTimerRef.current = window.setTimeout(() => {
+								a.pulseUnlinkJustFiredRef.current = true;
 								a.isHoldingRef.current = true;
 								a.setPulseMeterUnlinked((prev) => {
 									const nextVal = !prev[rIdx];
@@ -369,7 +373,11 @@ const SequencerGridRow = React.memo(
 							if (!a) return;
 							if (a.isHoldingRef.current) {
 								a.isHoldingRef.current = false;
-								return;
+								if (a.pulseUnlinkJustFiredRef.current) {
+									a.pulseUnlinkJustFiredRef.current = false;
+									return;
+								}
+								/* click пришёл без pointerdown на пульсе (capture с клетки): isHoldingRef от long-press сетки — цикл слогов всё равно. */
 							}
 							a.setCustomSyllables((prev) => {
 								const current = prev[rIdx] !== undefined ? prev[rIdx] : a.syllables;
@@ -523,7 +531,10 @@ const SequencerGridRow = React.memo(
 										else a.triggerDeadCut(rIdx, cIdx);
 										return;
 									}
-									if (isDead) return;
+									if (isDead) {
+										if (a.isHoldingRef.current) a.isHoldingRef.current = false;
+										return;
+									}
 									if (a.isHoldingRef.current) {
 										a.isHoldingRef.current = false;
 										return;
