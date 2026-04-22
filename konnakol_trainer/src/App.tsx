@@ -3094,6 +3094,8 @@ export default function App() {
   const polyClickSlotsRef = useRef<Set<string>>(new Set());
   /** Поли + dead: следующая доля такта `barIdx` (абсолютное время и индекс клетки), чтобы не «ждать» границу чанка мастера. */
   const polyNextBeatRef = useRef<Record<number, { t: number; c: number }>>({});
+  /** Последний `time` (старт окна планировщика), с которым уже вызывали schedulePolyStep для такта `barIdx`. Иначе после чанка [2,3] возврат к [0,1] тянет старый {t,c} → ложное «продолжение» и удар по такту 2 вместо 4. */
+  const polyBarLastScheduleWallTimeRef = useRef<Record<number, number>>({});
   /** Таймеры отложенных щелчков (см. GRID_CLICK_*): сброс при стопе / превью / старте. */
   const pendingGridClickTimerIdsRef = useRef<number[]>([]);
   /** playTwoBars preview: emit разрешён без isPlaying. */
@@ -4747,6 +4749,13 @@ export default function App() {
       return n;
     };
     chunk.forEach((barIdx, voiceIdx) => {
+      const wallT = time;
+      const lastWall = polyBarLastScheduleWallTimeRef.current[barIdx];
+      if (lastWall !== undefined && Math.abs(wallT - lastWall) > EPS) {
+        delete polyNextBeatRef.current[barIdx];
+      }
+      polyBarLastScheduleWallTimeRef.current[barIdx] = wallT;
+
       const rowSyllables =
         customSyllablesRef.current[barIdx] !== undefined ? customSyllablesRef.current[barIdx] : syllablesRef.current;
       const dBar = getBarTimeWindowSeconds(barIdx) / Math.max(1, rowSyllables);
@@ -4817,6 +4826,7 @@ export default function App() {
       gridPreviewAudioActiveRef.current = false;
       polyClickSlotsRef.current.clear();
       polyNextBeatRef.current = {};
+      polyBarLastScheduleWallTimeRef.current = {};
       currentStepRef.current = 0; // Reset pattern position to start
       if (timerIDRef.current) clearTimeout(timerIDRef.current);
       if (squareHoldTimerRef.current !== null) {
@@ -4903,6 +4913,7 @@ export default function App() {
       clearPendingGridClickTimers();
       polyClickSlotsRef.current.clear();
       polyNextBeatRef.current = {};
+      polyBarLastScheduleWallTimeRef.current = {};
       nextNoteTimeRef.current = audioCtxRef.current.currentTime + METRA_SCHEDULE_AHEAD_SEC;
       scheduler();
     }
