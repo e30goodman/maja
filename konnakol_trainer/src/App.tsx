@@ -388,8 +388,8 @@ type ClickSoundConfig = {
 	accentFreq: number;
 	altFreq: number;
 	decay: number;
-	decayAccent?: number;
-	decayAlt?: number;
+	decayAccent: number;
+	decayAlt: number;
 	sweep?: boolean;
 	noise?: boolean;
 	noiseType?: BiquadFilterType;
@@ -397,9 +397,81 @@ type ClickSoundConfig = {
 	noiseFreqAccent?: number;
 	altNoiseFreq?: number;
 	volume: number;
-	volumeAccent?: number;
-	volumeAlt?: number;
+	volumeAccent: number;
+	volumeAlt: number;
+	layers?: {
+		accent: ClickLayerConfig[];
+		alt: ClickLayerConfig[];
+		passive: ClickLayerConfig[];
+	};
 };
+
+type ClickLayerType = OscillatorType | 'noise' | 'none';
+type ClickLayerConfig = {
+	type: ClickLayerType;
+	sweep: boolean;
+	noiseFilterType: BiquadFilterType;
+	params: {
+		volume: number;
+		decay: number;
+		freq: number;
+		hpFreq: number;
+		lpFreq: number;
+	};
+	mute?: boolean;
+	solo?: boolean;
+};
+
+function buildLegacyVoiceLayers(cfg: ClickSoundConfig): {
+	accent: ClickLayerConfig[];
+	alt: ClickLayerConfig[];
+	passive: ClickLayerConfig[];
+} {
+	const mkOsc = (freq: number, volume: number, decay: number): ClickLayerConfig => ({
+		type: (cfg.oscType ?? 'sine') as ClickLayerType,
+		sweep: cfg.sweep === true,
+		noiseFilterType: 'highpass',
+		params: { volume, decay, freq, hpFreq: 20, lpFreq: 20000 },
+	});
+	const mkNoise = (freq: number, volume: number, decay: number): ClickLayerConfig => ({
+		type: cfg.noise ? 'noise' : 'none',
+		sweep: false,
+		noiseFilterType: (cfg.noiseType ?? 'highpass') as BiquadFilterType,
+		params: { volume, decay, freq, hpFreq: 20, lpFreq: 20000 },
+	});
+	const mkNone = (decay: number): ClickLayerConfig => ({
+		type: 'none',
+		sweep: false,
+		noiseFilterType: 'highpass',
+		params: { volume: 0, decay, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+	});
+	const baseDecay = cfg.decay;
+	const accentDecay = cfg.decayAccent;
+	const altDecay = cfg.decayAlt;
+	const baseVolume = cfg.volume;
+	const accentVolume = cfg.volumeAccent;
+	const altVolume = cfg.volumeAlt;
+	const baseNoiseFreq = cfg.noiseFreq ?? 1000;
+	const accentNoiseFreq = cfg.noiseFreqAccent ?? cfg.noiseFreq ?? 1000;
+	const altNoiseFreq = cfg.altNoiseFreq ?? cfg.noiseFreq ?? 1000;
+	return {
+		accent: [
+			mkOsc(cfg.accentFreq, accentVolume, accentDecay),
+			mkNoise(accentNoiseFreq, accentVolume * 0.5, accentDecay),
+			mkNone(0.1),
+		],
+		alt: [
+			mkOsc(cfg.altFreq, altVolume, altDecay),
+			mkNoise(altNoiseFreq, altVolume * 0.5, altDecay),
+			mkNone(0.1),
+		],
+		passive: [
+			mkOsc(cfg.baseFreq, baseVolume, baseDecay),
+			mkNoise(baseNoiseFreq, baseVolume * 0.5, baseDecay),
+			mkNone(0.1),
+		],
+	};
+}
 
 const CLICK_SOUND_PRESET_ORDER: ClickSoundPreset[] = [
 	'classic',
@@ -432,9 +504,79 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 		accentFreq: 920,
 		altFreq: 800,
 		decay: 0.04,
+		decayAccent: 0.04,
+		decayAlt: 0.04,
 		volume: 0.4,
 		volumeAccent: 0.5,
 		volumeAlt: 0.4,
+		layers: {
+			accent: [
+				{
+					type: 'sine',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0.5, decay: 0.04, freq: 920, hpFreq: 1200, lpFreq: 20000 },
+				},
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.04, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+				},
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.1, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+					mute: false,
+					solo: false,
+				},
+			],
+			alt: [
+				{
+					type: 'sine',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0.4, decay: 0.04, freq: 800, hpFreq: 20, lpFreq: 20000 },
+				},
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.04, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+				},
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.1, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+					mute: false,
+					solo: false,
+				},
+			],
+			passive: [
+				{
+					type: 'sine',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0.4, decay: 0.04, freq: 800, hpFreq: 20, lpFreq: 20000 },
+				},
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.04, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+				},
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.1, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+					mute: false,
+					solo: false,
+				},
+			],
+		},
 	},
 	oldschool: {
 		oscType: 'triangle',
@@ -448,24 +590,162 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 		volume: 0.48,
 		volumeAccent: 0.9,
 		volumeAlt: 0.48,
+		layers: {
+			accent: [
+				{
+					type: 'triangle',
+					sweep: true,
+					noiseFilterType: 'highpass',
+					params: { volume: 0.9, decay: 0.04, freq: 500, hpFreq: 1200, lpFreq: 20000 },
+				},
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.04, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+				},
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.1, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+					mute: false,
+					solo: false,
+				},
+			],
+			alt: [
+				{
+					type: 'triangle',
+					sweep: true,
+					noiseFilterType: 'highpass',
+					params: { volume: 0.48, decay: 0.02, freq: 250, hpFreq: 20, lpFreq: 20000 },
+				},
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.04, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+				},
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.1, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+					mute: false,
+					solo: false,
+				},
+			],
+			passive: [
+				{
+					type: 'triangle',
+					sweep: true,
+					noiseFilterType: 'highpass',
+					params: { volume: 0.48, decay: 0.02, freq: 250, hpFreq: 20, lpFreq: 20000 },
+				},
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.04, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+				},
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.1, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+					mute: false,
+					solo: false,
+				},
+			],
+		},
 	},
-	standard: { oscType: 'sine', baseFreq: 1000, accentFreq: 1500, altFreq: 1250, decay: 0.03, volume: 1 },
+	standard: {
+		oscType: 'sine',
+		baseFreq: 1000,
+		accentFreq: 1500,
+		altFreq: 1250,
+		decay: 0.03,
+		decayAccent: 0.03,
+		decayAlt: 0.03,
+		volume: 1,
+		volumeAccent: 1.2,
+		volumeAlt: 1.1,
+	},
 	modern_daw: {
 		oscType: 'sine',
 		baseFreq: 1500,
 		accentFreq: 3840,
 		altFreq: 2840,
 		decay: 0.015,
+		decayAccent: 0.015,
+		decayAlt: 0.015,
 		sweep: true,
 		volume: 0.9,
-		volumeAccent: 1.4,
-		volumeAlt: 1.3,
+		volumeAccent: 1.2,
+		volumeAlt: 1.1,
 	},
-	woodblock: { oscType: 'triangle', baseFreq: 600, accentFreq: 800, altFreq: 700, decay: 0.05, volume: 1.5 },
-	punchy: { oscType: 'sine', baseFreq: 500, accentFreq: 1000, altFreq: 750, decay: 0.05, sweep: true, volume: 1.5 },
-	sharp_digital: { oscType: 'square', baseFreq: 800, accentFreq: 1200, altFreq: 1000, decay: 0.02, volume: 0.6 },
-	deep_sub: { oscType: 'sine', baseFreq: 300, accentFreq: 400, altFreq: 350, decay: 0.06, volume: 1.5 },
-	laser_snap: { oscType: 'sawtooth', baseFreq: 1000, accentFreq: 2000, altFreq: 1500, decay: 0.03, sweep: true, volume: 0.5 },
+	woodblock: {
+		oscType: 'triangle',
+		baseFreq: 600,
+		accentFreq: 800,
+		altFreq: 700,
+		decay: 0.05,
+		decayAccent: 0.05,
+		decayAlt: 0.05,
+		volume: 1.5,
+		volumeAccent: 1.5,
+		volumeAlt: 1.5,
+	},
+	punchy: {
+		oscType: 'sine',
+		baseFreq: 500,
+		accentFreq: 1000,
+		altFreq: 750,
+		decay: 0.05,
+		decayAccent: 0.05,
+		decayAlt: 0.05,
+		sweep: true,
+		volume: 1.5,
+		volumeAccent: 1.5,
+		volumeAlt: 1.5,
+	},
+	sharp_digital: {
+		oscType: 'square',
+		baseFreq: 800,
+		accentFreq: 1200,
+		altFreq: 1000,
+		decay: 0.02,
+		decayAccent: 0.02,
+		decayAlt: 0.02,
+		volume: 0.6,
+		volumeAccent: 0.6,
+		volumeAlt: 0.6,
+	},
+	deep_sub: {
+		oscType: 'sine',
+		baseFreq: 300,
+		accentFreq: 400,
+		altFreq: 350,
+		decay: 0.06,
+		decayAccent: 0.06,
+		decayAlt: 0.06,
+		volume: 1.5,
+		volumeAccent: 1.5,
+		volumeAlt: 1.5,
+	},
+	laser_snap: {
+		oscType: 'sawtooth',
+		baseFreq: 1000,
+		accentFreq: 2000,
+		altFreq: 1500,
+		decay: 0.03,
+		decayAccent: 0.03,
+		decayAlt: 0.03,
+		sweep: true,
+		volume: 0.5,
+		volumeAccent: 0.5,
+		volumeAlt: 0.5,
+	},
 	hi_hat: {
 		baseFreq: 0,
 		accentFreq: 0,
@@ -480,8 +760,155 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 		volume: 0.7,
 		volumeAccent: 2.5,
 		volumeAlt: 1.7,
+		layers: {
+			accent: [
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.081, freq: 0, hpFreq: 5000, lpFreq: 12000 },
+				},
+				{
+					type: 'noise',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 2.5, decay: 0.081, freq: 1000, hpFreq: 5000, lpFreq: 12000 },
+				},
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.1, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+					mute: false,
+					solo: false,
+				},
+			],
+			alt: [
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.065, freq: 0, hpFreq: 5000, lpFreq: 12000 },
+				},
+				{
+					type: 'noise',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 1.7, decay: 0.065, freq: 5200, hpFreq: 5000, lpFreq: 12000 },
+				},
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.1, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+					mute: false,
+					solo: false,
+				},
+			],
+			passive: [
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.041, freq: 0, hpFreq: 5000, lpFreq: 12000 },
+				},
+				{
+					type: 'noise',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0.7, decay: 0.041, freq: 5600, hpFreq: 5000, lpFreq: 12000 },
+				},
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.1, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+					mute: false,
+					solo: false,
+				},
+			],
+		},
 	},
-	glass_drop: { oscType: 'sine', baseFreq: 2500, accentFreq: 3500, altFreq: 3000, decay: 0.04, volume: 0.8 },
+	glass_drop: {
+		oscType: 'sine',
+		baseFreq: 2500,
+		accentFreq: 3500,
+		altFreq: 3000,
+		decay: 0.04,
+		decayAccent: 0.04,
+		decayAlt: 0.04,
+		volume: 0.8,
+		volumeAccent: 0.8,
+		volumeAlt: 0.8,
+		layers: {
+			accent: [
+				{
+					type: 'sine',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0.8, decay: 0.04, freq: 3500, hpFreq: 20, lpFreq: 20000 },
+				},
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.04, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+				},
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.1, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+					mute: false,
+					solo: false,
+				},
+			],
+			alt: [
+				{
+					type: 'sine',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0.8, decay: 0.04, freq: 3000, hpFreq: 20, lpFreq: 20000 },
+				},
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.04, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+				},
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.1, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+					mute: false,
+					solo: false,
+				},
+			],
+			passive: [
+				{
+					type: 'sine',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0.8, decay: 0.04, freq: 2500, hpFreq: 1600, lpFreq: 20000 },
+				},
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.04, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+				},
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.1, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+					mute: false,
+					solo: false,
+				},
+			],
+		},
+	},
 	plastic_knock: {
 		oscType: 'triangle',
 		sweep: true,
@@ -501,17 +928,22 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 		accentFreq: 2500,
 		altFreq: 2000,
 		decay: 0.015,
+		decayAccent: 0.015,
+		decayAlt: 0.015,
 		noise: true,
 		noiseType: 'highpass',
 		noiseFreq: 4000,
 		altNoiseFreq: 5000,
 		volume: 0.4,
+		volumeAccent: 0.4,
+		volumeAlt: 0.4,
 	},
 	clock_tick: {
 		baseFreq: 0,
 		accentFreq: 0,
 		altFreq: 0,
 		decay: 0.01,
+		decayAccent: 0.01,
 		decayAlt: 0.017,
 		noise: true,
 		noiseType: 'highpass',
@@ -522,13 +954,37 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 		volumeAccent: 2.2,
 		volumeAlt: 1.7,
 	},
-	cowbell: { oscType: 'square', baseFreq: 540, accentFreq: 800, altFreq: 670, decay: 0.08, volume: 0.3 },
-	analog_synth: { oscType: 'sawtooth', baseFreq: 500, accentFreq: 800, altFreq: 650, decay: 0.04, volume: 0.5 },
+	cowbell: {
+		oscType: 'square',
+		baseFreq: 540,
+		accentFreq: 800,
+		altFreq: 670,
+		decay: 0.08,
+		decayAccent: 0.08,
+		decayAlt: 0.08,
+		volume: 0.3,
+		volumeAccent: 0.3,
+		volumeAlt: 0.3,
+	},
+	analog_synth: {
+		oscType: 'sawtooth',
+		baseFreq: 500,
+		accentFreq: 800,
+		altFreq: 650,
+		decay: 0.04,
+		decayAccent: 0.04,
+		decayAlt: 0.04,
+		volume: 0.5,
+		volumeAccent: 0.5,
+		volumeAlt: 0.5,
+	},
 	vinyl_crackle: {
 		baseFreq: 0,
 		accentFreq: 0,
 		altFreq: 0,
 		decay: 0.04,
+		decayAccent: 0.04,
+		decayAlt: 0.04,
 		noise: true,
 		noiseType: 'bandpass',
 		noiseFreq: 3900,
@@ -544,16 +1000,31 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 		accentFreq: 1600,
 		altFreq: 1400,
 		decay: 0.008,
+		decayAccent: 0.008,
+		decayAlt: 0.008,
 		volume: 0.5,
 		volumeAccent: 1.2,
 		volumeAlt: 1.1,
 	},
-	soft_ping: { oscType: 'sine', baseFreq: 700, accentFreq: 900, altFreq: 800, decay: 0.1, volume: 1.2 },
+	soft_ping: {
+		oscType: 'sine',
+		baseFreq: 700,
+		accentFreq: 900,
+		altFreq: 800,
+		decay: 0.1,
+		decayAccent: 0.1,
+		decayAlt: 0.1,
+		volume: 1.2,
+		volumeAccent: 1.2,
+		volumeAlt: 1.2,
+	},
 	noise_burst: {
 		baseFreq: 0,
 		accentFreq: 0,
 		altFreq: 0,
 		decay: 0.05,
+		decayAccent: 0.05,
+		decayAlt: 0.05,
 		noise: true,
 		noiseType: 'lowpass',
 		noiseFreq: 5000,
@@ -569,6 +1040,8 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 		accentFreq: 660,
 		altFreq: 550,
 		decay: 0.023,
+		decayAccent: 0.023,
+		decayAlt: 0.023,
 		sweep: true,
 		volume: 0.2,
 		volumeAccent: 0.9,
@@ -1610,51 +2083,63 @@ const playSharpClick = (
   isChecked: boolean,
   soundType: ClickSoundPreset = 'classic',
   accentOnlyPlayback = false,
+  voiceRole: 'accent' | 'base' | 'alt' = isChecked ? 'accent' : 'base',
 ) => {
   const cfg = CLICK_SOUND_LIBRARY[soundType] ?? CLICK_SOUND_LIBRARY.classic;
   const t0 = Math.max(time, ctx.currentTime + AUDIO_START_GUARD_SEC);
-  const decay = isChecked ? (cfg.decayAccent ?? cfg.decay) : cfg.decay;
-  const baseVolume = isChecked ? (cfg.volumeAccent ?? cfg.volume) : cfg.volume;
-  const volume = accentOnlyPlayback && isChecked ? baseVolume * 0.72 : baseVolume;
-  const freq = isChecked ? cfg.accentFreq : cfg.baseFreq;
-  if (volume > 0 && cfg.oscType) {
+  const voiceKey = voiceRole === 'accent' ? 'accent' : voiceRole === 'alt' ? 'alt' : 'passive';
+  const layers = (cfg.layers ?? buildLegacyVoiceLayers(cfg))[voiceKey];
+  const activeLayers = layers.filter((layer) => layer.mute !== true && layer.params.volume > 0 && layer.type !== 'none');
+  const soloLayers = activeLayers.filter((layer) => layer.solo === true);
+  const runLayers = soloLayers.length > 0 ? soloLayers : activeLayers;
+  for (const layer of runLayers) {
+    const layerDecay = Math.max(0.001, layer.params.decay);
+    const layerVol = accentOnlyPlayback && voiceRole === 'accent' ? layer.params.volume * 0.72 : layer.params.volume;
+    if (layer.type === 'noise') {
+      const noiseLen = Math.max(1, Math.floor(ctx.sampleRate * layerDecay));
+      const noiseBuf = ctx.createBuffer(1, noiseLen, ctx.sampleRate);
+      const output = noiseBuf.getChannelData(0);
+      for (let i = 0; i < output.length; i++) output[i] = Math.random() * 2 - 1;
+      const noiseSrc = ctx.createBufferSource();
+      noiseSrc.buffer = noiseBuf;
+      const noiseFilter = ctx.createBiquadFilter();
+      noiseFilter.type = layer.noiseFilterType;
+      noiseFilter.frequency.value = Math.max(10, layer.params.freq);
+      const noiseGain = ctx.createGain();
+      noiseGain.gain.cancelScheduledValues(t0);
+      noiseGain.gain.setValueAtTime(0, t0);
+      noiseGain.gain.linearRampToValueAtTime(layerVol, t0 + 0.002);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, t0 + layerDecay);
+      noiseSrc.connect(noiseFilter);
+      noiseFilter.connect(noiseGain);
+      noiseGain.connect(ctx.destination);
+      noiseSrc.start(t0);
+      noiseSrc.stop(t0 + layerDecay + 0.05);
+      continue;
+    }
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.type = cfg.oscType;
-    osc.frequency.setValueAtTime(Math.max(1, freq), t0);
-    if (cfg.sweep) {
-      osc.frequency.exponentialRampToValueAtTime(Math.max(10, Math.max(1, freq) * 0.1), t0 + decay);
+    osc.type = layer.type as OscillatorType;
+    osc.frequency.setValueAtTime(Math.max(1, layer.params.freq), t0);
+    if (layer.sweep) {
+      osc.frequency.exponentialRampToValueAtTime(Math.max(10, Math.max(1, layer.params.freq) * 0.1), t0 + layerDecay);
     }
     gain.gain.cancelScheduledValues(t0);
     gain.gain.setValueAtTime(0, t0);
-    gain.gain.linearRampToValueAtTime(volume, t0 + 0.002);
-    gain.gain.exponentialRampToValueAtTime(0.001, t0 + decay);
-    osc.connect(gain);
+    gain.gain.linearRampToValueAtTime(layerVol, t0 + 0.002);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + layerDecay);
+    const hpFilter = ctx.createBiquadFilter();
+    hpFilter.type = 'highpass';
+    hpFilter.frequency.value = Math.max(10, layer.params.hpFreq);
+    const lpFilter = ctx.createBiquadFilter();
+    lpFilter.type = 'lowpass';
+    lpFilter.frequency.value = Math.max(20, layer.params.lpFreq);
+    osc.connect(hpFilter);
+    hpFilter.connect(lpFilter);
+    lpFilter.connect(gain);
     gain.connect(ctx.destination);
     osc.start(t0);
-    osc.stop(t0 + decay + 0.05);
-  }
-  if (cfg.noise) {
-    const noiseLen = Math.max(1, Math.floor(ctx.sampleRate * decay));
-    const noiseBuf = ctx.createBuffer(1, noiseLen, ctx.sampleRate);
-    const output = noiseBuf.getChannelData(0);
-    for (let i = 0; i < output.length; i++) output[i] = Math.random() * 2 - 1;
-    const noiseSrc = ctx.createBufferSource();
-    noiseSrc.buffer = noiseBuf;
-    const noiseFilter = ctx.createBiquadFilter();
-    noiseFilter.type = cfg.noiseType || 'highpass';
-    noiseFilter.frequency.value = Math.max(10, isChecked ? (cfg.noiseFreqAccent ?? cfg.noiseFreq ?? 1000) : (cfg.noiseFreq ?? 1000));
-    const noiseGain = ctx.createGain();
-    const nVol = Math.max(0, volume * 0.5);
-    noiseGain.gain.cancelScheduledValues(t0);
-    noiseGain.gain.setValueAtTime(0, t0);
-    noiseGain.gain.linearRampToValueAtTime(nVol, t0 + 0.002);
-    noiseGain.gain.exponentialRampToValueAtTime(0.001, t0 + decay);
-    noiseSrc.connect(noiseFilter);
-    noiseFilter.connect(noiseGain);
-    noiseGain.connect(ctx.destination);
-    noiseSrc.start(t0);
-    noiseSrc.stop(t0 + decay + 0.05);
+    osc.stop(t0 + layerDecay + 0.05);
   }
 };
 
@@ -1663,6 +2148,12 @@ const playBarFirstHighClick = (ctx: AudioContext, time: number, soundType: Click
   if (soundType === 'classic') {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
+    const hpFilter = ctx.createBiquadFilter();
+    hpFilter.type = 'highpass';
+    hpFilter.frequency.value = 1600;
+    const lpFilter = ctx.createBiquadFilter();
+    lpFilter.type = 'lowpass';
+    lpFilter.frequency.value = 20000;
     osc.type = 'sine';
     osc.frequency.setValueAtTime(1550, t0);
     osc.frequency.exponentialRampToValueAtTime(520, t0 + 0.028);
@@ -1670,7 +2161,9 @@ const playBarFirstHighClick = (ctx: AudioContext, time: number, soundType: Click
     gain.gain.setValueAtTime(0, t0);
     gain.gain.linearRampToValueAtTime(0.36, t0 + 0.002);
     gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.0336);
-    osc.connect(gain);
+    osc.connect(hpFilter);
+    hpFilter.connect(lpFilter);
+    lpFilter.connect(gain);
     gain.connect(ctx.destination);
     osc.start(t0);
     osc.stop(t0 + 0.06);
@@ -1679,14 +2172,22 @@ const playBarFirstHighClick = (ctx: AudioContext, time: number, soundType: Click
   if (soundType === 'oldschool') {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
+    const hpFilter = ctx.createBiquadFilter();
+    const lpFilter = ctx.createBiquadFilter();
     osc.type = 'triangle';
     osc.frequency.setValueAtTime(920, t0);
     osc.frequency.exponentialRampToValueAtTime(210, t0 + 0.03);
+    hpFilter.type = 'highpass';
+    hpFilter.frequency.value = 1200;
+    lpFilter.type = 'lowpass';
+    lpFilter.frequency.value = 20000;
     gain.gain.cancelScheduledValues(t0);
     gain.gain.setValueAtTime(0, t0);
     gain.gain.linearRampToValueAtTime(0.78, t0 + 0.002);
     gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.035);
-    osc.connect(gain);
+    osc.connect(hpFilter);
+    hpFilter.connect(lpFilter);
+    lpFilter.connect(gain);
     gain.connect(ctx.destination);
     osc.start(t0);
     osc.stop(t0 + 0.06);
@@ -1957,6 +2458,8 @@ export default function App() {
   const [frozenScale, setFrozenScale] = useState<number | null>(() =>
     typeof seed.frozenScale === 'number' && seed.frozenScale >= 1 ? seed.frozenScale : null,
   );
+  const frozenScaleBeforeMenuRef = useRef<number | null>(null);
+  const menuForcedFreezeRef = useRef(false);
   const [isPanelExpanded, setIsPanelExpanded] = useState(() => seed.panelExpanded === true);
   const isPanelExpandedRef = useRef(seed.panelExpanded === true);
   isPanelExpandedRef.current = isPanelExpanded;
@@ -1990,8 +2493,19 @@ export default function App() {
   }, [isClickSoundSelectorOpen]);
 
   useEffect(() => {
-    if (showRandomSettings || isClickSoundSelectorOpen) {
+    const menuOpen = showRandomSettings || isClickSoundSelectorOpen;
+    if (menuOpen) {
+      if (!menuForcedFreezeRef.current) {
+        frozenScaleBeforeMenuRef.current = frozenScale;
+        menuForcedFreezeRef.current = true;
+      }
       setFrozenScale(2);
+      return;
+    }
+    if (menuForcedFreezeRef.current) {
+      menuForcedFreezeRef.current = false;
+      setFrozenScale(frozenScaleBeforeMenuRef.current);
+      frozenScaleBeforeMenuRef.current = null;
       return;
     }
     setFrozenScale(null);
@@ -3565,11 +4079,11 @@ export default function App() {
           return mainAccentClick;
         })();
         /** Пассив Ta уже в составном тембре — не дублировать тот же щелчок сетки (в т.ч. при no_accent_sharp / мьютах пассива). */
-        if (shouldPlayTaDingSound && !sharpAsChecked) {
+        if (shouldPlayTaDingSound && !sharpAsChecked && playbackMode !== 'all_beats') {
           continue;
         }
         /** Первая доля уже сыграла ding+пассив — не дублировать пассив сетки на (0,0). */
-        if (shouldPlayFirstBeatTa && !sharpAsChecked) {
+        if (shouldPlayFirstBeatTa && !sharpAsChecked && playbackMode !== 'all_beats') {
           continue;
         }
         /**
@@ -3581,13 +4095,37 @@ export default function App() {
           (playbackMode !== 'all_beats' || dictantActive) &&
           !(shouldPlayTaDingSound && isAccent) &&
           !(shouldPlayFirstBeatTa && isAccent);
+        const voiceRole: 'accent' | 'base' | 'alt' =
+          sharpAsChecked
+            ? 'accent'
+            : shouldPlayFirstBeatTa
+              ? 'base'
+            : shouldPlayTaDingSound
+              ? 'base'
+              : 'base';
         playSharpClick(
           audioCtxRef.current,
           subTime,
           sharpAsChecked,
           clickSoundRef.current,
           accentOnlyPlayback,
+          voiceRole,
         );
+        if (
+          sharpAsChecked &&
+          playbackMode === 'all_beats' &&
+          !shouldPlayFirstBeatTa &&
+          !shouldPlayTaDingSound
+        ) {
+          playSharpClick(
+            audioCtxRef.current,
+            subTime,
+            false,
+            clickSoundRef.current,
+            false,
+            'alt',
+          );
+        }
         if (polyModeRef.current) {
           polyClickSlotsRef.current.add(polySlotKey);
         }
