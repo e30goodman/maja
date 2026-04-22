@@ -321,7 +321,7 @@ const POLY_MODE_STORAGE_KEY = 'konnakol_poly_mode';
 const POLY_VOICES_STORAGE_KEY = 'konnakol_poly_voices';
 const APP_COMMIT_VERSION = (() => {
 	if (typeof __GIT_SHA7__ === 'string' && __GIT_SHA7__.length >= 7) return __GIT_SHA7__.slice(0, 7);
-	return 'e62d973';
+	return '7d53946';
 })();
 const TEMPO_THROTTLE_MS = 56;
 /** Удержание −/+ темпа: после задержки шаг ±5 каждые 0,1 с. */
@@ -749,16 +749,16 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 	},
 	modern_daw: {
 		oscType: 'sine',
-		baseFreq: 1500,
+		baseFreq: 1390,
 		accentFreq: 3840,
 		altFreq: 2860,
-		decay: 0.013,
+		decay: 0.015,
 		decayAccent: 0.015,
-		decayAlt: 0.015,
+		decayAlt: 0.013,
 		sweep: true,
-		volume: 0.75,
+		volume: 0.85,
 		volumeAccent: 1.1,
-		volumeAlt: 0.9,
+		volumeAlt: 1.65,
 		layers: {
 			accent: [
 				{
@@ -770,10 +770,10 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 					solo: false,
 				},
 				{
-					type: 'none',
-					sweep: false,
+					type: 'triangle',
+					sweep: true,
 					noiseFilterType: 'highpass',
-					params: { volume: 0, decay: 0.015, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+					params: { volume: 0.2, decay: 0.015, freq: 310, hpFreq: 20, lpFreq: 20000 },
 					mute: false,
 					solo: false,
 				},
@@ -791,14 +791,14 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 					type: 'sine',
 					sweep: false,
 					noiseFilterType: 'highpass',
-					params: { volume: 0.9, decay: 0.015, freq: 2860, hpFreq: 880, lpFreq: 3570 },
+					params: { volume: 1.65, decay: 0.013, freq: 2860, hpFreq: 880, lpFreq: 1490 },
 					mute: false,
 				},
 				{
-					type: 'none',
+					type: 'triangle',
 					sweep: false,
 					noiseFilterType: 'highpass',
-					params: { volume: 0, decay: 0.015, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+					params: { volume: 0.4, decay: 0.015, freq: 20, hpFreq: 20, lpFreq: 20000 },
 					mute: false,
 				},
 				{
@@ -815,7 +815,7 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 					type: 'sine',
 					sweep: true,
 					noiseFilterType: 'highpass',
-					params: { volume: 0.75, decay: 0.013, freq: 1500, hpFreq: 20, lpFreq: 20000 },
+					params: { volume: 0.85, decay: 0.013, freq: 1390, hpFreq: 1000, lpFreq: 20000 },
 				},
 				{
 					type: 'none',
