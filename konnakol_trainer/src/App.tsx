@@ -6114,14 +6114,14 @@ export default function App() {
     : '';
   const squarePlaybackModeLabel =
     syllableReadMuteMode === 'full'
-      ? 'тишина по сетке (пресет)'
+      ? 'grid muted (preset)'
       : syllableReadMuteMode === 'no_accent_sharp'
-        ? 'акценты со звуком пассивных (пресет)'
+        ? 'accents with passive timbre (preset)'
         : squarePlaybackMode === 'accent_only'
-          ? 'только выделенные доли'
+          ? 'accented beats only'
           : squarePlaybackMode === 'passive_only'
-            ? 'только звук Ta'
-            : 'все доли';
+            ? 'Ta sound only'
+            : 'all beats';
 
   return (
     <div className="min-h-screen bg-[#0b101e] sm:bg-black/95 text-slate-200 p-0 sm:p-6 font-sans flex flex-col items-center justify-center">
@@ -6148,7 +6148,6 @@ export default function App() {
             <div className="flex-1 flex items-center gap-2 min-w-0 py-2 px-1.5 bg-[#161f33] rounded-xl border border-[#23314f] touch-none">
           <button 
                 type="button"
-                title="Коротко: −1 BPM. Удерживай: −5 каждые 0,1 с"
                 onPointerDown={beginTempoMinusHold}
                 onPointerUp={endTempoHoldRepeat}
                 onPointerLeave={endTempoHoldRepeat}
@@ -6181,7 +6180,6 @@ export default function App() {
               />
               <button
                 type="button"
-                title="Коротко: +1 BPM. Удерживай: +5 каждые 0,1 с"
                 onPointerDown={beginTempoPlusHold}
                 onPointerUp={endTempoHoldRepeat}
                 onPointerLeave={endTempoHoldRepeat}
@@ -6201,7 +6199,6 @@ export default function App() {
           ) : (
             <button
               type="button"
-              title="Коротко: Tap темпа. Удерживай: ввод BPM с клавиатуры"
               onPointerDown={onTapButtonPointerDown}
               onClick={() => {
                 if (tapBpmHoldAteClickRef.current) {
@@ -6293,7 +6290,6 @@ export default function App() {
                 ? `bg-red-600/25 border-red-400/70 text-red-200 ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(248,113,113,0.35)]'}`
                 : 'bg-[#161f33] border-[#23314f] text-slate-400 hover:text-red-400 hover:border-red-500/30 active:bg-red-500/20'
             }`}
-            title="Clear Sequencer"
           >
             <Eraser size={20} />
           </button>
@@ -6406,7 +6402,6 @@ export default function App() {
                                 }
                               }}
                               className="w-20 h-1.5 bg-[#0f1526] rounded-lg appearance-none cursor-pointer"
-                              title={`Voice ${activeClickVoiceTarget + 1} volume`}
                             />
                             <span className="w-8 text-right text-[9px] text-slate-400 tabular-nums">
                               {Math.round((polyVoiceGains[activeClickVoiceTarget] ?? 1) * 100)}%
@@ -6501,7 +6496,6 @@ export default function App() {
                         setRandomMode('parent');
                       }}
                       disabled={polyMode}
-                      title={polyMode ? 'Parent mode в Polyrhythm временно отключён' : undefined}
                       className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${
                         polyMode
                           ? 'text-slate-600 cursor-not-allowed'
@@ -6747,7 +6741,6 @@ export default function App() {
                   <div className="flex items-center gap-2">
                     <button 
                       type="button"
-                      title="Коротко: −1 BPM. Удерживай: −5 каждые 0,1 с"
                       onPointerDown={beginTempoMinusHold}
                       onPointerUp={endTempoHoldRepeat}
                       onPointerLeave={endTempoHoldRepeat}
@@ -6780,7 +6773,6 @@ export default function App() {
                     />
                     <button 
                       type="button"
-                      title="Коротко: +1 BPM. Удерживай: +5 каждые 0,1 с"
                       onPointerDown={beginTempoPlusHold}
                       onPointerUp={endTempoHoldRepeat}
                       onPointerLeave={endTempoHoldRepeat}
@@ -6819,7 +6811,6 @@ export default function App() {
                             ref={(el) => {
                               snapshotSlotButtonRefs.current[num] = el;
                             }}
-                            title="Tap: select slot. Hold: copy / paste preset menu"
                             className={`w-8 h-8 flex items-center justify-center rounded-full text-[13px] font-bold transition-all touch-none select-none ${
                               isActive
                                 ? 'bg-[#1e2a45] text-white shadow-sm ring-1 ring-[#3a5080] scale-110' 
@@ -6898,7 +6889,7 @@ export default function App() {
                       ? `bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/50 ${lowPerfMode ? '' : 'shadow-[0_0_8px_rgba(59,130,246,0.3)]'}` 
                       : 'bg-[#1e2a45]/40 text-slate-400 hover:text-slate-200 hover:bg-[#1e2a45] ring-1 ring-[#2f4066]/30'
                   }`}
-                  aria-label={frozenScale !== null ? 'Снять фиксацию высоты строк' : 'Зафиксировать масштаб строк'}
+                  aria-label={frozenScale !== null ? 'Unfreeze row height' : 'Freeze row scale'}
                 >
                   <Snowflake size={12} />
                 </button>
@@ -6938,7 +6929,6 @@ export default function App() {
                     if (e.key === 'Enter') e.currentTarget.blur();
                   }}
                   className="w-full text-xs font-bold text-slate-300 text-right bg-transparent hover:bg-[#1e2a45] focus:bg-[#1e2a45] rounded outline-none transition-colors py-1 cursor-text select-text"
-                  title="Click to type a number (up to 100)"
                 />
               </div>
             </div>
@@ -7396,12 +7386,12 @@ export default function App() {
             }`}
             aria-label={
               dictantMode
-                ? `Диктант. Сейчас: ${squarePlaybackModeLabel}`
+                ? `Dictation mode. Current: ${squarePlaybackModeLabel}`
                 : syllableReadMuteMode === 'full'
-                  ? `Тишина по сетке. Сейчас: ${squarePlaybackModeLabel}`
+                  ? `Grid muted. Current: ${squarePlaybackModeLabel}`
                   : syllableReadMuteMode === 'no_accent_sharp'
-                    ? `Акценты как пассивные. Сейчас: ${squarePlaybackModeLabel}`
-                    : `Режим сетки: ${squarePlaybackModeLabel}`
+                    ? `Accents with passive timbre. Current: ${squarePlaybackModeLabel}`
+                    : `Grid mode: ${squarePlaybackModeLabel}`
             }
           >
             <span
@@ -7414,15 +7404,7 @@ export default function App() {
           </button>
         </div>
 
-        {clipboardToast ? (
-          <div
-            role="status"
-            aria-live="polite"
-            className="pointer-events-none absolute bottom-[5.5rem] left-1/2 z-[60] max-w-[min(92%,22rem)] -translate-x-1/2 rounded-xl bg-[#1e2a45] px-3.5 py-2.5 text-center text-[13px] font-medium leading-snug text-slate-100 shadow-lg ring-1 ring-[#3a5080]"
-          >
-            {clipboardToast}
-          </div>
-        ) : null}
+        {null}
 
         {/* Play Button */}
         <div className="shrink-0 mb-2">
@@ -7472,7 +7454,6 @@ export default function App() {
             <button
               type="button"
               className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#23314f] text-slate-200 transition-colors hover:bg-[#2c3d63] active:bg-[#1b253b] ring-1 ring-[#2f4066]/40"
-              title="Copy slot preset to clipboard"
               aria-label="Copy slot preset to clipboard"
               onClick={() => void copySnapshotSlotToClipboard(snapshotClipMenu.slot)}
             >
@@ -7482,7 +7463,6 @@ export default function App() {
             <button
               type="button"
               className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#23314f] text-slate-200 transition-colors hover:bg-[#2c3d63] active:bg-[#1b253b] ring-1 ring-[#2f4066]/40"
-              title="Paste preset from clipboard into slot"
               aria-label="Paste preset from clipboard into slot"
               onClick={() => void pasteSnapshotFromClipboard(snapshotClipMenu.slot)}
             >

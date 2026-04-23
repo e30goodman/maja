@@ -2,12 +2,12 @@ import React, { useMemo, useCallback, useRef } from 'react';
 import { buildRowCellSyllableLabels, getSyllableStyles, type KalamMap } from './sequencerLabels';
 import type { PlayheadPosition } from './playheadTypes';
 
-/** Доступные поддоли для long-press: в свернутом UI только 2/3/4, в развернутом — 2..9. */
+/** Available subdivisions for long-press: collapsed UI uses 2/3/4, expanded uses 2..9. */
 function allowedSubdivisions(panelExpanded: boolean): number[] {
 	return panelExpanded ? [2, 3, 4, 5, 6, 7, 8, 9] : [2, 3, 4];
 }
 
-/** Следующее значение в цикле доступных поддолей. */
+/** Next value in the available subdivision cycle. */
 function nextSubdivLongPress(current: number, panelExpanded: boolean): number {
 	const allowed = allowedSubdivisions(panelExpanded);
 	const idx = allowed.indexOf(current);
@@ -15,7 +15,7 @@ function nextSubdivLongPress(current: number, panelExpanded: boolean): number {
 	return allowed[(idx + 1) % allowed.length]!;
 }
 
-/** Сдвиг поддоли на delta шагов в доступном цикле (для жеста вверх/вниз). */
+/** Shift subdivision by delta steps inside the available cycle (for up/down gesture). */
 function stepSubdivByDelta(base: number, delta: number, panelExpanded: boolean): number {
 	const allowed = allowedSubdivisions(panelExpanded);
 	const len = allowed.length;
@@ -26,7 +26,7 @@ function stepSubdivByDelta(base: number, delta: number, panelExpanded: boolean):
 	return allowed[idx]!;
 }
 
-/** Poly play: голос 0 — emerald; 1 — sky; 2 — violet; 3+ — amber (отличие от первого). */
+/** Poly playback: voice 0 = emerald; 1 = sky; 2 = violet; 3+ = amber. */
 function playheadHighlightCellClasses(
 	isDead: boolean,
 	polyMode: boolean,
@@ -104,7 +104,7 @@ function useStableRowCellLabelsCache(
 				next[r] = built;
 			}
 		}
-		/** GC: удаляем hysteresis-ключи сегментов/клеток, которых больше нет в сетке. */
+		/** GC: remove hysteresis keys for segments/cells that no longer exist in the grid. */
 		const km = kalamMapRef.current;
 		const stale: string[] = [];
 		km.forEach((_, key) => {
@@ -121,7 +121,7 @@ export type SequencerGridRowActions = {
 	isHoldingRef: React.MutableRefObject<boolean>;
 	holdTimerRef: React.MutableRefObject<number | null>;
 	pulseUnlinkHoldTimerRef: React.MutableRefObject<number | null>;
-	/** true только после long-press unlink на кнопке пульса — подавить один click, не глотать клик после long-press клетки. */
+	/** True only after pulse-button long-press unlink: suppress one click without swallowing cell long-press click. */
 	pulseUnlinkJustFiredRef: React.MutableRefObject<boolean>;
 	deadSwipeSessionRef: React.MutableRefObject<{
 		row: number;
@@ -184,7 +184,7 @@ type SequencerGridRowProps = {
 	firstBeatAccent: boolean;
 	firstBeatByRowSig: string;
 	forceFirstBeatEditorFrames: boolean;
-	/** Сортированные r через запятую: снятые в редакторе дефолтные белые на первой доле. */
+	/** Comma-sorted row indices: rows where default first-beat white marker was disabled in editor. */
 	firstBeatEditorSuppressedSig: string;
 	deadStartByRow: Record<number, number>;
 	deadDisplayByRow: Record<number, number>;
@@ -193,7 +193,7 @@ type SequencerGridRowProps = {
 	displayScaleBars: number;
 	syllables: number;
 	lowPerfMode: boolean;
-	/** В плоском poly: визуальный разрыв между шагами (не влияет на аудио). */
+	/** In flat poly mode: visual separator between steps (does not affect audio). */
 	polyStepTopRule?: boolean;
 	actionsRef: React.MutableRefObject<SequencerGridRowActions | null>;
 	setRowEl: (absR: number, el: HTMLDivElement | null) => void;
@@ -367,8 +367,8 @@ const SequencerGridRow = React.memo(
 					<button
 						type="button"
 						onMouseDown={(e) => {
-							// Не даём кнопке забирать фокус при клике: в overflow-контейнере это
-							// может вызывать резкий jump-scroll (особенно на нижних строках).
+							// Prevent button focus on click: in an overflow container this may
+							// trigger abrupt jump-scroll (especially on lower rows).
 							e.preventDefault();
 						}}
 						onPointerDown={(e) => {
@@ -389,7 +389,7 @@ const SequencerGridRow = React.memo(
 									const nextVal = !prev[rIdx];
 									const next = { ...prev, [rIdx]: nextVal };
 									a.pulseMeterUnlinkedRef.current = { ...next };
-									/* Включаем отвязку пульсации от слогов такта → сбрасываем множитель скорости такта (x2…x4), иначе он остаётся в поли как визуально, так и в аудио. */
+									/* Enable pulse unlink from bar syllable count -> reset bar speed multiplier (x2..x4), otherwise it remains in poly visually and in audio. */
 									if (nextVal) {
 										a.setCustomMultipliers((pm) => {
 											if (pm[rIdx] === undefined) return pm;
@@ -451,7 +451,7 @@ const SequencerGridRow = React.memo(
 									a.pulseUnlinkJustFiredRef.current = false;
 									return;
 								}
-								/* click пришёл без pointerdown на пульсе (capture с клетки): isHoldingRef от long-press сетки — цикл слогов всё равно. */
+								/* Click arrived without pulse pointerdown (captured from cell): still run syllable cycle based on grid long-press isHoldingRef. */
 							}
 							a.setCustomSyllables((prev) => {
 								const current = prev[rIdx] !== undefined ? prev[rIdx] : a.syllables;
@@ -480,7 +480,7 @@ const SequencerGridRow = React.memo(
 						const isDead = typeof deadStart === 'number' ? cIdx >= deadStart : cIdx >= rowSylls;
 						const isAccent = accentBits[cIdx] === '1';
 						const isTaDing = taDingBits[cIdx] === '1';
-						/** В редакторе Ta: белый ding на первой доле при глобальном Ta, пока строка не в «снятых». */
+						/** In Ta editor: show white first-beat ding for global Ta while row is not excluded. */
 						const showEditorDing =
 							isTaDing ||
 							(cIdx === 0 &&
@@ -522,7 +522,7 @@ const SequencerGridRow = React.memo(
 						} else if (isAccent) {
 							cellClasses = purpleAccentCell;
 						} else if (showNonEditorDing) {
-							// В обычном режиме сохраняем видимость белых рамок, если пользователь сделал кастомный сдвиг Ta-рамок.
+							// In normal mode keep white frame visibility if user made a custom Ta-frame offset.
 							cellClasses = lowPerfMode
 								? 'bg-[#1e2a45] border-2 box-border border-white text-white z-[1]'
 								: 'bg-[#1e2a45] border-2 box-border border-white/95 text-white shadow-[0_0_14px_rgba(255,255,255,0.2)] z-[1] hover:bg-[#253353]';
@@ -733,7 +733,7 @@ export type SequencerGridProps = {
 	firstBeatEditorSuppressedSig: string;
 	deadStartByRow: Record<number, number>;
 	deadDisplayByRow: Record<number, number>;
-	/** BPM доли. Используется для расчёта NPS и выбора Kalam (slow/medium/fast) в слогах. */
+	/** Beat BPM. Used to compute NPS and pick Kalam (slow/medium/fast) for syllables. */
 	bpm: number;
 	activeEditRow: number | null;
 	activeEditCell: string | null;
@@ -785,8 +785,8 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	);
 
 	/**
-	 * Legacy: при play и длинной ленте — дубли строк для скролла (playAbsBar растёт).
-	 * Poly: playhead absR всегда 0..bars-1 — дубликаты дали бы ложную подсветку; только bars строк.
+	 * Legacy: while playing with a long strip, duplicate rows for scrolling (playAbsBar grows).
+	 * Poly: playhead absR is always 0..bars-1, so duplicates would cause false highlight; keep bars rows only.
 	 */
 	const virtualRowCount = useMemo(() => {
 		if (polyMode || !isPlaying || allBarsFitViewport) return bars;
@@ -843,7 +843,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 							: !isPlaying && activePos.r === rIdx
 								? activePos.c
 								: null;
-					/** В полиритме показываем номер шага на каждой строке (V1/V2[/V3]): 1,1,2,2... */
+					/** In polyrhythm show step number on each row (V1/V2[/V3]): 1,1,2,2... */
 					stepLabel = `${stepIdx + 1}`;
 					isPolyRow = true;
 					polyStepTopRule = stepIdx > 0 && voiceIdx === 0;
