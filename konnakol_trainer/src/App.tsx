@@ -6446,11 +6446,6 @@ export default function App() {
                                       return next;
                                     });
                                   }
-                                  if (polyVoices === 3) {
-                                    setActiveClickVoiceTarget((prev) => (prev === 0 ? 1 : prev === 1 ? 2 : 2));
-                                  } else {
-                                    setActiveClickVoiceTarget((prev) => (prev === 0 ? 1 : 1));
-                                  }
                                 } else {
                                   setClickSound(preset.mappedSound);
                                 }
