@@ -5064,24 +5064,16 @@ export default function App() {
           : '';
         const shouldDedupPolyClick = polyModeRef.current && polyClickSlotsRef.current.has(polySlotKey);
         const isFirstBarCell = cIdx === 0;
-        const playbackMode = squarePlaybackModeRef.current;
-        const taEnabled = firstBeatAccentRef.current;
-        const hasTaDingHere = taEnabled && taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
-        const dictantActive = dictantModeRef.current;
-        const shouldPlayBeat =
-          playbackMode === 'all_beats'
-            ? true
-            : playbackMode === 'accent_only'
-              ? isAccent || hasTaDingHere
-              : false;
-        const allowTaArticulationOnly = playbackMode === 'passive_only';
         const mainAccentClick = isAccent && (subdivs > 1 || sub === 0);
-        const shouldPlayFirstBeatTaBase =
-          isFirstBarCell && firstBeatAccentRef.current && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
+        const playbackMode = squarePlaybackModeRef.current;
+        const allowTaArticulation = playbackMode === 'all_beats';
         const shouldPlayFirstBeatTa =
-          shouldPlayFirstBeatTaBase &&
-          (playbackMode === 'all_beats' || isAccent || hasTaDingHere);
-        if (shouldPlayFirstBeatTa && (shouldPlayBeat || allowTaArticulationOnly)) {
+          allowTaArticulation &&
+          isFirstBarCell &&
+          firstBeatAccentRef.current &&
+          firstBeatCellHitRow &&
+          (subdivs > 1 || sub === 0);
+        if (shouldPlayFirstBeatTa) {
           playBarFirstHighClick(ctx, subTime, soundPreset);
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
@@ -5090,9 +5082,18 @@ export default function App() {
         if (shouldDedupPolyClick) {
           return;
         }
+        const taEnabled = firstBeatAccentRef.current;
         const isTaDingCell = taEnabled && cIdx >= 1 && taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
         /** Ta-клетка с поддолями должна звучать на каждую поддолю, не только на sub=0. */
-        const shouldPlayTaDingSound = isTaDingCell && (subdivs > 1 || sub === 0);
+        const shouldPlayTaDingSound = allowTaArticulation && isTaDingCell && (subdivs > 1 || sub === 0);
+        const hasTaDingHere = taEnabled && taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
+        const dictantActive = dictantModeRef.current;
+        const shouldPlayBeat =
+          playbackMode === 'all_beats'
+            ? true
+            : playbackMode === 'accent_only'
+              ? isAccent || hasTaDingHere
+              : false;
         const isTaFirstBeatArticulation =
           cIdx === 0 && firstBeatAccentRef.current && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
         const sharpAsChecked = (() => {
@@ -5100,7 +5101,7 @@ export default function App() {
           if (muteMode === 'no_accent_sharp' && mainAccentClick && !isTaFirstBeatArticulation) return false;
           return mainAccentClick;
         })();
-        if (shouldPlayTaDingSound && (shouldPlayBeat || allowTaArticulationOnly)) {
+        if (shouldPlayTaDingSound) {
           playBarFirstHighClick(ctx, subTime, soundPreset);
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
