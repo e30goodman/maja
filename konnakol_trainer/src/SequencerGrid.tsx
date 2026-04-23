@@ -332,6 +332,11 @@ const SequencerGridRow = React.memo(
 					</button>
 					<button
 						type="button"
+						onMouseDown={(e) => {
+							// Не даём кнопке забирать фокус при клике: в overflow-контейнере это
+							// может вызывать резкий jump-scroll (особенно на нижних строках).
+							e.preventDefault();
+						}}
 						onPointerDown={(e) => {
 							const a = actionsRef.current;
 							if (!a) return;
