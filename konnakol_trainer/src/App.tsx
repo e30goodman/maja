@@ -22,9 +22,8 @@ import {
 	createPolySubLegacyScheduler,
 	type PolySubLegacyScheduler,
 } from './polySubLegacyScheduler';
-
-type PlayheadPosition = { r: number; c: number; absR: number; voice: number; step: number };
-type PlayheadHighlightEvent = { t: number; pos: PlayheadPosition };
+import type { PlayheadHighlightEvent, PlayheadPosition } from './playheadTypes';
+import { createPolySubLegacyLaneIndicatorStore } from './polySubLegacyLaneIndicatorStore';
 
 function buildPolyChunks(barCount: number, voiceCount: number): number[][] {
 	const safeBars = Math.max(0, Math.floor(barCount));
@@ -3093,6 +3092,8 @@ export default function App() {
   const timerIDRef = useRef<number | null>(null);
   const playheadQueueRef = useRef<PlayheadHighlightEvent[]>([]);
   const playheadTimerRef = useRef<number | null>(null);
+  /** Poly sub_legacy: по одному слоту индикатора на temporal lane (см. `polySubLegacyLaneIndicatorStore`). */
+  const polySubLegacyLaneIndicatorStoreRef = useRef(createPolySubLegacyLaneIndicatorStore());
   const previewResetTimerRef = useRef<number | null>(null);
   /** Полиметр: ключ включает голос (и строку), иначе совпадение subTime глушит параллельные линии. */
   const polyClickSlotsRef = useRef<Set<string>>(new Set());
@@ -4266,6 +4267,7 @@ export default function App() {
       playheadTimerRef.current = null;
     }
     playheadQueueRef.current = [];
+    polySubLegacyLaneIndicatorStoreRef.current.clear();
   };
 
   function schedulePlayheadWake() {
@@ -4277,20 +4279,16 @@ export default function App() {
     const ctx = audioCtxRef.current;
     const q = playheadQueueRef.current;
     let lastPos: PlayheadPosition | null = null;
-    /** Поли: одна позиция на пару (step, voice). Ключ только по voice затирал соседний такт → моргание. */
-    const polyLatestByStepVoice = new Map<number, PlayheadPosition>();
-    const polySlotKey = (p: PlayheadPosition) => p.step * 32 + p.voice;
+    const laneIndicatorStore = polySubLegacyLaneIndicatorStoreRef.current;
     while (q.length > 0 && q[0].t <= ctx.currentTime) {
       const due = q.shift()!.pos;
       if (polyModeRef.current) {
-        polyLatestByStepVoice.set(polySlotKey(due), due);
+        laneIndicatorStore.recordLaneEmit(due);
       }
       lastPos = due;
     }
     if (polyModeRef.current) {
-      const nextActive = Array.from(polyLatestByStepVoice.values()).sort((a, b) =>
-        a.step !== b.step ? a.step - b.step : a.voice - b.voice,
-      );
+      const nextActive = laneIndicatorStore.orderedSnapshot();
       if (nextActive.length > 0) {
         setActivePositions(nextActive);
         const masters = nextActive.filter((pos) => pos.voice === 0);
@@ -5021,6 +5019,7 @@ export default function App() {
     toggleAccent,
     toggleTaDing,
     customSyllablesRef,
+    customMultipliersRef,
     pulseMeterUnlinkedRef,
   };
 

@@ -1,7 +1,6 @@
 import React, { useMemo, useCallback, useRef } from 'react';
 import { KONNAKOL_PYRAMID, buildRowCellSyllableLabels, getSyllableStyles } from './sequencerLabels';
-
-type PlayheadPosition = { r: number; c: number; absR: number; voice: number; step: number };
+import type { PlayheadPosition } from './playheadTypes';
 
 /** Long-press по клетке: Ta (1) → Ta Ka (2) → триоль Ta Ta Ka (3) → Ta Ka Dhi Mi (4) → снова Ta. */
 function nextSubdivLongPress(current: number): number {
@@ -11,6 +10,40 @@ function nextSubdivLongPress(current: number): number {
 	if (c === 3) return 4;
 	if (c === 4) return 1;
 	return 2;
+}
+
+/** Poly play: голос 0 — emerald; 1 — sky; 2 — violet; 3+ — amber (отличие от первого). */
+function playheadHighlightCellClasses(
+	isDead: boolean,
+	polyMode: boolean,
+	isPlaying: boolean,
+	polyVoiceIdx: number,
+	lowPerfMode: boolean,
+): string {
+	if (isDead) {
+		return lowPerfMode
+			? 'bg-slate-700/35 border-2 box-border border-slate-500/70 z-10 text-slate-400'
+			: 'bg-slate-700/40 border-2 box-border border-slate-500/80 shadow-[0_0_10px_rgba(100,116,139,0.22)] z-10 text-slate-300';
+	}
+	const polyActive = polyMode && isPlaying;
+	if (!polyActive || polyVoiceIdx === 0) {
+		return lowPerfMode
+			? 'bg-emerald-500/20 border-2 box-border border-emerald-500 z-10 text-emerald-100'
+			: 'bg-emerald-500/20 border-2 box-border border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)] z-10 text-emerald-100';
+	}
+	if (polyVoiceIdx === 1) {
+		return lowPerfMode
+			? 'bg-sky-500/20 border-2 box-border border-sky-400 z-10 text-sky-100'
+			: 'bg-sky-500/20 border-2 box-border border-sky-400 shadow-[0_0_15px_rgba(56,189,248,0.28)] z-10 text-sky-100';
+	}
+	if (polyVoiceIdx === 2) {
+		return lowPerfMode
+			? 'bg-violet-500/20 border-2 box-border border-violet-400 z-10 text-violet-100'
+			: 'bg-violet-500/20 border-2 box-border border-violet-400 shadow-[0_0_15px_rgba(167,139,250,0.28)] z-10 text-violet-100';
+	}
+	return lowPerfMode
+		? 'bg-amber-500/20 border-2 box-border border-amber-400 z-10 text-amber-100'
+		: 'bg-amber-500/20 border-2 box-border border-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.26)] z-10 text-amber-100';
 }
 
 function rowCellLabelsEqual(a: string[][], b: string[][]): boolean {
@@ -86,6 +119,7 @@ export type SequencerGridRowActions = {
 	toggleAccent: (r: number, c: number) => void;
 	toggleTaDing: (r: number, c: number) => void;
 	customSyllablesRef: React.MutableRefObject<Record<number, number>>;
+	customMultipliersRef: React.MutableRefObject<Record<number, number>>;
 	pulseMeterUnlinkedRef: React.MutableRefObject<Record<number, boolean>>;
 };
 
@@ -217,6 +251,7 @@ const SequencerGridRow = React.memo(
 					.filter((n) => Number.isFinite(n)),
 			);
 		}, [firstBeatEditorSuppressedSig]);
+		const polyVoiceIdx = polyMode ? rIdx % polyVoices : 0;
 		return (
 			<div
 				ref={(el) => setRowEl(absR, el)}
@@ -240,25 +275,12 @@ const SequencerGridRow = React.memo(
 							a.setCustomMultipliers((prev) => {
 								const m = prev[rIdx] || 1;
 								const next = m === 1 ? 2 : m === 2 ? 3 : m === 3 ? 4 : 1;
-								const relatedIdx = (() => {
-									if (!polyMode) return null;
-									const chunkStart = Math.floor(rIdx / polyVoices) * polyVoices;
-									const voiceOffset = rIdx - chunkStart;
-									const rightIdx = chunkStart + voiceOffset + 1;
-									const leftIdx = chunkStart + voiceOffset - 1;
-									if (voiceOffset % 2 === 0 && rightIdx < chunkStart + polyVoices) return rightIdx;
-									if (leftIdx >= chunkStart) return leftIdx;
-									return null;
-								})();
 								if (next === 1) {
 									const copy = { ...prev };
 									delete copy[rIdx];
-									if (relatedIdx !== null) delete copy[relatedIdx];
 									return copy;
 								}
-								const out = { ...prev, [rIdx]: next };
-								if (relatedIdx !== null) out[relatedIdx] = next;
-								return out;
+								return { ...prev, [rIdx]: next };
 							});
 						}}
 						onContextMenu={(e) => {
@@ -268,19 +290,6 @@ const SequencerGridRow = React.memo(
 							a.setCustomMultipliers((prev) => {
 								const copy = { ...prev };
 								delete copy[rIdx];
-								if (polyMode) {
-									const chunkStart = Math.floor(rIdx / polyVoices) * polyVoices;
-									const voiceOffset = rIdx - chunkStart;
-									const rightIdx = chunkStart + voiceOffset + 1;
-									const leftIdx = chunkStart + voiceOffset - 1;
-									const relatedIdx =
-										voiceOffset % 2 === 0 && rightIdx < chunkStart + polyVoices
-											? rightIdx
-											: leftIdx >= chunkStart
-												? leftIdx
-												: null;
-									if (relatedIdx !== null) delete copy[relatedIdx];
-								}
 								return copy;
 							});
 						}}
@@ -325,6 +334,16 @@ const SequencerGridRow = React.memo(
 									const nextVal = !prev[rIdx];
 									const next = { ...prev, [rIdx]: nextVal };
 									a.pulseMeterUnlinkedRef.current = { ...next };
+									/* Включаем отвязку пульсации от слогов такта → сбрасываем множитель скорости такта (x2…x4), иначе он остаётся в поли как визуально, так и в аудио. */
+									if (nextVal) {
+										a.setCustomMultipliers((pm) => {
+											if (pm[rIdx] === undefined) return pm;
+											const copy = { ...pm };
+											delete copy[rIdx];
+											a.customMultipliersRef.current = { ...copy };
+											return copy;
+										});
+									}
 									return next;
 								});
 								a.pulseUnlinkHoldTimerRef.current = null;
@@ -456,15 +475,13 @@ const SequencerGridRow = React.memo(
 									(cIdx === 0 && firstBeatAccent && !firstBeatRowSuppressed.has(rIdx)))) ||
 							(!isTaEditorMode && showNonEditorDing);
 						if (isActive) {
-							if (isDead) {
-								cellClasses = lowPerfMode
-									? 'bg-slate-700/35 border-2 box-border border-slate-500/70 z-10 text-slate-400'
-									: 'bg-slate-700/40 border-2 box-border border-slate-500/80 shadow-[0_0_10px_rgba(100,116,139,0.22)] z-10 text-slate-300';
-							} else {
-								cellClasses = lowPerfMode
-									? 'bg-emerald-500/20 border-2 box-border border-emerald-500 z-10 text-emerald-100'
-									: 'bg-emerald-500/20 border-2 box-border border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)] z-10 text-emerald-100';
-							}
+							cellClasses = playheadHighlightCellClasses(
+								isDead,
+								polyMode,
+								isPlaying,
+								polyVoiceIdx,
+								lowPerfMode,
+							);
 						}
 						return (
 							<button
@@ -574,9 +591,13 @@ const SequencerGridRow = React.memo(
 											className={`flex items-center justify-center w-full h-full min-w-0 overflow-hidden text-center px-px font-sans ${getSyllableStyles(rowSylls, subdivs)} ${
 												isDead
 													? 'text-transparent'
-													: isActive || accentForGlyph
-														? (lowPerfMode ? 'text-white' : 'drop-shadow-md')
-														: 'text-slate-300'
+													: isActive
+														? lowPerfMode
+															? 'text-inherit'
+															: 'text-inherit drop-shadow-md'
+														: accentForGlyph
+															? (lowPerfMode ? 'text-white' : 'drop-shadow-md')
+															: 'text-slate-300'
 											} ${subdivs > 1 ? 'border-[0.5px] border-[#2f4066]/50' : ''}`}
 										>
 											{isDead

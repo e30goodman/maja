@@ -6,6 +6,7 @@
 
 export type PolyVoicesCount = 2 | 3;
 
+/** `voice` = laneId той же линии, что и слот UI в `polySubLegacyLaneIndicatorStore` / `activePositions`. */
 export type PolySubLegacyEmit = (
 	bar: number,
 	c: number,
@@ -36,7 +37,10 @@ export function nextPolyCell(c: number, rowSyl: number, deadStart: number | unde
 }
 
 /**
- * Различает: (а) мёртвые → тот же такт, клетка 0; (б) конец такта по слогам → следующий такт в линии, клетка 0.
+ * Различает: (а) мёртвые → клетка 0 того же такта; (б) конец такта по слогам → клетка 0 и `advanceBar`.
+ * В `fillLookahead` после emit к **следующему такту линии** нужно переходить при любом «мёртвом» возврате
+ * на клетку 0 (`advanceBar === false`, `nextC === 0`), в т.ч. когда жива только c=0 (`deadStart === 1`):
+ * иначе `c !== 0` в условии вечно держит линию на этом такте.
  */
 export function advancePolyLaneAfterEmit(
 	c: number,
@@ -153,7 +157,8 @@ export function createPolySubLegacyScheduler(deps: PolySubLegacyDeps): PolySubLe
 			deps.emit(bar, c, bar, bestT, voice, chunkStep, dBar);
 
 			const { nextC, advanceBar } = advancePolyLaneAfterEmit(c, rowSyl, deadStart);
-			if (advanceBar) {
+			const advanceLaneBar = advanceBar || (!advanceBar && nextC === 0);
+			if (advanceLaneBar) {
 				const prevBar = bar;
 				const prevCursor = best.barCursor;
 				best.barCursor = (best.barCursor + 1) % best.barIndices.length;
