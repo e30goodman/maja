@@ -337,7 +337,10 @@ const CLICK_ENV_ATTACK_SEC = 0.002;
 const CLICK_LAYER_VOLUME_GATE = 0.001;
 const CLICK_DECAY_MIN_SEC = 0.001;
 const CLICK_DECAY_MAX_SEC = 3;
-const AUDIO_SCHEDULER_DEFER_SUB_HIT = false;
+/** When true, each grid sub-hit reads gain refs just before sound time so slider / bus trims react immediately. */
+const AUDIO_SCHEDULER_DEFER_SUB_HIT = true;
+/** How far ahead of `subTime` we run the deferred emit (smaller = fresher refs, too small risks dropouts). */
+const AUDIO_DEFER_SUB_HIT_LEAD_SEC = 0.0008;
 const AUDIO_TIMING_METRICS_ENABLED = true;
 const AUDIO_TIMING_METRICS_LOG_EVERY_MS = 15000;
 const DEFAULT_SCHEDULER_PROFILE: MetraSchedulerProfile = 'safe';
@@ -5801,7 +5804,7 @@ export default function App() {
         if (AUDIO_SCHEDULER_DEFER_SUB_HIT) {
           const ctx = audioCtxRef.current;
           if (!ctx) continue;
-          const delayMs = Math.max(0, (subTime - ctx.currentTime - 0.0016) * 1000);
+          const delayMs = Math.max(0, (subTime - ctx.currentTime - AUDIO_DEFER_SUB_HIT_LEAD_SEC) * 1000);
           const subI = sub;
           const subTimeI = subTime;
           const id = window.setTimeout(() => {
@@ -6571,23 +6574,44 @@ export default function App() {
                                 )
                               : clickSound;
                           const gRow = getClickPresetBusGainsForPreset(clickPresetBusGains, busPreset);
-                          const busKeys: { key: keyof ClickPresetBusGains; idx: string }[] = [
-                            { key: 'accent', idx: '1' },
-                            { key: 'alt', idx: '2' },
-                            { key: 'passive', idx: '3' },
+                          const busKeys: { key: keyof ClickPresetBusGains; aria: string; swatchClass: string }[] = [
+                            {
+                              key: 'accent',
+                              aria: 'Accent — accented syllable (white rim)',
+                              swatchClass: `inline-block h-4 min-w-[18px] shrink-0 rounded-md border-2 box-border bg-purple-900/40 border-purple-500/50 ring-2 ring-inset ring-white/90 ${
+                                lowPerfMode ? '' : 'shadow-[0_0_8px_rgba(255,255,255,0.18)]'
+                              }`,
+                            },
+                            {
+                              key: 'alt',
+                              aria: 'Alt — purple syllable',
+                              swatchClass: `inline-block h-4 min-w-[18px] shrink-0 rounded-md border-2 box-border bg-purple-900/40 border-purple-500/50 ${
+                                lowPerfMode ? '' : 'shadow-[inset_0_1px_3px_rgba(168,85,247,0.22)]'
+                              }`,
+                            },
+                            {
+                              key: 'passive',
+                              aria: 'Passive — normal step',
+                              swatchClass: `inline-block h-4 min-w-[18px] shrink-0 rounded-md border-2 box-border bg-[#1e2a45] border-[#2f4066] ${
+                                lowPerfMode ? '' : 'shadow-[0_1px_2px_rgba(0,0,0,0.25)]'
+                              }`,
+                            },
                           ];
                           const busRowSliderClass =
-                            'min-w-0 flex-1 h-1.5 rounded bg-[#0f1526] appearance-none cursor-pointer';
+                            'min-w-0 flex-1 h-2 rounded-md bg-[#0f1526] appearance-none cursor-pointer touch-manipulation';
                           const labelColClass =
-                            'w-7 shrink-0 text-left text-[9px] font-bold text-slate-500 leading-none';
+                            'w-7 shrink-0 text-left text-[10px] font-bold text-slate-500 leading-none';
                           return (
-                            <div className="flex flex-col justify-center gap-1.5 min-w-0 max-w-[10.5rem] w-full shrink">
-                              {busKeys.map(({ key, idx }) => (
+                            <div className="flex flex-col justify-center gap-2.5 min-w-0 max-w-[10.5rem] w-full shrink py-0.5">
+                              {busKeys.map(({ key, aria, swatchClass }) => (
                                 <label
                                   key={key}
-                                  className="flex items-center gap-1.5 w-full min-w-0"
+                                  aria-label={aria}
+                                  className="flex items-center gap-2 w-full min-w-0 py-1"
                                 >
-                                  <span className={`${labelColClass} tabular-nums`}>{idx}</span>
+                                  <span className="w-7 shrink-0 flex items-center justify-center pointer-events-none">
+                                    <span className={swatchClass} aria-hidden />
+                                  </span>
                                   <input
                                     type="range"
                                     min={0}
@@ -6625,7 +6649,7 @@ export default function App() {
                                 </label>
                               ))}
                               {polyMode ? (
-                                <label className="flex items-center gap-1.5 w-full min-w-0">
+                                <label className="-mt-1 flex items-center gap-2 w-full min-w-0 py-1 -mb-0.5 touch-manipulation">
                                   <span className={labelColClass}>vol</span>
                                   <input
                                     type="range"
@@ -6690,7 +6714,7 @@ export default function App() {
                                     }}
                                     className={busRowSliderClass}
                                   />
-                                  <span className="w-7 shrink-0 text-right text-[9px] text-slate-400 tabular-nums">
+                                  <span className="w-7 shrink-0 text-right text-[10px] text-slate-400 tabular-nums leading-tight">
                                     {Math.round((polyVoiceGains[activeClickVoiceTarget] ?? 1) * 100)}%
                                   </span>
                                 </label>
