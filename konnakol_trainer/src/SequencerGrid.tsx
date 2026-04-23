@@ -2,9 +2,9 @@ import React, { useMemo, useCallback, useRef } from 'react';
 import { buildRowCellSyllableLabels, getSyllableStyles, type KalamMap } from './sequencerLabels';
 import type { PlayheadPosition } from './playheadTypes';
 
-/** Available subdivisions for long-press: collapsed UI uses 2/3/4, expanded uses 2..9. */
+/** Available subdivisions for long-press: collapsed UI uses 1/2/3/4, expanded uses 1..9. */
 function allowedSubdivisions(panelExpanded: boolean): number[] {
-	return panelExpanded ? [2, 3, 4, 5, 6, 7, 8, 9] : [2, 3, 4];
+	return panelExpanded ? [1, 2, 3, 4, 5, 6, 7, 8, 9] : [1, 2, 3, 4];
 }
 
 /** Next value in the available subdivision cycle. */
@@ -19,7 +19,7 @@ function nextSubdivLongPress(current: number, panelExpanded: boolean): number {
 function stepSubdivByDelta(base: number, delta: number, panelExpanded: boolean): number {
 	const allowed = allowedSubdivisions(panelExpanded);
 	const len = allowed.length;
-	if (len === 0) return 2;
+	if (len === 0) return 1;
 	const baseIdxRaw = allowed.indexOf(base);
 	const baseIdx = baseIdxRaw >= 0 ? baseIdxRaw : 0;
 	const idx = ((baseIdx + delta) % len + len) % len;
