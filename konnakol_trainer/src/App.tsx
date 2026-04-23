@@ -290,6 +290,11 @@ const TEMPO_HOLD_REPEAT_STEP = 5;
 /** Long press on tempo slider track (without much move) → inline BPM on thumb. */
 const TEMPO_MANUAL_HOLD_MS = 2000;
 const TEMPO_MANUAL_MAX_MOVE_PX = 14;
+/*
+ * Кто потрогает этот код, дебаггер ты или хуй с горы — умрёшь насильственной смертью.
+ * ЗАПРЕЩЕНО ТРОГАТЬ СУКА
+ * (маркер, regex, поля, p1/p2/p3, 0xFE, V2, legacy — encodeSnapshotClipboard / tryDecodeSnapshotClipboard / packGridTokenPacked)
+ */
 /** Clipboard export: kawaii magic marker for compact preset payload. */
 const SNAPSHOT_CLIPBOARD_MARKER = '(⁠ʘ⁠ᴗ⁠ʘ⁠)⁠♪:';
 /** Accept marker with/without zero-width separators from messengers. */
@@ -1620,23 +1625,6 @@ function packGridTokenPacked(
 	if (useV2) {
 		out.push(Math.min(255, Math.max(0, Math.floor(snapshot.accentMapVersion ?? 1))) & 0xff);
 	}
-	const supIn = snapshot.firstBeatDingSuppressedRows;
-	const supRaw =
-		supIn instanceof Set
-			? [...supIn]
-			: Array.isArray(supIn)
-				? supIn
-				: [];
-	const supRows = supRaw
-		.map((x) => parseInt(String(x), 10))
-		.filter((r) => Number.isFinite(r) && r >= 0 && r < bars)
-		.sort((a, b) => a - b);
-	if (supRows.length > 0) {
-		out.push(0xfe, Math.min(255, supRows.length));
-		for (let i = 0; i < Math.min(255, supRows.length); i++) {
-			out.push(supRows[i]! & 0xff);
-		}
-	}
 
 	const prefix = gridVersion === 0x03 ? 'p3' : useV2 ? 'p2' : 'p1';
 	return `${prefix}${toBase64Url(new Uint8Array(out))}`;
@@ -1741,25 +1729,6 @@ function unpackGridTokenPacked(
 		} else {
 			d.accentMapVersion = 1;
 		}
-	} else if (version === 0x03) {
-		if (off < bytes.length && bytes[off]! !== 0xfe) {
-			const v = bytes[off++]!;
-			d.accentMapVersion = v >= 1 ? 1 : 0;
-		} else {
-			d.accentMapVersion = 0;
-		}
-	}
-	if (off < bytes.length && bytes[off]! === 0xfe) {
-		off++;
-		if (off >= bytes.length) return false;
-		const n = bytes[off++]!;
-		const sup = new Set<number>();
-		for (let i = 0; i < n; i++) {
-			if (off >= bytes.length) return false;
-			const r = bytes[off++]!;
-			if (r < bars) sup.add(r);
-		}
-		d.firstBeatDingSuppressedRows = sup;
 	}
 	return true;
 }
@@ -2165,67 +2134,38 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 	};
 }
 
-function encodeFirstBeatDingSuppressedToken(rows: Set<number> | undefined): string {
-	if (!rows || rows.size === 0) return '0';
-	const arr = [...rows].filter((r) => Number.isFinite(r) && r >= 0).sort((a, b) => a - b);
-	if (arr.length === 0) return '0';
-	return arr.map((r) => r.toString(36)).join('_');
-}
-
-function decodeFirstBeatDingSuppressedToken(token: string, bars: number): Set<number> {
-	if (!token || token === '0') return new Set();
-	const out = new Set<number>();
-	for (const part of token.split('_')) {
-		if (!part) continue;
-		const r = parseInt(part, 36);
-		if (Number.isFinite(r) && r >= 0 && r < bars) out.add(r);
-	}
-	return out;
-}
-
-function needsFullJsonSnapshotExport(s: ReturnType<typeof createEmptySnapshot>): boolean {
-	if (s.randomMode === 'parent' && s.parentGenome != null) return true;
-	if (isEnabledMutationsCustomForPreset(s.enabledMutations, s.formPresetId)) return true;
-	if (Object.keys(normalizeClickSoundByPolyVoice(s.clickSoundByPolyVoice)).length > 0) return true;
-	if ((s as { dictantMode?: boolean }).dictantMode === true) return true;
-	if (s.syllableReadMuteMode && s.syllableReadMuteMode !== 'off') return true;
-	return false;
-}
-
-function syncPolyLaneSetsFromFlat(d: ReturnType<typeof createEmptySnapshot>) {
-	if (!d.polyMode) return;
-	const v = parsePolyVoices(d.polyVoices);
-	const acc = d.accents instanceof Set ? d.accents : new Set(Array.isArray(d.accents) ? d.accents : []);
-	const tdk = d.taDingKeys instanceof Set ? d.taDingKeys : new Set(Array.isArray(d.taDingKeys) ? d.taDingKeys : []);
-	d.accentsByLane = distributeSetToLanes(acc, d.bars, v);
-	d.taDingKeysByLane = distributeSetToLanes(tdk, d.bars, v);
-	d.accents = flattenLaneSetMap(d.accentsByLane, d.bars, v);
-	d.taDingKeys = flattenLaneSetMap(d.taDingKeysByLane, d.bars, v);
-}
-
 function encodeSnapshotClipboard(s: ReturnType<typeof createEmptySnapshot>): string {
-	if (needsFullJsonSnapshotExport(s)) {
-		return `${SNAPSHOT_CLIPBOARD_PREFIX_V2}${JSON.stringify(snapshotToJSON(s))}`;
-	}
-	const v = parsePolyVoices(s.polyVoices);
-	const mergedAccents = s.polyMode
-		? flattenLaneSetMap(s.accentsByLane, s.bars, v)
-		: s.accents instanceof Set
-			? s.accents
-			: new Set(Array.isArray(s.accents) ? s.accents : []);
-	const mergedTaDing = s.polyMode
-		? flattenLaneSetMap(s.taDingKeysByLane, s.bars, v)
-		: s.taDingKeys instanceof Set
-			? s.taDingKeys
-			: new Set(Array.isArray(s.taDingKeys) ? s.taDingKeys : []);
+	const voices = parsePolyVoices(s.polyVoices);
+	const accIn = s.accents;
+	const accentsFlat: Set<string> =
+		s.polyMode === true
+			? flattenLaneSetMap(cloneLaneSetMap(s.accentsByLane), s.bars, voices)
+			: accIn instanceof Set
+				? new Set(accIn)
+				: new Set(
+						Array.isArray(accIn)
+							? (accIn as unknown[]).filter((x): x is string => typeof x === 'string')
+							: [],
+					);
+	const taIn = s.taDingKeys;
+	const taFlat: Set<string> =
+		s.polyMode === true
+			? flattenLaneSetMap(cloneLaneSetMap(s.taDingKeysByLane), s.bars, voices)
+			: taIn instanceof Set
+				? new Set(taIn)
+				: new Set(
+						Array.isArray(taIn)
+							? (taIn as unknown[]).filter((x): x is string => typeof x === 'string')
+							: [],
+					);
+	const sForPack: ReturnType<typeof createEmptySnapshot> = { ...s, taDingKeys: taFlat };
 	const cells = buildCellIndexMapForSnapshot(s.bars, s.syllables, s.customSyllables);
-	const packSnapshot: ReturnType<typeof createEmptySnapshot> = { ...s, taDingKeys: mergedTaDing };
-	const gridToken = packGridTokenPacked(packSnapshot, cells, mergedAccents);
+	const gridToken = packGridTokenPacked(sForPack, cells, accentsFlat);
 	const deadCellsToken = encodeDeadCellsToken((s as { deadCells?: DeadCellsMap }).deadCells ?? {}, s.bars);
 	const flags = buildSnapshotFlags(s);
 	const soundId = buildSnapshotSoundId(s);
-	const body = `${s.tempo}.${s.bars}.${s.syllables}.${gridToken}.${deadCellsToken}.${s.chaosLevel}.${flags}.${soundId}`;
-	return SNAPSHOT_CLIPBOARD_MARKER + body;
+	const compact = `${s.tempo}.${s.bars}.${s.syllables}.${gridToken}.${deadCellsToken}.${s.chaosLevel}.${flags}.${soundId}`;
+	return SNAPSHOT_CLIPBOARD_MARKER + compact;
 }
 
 function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmptySnapshot> | null {
@@ -2282,22 +2222,11 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 			d.chaosLevel = chaosLevel;
 			applySnapshotFlags(flags, d);
 			applySnapshotSoundId(soundId, d);
-			d.firstBeatDingSuppressedRows = new Set();
-			syncPolyLaneSetsFromFlat(d);
 			return d;
 		}
-		if (compactParts.length === 8 || compactParts.length === 9) {
-			const supRaw = compactParts.length === 9 ? (compactParts[8] as string) : '0';
-			const [
-				tempoRaw,
-				barsRaw,
-				syllablesRaw,
-				gridTokenRaw,
-				deadCellsRaw,
-				chaosRaw,
-				flagsRaw,
-				soundRaw,
-			] = compactParts;
+		if (compactParts.length === 8) {
+			const [tempoRaw, barsRaw, syllablesRaw, gridTokenRaw, deadCellsRaw, chaosRaw, flagsRaw, soundRaw] =
+				compactParts;
 			const d = createEmptySnapshot();
 			const tempo = parseInt(tempoRaw, 10);
 			const bars = parseInt(barsRaw, 10);
@@ -2338,8 +2267,6 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 				hydrateSnapshotAccentsFromGridToken(gridTokenRaw, bars, syllables, d);
 			}
 			d.deadCells = decodeDeadCellsToken(deadCellsRaw, d.bars);
-			d.firstBeatDingSuppressedRows = decodeFirstBeatDingSuppressedToken(supRaw, d.bars);
-			syncPolyLaneSetsFromFlat(d);
 			return d;
 		}
 		if (compactParts.length === 7) {
@@ -2383,8 +2310,6 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 			} else {
 				hydrateSnapshotAccentsFromGridToken(gridTokenRaw, bars, syllables, d);
 			}
-			d.firstBeatDingSuppressedRows = new Set();
-			syncPolyLaneSetsFromFlat(d);
 			return d;
 		}
 		return null;
