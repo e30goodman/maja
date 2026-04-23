@@ -5074,13 +5074,14 @@ export default function App() {
             : playbackMode === 'accent_only'
               ? isAccent || hasTaDingHere
               : false;
+        const allowTaArticulationOnly = playbackMode === 'passive_only';
         const mainAccentClick = isAccent && (subdivs > 1 || sub === 0);
         const shouldPlayFirstBeatTaBase =
           isFirstBarCell && firstBeatAccentRef.current && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
         const shouldPlayFirstBeatTa =
           shouldPlayFirstBeatTaBase &&
           (playbackMode === 'all_beats' || isAccent || hasTaDingHere);
-        if (shouldPlayFirstBeatTa && shouldPlayBeat) {
+        if (shouldPlayFirstBeatTa && (shouldPlayBeat || allowTaArticulationOnly)) {
           playBarFirstHighClick(ctx, subTime, soundPreset);
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
@@ -5099,7 +5100,7 @@ export default function App() {
           if (muteMode === 'no_accent_sharp' && mainAccentClick && !isTaFirstBeatArticulation) return false;
           return mainAccentClick;
         })();
-        if (shouldPlayTaDingSound && shouldPlayBeat) {
+        if (shouldPlayTaDingSound && (shouldPlayBeat || allowTaArticulationOnly)) {
           playBarFirstHighClick(ctx, subTime, soundPreset);
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
