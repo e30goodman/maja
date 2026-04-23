@@ -182,13 +182,12 @@ export type RandomMode = 'free' | 'parent';
 
 /**
  * chaos=0 → 0.2 (минимальное отклонение, parent узнаётся моментально).
- * chaos=50 → 0.5.
- * chaos=100 → 0.8 (сильные вариации, но parent-узнаваемость сохраняется).
- * Верх намеренно ограничен — мутация остаётся вариацией, а не разрушением темы.
+ * chaos=50 → ~0.7.
+ * chaos=100 → 1.2 (экстремальные вариации, «до абсурда» по запросу).
  */
 export function chaosToIntensity(chaos: number): number {
 	const c = Math.max(0, Math.min(100, chaos));
-	return 0.2 + 0.6 * smoothstep01(c / 100);
+	return 0.2 + 1.0 * smoothstep01(c / 100);
 }
 
 // ============================================================================
@@ -302,30 +301,57 @@ export function buildPhraseSchedule(ctx: SchedulerContext): PhraseSchedule {
 	let remaining = bars;
 	let phraseId = 0;
 	let parentBarIdx: 0 | 1 = 0;
+	const progressiveBars = { early: 0, mid: 0, late: 0 };
 
-	const pickMutation = (fit: number): MutationType | null => {
+	const pickMutation = (fit: number, progress: number): MutationType | null => {
 		const candidates = enabledMutations.filter((t) => MUTATION_PHRASE_LEN[t] <= fit);
 		if (candidates.length === 0) return null;
 		// Phase 4 переопределит это для пресетов. Пока везде uniform.
-		if (preset === 'tihai_heavy' && candidates.includes('tihai') && rng() < 0.6) {
+		if (preset === 'tihai_heavy' && candidates.includes('tihai') && rng() < 0.85) {
 			return 'tihai';
 		}
 		if (preset === 'progressive') {
-			const order: MutationType[] = [
-				'substitution',
-				'inversion',
-				'retrograde',
-				'rotation',
-				'augmentation',
-				'diminution',
-				'prepend_append',
-				'echo_decay',
-				'neighbour_pulsation',
-				'truncation',
-				'tihai',
-				'fractal',
-				'call_fill',
-			];
+			// Явная драматургия: начало проще, середина плотнее, финал структурнее.
+			const early: MutationType[] = ['substitution', 'inversion', 'retrograde', 'rotation'];
+			const mid: MutationType[] = ['augmentation', 'diminution', 'echo_decay', 'neighbour_pulsation', 'fractal'];
+			const late: MutationType[] = ['prepend_append', 'truncation', 'tihai', 'call_fill'];
+
+			const goals = {
+				early: Math.round(bars * 0.3),
+				mid: Math.round(bars * 0.35),
+				late: bars - Math.round(bars * 0.3) - Math.round(bars * 0.35),
+			} as const;
+			const deficit = {
+				early: goals.early - progressiveBars.early,
+				mid: goals.mid - progressiveBars.mid,
+				late: goals.late - progressiveBars.late,
+			} as const;
+			const progressStage: 'early' | 'mid' | 'late' =
+				progress < 0.33 ? 'early'
+				: progress < 0.66 ? 'mid'
+				: 'late';
+			const byStage: Record<'early' | 'mid' | 'late', MutationType[]> = { early, mid, late };
+			const orderedStages = [...(['early', 'mid', 'late'] as const)].sort((a, b) => {
+				// Жёсткий приоритет текущей фазы формы.
+				if (a === progressStage && b !== progressStage) return -1;
+				if (b === progressStage && a !== progressStage) return 1;
+				const affinity = (st: 'early' | 'mid' | 'late'): number => {
+					const order: Record<'early' | 'mid' | 'late', number> = { early: 0, mid: 1, late: 2 };
+					return Math.abs(order[st] - order[progressStage]) === 1 ? 25 : 0;
+				};
+				const scoreA = deficit[a] + affinity(a);
+				const scoreB = deficit[b] + affinity(b);
+				const byNeed = scoreB - scoreA;
+				if (byNeed !== 0) return byNeed;
+				const order: Record<'early' | 'mid' | 'late', number> = { early: 0, mid: 1, late: 2 };
+				return Math.abs(order[a] - order[progressStage]) - Math.abs(order[b] - order[progressStage]);
+			});
+			for (const st of orderedStages) {
+				for (const t of byStage[st]) if (candidates.includes(t)) return t;
+			}
+
+			// Fallback, если текущий fit не позволяет мутации выбранной стадии.
+			const order: MutationType[] = [...early, ...mid, ...late];
 			for (const t of order) if (candidates.includes(t)) return t;
 			return candidates[0]!;
 		}
@@ -337,7 +363,109 @@ export function buildPhraseSchedule(ctx: SchedulerContext): PhraseSchedule {
 
 	let safety = 0;
 	while (remaining > 0 && safety++ < 1000) {
-		const chosen = enabledMutations.length > 0 ? pickMutation(remaining) : null;
+		const barPos = bars - remaining;
+		// Progressive: каждые 8 тактов явный возврат темы (parent-anchor),
+		// чтобы 32-тактовая форма держала "общую нить".
+		if (preset === 'progressive' && barPos % 8 === 0) {
+			out.push({
+				type: 'parent',
+				phraseId: phraseId++,
+				phraseStep: 0,
+				phraseLength: 1,
+				parentBarIdx,
+			});
+			parentBarIdx = parentLength === 2 ? ((parentBarIdx === 0 ? 1 : 0) as 0 | 1) : 0;
+			remaining -= 1;
+			continue;
+		}
+		// Tihai-heavy: 8-тактовые секции как единый организм:
+		// 1) такт-ссылка на тему (parent-anchor),
+		// 2) в конце секции обязательная 4-тактовая tihai-каденция.
+		if (preset === 'tihai_heavy') {
+			const inSection = barPos % 8;
+			if (inSection === 0) {
+				out.push({
+					type: 'parent',
+					phraseId: phraseId++,
+					phraseStep: 0,
+					phraseLength: 1,
+					parentBarIdx,
+				});
+				parentBarIdx = parentLength === 2 ? ((parentBarIdx === 0 ? 1 : 0) as 0 | 1) : 0;
+				remaining -= 1;
+				continue;
+			}
+			if (inSection === 4 && remaining >= MUTATION_PHRASE_LEN.tihai && enabledMutations.includes('tihai')) {
+				const pid = phraseId++;
+				for (let step = 0; step < MUTATION_PHRASE_LEN.tihai; step++) {
+					out.push({
+						type: 'tihai',
+						phraseId: pid,
+						phraseStep: step,
+						phraseLength: MUTATION_PHRASE_LEN.tihai,
+						parentBarIdx,
+					});
+				}
+				parentBarIdx = parentLength === 2 ? ((parentBarIdx === 0 ? 1 : 0) as 0 | 1) : 0;
+				remaining -= MUTATION_PHRASE_LEN.tihai;
+				continue;
+			}
+		}
+		// Call-fill: секции по 8 тактов как "вопрос-ответ":
+		// 1) такт-ссылка на тему,
+		// 2) ранний обязательный 4-тактовый call_fill блок (чтобы стиль не вырождался в random).
+		if (preset === 'call_fill') {
+			const inSection = barPos % 8;
+			if (inSection === 0) {
+				out.push({
+					type: 'parent',
+					phraseId: phraseId++,
+					phraseStep: 0,
+					phraseLength: 1,
+					parentBarIdx,
+				});
+				parentBarIdx = parentLength === 2 ? ((parentBarIdx === 0 ? 1 : 0) as 0 | 1) : 0;
+				remaining -= 1;
+				continue;
+			}
+			if (
+				inSection === 1 &&
+				remaining >= MUTATION_PHRASE_LEN.call_fill &&
+				enabledMutations.includes('call_fill')
+			) {
+				const pid = phraseId++;
+				for (let step = 0; step < MUTATION_PHRASE_LEN.call_fill; step++) {
+					out.push({
+						type: 'call_fill',
+						phraseId: pid,
+						phraseStep: step,
+						phraseLength: MUTATION_PHRASE_LEN.call_fill,
+						parentBarIdx,
+					});
+				}
+				parentBarIdx = parentLength === 2 ? ((parentBarIdx === 0 ? 1 : 0) as 0 | 1) : 0;
+				remaining -= MUTATION_PHRASE_LEN.call_fill;
+				continue;
+			}
+		}
+		const progress = bars > 0 ? (bars - remaining) / bars : 0;
+		const progressiveWindow =
+			preset === 'progressive'
+				? Math.min(remaining, 8 - (barPos % 8))
+				: remaining;
+		const sectionWindow =
+			preset === 'tihai_heavy'
+				? (() => {
+					const inSection = barPos % 8;
+					const hardSectionEnd = 8 - inSection;
+					// Резервируем хвост секции (4 такта) под обязательную tihai-каденцию.
+					if (inSection > 0 && inSection < 4) return Math.min(progressiveWindow, 4 - inSection, hardSectionEnd);
+					return Math.min(progressiveWindow, hardSectionEnd);
+				})()
+				: preset === 'call_fill'
+				? Math.min(progressiveWindow, 8 - (barPos % 8))
+				: progressiveWindow;
+		const chosen = enabledMutations.length > 0 ? pickMutation(sectionWindow, progress) : null;
 		if (chosen === null) {
 			out.push({
 				type: 'parent',
@@ -351,6 +479,13 @@ export function buildPhraseSchedule(ctx: SchedulerContext): PhraseSchedule {
 			continue;
 		}
 		const len = MUTATION_PHRASE_LEN[chosen];
+		if (preset === 'progressive') {
+			const earlySet = new Set<MutationType>(['substitution', 'inversion', 'retrograde', 'rotation']);
+			const midSet = new Set<MutationType>(['augmentation', 'diminution', 'echo_decay', 'neighbour_pulsation', 'fractal']);
+			if (earlySet.has(chosen)) progressiveBars.early += len;
+			else if (midSet.has(chosen)) progressiveBars.mid += len;
+			else progressiveBars.late += len;
+		}
 		const pid = phraseId++;
 		for (let step = 0; step < len; step++) {
 			out.push({
@@ -405,7 +540,7 @@ const substitutionOperator: MutationOperator = (parent, role, intensity, rng) =>
 
 	const live = liveLen(out);
 	if (live < 1) return out;
-	const k = Math.max(1, Math.min(live, 1 + Math.floor(intensity * 3)));
+	const k = Math.max(1, Math.min(live, 1 + Math.floor(intensity * 6)));
 	const pool = Array.from({ length: live }, (_, i) => i);
 	for (let i = pool.length - 1; i > 0; i--) {
 		const j = Math.floor(rng() * (i + 1));
@@ -612,17 +747,73 @@ const prependAppendOperator: MutationOperator = (parent, role) => {
 };
 
 /**
- * Tihai (len=4): каноническое «повторить 3 раза и приземлиться на Sam».
- * step=0 parent; step=1, step=2 — точные копии parent (три повтора); step=3 —
- * landing: копия parent с форсированным акцентом на idx=0 (sam). Intensity слабо
- * влияет — Tihai структурно фиксирована, это ритуальная каденция.
+ * Tihai (len=4): три пульса «вызова» + агрессивный landing.
+ *
+ * - step=0: parent-call
+ * - step=1: вариация call (легче)
+ * - step=2: вариация call (сильнее)
+ * - step=3: landing на Sam (и конец фразы)
+ *
+ * При intensity >= ~1.0 (примерно chaos 70+) включается «turbo»: шаги 1/2
+ * уплотняют subdivisions и расширяют акцентный рисунок заметно сильнее.
  */
-const tihaiOperator: MutationOperator = (parent, role) => {
+const tihaiOperator: MutationOperator = (parent, role, intensity, rng) => {
 	const src = parent.bars[role.parentBarIdx] ?? parent.bars[0]!;
 	const out = cloneBarGenome(src);
-	// Три повтора 0..2 идентичны parent; landing step=3 добавляет Sam-акцент.
+	const live = liveLen(out);
+	if (live < 1) return out;
+
+	if (role.phraseStep === 1 || role.phraseStep === 2) {
+		// intensity>=0.7 ~= chaos 50+: heavy
+		// intensity>=1.0 ~= chaos 70+: super tihai
+		const heavy = intensity >= 0.7;
+		const superTihai = intensity >= 1.0;
+		const stepMul = role.phraseStep === 1 ? 1 : 2;
+		const shift = Math.max(1, Math.min(Math.max(1, live - 1), Math.round(stepMul * (0.5 + intensity * 0.8))));
+
+		// 1) Акцентный сдвиг + наращивание опорных точек.
+		const nextAcc = new Set<number>();
+		for (const c of out.accents) {
+			if (c < live) nextAcc.add((c + shift) % live);
+		}
+		nextAcc.add(0);
+		if (live > 1) nextAcc.add(live - 1);
+		if (heavy) {
+			for (let c = 1; c < live; c += 2) nextAcc.add(c);
+		}
+		if (superTihai) {
+			for (let c = 0; c < live; c++) if (c % 3 === 0) nextAcc.add(c);
+		}
+		out.accents = nextAcc;
+
+		// 2) Подплотнение: чем выше intensity, тем больше ячеек получают subdivisions.
+		const density = superTihai
+			? (role.phraseStep === 1 ? 0.85 : 1.0)
+			: heavy
+				? (role.phraseStep === 1 ? 0.65 : 0.9)
+				: (role.phraseStep === 1 ? 0.35 : 0.6);
+		for (let c = 0; c < live; c++) {
+			if (rng() < density) {
+				out.subdivisions[c] = superTihai
+					? (4 + Math.floor(rng() * 3)) // 4..6
+					: heavy
+					? (3 + Math.floor(rng() * 3)) // 3..5
+					: (2 + Math.floor(rng() * 3)); // 2..4
+			}
+		}
+		// На step=2 в heavy/super убираем dead-зону — call перед landing должен "кричать".
+		if ((heavy || superTihai) && role.phraseStep === 2) {
+			delete out.deadStart;
+		}
+		return out;
+	}
+
+	// Landing: всегда звучный, фиксируем Sam + конец.
 	if (role.phraseStep === 3) {
 		out.accents.add(0);
+		if (live > 1) out.accents.add(live - 1);
+		// Landing должен быть слышимым даже если parent имел длинную dead-зону.
+		delete out.deadStart;
 	}
 	return out;
 };
@@ -638,7 +829,7 @@ const echoDecayOperator: MutationOperator = (parent, role, intensity, rng) => {
 
 	const maxStep = Math.max(1, role.phraseLength - 1);
 	// keepRatio: step=1 ≈ 0.7, step=3 ≈ 0.1 при intensity=0.8.
-	const decayFactor = (role.phraseStep / maxStep) * (0.4 + intensity * 0.5);
+	const decayFactor = (role.phraseStep / maxStep) * (0.5 + intensity * 0.8);
 	const keepRatio = Math.max(0, 1 - decayFactor);
 
 	const pruneSet = <K>(set: Set<K>, rng: RNG) => {
@@ -720,7 +911,10 @@ const callFillOperator: MutationOperator = (parent, role, intensity, rng) => {
 		// Fill #1: уплотнение subdivisions на свободных клетках.
 		const free: number[] = [];
 		for (let c = 0; c < live; c++) if (!(c in out.subdivisions)) free.push(c);
-		const target = Math.max(1, Math.round(free.length * (0.4 + intensity * 0.4)));
+		const target = Math.min(
+			free.length,
+			Math.max(1, Math.round(free.length * (0.5 + intensity * 0.7))),
+		);
 		for (let i = free.length - 1; i > 0; i--) {
 			const j = Math.floor(rng() * (i + 1));
 			const tmp = free[i]!;

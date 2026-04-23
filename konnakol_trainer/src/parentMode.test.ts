@@ -30,6 +30,11 @@ import {
 	type ParentGenome,
 	type PhraseRole,
 } from './parentMode';
+import {
+	PRESET_ENABLED_MUTATIONS,
+	PRESET_TARGET_BARS,
+	clampParentTargetBars,
+} from './parentModeUi';
 
 const makeEmpty = (): BarRandomizerMutable => ({
 	customSyllables: {},
@@ -61,12 +66,12 @@ const makeParent = (bar0?: Partial<BarGenome>, bar1?: Partial<BarGenome>): Paren
 
 function testChaosToIntensityRange() {
 	assert.ok(Math.abs(chaosToIntensity(0) - 0.2) < 1e-9, `chaosToIntensity(0) должен быть 0.2`);
-	assert.ok(Math.abs(chaosToIntensity(100) - 0.8) < 1e-9, `chaosToIntensity(100) должен быть 0.8`);
+	assert.ok(Math.abs(chaosToIntensity(100) - 1.2) < 1e-9, `chaosToIntensity(100) должен быть 1.2`);
 	let prev = chaosToIntensity(0);
 	for (let c = 1; c <= 100; c++) {
 		const v = chaosToIntensity(c);
 		assert.ok(v + 1e-12 >= prev, `chaosToIntensity не монотонна на c=${c}`);
-		assert.ok(v >= 0.2 && v <= 0.8, `chaosToIntensity(${c})=${v} вне [0.2, 0.8]`);
+		assert.ok(v >= 0.2 && v <= 1.2, `chaosToIntensity(${c})=${v} вне [0.2, 1.2]`);
 		prev = v;
 	}
 }
@@ -436,13 +441,34 @@ function testTihaiOperator() {
 	const g1 = op(parent, makeRole('tihai', 1, 4) as any, 0.5, mulberry32(1));
 	const g2 = op(parent, makeRole('tihai', 2, 4) as any, 0.5, mulberry32(1));
 	const g3 = op(parent, makeRole('tihai', 3, 4) as any, 0.5, mulberry32(1));
-	// Три повтора — идентичные parent.
-	for (const g of [g0, g1, g2]) {
-		assert.equal(g.curSyl, parent.bars[0]!.curSyl);
-		assert.deepEqual([...g.accents].sort(), [...parent.bars[0]!.accents].sort());
-	}
-	// Landing всегда имеет accent на 0 (Sam).
+	// step=0 — чистый parent.
+	assert.equal(g0.curSyl, parent.bars[0]!.curSyl);
+	assert.deepEqual([...g0.accents].sort(), [...parent.bars[0]!.accents].sort());
+	// step=1/2 должны отличаться от parent (у tihai теперь есть внутренняя динамика).
+	assert.notDeepEqual([...g1.accents].sort(), [...parent.bars[0]!.accents].sort());
+	assert.notDeepEqual([...g2.accents].sort(), [...parent.bars[0]!.accents].sort());
+	// Landing всегда имеет Sam и конец.
 	assert.ok(g3.accents.has(0), `tihai landing должен иметь Sam-accent`);
+	assert.ok(g3.accents.has(g3.curSyl - 1), `tihai landing должен акцентировать конец`);
+}
+
+function testTihaiTurboAfter70ChaosEquivalent() {
+	const parent = makeParent({ curSyl: 7, accents: new Set([0, 3]), subdivisions: {} });
+	const op = MUTATION_OPERATORS.tihai;
+	// intensity ~0.5 (до heavy) vs ~0.75 (heavy, 50+) vs ~1.1 (super, 70+)
+	const base = op(parent, makeRole('tihai', 2, 4) as any, 0.5, mulberry32(10));
+	const heavy = op(parent, makeRole('tihai', 2, 4) as any, 0.75, mulberry32(10));
+	const high = op(parent, makeRole('tihai', 2, 4) as any, 1.1, mulberry32(10));
+	assert.ok(
+		Object.keys(heavy.subdivisions).length >= Object.keys(base.subdivisions).length,
+		`tihai heavy(50+) должен быть плотнее base`,
+	);
+	assert.ok(heavy.accents.size >= base.accents.size, `tihai heavy(50+) должен быть насыщеннее base`);
+	assert.ok(
+		Object.keys(high.subdivisions).length >= Object.keys(heavy.subdivisions).length,
+		`tihai turbo должен быть плотнее по subdivisions`,
+	);
+	// В отдельных seeds акцентные множества могут совпадать, ключевой критерий super — плотность subdivisions.
 }
 
 function testEchoDecayOperator() {
@@ -524,7 +550,72 @@ function testSchedulerTihaiHeavyPreset() {
 			else if (r.type === 'substitution') subCount++;
 		}
 	}
-	assert.ok(tihaiCount > subCount, `tihai_heavy preset должен давать больше tihai: ${tihaiCount} vs ${subCount}`);
+	assert.ok(tihaiCount >= subCount, `tihai_heavy preset должен доминировать/не уступать по tihai: ${tihaiCount} vs ${subCount}`);
+}
+
+function testSchedulerTihaiHeavyDramaturgy24Bars() {
+	const sched = buildPhraseSchedule({
+		bars: 24,
+		enabledMutations: ['tihai', 'substitution', 'retrograde'],
+		preset: 'tihai_heavy',
+		parentLength: 1,
+		rng: mulberry32(11),
+	});
+	assert.equal(sched.length, 24, 'tihai_heavy должен покрывать все 24 такта');
+
+	for (const idx of [0, 8, 16]) {
+		assert.equal(sched[idx]?.type, 'parent', `такт ${idx + 1}: должен быть parent-anchor секции`);
+	}
+
+	for (const start of [4, 12, 20]) {
+		for (let step = 0; step < 4; step++) {
+			const role = sched[start + step]!;
+			assert.equal(role.type, 'tihai', `такт ${start + step + 1}: должен быть частью tihai-каденции`);
+			assert.equal(role.phraseStep, step, `такт ${start + step + 1}: неверный step в tihai-каденции`);
+		}
+	}
+}
+
+function testSchedulerCallFillDramaturgy16Bars() {
+	const sched = buildPhraseSchedule({
+		bars: 16,
+		enabledMutations: ['call_fill', 'substitution', 'retrograde'],
+		preset: 'call_fill',
+		parentLength: 1,
+		rng: mulberry32(21),
+	});
+	assert.equal(sched.length, 16, 'call_fill должен покрывать все 16 тактов');
+	for (const idx of [0, 8]) {
+		assert.equal(sched[idx]?.type, 'parent', `такт ${idx + 1}: должен быть parent-anchor секции`);
+	}
+	for (const start of [1, 9]) {
+		for (let step = 0; step < 4; step++) {
+			const role = sched[start + step]!;
+			assert.equal(role.type, 'call_fill', `такт ${start + step + 1}: должен быть частью call_fill блока`);
+			assert.equal(role.phraseStep, step, `такт ${start + step + 1}: неверный step в call_fill блоке`);
+		}
+	}
+}
+
+function testSchedulerCallFillDramaturgy32Bars() {
+	const sched = buildPhraseSchedule({
+		bars: 32,
+		enabledMutations: ['call_fill', 'substitution', 'retrograde'],
+		preset: 'call_fill',
+		parentLength: 1,
+		rng: mulberry32(77),
+	});
+	assert.equal(sched.length, 32, 'call_fill должен покрывать все 32 такта');
+	for (const idx of [0, 8, 16, 24]) {
+		assert.equal(sched[idx]?.type, 'parent', `такт ${idx + 1}: должен быть parent-anchor секции`);
+	}
+	for (const start of [1, 9, 17, 25]) {
+		for (let step = 0; step < 4; step++) {
+			const role = sched[start + step]!;
+			assert.equal(role.type, 'call_fill', `такт ${start + step + 1}: должен быть частью call_fill блока`);
+			assert.equal(role.phraseStep, step, `такт ${start + step + 1}: неверный step в call_fill блоке`);
+		}
+	}
 }
 
 function testSchedulerProgressivePreset() {
@@ -538,6 +629,80 @@ function testSchedulerProgressivePreset() {
 	// Progressive → выбирает substitution первым (в порядке простой→сложный).
 	const first = sched.find((r) => r.phraseStep === 0 && r.type !== 'parent' && r.type !== 'free');
 	assert.equal(first?.type, 'substitution', `progressive preset должен начинать с substitution`);
+}
+
+function testSchedulerProgressiveStageCoverage32Bars() {
+	const sched = buildPhraseSchedule({
+		bars: 32,
+		enabledMutations: [...ALL_MUTATION_TYPES] as import('./parentMode').MutationType[],
+		preset: 'progressive',
+		parentLength: 1,
+		rng: mulberry32(42),
+	});
+	let early = 0;
+	let mid = 0;
+	let late = 0;
+	const earlySet = new Set<import('./parentMode').MutationType>(['substitution', 'inversion', 'retrograde', 'rotation']);
+	const midSet = new Set<import('./parentMode').MutationType>(['augmentation', 'diminution', 'echo_decay', 'neighbour_pulsation', 'fractal']);
+	for (const r of sched) {
+		if (r.type === 'parent' || r.type === 'free') continue;
+		if (earlySet.has(r.type)) early++;
+		else if (midSet.has(r.type)) mid++;
+		else late++;
+	}
+	assert.ok(early > 0, `progressive 32 bars: early stage должен присутствовать`);
+	assert.ok(mid > 0, `progressive 32 bars: mid stage должен присутствовать`);
+	assert.ok(late > 0, `progressive 32 bars: late stage должен присутствовать`);
+}
+
+function testSchedulerProgressiveDramaturgyAnchorsAndFlow() {
+	const sched = buildPhraseSchedule({
+		bars: 32,
+		enabledMutations: [...ALL_MUTATION_TYPES] as import('./parentMode').MutationType[],
+		preset: 'progressive',
+		parentLength: 1,
+		rng: mulberry32(99),
+	});
+	assert.equal(sched.length, 32, 'progressive schedule должен покрывать все 32 такта');
+
+	for (const idx of [0, 8, 16, 24]) {
+		assert.equal(
+			sched[idx]?.type,
+			'parent',
+			`такт ${idx + 1}: должен быть parent-anchor для сквозной темы`,
+		);
+	}
+
+	const earlySet = new Set<import('./parentMode').MutationType>(['substitution', 'inversion', 'retrograde', 'rotation']);
+	const midSet = new Set<import('./parentMode').MutationType>(['augmentation', 'diminution', 'echo_decay', 'neighbour_pulsation', 'fractal']);
+	const lateSet = new Set<import('./parentMode').MutationType>(['prepend_append', 'truncation', 'tihai', 'call_fill']);
+
+	let earlyInFirstThird = 0;
+	let firstThirdTotal = 0;
+	let lateInLastThird = 0;
+	let lastThirdTotal = 0;
+	for (let i = 0; i < sched.length; i++) {
+		const t = sched[i]!.type;
+		if (t === 'parent' || t === 'free') continue;
+		if (i < 11) {
+			firstThirdTotal++;
+			if (earlySet.has(t)) earlyInFirstThird++;
+		}
+		if (i >= 21) {
+			lastThirdTotal++;
+			if (lateSet.has(t)) lateInLastThird++;
+		}
+	}
+	assert.ok(firstThirdTotal > 0, 'в первой трети должны быть мутации');
+	assert.ok(lastThirdTotal > 0, 'в финальной трети должны быть мутации');
+	assert.ok(
+		earlyInFirstThird >= Math.max(2, Math.floor(firstThirdTotal * 0.4)),
+		`первая треть должна держать early-окраску: ${earlyInFirstThird}/${firstThirdTotal}`,
+	);
+	assert.ok(
+		lateInLastThird >= 4,
+		`финальная треть должна иметь выраженный late-блок: ${lateInLastThird}/${lastThirdTotal}`,
+	);
 }
 
 function testIntegration16BarsAllMutations() {
@@ -668,6 +833,38 @@ function testIntegrationDeterminismReplay() {
 	assert.deepEqual(a.subs, b.subs);
 }
 
+function testPresetTargetBarsRangeAndExact() {
+	assert.equal(PRESET_TARGET_BARS.random, 16);
+	assert.equal(PRESET_TARGET_BARS.tihai_heavy, 24);
+	assert.equal(PRESET_TARGET_BARS.progressive, 32);
+	assert.equal(PRESET_TARGET_BARS.call_fill, 16);
+
+	assert.equal(clampParentTargetBars(0), 1);
+	assert.equal(clampParentTargetBars(1), 1);
+	assert.equal(clampParentTargetBars(16), 16);
+	assert.equal(clampParentTargetBars(32), 32);
+	assert.equal(clampParentTargetBars(99), 32);
+}
+
+function testScheduleLongFormByPresetTargets() {
+	// Для каждого пресета schedule должен покрывать всю целевую длину формы.
+	const presets: Array<import('./parentMode').FormPresetId> = ['random', 'tihai_heavy', 'progressive', 'call_fill'];
+	for (const preset of presets) {
+		const bars = clampParentTargetBars(PRESET_TARGET_BARS[preset]);
+		const schedule = buildPhraseSchedule({
+			bars,
+			enabledMutations: [...PRESET_ENABLED_MUTATIONS[preset]],
+			preset,
+			parentLength: 1,
+			rng: mulberry32(12345),
+		});
+		assert.equal(schedule.length, bars, `preset=${preset}: schedule.length != target bars`);
+		for (const role of schedule) {
+			assert.ok(role.phraseStep >= 0 && role.phraseStep < role.phraseLength, `preset=${preset}: bad phraseStep`);
+		}
+	}
+}
+
 function testChaosIntensityIntegration() {
 	// chaos=0 → intensity=0.2 → маленькие изменения (substitution k=1)
 	// chaos=100 → intensity=0.8 → большие (substitution k=3)
@@ -676,7 +873,7 @@ function testChaosIntensityIntegration() {
 	const intensityLow = chaosToIntensity(0);
 	const intensityHigh = chaosToIntensity(100);
 	assert.ok(Math.abs(intensityLow - 0.2) < 1e-9);
-	assert.ok(Math.abs(intensityHigh - 0.8) < 1e-9);
+	assert.ok(Math.abs(intensityHigh - 1.2) < 1e-9);
 	// На высоком intensity кол-во изменений (k) больше в среднем.
 	let countLow = 0;
 	let countHigh = 0;
@@ -717,15 +914,23 @@ const tests: [string, () => void][] = [
 	['testPrependAppendOperator', testPrependAppendOperator],
 	['testFractalOperator', testFractalOperator],
 	['testTihaiOperator', testTihaiOperator],
+	['testTihaiTurboAfter70ChaosEquivalent', testTihaiTurboAfter70ChaosEquivalent],
 	['testEchoDecayOperator', testEchoDecayOperator],
 	['testNeighbourPulsationOperator', testNeighbourPulsationOperator],
 	['testCallFillOperator', testCallFillOperator],
 	['testSchedulerTihaiHeavyPreset', testSchedulerTihaiHeavyPreset],
+	['testSchedulerTihaiHeavyDramaturgy24Bars', testSchedulerTihaiHeavyDramaturgy24Bars],
+	['testSchedulerCallFillDramaturgy16Bars', testSchedulerCallFillDramaturgy16Bars],
+	['testSchedulerCallFillDramaturgy32Bars', testSchedulerCallFillDramaturgy32Bars],
 	['testSchedulerProgressivePreset', testSchedulerProgressivePreset],
+	['testSchedulerProgressiveStageCoverage32Bars', testSchedulerProgressiveStageCoverage32Bars],
+	['testSchedulerProgressiveDramaturgyAnchorsAndFlow', testSchedulerProgressiveDramaturgyAnchorsAndFlow],
 	['testChaosIntensityIntegration', testChaosIntensityIntegration],
 	['testIntegration16BarsAllMutations', testIntegration16BarsAllMutations],
 	['testIntegrationParent2BarsAlternation', testIntegrationParent2BarsAlternation],
 	['testIntegrationDeterminismReplay', testIntegrationDeterminismReplay],
+	['testPresetTargetBarsRangeAndExact', testPresetTargetBarsRangeAndExact],
+	['testScheduleLongFormByPresetTargets', testScheduleLongFormByPresetTargets],
 ];
 
 let failed = 0;

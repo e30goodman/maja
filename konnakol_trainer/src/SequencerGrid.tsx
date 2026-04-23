@@ -173,10 +173,6 @@ type SequencerGridRowProps = {
 	lowPerfMode: boolean;
 	/** В плоском poly: визуальный разрыв между шагами (не влияет на аудио). */
 	polyStepTopRule?: boolean;
-	/** Короткая метка роли такта в parent-mode ("P", "Su 1/2", "Th 3/4"…). Рендерится бейджем в правом верхнем углу. */
-	roleLabel?: string;
-	/** CSS-класс бейджа роли (цвет по категории мутации). */
-	roleBadgeClass?: string;
 	actionsRef: React.MutableRefObject<SequencerGridRowActions | null>;
 	setRowEl: (absR: number, el: HTMLDivElement | null) => void;
 };
@@ -214,8 +210,6 @@ function sequencerGridRowPropsEqual(a: SequencerGridRowProps, b: SequencerGridRo
 		a.syllables === b.syllables &&
 		a.lowPerfMode === b.lowPerfMode &&
 		(a.polyStepTopRule ?? false) === (b.polyStepTopRule ?? false) &&
-		(a.roleLabel ?? '') === (b.roleLabel ?? '') &&
-		(a.roleBadgeClass ?? '') === (b.roleBadgeClass ?? '') &&
 		a.actionsRef === b.actionsRef &&
 		a.setRowEl === b.setRowEl
 	);
@@ -255,8 +249,6 @@ const SequencerGridRow = React.memo(
 			syllables,
 			lowPerfMode,
 			polyStepTopRule = false,
-			roleLabel,
-			roleBadgeClass,
 			actionsRef,
 			setRowEl,
 		} = p;
@@ -290,15 +282,6 @@ const SequencerGridRow = React.memo(
 						: undefined,
 				}}
 			>
-				{roleLabel && (
-					<div
-						className={`pointer-events-none absolute top-0.5 right-1 px-1 py-0.5 rounded text-[8px] font-bold leading-none border ${
-							roleBadgeClass ?? 'bg-slate-700/60 text-slate-300 border-slate-600'
-						}`}
-					>
-						{roleLabel}
-					</div>
-				)}
 				<div className={`flex flex-col gap-1 justify-center ${isPolyRow ? 'w-14' : 'w-8'} shrink-0`}>
 					<button
 						type="button"
@@ -684,9 +667,6 @@ export type SequencerGridProps = {
 	bpm: number;
 	activeEditRow: number | null;
 	activeEditCell: string | null;
-	/** Parent-mode: массив меток ролей тактов, index = rIdx. Если не задано — бейджи не рисуются. */
-	parentRoleLabels?: (string | null)[];
-	parentRoleBadgeClasses?: (string | null)[];
 	sequencerGridRowActionsRef: React.MutableRefObject<SequencerGridRowActions | null>;
 	setRowElStable: (absR: number, el: HTMLDivElement | null) => void;
 };
@@ -721,8 +701,6 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	bpm,
 	activeEditRow,
 	activeEditCell,
-	parentRoleLabels,
-	parentRoleBadgeClasses,
 	sequencerGridRowActionsRef,
 	setRowElStable,
 }: SequencerGridProps) {
@@ -832,8 +810,6 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 						polyStepTopRule={polyStepTopRule}
 						polyMode={polyMode}
 						polyVoices={polyVoices}
-						roleLabel={parentRoleLabels?.[rIdx] ?? undefined}
-						roleBadgeClass={parentRoleBadgeClasses?.[rIdx] ?? undefined}
 						actionsRef={sequencerGridRowActionsRef}
 						setRowEl={setRowElStable}
 					/>
