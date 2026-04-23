@@ -181,8 +181,6 @@ type SequencerGridRowProps = {
 	isTaEditorMode: boolean;
 	isDeadCellsEditorMode: boolean;
 	accentMapVersion: number;
-	firstBeatAccent: boolean;
-	firstBeatByRowSig: string;
 	forceFirstBeatEditorFrames: boolean;
 	/** Comma-sorted row indices: rows where default first-beat white marker was disabled in editor. */
 	firstBeatEditorSuppressedSig: string;
@@ -221,8 +219,6 @@ function sequencerGridRowPropsEqual(a: SequencerGridRowProps, b: SequencerGridRo
 		a.isTaEditorMode === b.isTaEditorMode &&
 		a.isDeadCellsEditorMode === b.isDeadCellsEditorMode &&
 		a.accentMapVersion === b.accentMapVersion &&
-		a.firstBeatAccent === b.firstBeatAccent &&
-		a.firstBeatByRowSig === b.firstBeatByRowSig &&
 		a.forceFirstBeatEditorFrames === b.forceFirstBeatEditorFrames &&
 		a.firstBeatEditorSuppressedSig === b.firstBeatEditorSuppressedSig &&
 		a.deadStartByRow === b.deadStartByRow &&
@@ -261,8 +257,6 @@ const SequencerGridRow = React.memo(
 			isTaEditorMode,
 			isDeadCellsEditorMode,
 			accentMapVersion,
-			firstBeatAccent,
-			firstBeatByRowSig,
 			forceFirstBeatEditorFrames,
 			firstBeatEditorSuppressedSig,
 			deadStartByRow,
@@ -296,17 +290,6 @@ const SequencerGridRow = React.memo(
 					.filter((n) => Number.isFinite(n)),
 			);
 		}, [firstBeatEditorSuppressedSig]);
-		const firstBeatRows = useMemo(() => {
-			if (!firstBeatByRowSig) return new Set<number>();
-			return new Set(
-				firstBeatByRowSig
-					.split(',')
-					.map((x) => parseInt(x, 10))
-					.filter((n) => Number.isFinite(n)),
-			);
-		}, [firstBeatByRowSig]);
-		/** Poly: только строка своего голоса (`firstBeatByRowSig`); иначе глобальный `firstBeatAccent` даёт фантом на чужих линиях. */
-		const firstBeatAccentRow = polyMode ? firstBeatRows.has(rIdx) : firstBeatRows.has(rIdx) || firstBeatAccent;
 		const polyVoiceIdx = polyMode ? rIdx % polyVoices : 0;
 		return (
 			<div
@@ -486,13 +469,8 @@ const SequencerGridRow = React.memo(
 						const isDead = typeof deadStart === 'number' ? cIdx >= deadStart : cIdx >= rowSylls;
 						const isAccent = accentBits[cIdx] === '1';
 						const isTaDing = taDingBits[cIdx] === '1';
-						/** In Ta editor: show white first-beat ding for global Ta while row is not excluded. */
-						const showEditorDing =
-							isTaDing ||
-							(cIdx === 0 &&
-								isTaEditorMode &&
-								!firstBeatRowSuppressed.has(rIdx) &&
-								(firstBeatAccentRow || forceFirstBeatEditorFrames));
+						/** В Ta-редакторе белая рамка только по явному ключу taDing — без автоподсветки первой доли. */
+						const showEditorDing = isTaDing;
 						const showNonEditorDing =
 							(!isDead && cIdx > 0 && isTaDing) ||
 							(cIdx === 0 &&
@@ -539,9 +517,7 @@ const SequencerGridRow = React.memo(
 						}
 						const accentForGlyph =
 							isAccent ||
-							(isTaEditorMode &&
-								(isTaDing ||
-									(cIdx === 0 && firstBeatAccentRow && !firstBeatRowSuppressed.has(rIdx)))) ||
+							(isTaEditorMode && isTaDing) ||
 							(!isTaEditorMode && showNonEditorDing);
 						if (isActive) {
 							cellClasses = playheadHighlightCellClasses(
@@ -737,8 +713,6 @@ export type SequencerGridProps = {
 	isTaEditorMode: boolean;
 	isDeadCellsEditorMode: boolean;
 	accentMapVersion: number;
-	firstBeatAccent: boolean;
-	firstBeatByRowSig: string;
 	forceFirstBeatEditorFrames: boolean;
 	firstBeatEditorSuppressedSig: string;
 	deadStartByRow: Record<number, number>;
@@ -773,8 +747,6 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	isTaEditorMode,
 	isDeadCellsEditorMode,
 	accentMapVersion,
-	firstBeatAccent,
-	firstBeatByRowSig,
 	forceFirstBeatEditorFrames,
 	firstBeatEditorSuppressedSig,
 	deadStartByRow,
@@ -879,8 +851,6 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 						isTaEditorMode={isTaEditorMode}
 						isDeadCellsEditorMode={isDeadCellsEditorMode}
 						accentMapVersion={accentMapVersion}
-						firstBeatAccent={firstBeatAccent}
-						firstBeatByRowSig={firstBeatByRowSig}
 						forceFirstBeatEditorFrames={forceFirstBeatEditorFrames}
 						firstBeatEditorSuppressedSig={firstBeatEditorSuppressedSig}
 						deadStartByRow={deadStartByRow}

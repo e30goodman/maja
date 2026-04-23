@@ -6263,16 +6263,6 @@ export default function App() {
     () => (polyMode ? flattenLaneSetMap(taDingKeysByLane, bars, polyVoices) : taDingKeys),
     [polyMode, taDingKeysByLane, taDingKeys, bars, polyVoices],
   );
-  const firstBeatByRowSig = useMemo(() => {
-    const rows: number[] = [];
-    for (let r = 0; r < bars; r++) {
-      const lane = laneForRow(r, polyVoices);
-      const on = polyMode ? Boolean(firstBeatAccentByLane[lane]) : firstBeatAccent;
-      if (on) rows.push(r);
-    }
-    return rows.join(',');
-  }, [bars, polyMode, polyVoices, firstBeatAccentByLane, firstBeatAccent]);
-
   const forceFirstBeatEditorFrames = useMemo(() => {
     const anyFirstBeat = polyMode
       ? Boolean(firstBeatAccentByLane[0] || firstBeatAccentByLane[1] || firstBeatAccentByLane[2])
@@ -6540,10 +6530,10 @@ export default function App() {
                         <div className="w-8 h-8" />
                       </div>
                       <div
-                        className={`flex items-center gap-2 min-w-0 shrink-0 ${polyMode ? 'justify-between' : 'justify-center'}`}
+                        className={`flex items-start gap-2 w-full min-w-0 shrink-0 ${polyMode ? 'justify-between' : 'justify-center'}`}
                       >
                         {polyMode ? (
-                          <div className="flex items-center gap-1 shrink-0">
+                          <div className="flex items-center gap-1 shrink-0 pt-0.5">
                             {([0, 1, 2] as const).filter((v) => v < (polyVoices === 3 ? 3 : 2)).map((voiceIdx) => {
                               const isActive = activeClickVoiceTarget === voiceIdx;
                               const label = `V${voiceIdx + 1}`;
@@ -6587,17 +6577,17 @@ export default function App() {
                             { key: 'passive', idx: '3' },
                           ];
                           const busRowSliderClass =
-                            'min-w-0 w-full h-1.5 rounded bg-[#0f1526] appearance-none cursor-pointer';
+                            'min-w-0 flex-1 h-1.5 rounded bg-[#0f1526] appearance-none cursor-pointer';
+                          const labelColClass =
+                            'w-7 shrink-0 text-left text-[9px] font-bold text-slate-500 leading-none';
                           return (
-                            <div className="flex flex-col justify-center gap-1.5 w-[9rem] min-w-[8rem] max-w-[10.5rem] shrink-0">
+                            <div className="flex flex-col justify-center gap-1.5 min-w-0 max-w-[10.5rem] w-full shrink">
                               {busKeys.map(({ key, idx }) => (
                                 <label
                                   key={key}
                                   className="flex items-center gap-1.5 w-full min-w-0"
                                 >
-                                  <span className="w-2 shrink-0 text-center text-[9px] font-bold text-slate-500 tabular-nums leading-none">
-                                    {idx}
-                                  </span>
+                                  <span className={`${labelColClass} tabular-nums`}>{idx}</span>
                                   <input
                                     type="range"
                                     min={0}
@@ -6631,75 +6621,83 @@ export default function App() {
                                     }}
                                     className={busRowSliderClass}
                                   />
+                                  <span className="w-7 shrink-0" aria-hidden />
                                 </label>
                               ))}
+                              {polyMode ? (
+                                <label className="flex items-center gap-1.5 w-full min-w-0">
+                                  <span className={labelColClass}>vol</span>
+                                  <input
+                                    type="range"
+                                    min={0}
+                                    max={1.6}
+                                    step={0.01}
+                                    value={polyVoiceGains[activeClickVoiceTarget] ?? 1}
+                                    onChange={(e) => {
+                                      const raw = Number(e.target.value);
+                                      const next = Number.isFinite(raw) ? Math.max(0, Math.min(1.6, raw)) : 1;
+                                      setPolyVoiceGains((prev) => {
+                                        const updated: PolyVoiceGainMap = {
+                                          ...prev,
+                                          [activeClickVoiceTarget]: next,
+                                        };
+                                        polyVoiceGainsRef.current = { ...updated };
+                                        return updated;
+                                      });
+                                    }}
+                                    onDoubleClick={() => {
+                                      setPolyVoiceGains((prev) => {
+                                        const updated: PolyVoiceGainMap = {
+                                          ...prev,
+                                          [activeClickVoiceTarget]: 1,
+                                        };
+                                        polyVoiceGainsRef.current = { ...updated };
+                                        return updated;
+                                      });
+                                    }}
+                                    onPointerDown={() => {
+                                      if (polyVoiceGainHoldTimerRef.current !== null) {
+                                        window.clearTimeout(polyVoiceGainHoldTimerRef.current);
+                                        polyVoiceGainHoldTimerRef.current = null;
+                                      }
+                                      polyVoiceGainHoldTimerRef.current = window.setTimeout(() => {
+                                        polyVoiceGainHoldTimerRef.current = null;
+                                        const target = activeClickVoiceTargetRef.current;
+                                        setPolyVoiceGains((prev) => {
+                                          const updated: PolyVoiceGainMap = { ...prev, [target]: 1 };
+                                          polyVoiceGainsRef.current = { ...updated };
+                                          return updated;
+                                        });
+                                      }, 2000);
+                                    }}
+                                    onPointerUp={() => {
+                                      if (polyVoiceGainHoldTimerRef.current !== null) {
+                                        window.clearTimeout(polyVoiceGainHoldTimerRef.current);
+                                        polyVoiceGainHoldTimerRef.current = null;
+                                      }
+                                    }}
+                                    onPointerLeave={() => {
+                                      if (polyVoiceGainHoldTimerRef.current !== null) {
+                                        window.clearTimeout(polyVoiceGainHoldTimerRef.current);
+                                        polyVoiceGainHoldTimerRef.current = null;
+                                      }
+                                    }}
+                                    onPointerCancel={() => {
+                                      if (polyVoiceGainHoldTimerRef.current !== null) {
+                                        window.clearTimeout(polyVoiceGainHoldTimerRef.current);
+                                        polyVoiceGainHoldTimerRef.current = null;
+                                      }
+                                    }}
+                                    className={busRowSliderClass}
+                                  />
+                                  <span className="w-7 shrink-0 text-right text-[9px] text-slate-400 tabular-nums">
+                                    {Math.round((polyVoiceGains[activeClickVoiceTarget] ?? 1) * 100)}%
+                                  </span>
+                                </label>
+                              ) : null}
                             </div>
                           );
                         })()}
-                        {polyMode ? (
-                          <label className="flex items-center gap-1 shrink-0">
-                            <input
-                              type="range"
-                              min={0}
-                              max={1.6}
-                              step={0.01}
-                              value={polyVoiceGains[activeClickVoiceTarget] ?? 1}
-                              onChange={(e) => {
-                                const raw = Number(e.target.value);
-                                const next = Number.isFinite(raw) ? Math.max(0, Math.min(1.6, raw)) : 1;
-                                setPolyVoiceGains((prev) => {
-                                  const updated: PolyVoiceGainMap = { ...prev, [activeClickVoiceTarget]: next };
-                                  polyVoiceGainsRef.current = { ...updated };
-                                  return updated;
-                                });
-                              }}
-                              onDoubleClick={() => {
-                                setPolyVoiceGains((prev) => {
-                                  const updated: PolyVoiceGainMap = { ...prev, [activeClickVoiceTarget]: 1 };
-                                  polyVoiceGainsRef.current = { ...updated };
-                                  return updated;
-                                });
-                              }}
-                              onPointerDown={() => {
-                                if (polyVoiceGainHoldTimerRef.current !== null) {
-                                  window.clearTimeout(polyVoiceGainHoldTimerRef.current);
-                                  polyVoiceGainHoldTimerRef.current = null;
-                                }
-                                polyVoiceGainHoldTimerRef.current = window.setTimeout(() => {
-                                  polyVoiceGainHoldTimerRef.current = null;
-                                  const target = activeClickVoiceTargetRef.current;
-                                  setPolyVoiceGains((prev) => {
-                                    const updated: PolyVoiceGainMap = { ...prev, [target]: 1 };
-                                    polyVoiceGainsRef.current = { ...updated };
-                                    return updated;
-                                  });
-                                }, 2000);
-                              }}
-                              onPointerUp={() => {
-                                if (polyVoiceGainHoldTimerRef.current !== null) {
-                                  window.clearTimeout(polyVoiceGainHoldTimerRef.current);
-                                  polyVoiceGainHoldTimerRef.current = null;
-                                }
-                              }}
-                              onPointerLeave={() => {
-                                if (polyVoiceGainHoldTimerRef.current !== null) {
-                                  window.clearTimeout(polyVoiceGainHoldTimerRef.current);
-                                  polyVoiceGainHoldTimerRef.current = null;
-                                }
-                              }}
-                              onPointerCancel={() => {
-                                if (polyVoiceGainHoldTimerRef.current !== null) {
-                                  window.clearTimeout(polyVoiceGainHoldTimerRef.current);
-                                  polyVoiceGainHoldTimerRef.current = null;
-                                }
-                              }}
-                              className="w-20 h-1.5 bg-[#0f1526] rounded-lg appearance-none cursor-pointer"
-                            />
-                            <span className="w-8 text-right text-[9px] text-slate-400 tabular-nums">
-                              {Math.round((polyVoiceGains[activeClickVoiceTarget] ?? 1) * 100)}%
-                            </span>
-                          </label>
-                        ) : null}
                       </div>
                       <div className="grid grid-cols-4 gap-2.5 flex-1 content-start">
                         {CLICK_SOUND_PRESET_META.map((preset) => {
@@ -7393,7 +7391,6 @@ export default function App() {
           isTaEditorMode={isTaEditorMode}
           isDeadCellsEditorMode={isDeadCellsEditorMode}
           accentMapVersion={accentMapVersion}
-          firstBeatAccent={firstBeatAccent}
           forceFirstBeatEditorFrames={forceFirstBeatEditorFrames}
           firstBeatEditorSuppressedSig={firstBeatEditorSuppressedSig}
           deadStartByRow={deadStartByRow}
@@ -7404,7 +7401,6 @@ export default function App() {
           customMultipliers={customMultipliers}
           accents={accentsUi}
           taDingKeys={visibleTaDingKeys}
-          firstBeatByRowSig={firstBeatByRowSig}
           pulseMeterUnlinked={pulseMeterUnlinked}
           isPlaying={isPlaying}
           activePos={activePos}
@@ -7520,7 +7516,7 @@ export default function App() {
             <Dices size={24} />
           </button>
           
-          {/* First Beat Accent ("Ta"): tap — глобальный Ta; удерживание — режим правки первых долей по сетке. */}
+          {/* First Beat Accent ("Ta"): тап — глобальный Ta; удерживание — сетка правки Ta без автовключения Ta. */}
           <button
             type="button"
             disabled={isDeadCellsEditorMode}
@@ -7537,18 +7533,6 @@ export default function App() {
                 if (isTaEditorModeRef.current) {
                   setIsTaEditorMode(false);
                 } else {
-                  // Долгое удержание Ta из OFF: сначала включаем Ta, затем открываем редактор.
-                  if (!firstBeatAccentRef.current) {
-                    if (polyModeRef.current) {
-                      /* Как в легаси `setFirstBeatAccent(true)` — один общий Ta на все голоса. */
-                      const next = { 0: true, 1: true, 2: true } as LaneBoolMap;
-                      firstBeatAccentByLaneRef.current = next;
-                      setFirstBeatAccentByLane(next);
-                      setFirstBeatAccent(true);
-                    } else {
-                      setFirstBeatAccent(true);
-                    }
-                  }
                   setIsTaEditorMode(true);
                 }
               }, SNAPSHOT_MENU_HOLD_MS);
