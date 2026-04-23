@@ -5064,23 +5064,8 @@ export default function App() {
           : '';
         const shouldDedupPolyClick = polyModeRef.current && polyClickSlotsRef.current.has(polySlotKey);
         const isFirstBarCell = cIdx === 0;
-        const mainAccentClick = isAccent && (subdivs > 1 || sub === 0);
-        const shouldPlayFirstBeatTa =
-          isFirstBarCell && firstBeatAccentRef.current && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
-        if (shouldPlayFirstBeatTa) {
-          playBarFirstHighClick(ctx, subTime, soundPreset);
-          if (polyModeRef.current) {
-            polyClickSlotsRef.current.add(polySlotKey);
-          }
-        }
-        if (shouldDedupPolyClick) {
-          return;
-        }
         const playbackMode = squarePlaybackModeRef.current;
         const taEnabled = firstBeatAccentRef.current;
-        const isTaDingCell = taEnabled && cIdx >= 1 && taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
-        /** Ta-клетка с поддолями должна звучать на каждую поддолю, не только на sub=0. */
-        const shouldPlayTaDingSound = isTaDingCell && (subdivs > 1 || sub === 0);
         const hasTaDingHere = taEnabled && taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
         const dictantActive = dictantModeRef.current;
         const shouldPlayBeat =
@@ -5089,6 +5074,24 @@ export default function App() {
             : playbackMode === 'accent_only'
               ? isAccent || hasTaDingHere
               : false;
+        const mainAccentClick = isAccent && (subdivs > 1 || sub === 0);
+        const shouldPlayFirstBeatTaBase =
+          isFirstBarCell && firstBeatAccentRef.current && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
+        const shouldPlayFirstBeatTa =
+          shouldPlayFirstBeatTaBase &&
+          (playbackMode === 'all_beats' || isAccent || hasTaDingHere);
+        if (shouldPlayFirstBeatTa && shouldPlayBeat) {
+          playBarFirstHighClick(ctx, subTime, soundPreset);
+          if (polyModeRef.current) {
+            polyClickSlotsRef.current.add(polySlotKey);
+          }
+        }
+        if (shouldDedupPolyClick) {
+          return;
+        }
+        const isTaDingCell = taEnabled && cIdx >= 1 && taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
+        /** Ta-клетка с поддолями должна звучать на каждую поддолю, не только на sub=0. */
+        const shouldPlayTaDingSound = isTaDingCell && (subdivs > 1 || sub === 0);
         const isTaFirstBeatArticulation =
           cIdx === 0 && firstBeatAccentRef.current && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
         const sharpAsChecked = (() => {
@@ -5096,7 +5099,7 @@ export default function App() {
           if (muteMode === 'no_accent_sharp' && mainAccentClick && !isTaFirstBeatArticulation) return false;
           return mainAccentClick;
         })();
-        if (shouldPlayTaDingSound) {
+        if (shouldPlayTaDingSound && shouldPlayBeat) {
           playBarFirstHighClick(ctx, subTime, soundPreset);
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
