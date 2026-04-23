@@ -18,6 +18,10 @@ import { SequencerGrid, type SequencerGridRowActions } from './SequencerGrid';
 import { getMetronomeSummingInput, METRA_LOOKAHEAD_MS, METRA_SCHEDULE_AHEAD_SEC } from './metraAudioBus';
 import { applyVoiceGroupChain, getVoiceLayerSumInput, type MetroVoiceKey } from './metroSoundBus';
 import { metroEnvelopeEndFromPeak, scheduleLayerToBus } from './metroLayerGraph';
+import {
+	createPolySubLegacyScheduler,
+	type PolySubLegacyScheduler,
+} from './polySubLegacyScheduler';
 
 type PlayheadPosition = { r: number; c: number; absR: number; voice: number; step: number };
 type PlayheadHighlightEvent = { t: number; pos: PlayheadPosition };
@@ -3092,10 +3096,8 @@ export default function App() {
   const previewResetTimerRef = useRef<number | null>(null);
   /** Полиметр: ключ включает голос (и строку), иначе совпадение subTime глушит параллельные линии. */
   const polyClickSlotsRef = useRef<Set<string>>(new Set());
-  /** Поли + dead: следующая доля такта `barIdx` (абсолютное время и индекс клетки), чтобы не «ждать» границу чанка мастера. */
-  const polyNextBeatRef = useRef<Record<number, { t: number; c: number }>>({});
-  /** Последний `time` (старт окна планировщика), с которым уже вызывали schedulePolyStep для такта `barIdx`. Иначе после чанка [2,3] возврат к [0,1] тянет старый {t,c} → ложное «продолжение» и удар по такту 2 вместо 4. */
-  const polyBarLastScheduleWallTimeRef = useRef<Record<number, number>>({});
+  /** Poly: независимые sub_legacy-линии (см. `polySubLegacyScheduler.ts`). */
+  const polySubLegacyRef = useRef<PolySubLegacyScheduler | null>(null);
   /** Таймеры отложенных щелчков (см. GRID_CLICK_*): сброс при стопе / превью / старте. */
   const pendingGridClickTimerIdsRef = useRef<number[]>([]);
   /** playTwoBars preview: emit разрешён без isPlaying. */
@@ -4068,15 +4070,21 @@ export default function App() {
   // Ensure currentStepRef bounds are respected if grid shrinks
   useEffect(() => {
     if (polyMode) {
-      if (currentStepRef.current >= polyChunks.length) {
-        currentStepRef.current = 0;
-      }
+      currentStepRef.current = 0;
       return;
     }
     if (currentStepRef.current >= sequence.length) {
       currentStepRef.current = 0;
     }
   }, [polyMode, polyChunks.length, sequence.length]);
+
+  /** Poly sub_legacy: при смене bars/polyVoices во время воспроизведения — пересборка линий без скачка назад во времени. */
+  useEffect(() => {
+    if (!isPlaying || !polyMode || !audioCtxRef.current) return;
+    const poly = polySubLegacyRef.current;
+    if (!poly) return;
+    poly.rebuildLanes(audioCtxRef.current.currentTime + METRA_SCHEDULE_AHEAD_SEC);
+  }, [isPlaying, polyMode, bars, polyVoices]);
 
   // Display metrics (displayScaleBars / allBarsFitViewport объявлены выше — общая шкала для сетки и скролла)
   const useFixedFlex = frozenScale !== null || bars > 10;
@@ -4656,6 +4664,66 @@ export default function App() {
     [],
   );
 
+  const polyHandleLane0PatternWrap = useCallback((prevBar: number) => {
+    if (!isPlayingRef.current) return;
+    if (coldStartRef.current) {
+      coldStartRef.current = false;
+      return;
+    }
+    if (!randomModeEnabledRef.current) return;
+    const chaos = chaosLevelRef.current;
+    const m = {
+      customSyllables: customSyllablesRef.current,
+      accents: accentsRef.current,
+      customSubdivisions: customSubdivisionsRef.current,
+      customMultipliers: customMultipliersRef.current,
+      deadCells: deadCellsRef.current,
+    };
+    const didChange = applyRandomizerEffectsToBar(
+      prevBar,
+      chaos,
+      randomPulsationRef.current,
+      randomPatternRef.current,
+      randomSpeedRef.current,
+      randomBarSpeedRef.current,
+      onlyAccentsRef.current,
+      syllablesRef.current,
+      m,
+    );
+    if (!didChange) return;
+    setTimeout(() => {
+      startTransition(() => {
+        if (randomPulsationRef.current) setCustomSyllables({ ...customSyllablesRef.current });
+        if (randomPatternRef.current) setAccents(new Set(accentsRef.current));
+        if (randomSpeedRef.current) setCustomSubdivisions({ ...customSubdivisionsRef.current });
+        if (randomBarSpeedRef.current) setDeadCells({ ...deadCellsRef.current });
+      });
+    }, 0);
+  }, []);
+
+  const getPolySubLegacyScheduler = useCallback((): PolySubLegacyScheduler => {
+    if (!polySubLegacyRef.current) {
+      polySubLegacyRef.current = createPolySubLegacyScheduler({
+        polyVoices: () => (polyVoicesRef.current === 3 ? 3 : 2),
+        barCount: () => barsRef.current,
+        getBarTimeWindowSeconds,
+        getRowSyllables: (barIdx) =>
+          customSyllablesRef.current[barIdx] !== undefined
+            ? customSyllablesRef.current[barIdx]!
+            : syllablesRef.current,
+        getDeadStart: (barIdx) => deadCellsRef.current[barIdx]?.deadStart,
+        emit: (bar, c, absR, t, voice, step, dBar) => {
+          if (voice === 0) {
+            playAbsBarRef.current = bar;
+          }
+          scheduleGridCellAtTime(bar, c, absR, t, voice, step, dBar);
+        },
+        onLane0PatternWrap: polyHandleLane0PatternWrap,
+      });
+    }
+    return polySubLegacyRef.current;
+  }, [getBarTimeWindowSeconds, polyHandleLane0PatternWrap, scheduleGridCellAtTime]);
+
   const playTwoBarsPreviewFromGrid = useCallback((soundPreset: ClickSoundPreset) => {
     if (isPlayingRef.current || isTaEditorModeRef.current || isDeadCellsEditorModeRef.current) return;
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
@@ -4727,80 +4795,26 @@ export default function App() {
     scheduleGridCellAtTime(rIdx, cIdx, absR, time, 0, stepIdx, noteDuration);
   };
 
-  const schedulePolyStep = useCallback((stepIdx: number, time: number) => {
-    const chunks = polyChunksRef.current;
-    if (chunks.length === 0) return 0.5;
-    const safeStep = ((stepIdx % chunks.length) + chunks.length) % chunks.length;
-    const chunk = chunks[safeStep];
-    if (!chunk || chunk.length === 0) return 0.5;
-    const masterBar = chunk[0]!;
-    const EPS = 1e-9;
-    /** Длительность шага планировщика: по самому длинному такту в чанке. Раньше только master → второй голос обрезался по чужому окну и «ждал». */
-    const stepWallSec = Math.max(
-      EPS * 100,
-      ...chunk.map((bIdx) => getBarTimeWindowSeconds(bIdx)),
-    );
-    /** Следующая доля после c; мёртвая или за концом такта → снова клетка 0. */
-    const nextPolyCell = (barIdx: number, c: number, rowSyl: number): number => {
-      const n = c + 1;
-      if (n >= rowSyl) return 0;
-      const ds = deadCellsRef.current[barIdx]?.deadStart;
-      if (typeof ds === 'number' && n >= ds) return 0;
-      return n;
-    };
-    chunk.forEach((barIdx, voiceIdx) => {
-      const wallT = time;
-      const lastWall = polyBarLastScheduleWallTimeRef.current[barIdx];
-      if (lastWall !== undefined && Math.abs(wallT - lastWall) > EPS) {
-        delete polyNextBeatRef.current[barIdx];
-      }
-      polyBarLastScheduleWallTimeRef.current[barIdx] = wallT;
-
-      const rowSyllables =
-        customSyllablesRef.current[barIdx] !== undefined ? customSyllablesRef.current[barIdx] : syllablesRef.current;
-      const dBar = getBarTimeWindowSeconds(barIdx) / Math.max(1, rowSyllables);
-      const absR = safeStep * polyVoicesRef.current + voiceIdx;
-      const isMasterTrack = barIdx === masterBar && voiceIdx === 0;
-      const voiceChunkEnd = time + getBarTimeWindowSeconds(barIdx);
-      const prev = polyNextBeatRef.current[barIdx];
-      let tNext: number;
-      let cNext: number;
-      if (prev === undefined || !Number.isFinite(prev.t) || prev.t < time - EPS) {
-        tNext = time;
-        cNext = 0;
-      } else {
-        tNext = Math.max(time, prev.t);
-        cNext = prev.c;
-      }
-      let guard = 0;
-      const maxSteps = Math.max(96, rowSyllables * 16);
-      while (guard < maxSteps) {
-        guard += 1;
-        const allowAtChunkEnd = isMasterTrack ? tNext < voiceChunkEnd - EPS : tNext <= voiceChunkEnd + EPS;
-        if (!allowAtChunkEnd) break;
-        scheduleGridCellAtTime(barIdx, cNext, absR, tNext, voiceIdx, safeStep, dBar);
-        const cAfter = nextPolyCell(barIdx, cNext, rowSyllables);
-        if (cAfter === cNext) break;
-        cNext = cAfter;
-        tNext += dBar;
-      }
-      polyNextBeatRef.current[barIdx] = { t: tNext, c: cNext };
-    });
-    return stepWallSec;
-  }, [getBarTimeWindowSeconds, scheduleGridCellAtTime]);
-
   const scheduler = () => {
     if (!isPlayingRef.current || !audioCtxRef.current) return;
-    if (audioCtxRef.current.currentTime > nextNoteTimeRef.current + 0.5) {
-      nextNoteTimeRef.current = audioCtxRef.current.currentTime + METRA_SCHEDULE_AHEAD_SEC;
-    }
-    while (nextNoteTimeRef.current < audioCtxRef.current.currentTime + METRA_SCHEDULE_AHEAD_SEC) {
-      if (polyModeRef.current) {
-        const stepDuration = schedulePolyStep(currentStepRef.current, nextNoteTimeRef.current);
-        nextNoteTimeRef.current += stepDuration;
-        const chunkCount = Math.max(1, polyChunksRef.current.length);
-        currentStepRef.current = (currentStepRef.current + 1) % chunkCount;
-      } else {
+    const ctx = audioCtxRef.current;
+    if (polyModeRef.current) {
+      const poly = getPolySubLegacyScheduler();
+      const minT = poly.getMinNextTime();
+      if (Number.isFinite(minT) && minT !== Infinity && ctx.currentTime > minT + 0.5) {
+        const r = ctx.currentTime + METRA_SCHEDULE_AHEAD_SEC;
+        for (const L of poly.lanes) {
+          if (L.barIndices.length > 0) {
+            L.nextTime = Math.max(L.nextTime, r);
+          }
+        }
+      }
+      poly.fillLookahead(ctx.currentTime + METRA_SCHEDULE_AHEAD_SEC);
+    } else {
+      if (ctx.currentTime > nextNoteTimeRef.current + 0.5) {
+        nextNoteTimeRef.current = ctx.currentTime + METRA_SCHEDULE_AHEAD_SEC;
+      }
+      while (nextNoteTimeRef.current < ctx.currentTime + METRA_SCHEDULE_AHEAD_SEC) {
         scheduleNote(currentStepRef.current, playAbsBarRef.current, nextNoteTimeRef.current);
         nextNote();
       }
@@ -4825,8 +4839,7 @@ export default function App() {
       clearPendingGridClickTimers();
       gridPreviewAudioActiveRef.current = false;
       polyClickSlotsRef.current.clear();
-      polyNextBeatRef.current = {};
-      polyBarLastScheduleWallTimeRef.current = {};
+      polySubLegacyRef.current = null;
       currentStepRef.current = 0; // Reset pattern position to start
       if (timerIDRef.current) clearTimeout(timerIDRef.current);
       if (squareHoldTimerRef.current !== null) {
@@ -4878,8 +4891,7 @@ export default function App() {
       setActivePositions([]);
       coldStartRef.current = true; // Mark cold start
       if (polyModeRef.current) {
-        const startChunk = polyChunksRef.current[currentStepRef.current];
-        playAbsBarRef.current = startChunk?.[0] ?? 0;
+        playAbsBarRef.current = 0;
       } else {
         const startSeqItem = sequenceRef.current[currentStepRef.current];
         playAbsBarRef.current = startSeqItem ? startSeqItem.r : 0;
@@ -4912,9 +4924,11 @@ export default function App() {
       }
       clearPendingGridClickTimers();
       polyClickSlotsRef.current.clear();
-      polyNextBeatRef.current = {};
-      polyBarLastScheduleWallTimeRef.current = {};
+      polySubLegacyRef.current = null;
       nextNoteTimeRef.current = audioCtxRef.current.currentTime + METRA_SCHEDULE_AHEAD_SEC;
+      if (polyModeRef.current) {
+        getPolySubLegacyScheduler().reset(nextNoteTimeRef.current);
+      }
       scheduler();
     }
   };
