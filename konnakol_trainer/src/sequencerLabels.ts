@@ -207,11 +207,11 @@ export function getSyllableStyles(rowSylls: number, cellSubdivs: number = 1): st
 	else if (cellSubdivs >= 5 && cellSubdivs <= 6) pseudoSylls = rowSylls * 2.5;
 	else if (cellSubdivs >= 7) pseudoSylls = rowSylls * 3;
 
-	if (pseudoSylls >= 20) return 'text-[6px] font-black tracking-tighter leading-none';
-	if (pseudoSylls >= 14) return 'text-[7px] font-black tracking-tighter leading-none';
-	if (pseudoSylls >= 12) return 'text-[8px] font-extrabold tracking-tight leading-none';
-	if (pseudoSylls >= 9) return 'text-[9px] font-extrabold tracking-tight leading-none';
-	if (pseudoSylls >= 7) return 'text-[10px] font-bold tracking-tight leading-none';
-	if (pseudoSylls >= 5) return 'text-[11px] font-bold tracking-normal leading-none';
-	return 'text-sm font-bold tracking-wide leading-none';
+	if (pseudoSylls >= 20) return 'text-[6px] font-semibold tracking-tighter leading-none';
+	if (pseudoSylls >= 14) return 'text-[7px] font-semibold tracking-tighter leading-none';
+	if (pseudoSylls >= 12) return 'text-[8px] font-medium tracking-tight leading-none';
+	if (pseudoSylls >= 9) return 'text-[9px] font-medium tracking-tight leading-none';
+	if (pseudoSylls >= 7) return 'text-[10px] font-medium tracking-tight leading-none';
+	if (pseudoSylls >= 5) return 'text-[11px] font-medium tracking-normal leading-none';
+	return 'text-sm font-medium tracking-wide leading-none';
 }
