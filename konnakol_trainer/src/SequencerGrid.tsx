@@ -2,14 +2,28 @@ import React, { useMemo, useCallback, useRef } from 'react';
 import { buildRowCellSyllableLabels, getSyllableStyles, type KalamMap } from './sequencerLabels';
 import type { PlayheadPosition } from './playheadTypes';
 
-/** Long-press по клетке: Ta (1) → Ta Ka (2) → триоль Ta Ta Ka (3) → Ta Ka Dhi Mi (4) → снова Ta. */
-function nextSubdivLongPress(current: number): number {
-	const c = current >= 1 && current <= 9 ? current : 1;
-	if (c === 1) return 2;
-	if (c === 2) return 3;
-	if (c === 3) return 4;
-	if (c >= 4 && c < 9) return c + 1;
-	return 1;
+/** Доступные поддоли для long-press: в свернутом UI только 2/3/4, в развернутом — 2..9. */
+function allowedSubdivisions(panelExpanded: boolean): number[] {
+	return panelExpanded ? [2, 3, 4, 5, 6, 7, 8, 9] : [2, 3, 4];
+}
+
+/** Следующее значение в цикле доступных поддолей. */
+function nextSubdivLongPress(current: number, panelExpanded: boolean): number {
+	const allowed = allowedSubdivisions(panelExpanded);
+	const idx = allowed.indexOf(current);
+	if (idx < 0) return allowed[0]!;
+	return allowed[(idx + 1) % allowed.length]!;
+}
+
+/** Сдвиг поддоли на delta шагов в доступном цикле (для жеста вверх/вниз). */
+function stepSubdivByDelta(base: number, delta: number, panelExpanded: boolean): number {
+	const allowed = allowedSubdivisions(panelExpanded);
+	const len = allowed.length;
+	if (len === 0) return 2;
+	const baseIdxRaw = allowed.indexOf(base);
+	const baseIdx = baseIdxRaw >= 0 ? baseIdxRaw : 0;
+	const idx = ((baseIdx + delta) % len + len) % len;
+	return allowed[idx]!;
 }
 
 /** Poly play: голос 0 — emerald; 1 — sky; 2 — violet; 3+ — amber (отличие от первого). */
@@ -137,6 +151,13 @@ export type SequencerGridRowActions = {
 	customSyllablesRef: React.MutableRefObject<Record<number, number>>;
 	customMultipliersRef: React.MutableRefObject<Record<number, number>>;
 	pulseMeterUnlinkedRef: React.MutableRefObject<Record<number, boolean>>;
+	subdivHoldSessionRef: React.MutableRefObject<{
+		key: string;
+		startY: number;
+		baseSubdiv: number;
+		lastDeltaSteps: number;
+		panelExpanded: boolean;
+	} | null>;
 };
 
 type SequencerGridRowProps = {
@@ -533,13 +554,23 @@ const SequencerGridRow = React.memo(
 										return;
 									}
 									a.isHoldingRef.current = false;
+									a.subdivHoldSessionRef.current = null;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
 									a.holdTimerRef.current = window.setTimeout(() => {
 										a.isHoldingRef.current = true;
+										const panelExpanded = a.isPanelExpandedRef.current;
 										a.setCustomSubdivisions((prev) => {
 											const current = prev[checkKey] || 1;
-											const next = nextSubdivLongPress(current);
-											return { ...prev, [checkKey]: next };
+											const next = nextSubdivLongPress(current, panelExpanded);
+											const out = { ...prev, [checkKey]: next };
+											a.subdivHoldSessionRef.current = {
+												key: checkKey,
+												startY: e.clientY,
+												baseSubdiv: next,
+												lastDeltaSteps: 0,
+												panelExpanded,
+											};
+											return out;
 										});
 										if (a.isPanelExpandedRef.current && !a.showRandomSettingsRef.current) {
 											a.setActiveEditRow(null);
@@ -548,12 +579,30 @@ const SequencerGridRow = React.memo(
 										}
 									}, 400);
 								}}
+								onPointerMove={(e) => {
+									const a = actionsRef.current;
+									if (!a) return;
+									const s = a.subdivHoldSessionRef.current;
+									if (!s || !a.isHoldingRef.current) return;
+									if (s.key !== checkKey) return;
+									const pxPerStep = 16;
+									const dy = e.clientY - s.startY;
+									const deltaSteps = Math.trunc(dy / pxPerStep);
+									if (deltaSteps === s.lastDeltaSteps) return;
+									s.lastDeltaSteps = deltaSteps;
+									a.setCustomSubdivisions((prev) => {
+										const next = stepSubdivByDelta(s.baseSubdiv, deltaSteps, s.panelExpanded);
+										if ((prev[checkKey] || 1) === next) return prev;
+										return { ...prev, [checkKey]: next };
+									});
+								}}
 								onPointerUp={(e) => {
 									const a = actionsRef.current;
 									if (!a) return;
 									const btn = e.currentTarget as HTMLButtonElement;
 									if (btn.hasPointerCapture(e.pointerId)) btn.releasePointerCapture(e.pointerId);
 									a.deadSwipeSessionRef.current = null;
+									a.subdivHoldSessionRef.current = null;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
 								}}
 								onPointerCancel={(e) => {
@@ -562,11 +611,13 @@ const SequencerGridRow = React.memo(
 									const btn = e.currentTarget as HTMLButtonElement;
 									if (btn.hasPointerCapture(e.pointerId)) btn.releasePointerCapture(e.pointerId);
 									a.deadSwipeSessionRef.current = null;
+									a.subdivHoldSessionRef.current = null;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
 								}}
 								onPointerLeave={() => {
 									const a = actionsRef.current;
 									if (!a) return;
+									a.subdivHoldSessionRef.current = null;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
 								}}
 								onClick={() => {

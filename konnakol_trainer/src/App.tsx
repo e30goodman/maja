@@ -2876,6 +2876,14 @@ export default function App() {
 
   /** Long-press по клетке такта (поддоли). */
   const holdTimerRef = useRef<number | null>(null);
+  /** Активная сессия long-press поддолей (для вертикального пролистывания пульса). */
+  const subdivHoldSessionRef = useRef<{
+    key: string;
+    startY: number;
+    baseSubdiv: number;
+    lastDeltaSteps: number;
+    panelExpanded: boolean;
+  } | null>(null);
   /** Long-press по числу слогов в такте: gati / пульс от четвёрки (не смешивать с holdTimerRef клеток). */
   const pulseUnlinkHoldTimerRef = useRef<number | null>(null);
   /** Следующий click по кнопке пульса — только «съесть» после long-press unlink (не путать с isHoldingRef от сетки). */
@@ -5533,6 +5541,7 @@ export default function App() {
     customSyllablesRef,
     customMultipliersRef,
     pulseMeterUnlinkedRef,
+    subdivHoldSessionRef,
   };
 
   /** Квадрат: заливка/бордер по циклу all / accent / Ta-only; при диктанте — +teal ring (не затирать режим). */
