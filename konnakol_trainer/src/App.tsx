@@ -24,6 +24,13 @@ import {
 } from './polySubLegacyScheduler';
 import type { PlayheadHighlightEvent, PlayheadPosition } from './playheadTypes';
 import { createPolySubLegacyLaneIndicatorStore } from './polySubLegacyLaneIndicatorStore';
+import {
+	applyRandomizerEffectsToBar,
+	buildLegacyPlaybackSequence,
+	mulberry32,
+	type BarRandomizerMutable,
+	type DeadCellsMap,
+} from './randomLogic';
 
 function buildPolyChunks(barCount: number, voiceCount: number): number[][] {
 	const safeBars = Math.max(0, Math.floor(barCount));
@@ -53,7 +60,6 @@ function insertPlayheadSorted(queue: PlayheadHighlightEvent[], ev: PlayheadHighl
 	queue.splice(lo, 0, ev);
 }
 
-const CHAOS_SLIDER_MAX = 100;
 /** При «отвязке» пульса от числа долей такта длительность шага считается как при 4 долях (квартальная сетка). */
 const PULSE_METER_BASE_SYLLABLES = 4;
 
@@ -82,55 +88,6 @@ function normalizePulseMeterUnlinked(raw: unknown): Record<number, boolean> {
 	}
 	return out;
 }
-/** Random pulsation: пул по chaos; пульсации 1 и 2 (Ta) с сильно пониженным весом к 3–9. */
-const RANDOM_PULSE_POOL_LE_30 = [1, 2, 3, 4, 5] as const;
-const RANDOM_PULSE_POOL_LE_70 = [1, 2, 3, 4, 5, 6, 7] as const;
-const RANDOM_PULSE_POOL_FULL = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
-/** Вес пульсации 1 vs остальные (=1), кроме 2 — отдельно. */
-const RANDOM_PULSE_1_WEIGHT = 0.06;
-/** Вес пульсации 2 (Ta): как у 1 — редко относительно 3–9. */
-const RANDOM_PULSE_2_WEIGHT = 0.06;
-
-function pickRandomPulsationMeter(chaos: number): number {
-	const c = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
-	const pool =
-		c <= 30 ? RANDOM_PULSE_POOL_LE_30 : c <= 70 ? RANDOM_PULSE_POOL_LE_70 : RANDOM_PULSE_POOL_FULL;
-	let sum = 0;
-	const w: number[] = [];
-	for (const v of pool) {
-		const wi = v === 1 ? RANDOM_PULSE_1_WEIGHT : v === 2 ? RANDOM_PULSE_2_WEIGHT : 1;
-		w.push(wi);
-		sum += wi;
-	}
-	let r = Math.random() * sum;
-	for (let i = 0; i < pool.length; i++) {
-		r -= w[i]!;
-		if (r <= 0) return pool[i]!;
-	}
-	return pool[pool.length - 1]!;
-}
-
-/** Доля акцентуемых долей: 0→0, 25→25%, 50→50%, 75→75%, 100→90% (кусочно-линейно). */
-function accentFillRatioFromChaos(c: number): number {
-	const x = Math.max(0, Math.min(CHAOS_SLIDER_MAX, c));
-	if (x <= 25) return 0.25 * (x / 25);
-	if (x <= 50) return 0.25 + (x - 25) * (0.25 / 25);
-	if (x <= 75) return 0.5 + (x - 50) * (0.25 / 25);
-	return 0.75 + (x - 75) * (0.15 / 25);
-}
-
-/** Random pulsation (длина такта / поддоли): chaos≤30 → 1–5; 31–70 → 1–7; >70 → 1–9; 1 и 2 редки. */
-function pickWeightedMeter2to9(chaos: number): number {
-	return pickRandomPulsationMeter(chaos);
-}
-
-const CELL_SPEED_RANDOM_POOL = [2, 3, 4] as const;
-
-/** Random Speed (cell speed): только поддоли 2, 3 или 4. */
-function pickRandomCellSpeedSubdiv(): number {
-	return CELL_SPEED_RANDOM_POOL[Math.floor(Math.random() * CELL_SPEED_RANDOM_POOL.length)]!;
-}
-
 function parsePolyVoices(raw: unknown): 2 | 3 | 4 {
 	const n = parseInt(String(raw), 10);
 	// return n === 3 || n === 4 ? n : 2;
@@ -184,214 +141,6 @@ function snapBarsToPolyGrid(raw: number, polyActive: boolean, voices: 2 | 3 | 4)
 		if (snapped < minBars) snapped = minBars;
 	}
 	return snapped;
-}
-
-/**
- * Доля долей такта, в которых random speed выставляет новую поддоль (остальные сбрасываются в дефолт).
- * Используется только при chaos > 25: chaos 26–33 → 33%; 34–66 → 66%; 67–89 → линейно 66%→100%; ≥90 → 100%.
- * При chaos 0–25 см. ветку в планировщике: не более одной ячейки на такт.
- */
-function cellSpeedFillFractionFromChaos(chaos: number): number {
-	const c = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
-	if (c <= 33) return 0.33;
-	if (c <= 66) return 0.66;
-	if (c >= 90) return 1;
-	return 0.66 + ((c - 66) / (90 - 66)) * (1 - 0.66);
-}
-
-function pickAccentCountForBar(chaos: number, curSyl: number): number {
-	const x = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
-	if (curSyl < 1) return 0;
-	const minAcc = Math.min(curSyl, x > 15 ? 2 : 1);
-	const maxCap = Math.min(curSyl, Math.max(minAcc, Math.floor(curSyl * 0.9)));
-	const ratio = accentFillRatioFromChaos(x);
-	const cap = Math.floor(curSyl * ratio);
-	const spread = 1 + Math.floor(curSyl * 0.12);
-	const jitter = Math.floor((Math.random() - 0.5) * spread);
-	let n = Math.max(0, Math.min(curSyl, cap + jitter));
-	n = Math.min(maxCap, Math.max(minAcc, n));
-	return n;
-}
-
-function pickBarSpeedMultiplier(chaos: number): number {
-	const c = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
-	if (c <= 40) return 1;
-	if (c <= 70) {
-		const p2 = ((c - 40) / 30) * 0.5;
-		return Math.random() < p2 ? 2 : 1;
-	}
-	const t = (c - 70) / 30;
-	const w1 = 0.38 * (1 - t) + 0.1;
-	const w2 = 0.32 + 0.06 * t;
-	const w3 = 0.15 * t + 0.05;
-	const w4 = 0.15 * t + 0.05;
-	const tot = w1 + w2 + w3 + w4;
-	let r = Math.random() * tot;
-	if ((r -= w1) <= 0) return 1;
-	if ((r -= w2) <= 0) return 2;
-	if ((r -= w3) <= 0) return 3;
-	return 4;
-}
-
-type BarRandomizerMutable = {
-	customSyllables: Record<number, number>;
-	accents: Set<string>;
-	customSubdivisions: Record<string, number>;
-	customMultipliers: Record<number, number>;
-	deadCells: DeadCellsMap;
-};
-
-type DeadCellsMap = Record<number, { deadStart: number; displayLen: number; baseLen: number }>;
-
-type SequencerSeqItem = { r: number; c: number; activeSyllables: number };
-
-/**
- * Порядок долей в legacy (не poly): только живые клетки `c < deadStart`.
- * Иначе мёртвые слоги занимают время в `nextNote`, хотя клик уже глушится в `emitGridSubAudio`.
- */
-function buildLegacyPlaybackSequence(
-	barCount: number,
-	customSyllables: Record<number, number>,
-	baseSyllables: number,
-	deadCells: DeadCellsMap,
-): SequencerSeqItem[] {
-	const seq: SequencerSeqItem[] = [];
-	for (let r = 0; r < barCount; r++) {
-		const syls = customSyllables[r] !== undefined ? customSyllables[r] : baseSyllables;
-		const ds = deadCells[r]?.deadStart;
-		const lastLiveExclusive =
-			typeof ds === 'number' ? Math.min(Math.max(0, Math.floor(ds)), syls) : syls;
-		for (let c = 0; c < lastLiveExclusive; c++) {
-			seq.push({ r, c, activeSyllables: syls });
-		}
-	}
-	return seq;
-}
-
-/** Одна итерация рандома на такт `prevBar` (как на границе такта в плеере). */
-function applyRandomizerEffectsToBar(
-	prevBar: number,
-	chaos: number,
-	randomPulsation: boolean,
-	randomPattern: boolean,
-	randomSpeed: boolean,
-	randomBarSpeed: boolean,
-	onlyAccents: boolean,
-	syllablesDefault: number,
-	m: BarRandomizerMutable,
-): boolean {
-	let didChange = false;
-
-	if (randomPulsation) {
-		m.customSyllables[prevBar] = pickWeightedMeter2to9(chaos);
-		didChange = true;
-	}
-
-	const curSyl = m.customSyllables[prevBar] ?? syllablesDefault;
-
-	if (randomPattern) {
-		for (let i = 0; i < 9; i++) m.accents.delete(`${prevBar}-${i}`);
-		const candidates = Array.from({ length: curSyl }, (_, i) => i).sort(() => Math.random() - 0.5);
-		const fillCount = pickAccentCountForBar(chaos, curSyl);
-		for (let i = 0; i < fillCount; i++) {
-			m.accents.add(`${prevBar}-${candidates[i]}`);
-		}
-		didChange = true;
-	}
-
-	if (randomSpeed) {
-		const curSylSpeed = m.customSyllables[prevBar] ?? syllablesDefault;
-		const candidates = onlyAccents
-			? Array.from({ length: curSylSpeed }, (_, i) => i).filter((i) => m.accents.has(`${prevBar}-${i}`))
-			: Array.from({ length: curSylSpeed }, (_, i) => i);
-		for (let i = 0; i < 9; i++) delete m.customSubdivisions[`${prevBar}-${i}`];
-		if (chaos <= 25) {
-			const pOne = chaos <= 0 ? 0 : chaos / 25;
-			if (candidates.length > 0 && Math.random() < pOne) {
-				const pick = candidates[Math.floor(Math.random() * candidates.length)]!;
-				m.customSubdivisions[`${prevBar}-${pick}`] = pickRandomCellSpeedSubdiv();
-			}
-		} else {
-			const cellSpeedHitP = cellSpeedFillFractionFromChaos(chaos);
-			candidates.forEach((i) => {
-				if (Math.random() < cellSpeedHitP) {
-					m.customSubdivisions[`${prevBar}-${i}`] = pickRandomCellSpeedSubdiv();
-				}
-			});
-		}
-		didChange = true;
-	}
-
-	if (randomBarSpeed) {
-		// Dead Cells random:
-		// 1) базовая плотность как у accents (через pickAccentCountForBar),
-		// 2) до 50 chaos используем мягкое распределение: в основном 0, реже 1, очень редко 2,
-		// 3) с 70+ chaos лимит dead-клеток растет по экспоненте,
-		// 4) шанс полного отсутствия dead-cells:
-		//    chaos < 50  -> 70%
-		//    50..69      -> 30%
-		const baseActive = Math.max(1, Math.min(curSyl, pickAccentCountForBar(chaos, curSyl)));
-		const maxDeadPossible = Math.max(0, curSyl - 1); // минимум одна активная клетка должна остаться.
-		if (maxDeadPossible <= 0) {
-			delete m.deadCells[prevBar];
-			didChange = true;
-			return didChange;
-		}
-		const flatCap = Math.min(2, maxDeadPossible);
-		if (chaos < 50) {
-			const t = Math.max(0, Math.min(1, chaos / 50));
-			// На низком хаосе: 0 доминирует; 1 встречается редко; 2 — очень редко.
-			const p0 = 0.9 - 0.2 * t; // 90% -> 70%
-			const p1 = 0.09 + 0.16 * t; // 9% -> 25%
-			const p2 = 1 - p0 - p1; // 1% -> 5%
-			const roll = Math.random();
-			const deadCountSoft = roll < p0 ? 0 : roll < p0 + p1 ? 1 : 2;
-			const deadCount = Math.min(deadCountSoft, flatCap);
-			const activeCount = Math.max(1, curSyl - deadCount);
-			if (activeCount >= curSyl) {
-				delete m.deadCells[prevBar];
-			} else {
-				m.deadCells[prevBar] = {
-					deadStart: activeCount,
-					displayLen: curSyl,
-					baseLen: curSyl,
-				};
-			}
-			didChange = true;
-			return didChange;
-		}
-		const noDeadChance = chaos < 70 ? 0.3 : 0;
-		if (noDeadChance > 0 && Math.random() < noDeadChance) {
-			delete m.deadCells[prevBar];
-			didChange = true;
-			return didChange;
-		}
-		const maxDeadForChaos = (() => {
-			if (chaos < 70) return flatCap;
-			const tail = Math.max(0, Math.min(1, (chaos - 70) / 30));
-			// Экспоненциальная кривая 0..1 с быстрым ростом ближе к 100.
-			const exp01 = Math.expm1(3 * tail) / Math.expm1(3);
-			// На 100% chaos цель: ~80% мертвых клеток в такте (с учетом дискретности длины).
-			const deadAt100 = Math.min(maxDeadPossible, Math.max(flatCap, Math.floor(curSyl * 0.8)));
-			return Math.max(flatCap, Math.min(deadAt100, Math.round(flatCap + exp01 * (deadAt100 - flatCap))));
-		})();
-		const baseDead = Math.max(0, curSyl - baseActive);
-		// Для high-chaos (>70) приоритет у целевой dead-кривой, а не у акцентной плотности.
-		const deadCount = chaos >= 70 ? maxDeadForChaos : Math.min(baseDead, maxDeadForChaos);
-		const activeCount = Math.max(1, curSyl - deadCount);
-		if (activeCount >= curSyl) {
-			delete m.deadCells[prevBar];
-		} else {
-			m.deadCells[prevBar] = {
-				deadStart: activeCount,
-				displayLen: curSyl,
-				baseLen: curSyl,
-			};
-		}
-		didChange = true;
-	}
-
-	return didChange;
 }
 
 const SNAPSHOT_SLOT_COUNT = 7;
@@ -3116,24 +2865,106 @@ export default function App() {
     frozenScaleRef.current = null;
   };
 
+  /**
+   * Chaos-слайдер только меняет `chaosLevel`. Тумблеры Pulsation/BarSpeed/Pattern/Speed —
+   * исключительно по воле пользователя. Плавность усложнения реализована per-axis probability
+   * gate в `applyRandomizerEffectsToBar` (см. *ChangeProbFromChaos + Markov-bias).
+   *
+   * Manual drag (этот обработчик) дополнительно **выключает** chaos auto-ramp —
+   * ученик берёт управление назад. Ramp изменяет chaos через `advanceChaosRampOneStep`
+   * (минуя этот хендлер), так что его собственные setChaosLevel ramp сюда не попадают.
+   */
   const handleChaosSliderChange = (raw: number) => {
     const nextChaos = Math.max(0, Math.min(100, Math.round(raw)));
     if (nextChaos === chaosLevelRef.current) return;
     chaosLevelRef.current = nextChaos;
     setChaosLevel(nextChaos);
-
-    const shouldPulsation = nextChaos > 30;
-    if (randomPulsationRef.current !== shouldPulsation) {
-      randomPulsationRef.current = shouldPulsation;
-      setRandomPulsation(shouldPulsation);
-    }
-
-    const shouldBarSpeed = nextChaos > 50;
-    if (randomBarSpeedRef.current !== shouldBarSpeed) {
-      randomBarSpeedRef.current = shouldBarSpeed;
-      setRandomBarSpeed(shouldBarSpeed);
+    if (chaosRampActiveRef.current) {
+      chaosRampActiveRef.current = false;
+      setChaosRampActive(false);
     }
   };
+
+  /**
+   * Bars per +1 chaos (learning-curve): быстрый warmup (4 bars/step в 0..30),
+   * долгое освоение в зоне обучения (~16 bars/step в 30..70), плавное восхождение
+   * (~4 bars/step к 100). Ease-in-out через smoothstep от "дистанции до середины 50".
+   */
+  const barsPerChaosStep = useCallback((cur: number): number => {
+    const x = Math.max(0, Math.min(100, cur)) / 100;
+    const mid = 1 - Math.abs(1 - 2 * x); // треугольник 0 → 1 → 0, пик на x=0.5
+    const eased = mid * mid * (3 - 2 * mid); // smoothstep → мягкие переходы
+    return Math.round(4 + eased * 12); // 4..16 bars per +1
+  }, []);
+
+  const activateChaosRamp = useCallback(() => {
+    chaosRampActiveRef.current = true;
+    setChaosRampActive(true);
+    chaosRampBarsToNextStepRef.current = barsPerChaosStep(chaosLevelRef.current);
+  }, [barsPerChaosStep]);
+
+  const deactivateChaosRamp = useCallback(() => {
+    if (!chaosRampActiveRef.current) return;
+    chaosRampActiveRef.current = false;
+    setChaosRampActive(false);
+  }, []);
+
+  /** Один тик ramp'а на границе такта — декремент счётчика и инкремент chaos при нуле. */
+  const advanceChaosRampOneStep = useCallback(() => {
+    if (!chaosRampActiveRef.current) return;
+    chaosRampBarsToNextStepRef.current -= 1;
+    if (chaosRampBarsToNextStepRef.current > 0) return;
+    const cur = chaosLevelRef.current;
+    if (cur >= 100) {
+      chaosRampActiveRef.current = false;
+      setChaosRampActive(false);
+      return;
+    }
+    const next = cur + 1;
+    chaosLevelRef.current = next;
+    setChaosLevel(next);
+    chaosRampBarsToNextStepRef.current = barsPerChaosStep(next);
+  }, [barsPerChaosStep]);
+
+  /** Long-press hold-detect: 600ms без drag-движения > 3px → активация ramp. */
+  const CHAOS_RAMP_HOLD_MS = 600;
+  const CHAOS_RAMP_MOVE_CANCEL_PX = 3;
+
+  const cancelChaosRampPress = useCallback(() => {
+    if (chaosRampPressTimerRef.current !== null) {
+      window.clearTimeout(chaosRampPressTimerRef.current);
+      chaosRampPressTimerRef.current = null;
+    }
+    chaosRampPointerStartRef.current = null;
+  }, []);
+
+  const handleChaosSliderPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLInputElement>) => {
+      cancelChaosRampPress();
+      if (chaosRampActiveRef.current) {
+        // Ramp активен → любой новый pointerdown сдаёт управление ученику.
+        deactivateChaosRamp();
+        return;
+      }
+      chaosRampPointerStartRef.current = { x: e.clientX, y: e.clientY };
+      chaosRampPressTimerRef.current = window.setTimeout(() => {
+        chaosRampPressTimerRef.current = null;
+        activateChaosRamp();
+      }, CHAOS_RAMP_HOLD_MS);
+    },
+    [activateChaosRamp, cancelChaosRampPress, deactivateChaosRamp],
+  );
+
+  const handleChaosSliderPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLInputElement>) => {
+      const start = chaosRampPointerStartRef.current;
+      if (!start) return;
+      const dx = e.clientX - start.x;
+      const dy = e.clientY - start.y;
+      if (Math.hypot(dx, dy) > CHAOS_RAMP_MOVE_CANCEL_PX) cancelChaosRampPress();
+    },
+    [cancelChaosRampPress],
+  );
 
   const toggleRandomFeature = (feature: 'pulsation' | 'pattern' | 'speed' | 'barSpeed') => {
     let willBeEnabled = false;
@@ -3217,7 +3048,19 @@ export default function App() {
   const randomPatternRef = useRef(randomPattern);
   const randomSpeedRef = useRef(randomSpeed);
   const randomBarSpeedRef = useRef(randomBarSpeed);
+  /** Per-bar seed последнего применённого рандома — для replay такта (mulberry32). */
+  const lastBarSeedRef = useRef<Record<number, number>>({});
   const chaosLevelRef = useRef(chaosLevel);
+  /**
+   * Chaos auto-ramp: long-press на слайдере → chaos сам ползёт к 100 с learning-curve
+   * (ease-in-out: быстрый warmup / долгая зона обучения / плавное восхождение).
+   * Manual drag, pause, randomizer-off или достижение 100 — выключают режим.
+   */
+  const [chaosRampActive, setChaosRampActive] = useState(false);
+  const chaosRampActiveRef = useRef(false);
+  const chaosRampBarsToNextStepRef = useRef(0);
+  const chaosRampPressTimerRef = useRef<number | null>(null);
+  const chaosRampPointerStartRef = useRef<{ x: number; y: number } | null>(null);
   const clickSoundRef = useRef(clickSound);
   const clickSoundByPolyVoiceRef = useRef<ClickSoundByPolyVoice>(clickSoundByPolyVoice);
   /** Последний пресет, для которого вызван cloneClickMixerFromLibrary (см. блок синхронизации в render). */
@@ -3587,20 +3430,28 @@ export default function App() {
     const dc = { ...deadCellsRef.current };
     const acc = new Set<string>(accentsRef.current);
 
+    const nextSeeds: Record<number, number> = {};
     let any = false;
     for (let r = 0; r < nBars; r++) {
+      const seed = (Math.random() * 0xffffffff) >>> 0;
+      nextSeeds[r] = seed;
       if (
-        applyRandomizerEffectsToBar(r, chaos, rp, rpat, rs, rbs, oa, syllablesDefault, {
-          customSyllables: cs,
-          accents: acc,
-          customSubdivisions: cd,
-          customMultipliers: cm,
-          deadCells: dc,
-        })
+        applyRandomizerEffectsToBar(
+          r, chaos, rp, rpat, rs, rbs, oa, syllablesDefault,
+          {
+            customSyllables: cs,
+            accents: acc,
+            customSubdivisions: cd,
+            customMultipliers: cm,
+            deadCells: dc,
+          },
+          mulberry32(seed),
+        )
       ) {
         any = true;
       }
     }
+    lastBarSeedRef.current = { ...lastBarSeedRef.current, ...nextSeeds };
     if (!any) return;
 
     customSyllablesRef.current = cs;
@@ -3617,6 +3468,83 @@ export default function App() {
       setDeadCells({ ...dc });
     });
   }, []);
+
+  /**
+   * Replay одного такта по записанному seed (см. lastBarSeedRef). Используется для debug —
+   * ученик/разработчик может повторить ту же самую мутацию такта для разбора. Подтягивается
+   * через `window.__konnakolDebug.rerollBar(barIndex, seed?)` (см. ниже).
+   */
+  const replayBarRandomizer = useCallback((barIndex: number, overrideSeed?: number): boolean => {
+    const nBars = barsRef.current;
+    if (!Number.isInteger(barIndex) || barIndex < 0 || barIndex >= nBars) return false;
+    const syllablesDefault = syllablesRef.current;
+    const rp = randomPulsationRef.current;
+    const rpat = randomPatternRef.current;
+    const rs = randomSpeedRef.current;
+    const rbs = randomBarSpeedRef.current;
+    const hasAny = rp || rpat || rs || rbs;
+    if (!hasAny) return false;
+
+    const seed =
+      typeof overrideSeed === 'number'
+        ? overrideSeed >>> 0
+        : lastBarSeedRef.current[barIndex] ?? (Math.random() * 0xffffffff) >>> 0;
+    lastBarSeedRef.current[barIndex] = seed;
+
+    const cs = { ...customSyllablesRef.current };
+    const cd = { ...customSubdivisionsRef.current };
+    const cm = { ...customMultipliersRef.current };
+    const dc = { ...deadCellsRef.current };
+    const acc = new Set<string>(accentsRef.current);
+
+    const didChange = applyRandomizerEffectsToBar(
+      barIndex,
+      chaosLevelRef.current,
+      rp, rpat, rs, rbs,
+      onlyAccentsRef.current,
+      syllablesDefault,
+      {
+        customSyllables: cs,
+        accents: acc,
+        customSubdivisions: cd,
+        customMultipliers: cm,
+        deadCells: dc,
+      },
+      mulberry32(seed),
+    );
+    if (!didChange) return false;
+
+    customSyllablesRef.current = cs;
+    customSubdivisionsRef.current = cd;
+    customMultipliersRef.current = cm;
+    deadCellsRef.current = dc;
+    accentsRef.current = acc;
+
+    startTransition(() => {
+      setCustomSyllables({ ...cs });
+      setAccents(new Set(acc));
+      setCustomSubdivisions({ ...cd });
+      setCustomMultipliers({ ...cm });
+      setDeadCells({ ...dc });
+    });
+    return true;
+  }, []);
+
+  /** Debug-handle для воспроизведения такта по записанному seed через консоль. */
+  useEffect(() => {
+    type KonnakolDebug = {
+      rerollBar: (barIndex: number, seed?: number) => boolean;
+      getLastBarSeeds: () => Record<number, number>;
+    };
+    const w = window as unknown as { __konnakolDebug?: KonnakolDebug };
+    w.__konnakolDebug = {
+      rerollBar: (barIndex: number, seed?: number) => replayBarRandomizer(barIndex, seed),
+      getLastBarSeeds: () => ({ ...lastBarSeedRef.current }),
+    };
+    return () => {
+      if (w.__konnakolDebug) delete w.__konnakolDebug;
+    };
+  }, [replayBarRandomizer]);
 
   const stableWindowPointerEnd = useCallback(() => {
     onWindowPointerEndCaptureRef.current();
@@ -4539,6 +4467,8 @@ export default function App() {
             customMultipliers: customMultipliersRef.current,
             deadCells: deadCellsRef.current,
           };
+          const barSeed = (Math.random() * 0xffffffff) >>> 0;
+          lastBarSeedRef.current[prevBar] = barSeed;
           const didChange = applyRandomizerEffectsToBar(
             prevBar,
             chaos,
@@ -4549,6 +4479,7 @@ export default function App() {
             onlyAccentsRef.current,
             syllablesRef.current,
             m,
+            mulberry32(barSeed),
           );
 
           if (didChange) {
@@ -4577,6 +4508,8 @@ export default function App() {
               });
             }, 0);
           }
+          // Chaos auto-ramp: один тик на границу такта (только при включённом рандомайзере).
+          advanceChaosRampOneStep();
         }
       }
 
@@ -4798,6 +4731,8 @@ export default function App() {
   const polyHandleLaneBarBoundary = useCallback((prevBar: number, _laneId: number, _wrappedPattern: boolean) => {
     if (!isPlayingRef.current) return;
     if (!randomModeEnabledRef.current) return;
+    // Chaos auto-ramp: тик только от lane 0 → один инкремент на такт primary-голоса.
+    if (_laneId === 0) advanceChaosRampOneStep();
     const chaos = chaosLevelRef.current;
     const m = {
       customSyllables: customSyllablesRef.current,
@@ -4806,6 +4741,8 @@ export default function App() {
       customMultipliers: customMultipliersRef.current,
       deadCells: deadCellsRef.current,
     };
+    const barSeed = (Math.random() * 0xffffffff) >>> 0;
+    lastBarSeedRef.current[prevBar] = barSeed;
     const didChange = applyRandomizerEffectsToBar(
       prevBar,
       chaos,
@@ -4816,6 +4753,7 @@ export default function App() {
       onlyAccentsRef.current,
       syllablesRef.current,
       m,
+      mulberry32(barSeed),
     );
     if (!didChange) return;
     setTimeout(() => {
@@ -4826,7 +4764,7 @@ export default function App() {
         if (randomBarSpeedRef.current) setDeadCells({ ...deadCellsRef.current });
       });
     }, 0);
-  }, []);
+  }, [advanceChaosRampOneStep]);
 
   const getPolySubLegacyScheduler = useCallback((): PolySubLegacyScheduler => {
     if (!polySubLegacyRef.current) {
@@ -4955,6 +4893,12 @@ export default function App() {
     if (isPlaying) {
       setIsPlaying(false);
       isPlayingRef.current = false;
+      // Chaos auto-ramp: pause/stop всегда выключает автопилот.
+      if (chaosRampActiveRef.current) {
+        chaosRampActiveRef.current = false;
+        setChaosRampActive(false);
+      }
+      cancelChaosRampPress();
       clearTempoHoldRepeat();
       tempoMinusHoldAteClickRef.current = false;
       tempoPlusHoldAteClickRef.current = false;
@@ -5522,17 +5466,37 @@ export default function App() {
                       </span>
                       <span className="text-purple-300 font-mono text-xs font-bold">{chaosLevel}</span>
                      </div>
-                     <input 
-                        type="range" 
+                    <div className="relative w-full flex items-center">
+                    <input 
+                       type="range" 
                       min={0}
                       max={100}
                       value={chaosLevel}
                       onChange={(e) => handleChaosSliderChange(parseInt(e.target.value, 10))}
-                      onPointerUp={() => flushChaosToActiveSnapshot()}
-                      onPointerCancel={() => flushChaosToActiveSnapshot()}
+                      onPointerDown={handleChaosSliderPointerDown}
+                      onPointerMove={handleChaosSliderPointerMove}
+                      onPointerUp={() => {
+                        cancelChaosRampPress();
+                        flushChaosToActiveSnapshot();
+                      }}
+                      onPointerCancel={() => {
+                        cancelChaosRampPress();
+                        flushChaosToActiveSnapshot();
+                      }}
                       onBlur={() => flushChaosToActiveSnapshot()}
                         className="w-full h-2 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110"
                       />
+                      {chaosRampActive ? (
+                        <span
+                          aria-hidden
+                          className="pointer-events-none absolute top-1/2 w-4 h-4 rounded-full -translate-y-1/2 -translate-x-1/2"
+                          style={{ left: `calc(8px + (100% - 16px) * ${chaosLevel / 100})` }}
+                        >
+                          <span className="absolute inset-0 rounded-full bg-purple-400/70 animate-ping" />
+                          <span className="absolute inset-0 rounded-full ring-2 ring-purple-300/60" />
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
 
                   <div className="w-full h-px bg-[#1e2a45]/80 my-0.5"></div>
