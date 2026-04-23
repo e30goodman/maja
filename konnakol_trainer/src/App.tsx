@@ -6557,12 +6557,7 @@ export default function App() {
                   <div className="flex flex-col gap-2">
                     {/* Сценарий урока: пресет задаёт пул мутаций автоматически (см. parentModeUi). */}
                     <div className="flex flex-col gap-1.5 pt-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-[10px] font-bold tracking-wider uppercase text-slate-400">
-                          Style
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
+                      <div className="grid grid-cols-2 gap-2">
                         {ALL_FORM_PRESETS.map((p) => {
                           const on = formPresetId === p;
                           return (
@@ -6570,7 +6565,7 @@ export default function App() {
                               key={p}
                               type="button"
                               onClick={() => setFormPresetId(p)}
-                              className={`py-1.5 rounded-md text-[10px] font-bold transition-all duration-150 border leading-tight ${
+                              className={`flex items-center justify-center py-2 rounded-lg text-xs font-bold transition-all duration-200 border ${
                                 on
                                   ? 'bg-purple-600/20 border-purple-500/50 text-purple-300'
                                   : 'bg-[#1a253c]/40 border-[#23314f] text-slate-500 hover:text-slate-400 hover:bg-[#1a253c]/80'
