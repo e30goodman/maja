@@ -15,7 +15,11 @@ import {
 	ClipboardPaste,
 } from 'lucide-react';
 import { SequencerGrid, type SequencerGridRowActions } from './SequencerGrid';
-import { getMetronomeSummingInput, METRA_LOOKAHEAD_MS, METRA_SCHEDULE_AHEAD_SEC } from './metraAudioBus';
+import {
+	getMetraSchedulerConfig,
+	getMetronomeSummingInput,
+	type MetraSchedulerProfile,
+} from './metraAudioBus';
 import { applyVoiceGroupChain, getVoiceLayerSumInput, type MetroVoiceKey } from './metroSoundBus';
 import { metroEnvelopeEndFromPeak, scheduleLayerToBus } from './metroLayerGraph';
 import {
@@ -124,7 +128,9 @@ type PolyVoiceTarget = 0 | 1 | 2 | 3;
 type LaneId = 0 | 1 | 2;
 type LaneSetMap = Record<LaneId, Set<string>>;
 type LaneBoolMap = Record<LaneId, boolean>;
+type FirstBeatHitPolicy = 'legacy' | 'explicit_any' | 'explicit_ta_only';
 type ClickSoundByPolyVoice = Partial<Record<PolyVoiceTarget, ClickSoundPreset>>;
+type PolyVoiceGainMap = Record<0 | 1 | 2, number>;
 
 function normalizeClickSoundByPolyVoice(raw: unknown): ClickSoundByPolyVoice {
 	const out: ClickSoundByPolyVoice = {};
@@ -210,6 +216,38 @@ function distributeSetToLanes(set: Set<string>, bars: number, voices: 2 | 3 | 4)
 	return out;
 }
 
+function resolveFirstBeatHitRow(
+	policy: FirstBeatHitPolicy,
+	on0Accent: boolean,
+	on0Ding: boolean,
+	firstBeatEnabled: boolean,
+	suppressedRow: boolean,
+): boolean {
+	if (policy === 'explicit_ta_only') return on0Ding;
+	if (policy === 'explicit_any') return on0Accent || on0Ding;
+	return on0Accent || on0Ding || (firstBeatEnabled && !suppressedRow);
+}
+
+function resolveRuntimeFirstBeatPolicy(isPoly: boolean, laneId: LaneId): FirstBeatHitPolicy {
+	if (!isPoly) return 'legacy';
+	return laneId === 0 ? 'legacy' : 'explicit_ta_only';
+}
+
+function normalizeSuppressedRows(raw: unknown, bars: number): Set<number> {
+	const source: unknown[] =
+		raw instanceof Set
+			? [...raw]
+			: Array.isArray(raw)
+				? raw
+				: [];
+	const out = new Set<number>();
+	for (const x of source) {
+		const r = parseInt(String(x), 10);
+		if (Number.isFinite(r) && r >= 0 && r < bars) out.add(r);
+	}
+	return out;
+}
+
 /**
  * При включённом poly: число тактов кратно числу голосов (3 → 3,6,9,…; иначе 2 → 2,4,…).
  * Без poly — только clamp 1..100.
@@ -238,6 +276,8 @@ const SNAPSHOT_STORAGE_KEY = 'konnakolTrainerSnapshotsV1';
 const LITE_UI_STORAGE_KEY = 'konnakol_lite_ui';
 const POLY_MODE_STORAGE_KEY = 'konnakol_poly_mode';
 const POLY_VOICES_STORAGE_KEY = 'konnakol_poly_voices';
+const POLY_VOICE_GAINS_STORAGE_KEY = 'konnakol_poly_voice_gains';
+const DEFAULT_POLY_VOICE_GAINS: PolyVoiceGainMap = { 0: 1, 1: 1, 2: 1 };
 const APP_COMMIT_VERSION = (() => {
 	if (typeof __GIT_SHA7__ === 'string' && __GIT_SHA7__.length >= 7) return __GIT_SHA7__.slice(0, 7);
 	return 'dev';
@@ -247,7 +287,7 @@ const TEMPO_THROTTLE_MS = 56;
 const TEMPO_HOLD_REPEAT_MS = 100;
 const TEMPO_HOLD_REPEAT_STEP = 5;
 /** Long press on tempo slider track (without much move) → inline BPM on thumb. */
-const TEMPO_MANUAL_HOLD_MS = 800;
+const TEMPO_MANUAL_HOLD_MS = 2000;
 const TEMPO_MANUAL_MAX_MOVE_PX = 14;
 /** Clipboard export: kawaii magic marker for compact preset payload. */
 const SNAPSHOT_CLIPBOARD_MARKER = '(⁠ʘ⁠ᴗ⁠ʘ⁠)⁠♪:';
@@ -288,10 +328,49 @@ const CLICK_ENV_ATTACK_SEC = 0.002;
 const CLICK_LAYER_VOLUME_GATE = 0.001;
 const CLICK_DECAY_MIN_SEC = 0.001;
 const CLICK_DECAY_MAX_SEC = 3;
-/** Отложенный щелчок: ref-read максимально близко к атаке (квадрат / диктант mid-beat). */
-const GRID_CLICK_AUDIO_DEFER_LEAD_SEC = 0.0016;
-/** Если до атаки меньше — без setTimeout (снижает гонки с poly lookahead). */
-const GRID_CLICK_DEFER_IF_AHEAD_SEC = 0.0035;
+const AUDIO_SCHEDULER_DEFER_SUB_HIT = false;
+const AUDIO_TIMING_METRICS_ENABLED = true;
+const AUDIO_TIMING_METRICS_LOG_EVERY_MS = 15000;
+const DEFAULT_SCHEDULER_PROFILE: MetraSchedulerProfile = 'safe';
+
+type TimingDomain = 'mono' | 'poly';
+
+type AudioTimingMetrics = {
+	enabled: boolean;
+	logEveryMs: number;
+	scheduledEvents: number;
+	lateEvents: number;
+	droppedEvents: number;
+	recoveryCount: number;
+	maxLatenessSec: number;
+	maxLagSec: number;
+	latenessSamples: {
+		mono: number[];
+		poly: number[];
+	};
+	lastLogAtMs: number;
+};
+
+function makeAudioTimingMetrics(): AudioTimingMetrics {
+	return {
+		enabled: AUDIO_TIMING_METRICS_ENABLED,
+		logEveryMs: AUDIO_TIMING_METRICS_LOG_EVERY_MS,
+		scheduledEvents: 0,
+		lateEvents: 0,
+		droppedEvents: 0,
+		recoveryCount: 0,
+		maxLatenessSec: 0,
+		maxLagSec: 0,
+		latenessSamples: { mono: [], poly: [] },
+		lastLogAtMs: 0,
+	};
+}
+
+function percentile(sortedValues: number[], p: number): number {
+	if (sortedValues.length === 0) return 0;
+	const idx = Math.min(sortedValues.length - 1, Math.max(0, Math.floor((sortedValues.length - 1) * p)));
+	return sortedValues[idx]!;
+}
 
 type ClickSoundPreset =
 	| 'classic'
@@ -1951,14 +2030,7 @@ function parseSnapshotRow(raw: unknown) {
 		d.taDingKeysByLane = cloneLaneSetMap(tdkByLane as Partial<Record<number, Iterable<string>>>);
 	}
 	const supRowsIn = o.firstBeatDingSuppressedRows;
-	if (Array.isArray(supRowsIn)) {
-		const next = new Set<number>();
-		for (const x of supRowsIn) {
-			const r = parseInt(String(x), 10);
-			if (Number.isFinite(r) && r >= 0 && r < d.bars) next.add(r);
-		}
-		d.firstBeatDingSuppressedRows = next;
-	}
+	d.firstBeatDingSuppressedRows = normalizeSuppressedRows(supRowsIn, d.bars);
 	const hasLaneAcc = accByLane && typeof accByLane === 'object';
 	const hasLaneTdk = tdkByLane && typeof tdkByLane === 'object';
 	const hasLaneFb = firstBeatByLane && typeof firstBeatByLane === 'object';
@@ -2305,6 +2377,7 @@ const playSharpClick = (
   soundType: ClickSoundPreset = 'classic',
   accentOnlyPlayback = false,
   voiceRole: 'accent' | 'base' | 'alt' = isChecked ? 'accent' : 'base',
+  voiceGainMul = 1,
 ) => {
   const cfg = CLICK_SOUND_LIBRARY[soundType] ?? CLICK_SOUND_LIBRARY.classic;
   const t0 = Math.max(time, ctx.currentTime + AUDIO_START_GUARD_SEC);
@@ -2320,12 +2393,19 @@ const playSharpClick = (
   const runLayers = soloLayers.length > 0 ? soloLayers : activeLayers;
   for (const layer of runLayers) {
     const layerDecay = Math.min(CLICK_DECAY_MAX_SEC, Math.max(CLICK_DECAY_MIN_SEC, layer.params.decay));
-    const layerVol = accentOnlyPlayback && voiceRole === 'accent' ? layer.params.volume * 0.72 : layer.params.volume;
+    const baseLayerVol =
+      accentOnlyPlayback && voiceRole === 'accent' ? layer.params.volume * 0.72 : layer.params.volume;
+    const layerVol = baseLayerVol * voiceGainMul;
     scheduleLayerToBus(ctx, t0, layer, layerVol, layerDecay, busIn);
   }
 };
 
-const playBarFirstHighClick = (ctx: AudioContext, time: number, soundType: ClickSoundPreset = 'classic') => {
+const playBarFirstHighClick = (
+  ctx: AudioContext,
+  time: number,
+  soundType: ClickSoundPreset = 'classic',
+  voiceGainMul = 1,
+) => {
   const t0 = Math.max(time, ctx.currentTime + AUDIO_START_GUARD_SEC);
   const masterIn = getMetronomeSummingInput(ctx);
   if (soundType === 'classic') {
@@ -2340,7 +2420,7 @@ const playBarFirstHighClick = (ctx: AudioContext, time: number, soundType: Click
     osc.type = 'sine';
     osc.frequency.setValueAtTime(1550, t0);
     osc.frequency.exponentialRampToValueAtTime(520, t0 + 0.028);
-    const classicPeak = 0.36;
+    const classicPeak = 0.36 * voiceGainMul;
     gain.gain.cancelScheduledValues(t0);
     gain.gain.setValueAtTime(0, t0);
     gain.gain.linearRampToValueAtTime(classicPeak, t0 + CLICK_ENV_ATTACK_SEC);
@@ -2365,7 +2445,7 @@ const playBarFirstHighClick = (ctx: AudioContext, time: number, soundType: Click
     hpFilter.frequency.setValueAtTime(1200, t0);
     lpFilter.type = 'lowpass';
     lpFilter.frequency.setValueAtTime(20000, t0);
-    const oldschoolPeak = 0.78;
+    const oldschoolPeak = 0.78 * voiceGainMul;
     gain.gain.cancelScheduledValues(t0);
     gain.gain.setValueAtTime(0, t0);
     gain.gain.linearRampToValueAtTime(oldschoolPeak, t0 + CLICK_ENV_ATTACK_SEC);
@@ -2378,7 +2458,7 @@ const playBarFirstHighClick = (ctx: AudioContext, time: number, soundType: Click
     osc.stop(t0 + 0.06);
     return;
   }
-  playSharpClick(ctx, time, true, soundType, false);
+  playSharpClick(ctx, time, true, soundType, false, 'accent', voiceGainMul);
 };
 
 type StructuralSliderProps = {
@@ -2773,6 +2853,21 @@ export default function App() {
   const [clickSoundByPolyVoice, setClickSoundByPolyVoice] = useState<ClickSoundByPolyVoice>(
     normalizeClickSoundByPolyVoice((seed as { clickSoundByPolyVoice?: unknown }).clickSoundByPolyVoice),
   );
+  const [polyVoiceGains, setPolyVoiceGains] = useState<PolyVoiceGainMap>(() => {
+    try {
+      const raw = localStorage.getItem(POLY_VOICE_GAINS_STORAGE_KEY);
+      if (!raw) return { ...DEFAULT_POLY_VOICE_GAINS };
+      const parsed = JSON.parse(raw) as Partial<Record<number, unknown>>;
+      const next: PolyVoiceGainMap = { ...DEFAULT_POLY_VOICE_GAINS };
+      for (const lane of [0, 1, 2] as const) {
+        const v = Number(parsed?.[lane]);
+        if (Number.isFinite(v)) next[lane] = Math.max(0, Math.min(1.6, v));
+      }
+      return next;
+    } catch {
+      return { ...DEFAULT_POLY_VOICE_GAINS };
+    }
+  });
   const [activeClickVoiceTarget, setActiveClickVoiceTarget] = useState<0 | 1 | 2>(0);
   const activeClickVoiceTargetRef = useRef<0 | 1 | 2>(0);
   const [isClickSoundSelectorOpen, setIsClickSoundSelectorOpen] = useState(false);
@@ -3040,6 +3135,7 @@ export default function App() {
   const taHoldAteClickRef = useRef(false);
   const eraserHoldTimerRef = useRef<number | null>(null);
   const eraserHoldAteClickRef = useRef(false);
+  const polyVoiceGainHoldTimerRef = useRef<number | null>(null);
   const [randomDiceMintFlash, setRandomDiceMintFlash] = useState(false);
   const randomDiceMintFlashClearRef = useRef<number | null>(null);
   const [syllableReadMuteMode, setSyllableReadMuteMode] = useState<SyllableReadMuteMode>(() =>
@@ -3272,14 +3368,18 @@ export default function App() {
   /** Poly sub_legacy: по одному слоту индикатора на temporal lane (см. `polySubLegacyLaneIndicatorStore`). */
   const polySubLegacyLaneIndicatorStoreRef = useRef(createPolySubLegacyLaneIndicatorStore());
   const previewResetTimerRef = useRef<number | null>(null);
-  /** Полиметр: ключ включает голос (и строку), иначе совпадение subTime глушит параллельные линии. */
-  const polyClickSlotsRef = useRef<Set<string>>(new Set());
+  /** Полиметр: плотный числовой ключ снижает churn строк в hot-path. */
+  const polyClickSlotsRef = useRef<Set<number>>(new Set());
   /** Poly: независимые sub_legacy-линии (см. `polySubLegacyScheduler.ts`). */
   const polySubLegacyRef = useRef<PolySubLegacyScheduler | null>(null);
   /** Таймеры отложенных щелчков (см. GRID_CLICK_*): сброс при стопе / превью / старте. */
   const pendingGridClickTimerIdsRef = useRef<number[]>([]);
   /** playTwoBars preview: emit разрешён без isPlaying. */
   const gridPreviewAudioActiveRef = useRef(false);
+  const schedulerProfileRef = useRef<MetraSchedulerProfile>(DEFAULT_SCHEDULER_PROFILE);
+  const schedulerConfigRef = useRef(getMetraSchedulerConfig(DEFAULT_SCHEDULER_PROFILE));
+  const schedulerSafeProfileEscalationsRef = useRef(0);
+  const audioTimingMetricsRef = useRef<AudioTimingMetrics>(makeAudioTimingMetrics());
   const clearPendingGridClickTimers = () => {
     for (const id of pendingGridClickTimerIdsRef.current) {
       window.clearTimeout(id);
@@ -3349,6 +3449,7 @@ export default function App() {
   const chaosRampPointerStartRef = useRef<{ x: number; y: number } | null>(null);
   const clickSoundRef = useRef(clickSound);
   const clickSoundByPolyVoiceRef = useRef<ClickSoundByPolyVoice>(clickSoundByPolyVoice);
+  const polyVoiceGainsRef = useRef<PolyVoiceGainMap>(polyVoiceGains);
   /** Последний пресет, для которого вызван cloneClickMixerFromLibrary (см. блок синхронизации в render). */
   const clickSoundMixerClonedKeyRef = useRef<ClickSoundPreset | null>(null);
   const frozenScaleRef = useRef(frozenScale);
@@ -3379,6 +3480,14 @@ export default function App() {
   useEffect(() => { accentsByLaneRef.current = cloneLaneSetMap(accentsByLane); }, [accentsByLane]);
   useEffect(() => { taDingKeysByLaneRef.current = cloneLaneSetMap(taDingKeysByLane); }, [taDingKeysByLane]);
   useEffect(() => { clickSoundByPolyVoiceRef.current = { ...clickSoundByPolyVoice }; }, [clickSoundByPolyVoice]);
+  useEffect(() => { polyVoiceGainsRef.current = { ...polyVoiceGains }; }, [polyVoiceGains]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(POLY_VOICE_GAINS_STORAGE_KEY, JSON.stringify(polyVoiceGains));
+    } catch {
+      // ignore storage errors
+    }
+  }, [polyVoiceGains]);
   /* Прямые присваивания (без spread) для ref-first путей (poly randomizer и т.п.):
    * ref === state → мутации переживают перерендеры и долетают до setState({...ref}). */
   useEffect(() => { customMultipliersRef.current = customMultipliers; }, [customMultipliers]);
@@ -4553,18 +4662,10 @@ export default function App() {
      * `firstBeatDingSuppressedRows` can arrive as Set (runtime snapshot) or Array (JSON/clipboard).
      * Always normalize both shapes, otherwise suppressed rows are lost and default first-beat marks come back.
      */
-    const supRaw = (snap as { firstBeatDingSuppressedRows?: unknown }).firstBeatDingSuppressedRows;
-    const supList: unknown[] =
-      supRaw instanceof Set
-        ? [...supRaw]
-        : Array.isArray(supRaw)
-          ? supRaw
-          : [];
     setFirstBeatDingSuppressedRows(
-      new Set(
-        supList
-          .map((x) => parseInt(String(x), 10))
-          .filter((r) => Number.isFinite(r) && r >= 0 && r < snap.bars),
+      normalizeSuppressedRows(
+        (snap as { firstBeatDingSuppressedRows?: unknown }).firstBeatDingSuppressedRows,
+        snap.bars,
       ),
     );
     const nextMute = normalizeSyllableReadMuteModeFromSnapshot(
@@ -4765,7 +4866,9 @@ export default function App() {
     if (!isPlaying || !polyMode || !audioCtxRef.current) return;
     const poly = polySubLegacyRef.current;
     if (!poly) return;
-    poly.rebuildLanes(audioCtxRef.current.currentTime + METRA_SCHEDULE_AHEAD_SEC);
+    poly.rebuildLanes(
+      audioCtxRef.current.currentTime + schedulerConfigRef.current.scheduleAheadSec,
+    );
   }, [isPlaying, polyMode, bars, polyVoices]);
 
   // Display metrics (displayScaleBars / allBarsFitViewport объявлены выше — общая шкала для сетки и скролла)
@@ -4905,6 +5008,10 @@ export default function App() {
         window.clearTimeout(squareHoldTimerRef.current);
         squareHoldTimerRef.current = null;
       }
+      if (polyVoiceGainHoldTimerRef.current !== null) {
+        window.clearTimeout(polyVoiceGainHoldTimerRef.current);
+        polyVoiceGainHoldTimerRef.current = null;
+      }
       if (randomDiceHoldTimerRef.current !== null) {
         window.clearTimeout(randomDiceHoldTimerRef.current);
         randomDiceHoldTimerRef.current = null;
@@ -4944,6 +5051,68 @@ export default function App() {
         return { ...prev, [slot]: { ...cur, chaosLevel: chaos } };
       });
     });
+  };
+
+  const resetAudioTimingMetrics = () => {
+    const next = makeAudioTimingMetrics();
+    next.enabled = audioTimingMetricsRef.current.enabled;
+    audioTimingMetricsRef.current = next;
+  };
+
+  const logAudioTimingMetricsIfDue = (nowMs: number) => {
+    const metrics = audioTimingMetricsRef.current;
+    if (!metrics.enabled) return;
+    if (metrics.lastLogAtMs !== 0 && nowMs - metrics.lastLogAtMs < metrics.logEveryMs) return;
+    const summarize = (values: number[]) => {
+      if (values.length === 0) return { p50Ms: 0, p95Ms: 0, p99Ms: 0 };
+      const sorted = [...values].sort((a, b) => a - b);
+      return {
+        p50Ms: percentile(sorted, 0.5) * 1000,
+        p95Ms: percentile(sorted, 0.95) * 1000,
+        p99Ms: percentile(sorted, 0.99) * 1000,
+      };
+    };
+    const mono = summarize(metrics.latenessSamples.mono);
+    const poly = summarize(metrics.latenessSamples.poly);
+    console.info('[audio-metrics]', {
+      profile: schedulerProfileRef.current,
+      scheduledEvents: metrics.scheduledEvents,
+      lateEvents: metrics.lateEvents,
+      droppedEvents: metrics.droppedEvents,
+      recoveryCount: metrics.recoveryCount,
+      maxLatenessMs: metrics.maxLatenessSec * 1000,
+      maxLagMs: metrics.maxLagSec * 1000,
+      mono,
+      poly,
+    });
+    metrics.lastLogAtMs = nowMs;
+    metrics.latenessSamples.mono = [];
+    metrics.latenessSamples.poly = [];
+  };
+
+  const recordAudioScheduledEvent = (ctx: AudioContext, scheduledTime: number, domain: TimingDomain) => {
+    const metrics = audioTimingMetricsRef.current;
+    if (!metrics.enabled) return;
+    metrics.scheduledEvents += 1;
+    const latenessSec = Math.max(0, ctx.currentTime - scheduledTime);
+    if (latenessSec > 0) {
+      metrics.lateEvents += 1;
+      if (latenessSec > metrics.maxLatenessSec) metrics.maxLatenessSec = latenessSec;
+      metrics.latenessSamples[domain].push(latenessSec);
+    }
+  };
+
+  const recordAudioDroppedEvent = () => {
+    const metrics = audioTimingMetricsRef.current;
+    if (!metrics.enabled) return;
+    metrics.droppedEvents += 1;
+  };
+
+  const recordSchedulerRecovery = (lagSec: number) => {
+    const metrics = audioTimingMetricsRef.current;
+    if (!metrics.enabled) return;
+    metrics.recoveryCount += 1;
+    if (lagSec > metrics.maxLagSec) metrics.maxLagSec = lagSec;
   };
 
   const clearPlayheadScheduling = () => {
@@ -5348,6 +5517,12 @@ export default function App() {
         const ctx = audioCtxRef.current;
         if (!ctx) return;
         if (!isPlayingRef.current && !gridPreviewAudioActiveRef.current) return;
+        const tooLateBy = ctx.currentTime - subTime;
+        if (tooLateBy > schedulerConfigRef.current.maxCatchUpLagSec) {
+          recordAudioDroppedEvent();
+          return;
+        }
+        recordAudioScheduledEvent(ctx, subTime, polyModeRef.current ? 'poly' : 'mono');
         const soundPreset =
           forcedSoundPreset ??
           resolveClickSoundForPolyVoice(
@@ -5367,27 +5542,27 @@ export default function App() {
         const on0Ding = laneTaDing.has(`${rIdx}-0`);
         const supRow = firstBeatDingSuppressedRowsRef.current.has(rIdx);
         const fa = laneFirstBeat;
-        const firstBeatCellHitRow = on0Accent || on0Ding || (fa && !supRow);
         const laneId = laneForRow(rIdx, polyVoicesRef.current);
-        /**
-         * Agent note (poly first-beat contract):
-         * - lane0 (master voice): legacy behavior with default first-beat Ta preserved.
-         * - lane>0: first-beat Ta is allowed only by explicit 0-taDing marker (NOT by 0-accent).
-         * This prevents ghost Ta bleed in secondary voices while keeping lane0 feel unchanged.
-         */
-        const firstBeatCellHitRowPolySafe = polyModeRef.current
-          ? (laneId === 0 ? firstBeatCellHitRow : on0Ding)
-          : firstBeatCellHitRow;
+        const polyVoiceGain = polyModeRef.current
+          ? Math.max(0, Math.min(1.6, polyVoiceGainsRef.current[voice as 0 | 1 | 2] ?? 1))
+          : 1;
+        const firstBeatCellHitRow = resolveFirstBeatHitRow(
+          resolveRuntimeFirstBeatPolicy(polyModeRef.current, laneId),
+          on0Accent,
+          on0Ding,
+          fa,
+          supRow,
+        );
         const polySlotKey = polyModeRef.current
-          ? `${voice}:${rIdx}:${Math.round(subTime * 1_000_000)}`
-          : '';
+          ? voice * 1_000_000_000_000 + rIdx * 1_000_000_000 + Math.round(subTime * 1_000_000)
+          : -1;
         const shouldDedupPolyClick = polyModeRef.current && polyClickSlotsRef.current.has(polySlotKey);
         const isFirstBarCell = cIdx === 0;
         const mainAccentClick = isAccent && (subdivs > 1 || sub === 0);
         const shouldPlayFirstBeatTa =
-          isFirstBarCell && firstBeatAccentRef.current && firstBeatCellHitRowPolySafe && (subdivs > 1 || sub === 0);
+          isFirstBarCell && fa && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
         if (shouldPlayFirstBeatTa) {
-          playBarFirstHighClick(ctx, subTime, soundPreset);
+          playBarFirstHighClick(ctx, subTime, soundPreset, polyVoiceGain);
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
           }
@@ -5409,14 +5584,14 @@ export default function App() {
               ? isAccent || hasTaDingHere
               : false;
         const isTaFirstBeatArticulation =
-          cIdx === 0 && firstBeatAccentRef.current && firstBeatCellHitRowPolySafe && (subdivs > 1 || sub === 0);
+          cIdx === 0 && fa && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
         const sharpAsChecked = (() => {
           if (dictantActive) return mainAccentClick;
           if (muteMode === 'no_accent_sharp' && mainAccentClick && !isTaFirstBeatArticulation) return false;
           return mainAccentClick;
         })();
         if (shouldPlayTaDingSound) {
-          playBarFirstHighClick(ctx, subTime, soundPreset);
+          playBarFirstHighClick(ctx, subTime, soundPreset, polyVoiceGain);
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
           }
@@ -5441,9 +5616,9 @@ export default function App() {
               : shouldPlayTaDingSound
                 ? 'base'
                 : 'base';
-        playSharpClick(ctx, subTime, sharpAsChecked, soundPreset, accentOnlyPlayback, voiceRole);
+        playSharpClick(ctx, subTime, sharpAsChecked, soundPreset, accentOnlyPlayback, voiceRole, polyVoiceGain);
         if (sharpAsChecked && playbackMode === 'all_beats' && !shouldPlayFirstBeatTa && !shouldPlayTaDingSound) {
-          playSharpClick(ctx, subTime, false, soundPreset, false, 'alt');
+          playSharpClick(ctx, subTime, false, soundPreset, false, 'alt', polyVoiceGain);
         }
         if (polyModeRef.current) {
           polyClickSlotsRef.current.add(polySlotKey);
@@ -5452,22 +5627,19 @@ export default function App() {
 
       for (let sub = 0; sub < subdivs; sub++) {
         const subTime = time + sub * subDuration;
-        const ctx = audioCtxRef.current;
-        if (!ctx) continue;
-        const allowDefer = isPlayingRef.current || gridPreviewAudioActiveRef.current;
-        const defer =
-          allowDefer && subTime - ctx.currentTime > GRID_CLICK_DEFER_IF_AHEAD_SEC;
-        if (defer) {
-          const delayMs = Math.max(0, (subTime - ctx.currentTime - GRID_CLICK_AUDIO_DEFER_LEAD_SEC) * 1000);
+        if (AUDIO_SCHEDULER_DEFER_SUB_HIT) {
+          const ctx = audioCtxRef.current;
+          if (!ctx) continue;
+          const delayMs = Math.max(0, (subTime - ctx.currentTime - 0.0016) * 1000);
           const subI = sub;
           const subTimeI = subTime;
           const id = window.setTimeout(() => {
             emitGridSubAudio(subI, subTimeI);
           }, delayMs);
           pendingGridClickTimerIdsRef.current.push(id);
-        } else {
-          emitGridSubAudio(sub, subTime);
+          continue;
         }
+        emitGridSubAudio(sub, subTime);
       }
       if (!dictantModeRef.current || cIdx === 0) {
         insertPlayheadSorted(playheadQueueRef.current, {
@@ -5585,7 +5757,7 @@ export default function App() {
     setActivePositions([]);
     cloneClickMixerFromLibrary(soundPreset);
     const barsCount = Math.max(1, barsRef.current);
-    let cursor = audioCtxRef.current.currentTime + METRA_SCHEDULE_AHEAD_SEC;
+    let cursor = audioCtxRef.current.currentTime + schedulerConfigRef.current.scheduleAheadSec;
     for (let i = 0; i < 2; i++) {
       const rowIdx = i % barsCount;
       const rowSyllables =
@@ -5623,28 +5795,55 @@ export default function App() {
   const scheduler = () => {
     if (!isPlayingRef.current || !audioCtxRef.current) return;
     const ctx = audioCtxRef.current;
+    const cfg = schedulerConfigRef.current;
+    const horizon = ctx.currentTime + cfg.scheduleAheadSec;
+    let recoveredThisTick = false;
     if (polyModeRef.current) {
       const poly = getPolySubLegacyScheduler();
       const minT = poly.getMinNextTime();
-      if (Number.isFinite(minT) && minT !== Infinity && ctx.currentTime > minT + 0.5) {
-        const r = ctx.currentTime + METRA_SCHEDULE_AHEAD_SEC;
+      if (Number.isFinite(minT) && minT !== Infinity && ctx.currentTime > minT + cfg.lateResetThresholdSec) {
+        const lagSec = ctx.currentTime - minT;
+        recordSchedulerRecovery(lagSec);
+        recoveredThisTick = true;
+        const r = ctx.currentTime + Math.max(0.01, cfg.scheduleAheadSec - Math.min(cfg.maxCatchUpLagSec, lagSec));
         for (const L of poly.lanes) {
           if (L.barIndices.length > 0) {
             L.nextTime = Math.max(L.nextTime, r);
           }
         }
       }
-      poly.fillLookahead(ctx.currentTime + METRA_SCHEDULE_AHEAD_SEC);
+      poly.fillLookahead(horizon);
     } else {
-      if (ctx.currentTime > nextNoteTimeRef.current + 0.5) {
-        nextNoteTimeRef.current = ctx.currentTime + METRA_SCHEDULE_AHEAD_SEC;
+      if (ctx.currentTime > nextNoteTimeRef.current + cfg.lateResetThresholdSec) {
+        const lagSec = ctx.currentTime - nextNoteTimeRef.current;
+        recordSchedulerRecovery(lagSec);
+        recoveredThisTick = true;
+        nextNoteTimeRef.current = ctx.currentTime + Math.max(0.01, cfg.scheduleAheadSec - Math.min(cfg.maxCatchUpLagSec, lagSec));
       }
-      while (nextNoteTimeRef.current < ctx.currentTime + METRA_SCHEDULE_AHEAD_SEC) {
+      let catchUpBatches = 0;
+      while (nextNoteTimeRef.current < horizon && catchUpBatches < cfg.maxCatchUpBatchesPerTick) {
         scheduleNote(currentStepRef.current, playAbsBarRef.current, nextNoteTimeRef.current);
         nextNote();
+        catchUpBatches += 1;
+      }
+      if (nextNoteTimeRef.current < horizon) {
+        const lagSec = horizon - nextNoteTimeRef.current;
+        recordSchedulerRecovery(lagSec);
+        recoveredThisTick = true;
+        nextNoteTimeRef.current = Math.max(nextNoteTimeRef.current, ctx.currentTime + 0.01);
       }
     }
-    timerIDRef.current = window.setTimeout(scheduler, METRA_LOOKAHEAD_MS);
+    if (recoveredThisTick) {
+      schedulerSafeProfileEscalationsRef.current += 1;
+      if (schedulerSafeProfileEscalationsRef.current >= 3 && schedulerProfileRef.current !== 'safe') {
+        schedulerProfileRef.current = 'safe';
+        schedulerConfigRef.current = getMetraSchedulerConfig('safe');
+      }
+    } else {
+      schedulerSafeProfileEscalationsRef.current = 0;
+    }
+    logAudioTimingMetricsIfDue(performance.now());
+    timerIDRef.current = window.setTimeout(scheduler, cfg.lookaheadMs);
   };
 
   const togglePlayback = () => {
@@ -5655,6 +5854,7 @@ export default function App() {
     if (isPlaying) {
       setIsPlaying(false);
       isPlayingRef.current = false;
+      logAudioTimingMetricsIfDue(Number.MAX_SAFE_INTEGER);
       // Chaos auto-ramp: pause/stop всегда выключает автопилот.
       if (chaosRampActiveRef.current) {
         chaosRampActiveRef.current = false;
@@ -5676,6 +5876,10 @@ export default function App() {
       if (squareHoldTimerRef.current !== null) {
         window.clearTimeout(squareHoldTimerRef.current);
         squareHoldTimerRef.current = null;
+      }
+      if (polyVoiceGainHoldTimerRef.current !== null) {
+        window.clearTimeout(polyVoiceGainHoldTimerRef.current);
+        polyVoiceGainHoldTimerRef.current = null;
       }
       if (randomDiceHoldTimerRef.current !== null) {
         window.clearTimeout(randomDiceHoldTimerRef.current);
@@ -5756,7 +5960,12 @@ export default function App() {
       clearPendingGridClickTimers();
       polyClickSlotsRef.current.clear();
       polySubLegacyRef.current = null;
-      nextNoteTimeRef.current = audioCtxRef.current.currentTime + METRA_SCHEDULE_AHEAD_SEC;
+      schedulerProfileRef.current = DEFAULT_SCHEDULER_PROFILE;
+      schedulerConfigRef.current = getMetraSchedulerConfig(DEFAULT_SCHEDULER_PROFILE);
+      schedulerSafeProfileEscalationsRef.current = 0;
+      resetAudioTimingMetrics();
+      nextNoteTimeRef.current =
+        audioCtxRef.current.currentTime + schedulerConfigRef.current.scheduleAheadSec;
       if (polyModeRef.current) {
         getPolySubLegacyScheduler().reset(nextNoteTimeRef.current);
       }
@@ -5794,6 +6003,7 @@ export default function App() {
   firstBeatDingSuppressedRowsRef.current = firstBeatDingSuppressedRows;
   clickSoundRef.current = clickSound;
   clickSoundByPolyVoiceRef.current = { ...clickSoundByPolyVoice };
+  polyVoiceGainsRef.current = { ...polyVoiceGains };
   activeClickVoiceTargetRef.current = activeClickVoiceTarget;
   if (clickSoundMixerClonedKeyRef.current !== clickSound) {
     clickSoundMixerClonedKeyRef.current = clickSound;
@@ -6112,31 +6322,96 @@ export default function App() {
                         <div className="w-8 h-8" />
                       </div>
                       {polyMode ? (
-                        <div className="flex items-center gap-1.5">
-                          {([0, 1, 2] as const).filter((v) => v < (polyVoices === 3 ? 3 : 2)).map((voiceIdx) => {
-                            const isActive = activeClickVoiceTarget === voiceIdx;
-                            const label = `V${voiceIdx + 1}`;
-                            const activeCls =
-                              voiceIdx === 0
-                                ? 'border-emerald-400 text-emerald-200 bg-emerald-500/10'
-                                : voiceIdx === 1
-                                  ? 'border-sky-400 text-sky-200 bg-sky-500/10'
-                                  : 'border-violet-400 text-violet-200 bg-violet-500/10';
-                            return (
-                              <button
-                                key={voiceIdx}
-                                type="button"
-                                onClick={() => setActiveClickVoiceTarget(voiceIdx)}
-                                className={`px-2 py-1 rounded-md border text-[10px] font-bold transition-colors ${
-                                  isActive
-                                    ? activeCls
-                                    : 'border-[#2a385b] text-slate-400 hover:text-slate-200 hover:border-[#3b4f7a]'
-                                }`}
-                              >
-                                {label}
-                              </button>
-                            );
-                          })}
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-1.5">
+                            {([0, 1, 2] as const).filter((v) => v < (polyVoices === 3 ? 3 : 2)).map((voiceIdx) => {
+                              const isActive = activeClickVoiceTarget === voiceIdx;
+                              const label = `V${voiceIdx + 1}`;
+                              const activeCls =
+                                voiceIdx === 0
+                                  ? 'border-emerald-400 text-emerald-200 bg-emerald-500/10'
+                                  : voiceIdx === 1
+                                    ? 'border-sky-400 text-sky-200 bg-sky-500/10'
+                                    : 'border-violet-400 text-violet-200 bg-violet-500/10';
+                              return (
+                                <button
+                                  key={voiceIdx}
+                                  type="button"
+                                  onClick={() => setActiveClickVoiceTarget(voiceIdx)}
+                                  className={`px-2 py-1 rounded-md border text-[10px] font-bold transition-colors ${
+                                    isActive
+                                      ? activeCls
+                                      : 'border-[#2a385b] text-slate-400 hover:text-slate-200 hover:border-[#3b4f7a]'
+                                  }`}
+                                >
+                                  {label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <label className="flex items-center gap-1.5">
+                            <input
+                              type="range"
+                              min={0}
+                              max={1.6}
+                              step={0.01}
+                              value={polyVoiceGains[activeClickVoiceTarget] ?? 1}
+                              onChange={(e) => {
+                                const raw = Number(e.target.value);
+                                const next = Number.isFinite(raw) ? Math.max(0, Math.min(1.6, raw)) : 1;
+                                setPolyVoiceGains((prev) => {
+                                  const updated: PolyVoiceGainMap = { ...prev, [activeClickVoiceTarget]: next };
+                                  polyVoiceGainsRef.current = { ...updated };
+                                  return updated;
+                                });
+                              }}
+                              onDoubleClick={() => {
+                                setPolyVoiceGains((prev) => {
+                                  const updated: PolyVoiceGainMap = { ...prev, [activeClickVoiceTarget]: 1 };
+                                  polyVoiceGainsRef.current = { ...updated };
+                                  return updated;
+                                });
+                              }}
+                              onPointerDown={() => {
+                                if (polyVoiceGainHoldTimerRef.current !== null) {
+                                  window.clearTimeout(polyVoiceGainHoldTimerRef.current);
+                                  polyVoiceGainHoldTimerRef.current = null;
+                                }
+                                polyVoiceGainHoldTimerRef.current = window.setTimeout(() => {
+                                  polyVoiceGainHoldTimerRef.current = null;
+                                  const target = activeClickVoiceTargetRef.current;
+                                  setPolyVoiceGains((prev) => {
+                                    const updated: PolyVoiceGainMap = { ...prev, [target]: 1 };
+                                    polyVoiceGainsRef.current = { ...updated };
+                                    return updated;
+                                  });
+                                }, 2000);
+                              }}
+                              onPointerUp={() => {
+                                if (polyVoiceGainHoldTimerRef.current !== null) {
+                                  window.clearTimeout(polyVoiceGainHoldTimerRef.current);
+                                  polyVoiceGainHoldTimerRef.current = null;
+                                }
+                              }}
+                              onPointerLeave={() => {
+                                if (polyVoiceGainHoldTimerRef.current !== null) {
+                                  window.clearTimeout(polyVoiceGainHoldTimerRef.current);
+                                  polyVoiceGainHoldTimerRef.current = null;
+                                }
+                              }}
+                              onPointerCancel={() => {
+                                if (polyVoiceGainHoldTimerRef.current !== null) {
+                                  window.clearTimeout(polyVoiceGainHoldTimerRef.current);
+                                  polyVoiceGainHoldTimerRef.current = null;
+                                }
+                              }}
+                              className="w-20 h-1.5 bg-[#0f1526] rounded-lg appearance-none cursor-pointer"
+                              title={`Voice ${activeClickVoiceTarget + 1} volume`}
+                            />
+                            <span className="w-8 text-right text-[9px] text-slate-400 tabular-nums">
+                              {Math.round((polyVoiceGains[activeClickVoiceTarget] ?? 1) * 100)}%
+                            </span>
+                          </label>
                         </div>
                       ) : null}
                       <div className="grid grid-cols-4 gap-2.5 flex-1 content-start">

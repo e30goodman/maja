@@ -843,7 +843,8 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 							: !isPlaying && activePos.r === rIdx
 								? activePos.c
 								: null;
-					stepLabel = voiceIdx === 0 ? `${stepIdx + 1}` : '';
+					/** В полиритме показываем номер шага на каждой строке (V1/V2[/V3]): 1,1,2,2... */
+					stepLabel = `${stepIdx + 1}`;
 					isPolyRow = true;
 					polyStepTopRule = stepIdx > 0 && voiceIdx === 0;
 				}
