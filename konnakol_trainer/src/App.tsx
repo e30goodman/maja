@@ -31,6 +31,29 @@ import {
 	type BarRandomizerMutable,
 	type DeadCellsMap,
 } from './randomLogic';
+import {
+	ALL_FORM_PRESETS,
+	ALL_MUTATION_TYPES,
+	applyParentModeBar,
+	buildPhraseSchedule,
+	FORM_PRESET_LABEL,
+	isFormPresetId,
+	isMutationType,
+	isRandomMode,
+	MUTATION_CATEGORY,
+	MUTATION_LABEL,
+	MUTATION_PHRASE_LEN,
+	parentGenomeFromJSON,
+	parentGenomeToJSON,
+	snapshotBarGenome,
+	type FormPresetId,
+	type MutationCategory,
+	type MutationType,
+	type ParentGenome,
+	type ParentLength,
+	type PhraseSchedule,
+	type RandomMode,
+} from './parentMode';
 
 function buildPolyChunks(barCount: number, voiceCount: number): number[][] {
 	const safeBars = Math.max(0, Math.floor(barCount));
@@ -186,6 +209,8 @@ const SNAPSHOT_FLAG_FIRST_BEAT_ACCENT = 1 << 7;
 const SNAPSHOT_FLAG_POLY_MODE = 1 << 8;
 const SNAPSHOT_FLAG_POLY_VOICES_3 = 1 << 9;
 const SNAPSHOT_FLAG_POLY_VOICES_4 = 1 << 10;
+/** Parent-mode активен: randomMode='parent'. Старые снэпшоты без флага трактуются как 'free'. */
+const SNAPSHOT_FLAG_PARENT_MODE = 1 << 11;
 const SNAPSHOT_SOUND_ID_CLASSIC = 0;
 const SNAPSHOT_SOUND_ID_OLDSCHOOL = 1;
 const AUDIO_START_GUARD_SEC = 0.004;
@@ -1567,6 +1592,7 @@ function buildSnapshotFlags(s: ReturnType<typeof createEmptySnapshot>): number {
 	if (s.polyMode) flags |= SNAPSHOT_FLAG_POLY_MODE;
 	if (s.polyVoices === 3) flags |= SNAPSHOT_FLAG_POLY_VOICES_3;
 	// if (s.polyVoices === 4) flags |= SNAPSHOT_FLAG_POLY_VOICES_4; // 4-voice polyrythm temporarily disabled
+	if (s.randomMode === 'parent') flags |= SNAPSHOT_FLAG_PARENT_MODE;
 	return flags;
 }
 
@@ -1587,6 +1613,7 @@ function applySnapshotFlags(flags: number, d: ReturnType<typeof createEmptySnaps
 	// 		: 2;
 	// 4-voice polyrythm temporarily disabled.
 	d.polyVoices = (flags & SNAPSHOT_FLAG_POLY_VOICES_3) ? 3 : 2;
+	d.randomMode = flags & SNAPSHOT_FLAG_PARENT_MODE ? 'parent' : 'free';
 }
 
 function buildSnapshotSoundId(s: ReturnType<typeof createEmptySnapshot>): number {
@@ -1685,6 +1712,16 @@ function createEmptySnapshot() {
 		deadCells: {} as DeadCellsMap,
 		/** Звук 1 (Ta-динг): любые `r-c`, включая `r-0` (белая рамка в редакторе Ta без записи в `accents`). */
 		taDingKeys: new Set<string>(),
+		/** Режим рандома: free = оси (текущая логика); parent = наследственные мутации мотива. */
+		randomMode: 'free' as RandomMode,
+		/** ParentGenome (1 или 2 такта) — ядро для parent-режима. null если не задан. */
+		parentGenome: null as ParentGenome | null,
+		/** Длина parent (1 или 2 такта). */
+		parentLength: 1 as ParentLength,
+		/** Включённые типы мутаций. Phase 1: default = пусто (placeholder-заморозка). */
+		enabledMutations: [] as MutationType[],
+		/** Пресет формы для scheduler. */
+		formPresetId: 'random' as FormPresetId,
 	};
 }
 
@@ -1799,6 +1836,17 @@ function parseSnapshotRow(raw: unknown) {
 		}
 		d.deadCells = nextDead;
 	}
+	if (isRandomMode(o.randomMode)) d.randomMode = o.randomMode;
+	const pg = parentGenomeFromJSON(o.parentGenome);
+	if (pg) d.parentGenome = pg;
+	const pl = parseInt(String(o.parentLength), 10);
+	if (pl === 1 || pl === 2) d.parentLength = pl;
+	if (Array.isArray(o.enabledMutations)) {
+		const out: MutationType[] = [];
+		for (const x of o.enabledMutations) if (isMutationType(x) && !out.includes(x)) out.push(x);
+		d.enabledMutations = out;
+	}
+	if (isFormPresetId(o.formPresetId)) d.formPresetId = o.formPresetId;
 	const tdkIn = o.taDingKeys;
 	if (Array.isArray(tdkIn)) {
 		const next = new Set<string>();
@@ -1843,6 +1891,10 @@ function snapSlotLooksUsed(s: ReturnType<typeof createEmptySnapshot>) {
 	if ((s as { accentMapVersion?: number }).accentMapVersion === 1) return true;
 	if ((s as { dictantMode?: boolean }).dictantMode === true) return true;
 	if ((s as { deadCells?: DeadCellsMap }).deadCells && Object.keys((s as { deadCells?: DeadCellsMap }).deadCells || {}).length > 0) return true;
+	if (s.randomMode === 'parent') return true;
+	if (s.parentGenome !== null) return true;
+	if (s.enabledMutations.length > 0) return true;
+	if (s.formPresetId !== 'random') return true;
 	return false;
 }
 
@@ -1880,6 +1932,11 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		dictantMode: s.dictantMode === true,
 		deadCells: (s as { deadCells?: DeadCellsMap }).deadCells ?? {},
 		taDingKeys: [...s.taDingKeys],
+		randomMode: s.randomMode,
+		parentGenome: s.parentGenome ? parentGenomeToJSON(s.parentGenome) : null,
+		parentLength: s.parentLength,
+		enabledMutations: [...s.enabledMutations],
+		formPresetId: s.formPresetId,
 	};
 }
 
@@ -2530,6 +2587,13 @@ export default function App() {
   const [randomPattern, setRandomPattern] = useState(seed.randomPattern);
   const [randomSpeed, setRandomSpeed] = useState(seed.randomSpeed);
   const [randomBarSpeed, setRandomBarSpeed] = useState(seed.randomBarSpeed);
+
+  // Parent mode (наследственные мутации мотива; Phase 1 — skeleton + placeholder-заморозка).
+  const [randomMode, setRandomMode] = useState<RandomMode>(seed.randomMode);
+  const [parentGenome, setParentGenome] = useState<ParentGenome | null>(seed.parentGenome);
+  const [parentLength, setParentLength] = useState<ParentLength>(seed.parentLength);
+  const [enabledMutations, setEnabledMutations] = useState<MutationType[]>(() => [...seed.enabledMutations]);
+  const [formPresetId, setFormPresetId] = useState<FormPresetId>(seed.formPresetId);
   const [chaosLevel, setChaosLevel] = useState(
     typeof seed.chaosLevel === 'number' && seed.chaosLevel >= 0 && seed.chaosLevel <= 100
       ? seed.chaosLevel
@@ -3090,6 +3154,16 @@ export default function App() {
   const randomPatternRef = useRef(randomPattern);
   const randomSpeedRef = useRef(randomSpeed);
   const randomBarSpeedRef = useRef(randomBarSpeed);
+  // Parent-mode refs — доступ из bar-boundary колбэков без ре-рендеров.
+  const randomModeRef = useRef<RandomMode>(randomMode);
+  const parentGenomeRef = useRef<ParentGenome | null>(parentGenome);
+  const parentLengthRef = useRef<ParentLength>(parentLength);
+  const enabledMutationsRef = useRef<MutationType[]>(enabledMutations);
+  const formPresetIdRef = useRef<FormPresetId>(formPresetId);
+  /** Расписание фраз (per такт). Пересчитывается при смене mode/parent/bars/enabled/preset/re-roll. */
+  const phraseScheduleRef = useRef<PhraseSchedule>([]);
+  /** React-shadow текущего расписания для read-only линейки под парент-панелью. */
+  const [phraseScheduleView, setPhraseScheduleView] = useState<PhraseSchedule>([]);
   /** Per-bar seed последнего применённого рандома — для replay такта (mulberry32). */
   const lastBarSeedRef = useRef<Record<number, number>>({});
   const chaosLevelRef = useRef(chaosLevel);
@@ -3201,6 +3275,11 @@ export default function App() {
   useEffect(() => { randomPatternRef.current = randomPattern; }, [randomPattern]);
   useEffect(() => { randomSpeedRef.current = randomSpeed; }, [randomSpeed]);
   useEffect(() => { randomBarSpeedRef.current = randomBarSpeed; }, [randomBarSpeed]);
+  useEffect(() => { randomModeRef.current = randomMode; }, [randomMode]);
+  useEffect(() => { parentGenomeRef.current = parentGenome; }, [parentGenome]);
+  useEffect(() => { parentLengthRef.current = parentLength; }, [parentLength]);
+  useEffect(() => { enabledMutationsRef.current = enabledMutations; }, [enabledMutations]);
+  useEffect(() => { formPresetIdRef.current = formPresetId; }, [formPresetId]);
   useEffect(() => { chaosLevelRef.current = chaosLevel; }, [chaosLevel]);
 
   useEffect(() => { frozenScaleRef.current = frozenScale; }, [frozenScale]);
@@ -3448,6 +3527,11 @@ export default function App() {
     syllableReadMuteMode: syllableReadMuteModeRef.current,
     dictantMode: dictantModeRef.current,
     deadCells: { ...deadCellsRef.current },
+    randomMode: randomModeRef.current,
+    parentGenome: parentGenomeRef.current,
+    parentLength: parentLengthRef.current,
+    enabledMutations: [...enabledMutationsRef.current],
+    formPresetId: formPresetIdRef.current,
   });
 
   const prefillAllTactsRandomizer = useCallback(() => {
@@ -3458,7 +3542,9 @@ export default function App() {
     const rpat = randomPatternRef.current;
     const rs = randomSpeedRef.current;
     const rbs = randomBarSpeedRef.current;
-    const hasAny = rp || rpat || rs || rbs;
+    const parentActive =
+      randomModeRef.current === 'parent' && parentGenomeRef.current !== null;
+    const hasAny = rp || rpat || rs || rbs || parentActive;
 
     if (randomDiceMintFlashClearRef.current !== null) {
       window.clearTimeout(randomDiceMintFlashClearRef.current);
@@ -3484,25 +3570,43 @@ export default function App() {
 
     const nextSeeds: Record<number, number> = {};
     let any = false;
+    const useParent =
+      randomModeRef.current === 'parent' && parentGenomeRef.current !== null;
     for (let r = 0; r < nBars; r++) {
       const seed = (Math.random() * 0xffffffff) >>> 0;
       nextSeeds[r] = seed;
-      if (
-        applyRandomizerEffectsToBar(
-          r, chaos, rp, rpat, rs, rbs, false, syllablesDefault,
-          {
-            customSyllables: cs,
-            accents: acc,
-            customSubdivisions: cd,
-            customMultipliers: cm,
-            deadCells: dc,
-          },
-          mulberry32(seed),
-          forceFirstBeat,
-        )
-      ) {
-        any = true;
-      }
+      const rng = mulberry32(seed);
+      const m = {
+        customSyllables: cs,
+        accents: acc,
+        customSubdivisions: cd,
+        customMultipliers: cm,
+        deadCells: dc,
+      };
+      const didChange = useParent
+        ? applyParentModeBar({
+            barIdx: r,
+            parent: parentGenomeRef.current!,
+            schedule: phraseScheduleRef.current,
+            chaos,
+            syllablesDefault,
+            m,
+            rng,
+            freeAxes: {
+              randomPulsation: rp,
+              randomPattern: rpat,
+              randomSpeed: rs,
+              randomBarSpeed: rbs,
+              forceFirstBeat,
+            },
+          })
+        : applyRandomizerEffectsToBar(
+            r, chaos, rp, rpat, rs, rbs, false, syllablesDefault,
+            m,
+            rng,
+            forceFirstBeat,
+          );
+      if (didChange) any = true;
     }
     lastBarSeedRef.current = { ...lastBarSeedRef.current, ...nextSeeds };
     if (!any) return;
@@ -3535,7 +3639,9 @@ export default function App() {
     const rpat = randomPatternRef.current;
     const rs = randomSpeedRef.current;
     const rbs = randomBarSpeedRef.current;
-    const hasAny = rp || rpat || rs || rbs;
+    const parentActive =
+      randomModeRef.current === 'parent' && parentGenomeRef.current !== null;
+    const hasAny = rp || rpat || rs || rbs || parentActive;
     if (!hasAny) return false;
 
     const seed =
@@ -3552,22 +3658,41 @@ export default function App() {
 
     const chaosNow = chaosLevelRef.current;
     const forceFirstBeat = dictantModeRef.current || chaosNow < 80;
-    const didChange = applyRandomizerEffectsToBar(
-      barIndex,
-      chaosNow,
-      rp, rpat, rs, rbs,
-      false,
-      syllablesDefault,
-      {
-        customSyllables: cs,
-        accents: acc,
-        customSubdivisions: cd,
-        customMultipliers: cm,
-        deadCells: dc,
-      },
-      mulberry32(seed),
-      forceFirstBeat,
-    );
+    const rng = mulberry32(seed);
+    const m = {
+      customSyllables: cs,
+      accents: acc,
+      customSubdivisions: cd,
+      customMultipliers: cm,
+      deadCells: dc,
+    };
+    const didChange = parentActive
+      ? applyParentModeBar({
+          barIdx: barIndex,
+          parent: parentGenomeRef.current!,
+          schedule: phraseScheduleRef.current,
+          chaos: chaosNow,
+          syllablesDefault,
+          m,
+          rng,
+          freeAxes: {
+            randomPulsation: rp,
+            randomPattern: rpat,
+            randomSpeed: rs,
+            randomBarSpeed: rbs,
+            forceFirstBeat,
+          },
+        })
+      : applyRandomizerEffectsToBar(
+          barIndex,
+          chaosNow,
+          rp, rpat, rs, rbs,
+          false,
+          syllablesDefault,
+          m,
+          rng,
+          forceFirstBeat,
+        );
     if (!didChange) return false;
 
     customSyllablesRef.current = cs;
@@ -3584,6 +3709,106 @@ export default function App() {
       setDeadCells({ ...dc });
     });
     return true;
+  }, []);
+
+  /**
+   * Parent-mode: снять текущие 1-2 такта тренажёра (index 0 и 1) как ParentGenome.
+   * Используется когда ученик хочет зафиксировать мотив, который он только что поставил вручную.
+   */
+  const setParentFromCurrent = useCallback(() => {
+    const base = syllablesRef.current;
+    const len = parentLengthRef.current;
+    const bars = [] as import('./parentMode').BarGenome[];
+    const state = {
+      customSyllables: customSyllablesRef.current,
+      accents: accentsRef.current,
+      customSubdivisions: customSubdivisionsRef.current,
+      deadCells: deadCellsRef.current,
+    };
+    for (let i = 0; i < len; i++) bars.push(snapshotBarGenome(i, base, state));
+    const next: ParentGenome = { bars };
+    parentGenomeRef.current = next;
+    setParentGenome(next);
+  }, []);
+
+  /**
+   * Parent-mode: генерирует новый parent через `applyRandomizerEffectsToBar` с
+   * mid-chaos ≈ 40 и `forceFirstBeat=true` (плану §6 rerollParent). Все 4 оси активны
+   * — parent должен быть "умеренно сложным", чтобы с ним было что мутировать.
+   */
+  const rerollParent = useCallback(() => {
+    const base = syllablesRef.current;
+    const len = parentLengthRef.current;
+    const tmp: BarRandomizerMutable = {
+      customSyllables: {},
+      accents: new Set<string>(),
+      customSubdivisions: {},
+      customMultipliers: {},
+      deadCells: {},
+    };
+    const PARENT_REROLL_CHAOS = 40;
+    const seed = (Math.random() * 0xffffffff) >>> 0;
+    const rng = mulberry32(seed);
+    for (let i = 0; i < len; i++) {
+      applyRandomizerEffectsToBar(
+        i,
+        PARENT_REROLL_CHAOS,
+        true, true, true, true,
+        false,
+        base,
+        tmp,
+        rng,
+        true,
+      );
+    }
+    const bars = [] as import('./parentMode').BarGenome[];
+    for (let i = 0; i < len; i++) {
+      bars.push(
+        snapshotBarGenome(i, base, {
+          customSyllables: tmp.customSyllables,
+          accents: tmp.accents,
+          customSubdivisions: tmp.customSubdivisions,
+          deadCells: tmp.deadCells,
+        }),
+      );
+    }
+    const next: ParentGenome = { bars };
+    parentGenomeRef.current = next;
+    setParentGenome(next);
+  }, []);
+
+  /**
+   * Пересчёт `phraseScheduleRef` при включении parent-mode / смене bars / enabled / preset / manual re-roll.
+   * Scheduler детерминирован: seed → одинаковое расписание.
+   */
+  const rerollPhraseSchedule = useCallback((seedOverride?: number) => {
+    const seed = typeof seedOverride === 'number' ? seedOverride >>> 0 : (Math.random() * 0xffffffff) >>> 0;
+    const rng = mulberry32(seed);
+    const next = buildPhraseSchedule({
+      bars: barsRef.current,
+      enabledMutations: enabledMutationsRef.current,
+      preset: formPresetIdRef.current,
+      parentLength: parentLengthRef.current,
+      rng,
+    });
+    phraseScheduleRef.current = next;
+    setPhraseScheduleView(next);
+  }, []);
+
+  // Rebuild schedule on parent-relevant changes.
+  useEffect(() => {
+    if (randomMode !== 'parent') return;
+    rerollPhraseSchedule();
+  }, [randomMode, bars, enabledMutations, formPresetId, parentLength, rerollPhraseSchedule]);
+
+  /** Toggle одной мутации в enabledMutations. Schedule пересчитывается useEffect выше. */
+  const toggleMutationType = useCallback((t: MutationType) => {
+    setEnabledMutations((prev) => {
+      const has = prev.includes(t);
+      const next = has ? prev.filter((x) => x !== t) : [...prev, t];
+      enabledMutationsRef.current = next;
+      return next;
+    });
   }, []);
 
   /** Debug-handle для воспроизведения такта по записанному seed через консоль. */
@@ -4032,6 +4257,30 @@ export default function App() {
     setFirstBeatAccent(snap.firstBeatAccent !== false);
     setAccentMapVersion((snap as { accentMapVersion?: number }).accentMapVersion === 1 ? 1 : 0);
     setDictantMode((snap as { dictantMode?: boolean }).dictantMode === true);
+    {
+      const nextMode: RandomMode = isRandomMode((snap as { randomMode?: unknown }).randomMode)
+        ? ((snap as { randomMode: RandomMode }).randomMode)
+        : 'free';
+      randomModeRef.current = nextMode;
+      setRandomMode(nextMode);
+      const pg = parentGenomeFromJSON((snap as { parentGenome?: unknown }).parentGenome);
+      parentGenomeRef.current = pg;
+      setParentGenome(pg);
+      const plRaw = parseInt(String((snap as { parentLength?: unknown }).parentLength), 10);
+      const pl: ParentLength = plRaw === 2 ? 2 : 1;
+      parentLengthRef.current = pl;
+      setParentLength(pl);
+      const emIn = (snap as { enabledMutations?: unknown }).enabledMutations;
+      const em: MutationType[] = Array.isArray(emIn)
+        ? emIn.filter(isMutationType)
+        : [];
+      enabledMutationsRef.current = em;
+      setEnabledMutations(em);
+      const fpIn = (snap as { formPresetId?: unknown }).formPresetId;
+      const fp: FormPresetId = isFormPresetId(fpIn) ? fpIn : 'random';
+      formPresetIdRef.current = fp;
+      setFormPresetId(fp);
+    }
     setIsTaEditorMode(false);
     setFirstBeatDingSuppressedRows(new Set());
     const nextMute = normalizeSyllableReadMuteModeFromSnapshot(
@@ -4511,7 +4760,10 @@ export default function App() {
       if (currentSeqItem && currentSeqItem.c === 0 && isPlayingRef.current) {
         if (coldStartRef.current) {
           coldStartRef.current = false;
-        } else if (randomModeEnabledRef.current) {
+        } else if (
+          randomModeEnabledRef.current ||
+          (randomModeRef.current === 'parent' && parentGenomeRef.current !== null)
+        ) {
           const targetR = currentSeqItem.r;
           const prevBar = (targetR - 1 + barsRef.current) % barsRef.current;
 
@@ -4525,19 +4777,39 @@ export default function App() {
           };
           const barSeed = (Math.random() * 0xffffffff) >>> 0;
           lastBarSeedRef.current[prevBar] = barSeed;
-          const didChange = applyRandomizerEffectsToBar(
-            prevBar,
-            chaos,
-            randomPulsationRef.current,
-            randomPatternRef.current,
-            randomSpeedRef.current,
-            randomBarSpeedRef.current,
-            false,
-            syllablesRef.current,
-            m,
-            mulberry32(barSeed),
-            dictantModeRef.current || chaos < 80,
-          );
+          const rng = mulberry32(barSeed);
+          const useParent =
+            randomModeRef.current === 'parent' && parentGenomeRef.current !== null;
+          const didChange = useParent
+            ? applyParentModeBar({
+                barIdx: prevBar,
+                parent: parentGenomeRef.current!,
+                schedule: phraseScheduleRef.current,
+                chaos,
+                syllablesDefault: syllablesRef.current,
+                m,
+                rng,
+                freeAxes: {
+                  randomPulsation: randomPulsationRef.current,
+                  randomPattern: randomPatternRef.current,
+                  randomSpeed: randomSpeedRef.current,
+                  randomBarSpeed: randomBarSpeedRef.current,
+                  forceFirstBeat: dictantModeRef.current || chaos < 80,
+                },
+              })
+            : applyRandomizerEffectsToBar(
+                prevBar,
+                chaos,
+                randomPulsationRef.current,
+                randomPatternRef.current,
+                randomSpeedRef.current,
+                randomBarSpeedRef.current,
+                false,
+                syllablesRef.current,
+                m,
+                rng,
+                dictantModeRef.current || chaos < 80,
+              );
 
           if (didChange) {
             sequenceRef.current = buildLegacyPlaybackSequence(
@@ -4558,10 +4830,18 @@ export default function App() {
 
             setTimeout(() => {
               startTransition(() => {
-                if (randomPulsationRef.current) setCustomSyllables({ ...customSyllablesRef.current });
-              if (randomPatternRef.current) setAccents(new Set(accentsRef.current));
-                if (randomSpeedRef.current) setCustomSubdivisions({ ...customSubdivisionsRef.current });
-                if (randomBarSpeedRef.current) setDeadCells({ ...deadCellsRef.current });
+                if (useParent) {
+                  // Parent-mode мутирует любые оси — обновляем все state-сетки разом.
+                  setCustomSyllables({ ...customSyllablesRef.current });
+                  setAccents(new Set(accentsRef.current));
+                  setCustomSubdivisions({ ...customSubdivisionsRef.current });
+                  setDeadCells({ ...deadCellsRef.current });
+                } else {
+                  if (randomPulsationRef.current) setCustomSyllables({ ...customSyllablesRef.current });
+                  if (randomPatternRef.current) setAccents(new Set(accentsRef.current));
+                  if (randomSpeedRef.current) setCustomSubdivisions({ ...customSubdivisionsRef.current });
+                  if (randomBarSpeedRef.current) setDeadCells({ ...deadCellsRef.current });
+                }
               });
             }, 0);
           }
@@ -4788,6 +5068,9 @@ export default function App() {
   const polyHandleLaneBarBoundary = useCallback((prevBar: number, _laneId: number, _wrappedPattern: boolean) => {
     if (!isPlayingRef.current) return;
     if (!randomModeEnabledRef.current) return;
+    // Parent-mode в poly пока не поддерживается (см. план §11, риск poly-голосов).
+    // В этом режиме границы такта в poly остаются без рандомизации.
+    if (randomModeRef.current === 'parent') return;
     // Chaos auto-ramp: тик только от lane 0 → один инкремент на такт primary-голоса.
     if (_laneId === 0) advanceChaosRampOneStep();
     const chaos = chaosLevelRef.current;
@@ -5114,6 +5397,55 @@ export default function App() {
     }
     return out;
   }, [deadCells]);
+
+  /**
+   * Parent-mode бейджи ролей для SequencerGrid. Короткие метки типа "P", "Su 1/2", "Th 3/4".
+   * В free-mode — пустые массивы → бейджи не рендерятся.
+   */
+  const parentRoleLabels = useMemo<(string | null)[]>(() => {
+    if (randomMode !== 'parent' || phraseScheduleView.length === 0) return [];
+    const SHORT: Record<MutationType | 'parent' | 'free', string> = {
+      substitution: 'Su', retrograde: 'Rt', inversion: 'Iv',
+      rotation: 'Ro', truncation: 'Tr', augmentation: 'Au', diminution: 'Di',
+      prepend_append: 'Pa', fractal: 'Fr',
+      tihai: 'Th', echo_decay: 'Ec', neighbour_pulsation: 'Np', call_fill: 'Cf',
+      parent: 'P', free: 'F',
+    };
+    const out: (string | null)[] = [];
+    for (let i = 0; i < bars; i++) {
+      const role = phraseScheduleView[i];
+      if (!role) { out.push(null); continue; }
+      const label = SHORT[role.type];
+      if (role.phraseLength > 1) {
+        out.push(`${label} ${role.phraseStep + 1}/${role.phraseLength}`);
+      } else {
+        out.push(label);
+      }
+    }
+    return out;
+  }, [randomMode, phraseScheduleView, bars]);
+
+  const parentRoleBadgeClasses = useMemo<(string | null)[]>(() => {
+    if (randomMode !== 'parent' || phraseScheduleView.length === 0) return [];
+    const COLOR: Record<string, string> = {
+      parent: 'bg-slate-700/70 text-slate-200 border-slate-500',
+      free: 'bg-emerald-700/50 text-emerald-200 border-emerald-500',
+      structural: 'bg-amber-700/50 text-amber-200 border-amber-500',
+      pattern: 'bg-purple-700/50 text-purple-200 border-purple-500',
+      density: 'bg-sky-700/50 text-sky-200 border-sky-500',
+      meta: 'bg-fuchsia-700/50 text-fuchsia-200 border-fuchsia-500',
+    };
+    const out: (string | null)[] = [];
+    for (let i = 0; i < bars; i++) {
+      const role = phraseScheduleView[i];
+      if (!role) { out.push(null); continue; }
+      const key = role.type === 'parent' ? 'parent'
+        : role.type === 'free' ? 'free'
+        : MUTATION_CATEGORY[role.type];
+      out.push(COLOR[key] ?? COLOR.parent!);
+    }
+    return out;
+  }, [randomMode, phraseScheduleView, bars]);
   const forceFirstBeatEditorFrames = useMemo(() => {
     if (!firstBeatAccent) return false;
     if (firstBeatEditorSuppressedRowsSorted.length > 0) return true;
@@ -5475,6 +5807,31 @@ export default function App() {
                     </span>
                   </div>
 
+                  {/* Free / Parent mode toggle */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => setRandomMode('free')}
+                      className={`flex items-center justify-center py-2 rounded-lg text-xs font-bold transition-all duration-200 border ${
+                        randomMode === 'free'
+                          ? `bg-blue-600/20 border-blue-500/50 text-blue-300 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(59,130,246,0.15)]'}`
+                          : 'bg-[#1a253c]/40 border-[#23314f] text-slate-500 hover:text-slate-400 hover:bg-[#1a253c]/80'
+                      }`}
+                    >
+                      Free
+                    </button>
+                    <button
+                      onClick={() => setRandomMode('parent')}
+                      className={`flex items-center justify-center py-2 rounded-lg text-xs font-bold transition-all duration-200 border ${
+                        randomMode === 'parent'
+                          ? `bg-blue-600/20 border-blue-500/50 text-blue-300 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(59,130,246,0.15)]'}`
+                          : 'bg-[#1a253c]/40 border-[#23314f] text-slate-500 hover:text-slate-400 hover:bg-[#1a253c]/80'
+                      }`}
+                    >
+                      Parent
+                    </button>
+                  </div>
+
+                  {randomMode === 'free' ? (
                   <div className="grid grid-cols-2 gap-2">
                      <button 
                        onClick={() => toggleRandomFeature('pulsation')}
@@ -5517,6 +5874,178 @@ export default function App() {
                         Dead Cells
                      </button>
                   </div>
+                  ) : (
+                  /* Parent-mode panel — заменяет axis toggles. Phase 1: длина + Set/Re-roll.
+                     Phase 2-4 добавят чекбоксы мутаций и form presets. */
+                  <div className="flex flex-col gap-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => setParentLength(1)}
+                        className={`flex items-center justify-center py-2 rounded-lg text-xs font-bold transition-all duration-200 border ${
+                          parentLength === 1
+                            ? 'bg-purple-600/20 border-purple-500/50 text-purple-300'
+                            : 'bg-[#1a253c]/40 border-[#23314f] text-slate-500 hover:text-slate-400 hover:bg-[#1a253c]/80'
+                        }`}
+                      >
+                        1 bar
+                      </button>
+                      <button
+                        onClick={() => setParentLength(2)}
+                        className={`flex items-center justify-center py-2 rounded-lg text-xs font-bold transition-all duration-200 border ${
+                          parentLength === 2
+                            ? 'bg-purple-600/20 border-purple-500/50 text-purple-300'
+                            : 'bg-[#1a253c]/40 border-[#23314f] text-slate-500 hover:text-slate-400 hover:bg-[#1a253c]/80'
+                        }`}
+                      >
+                        2 bars
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={setParentFromCurrent}
+                        className="flex items-center justify-center py-2 rounded-lg text-[11px] font-bold transition-all duration-200 border bg-[#1a253c]/60 border-[#2a385b] text-slate-300 hover:text-white hover:bg-[#1a243b]"
+                      >
+                        Set from current
+                      </button>
+                      <button
+                        onClick={rerollParent}
+                        className="flex items-center justify-center py-2 rounded-lg text-[11px] font-bold transition-all duration-200 border bg-[#1a253c]/60 border-[#2a385b] text-slate-300 hover:text-white hover:bg-[#1a243b]"
+                      >
+                        Re-roll parent
+                      </button>
+                    </div>
+                    <div className="text-[10px] text-slate-500 text-center leading-tight">
+                      {parentGenome === null ? (
+                        <span className="text-amber-400/80">Parent not set — press Re-roll or Set from current</span>
+                      ) : (
+                        <span>Parent ready ({parentGenome.bars.length} bar{parentGenome.bars.length > 1 ? 's' : ''})</span>
+                      )}
+                    </div>
+
+                    {/* Mutations сгруппированы по категориям (Structural / Pattern / Density / Meta). */}
+                    <div className="flex flex-col gap-2 pt-1">
+                      <span className="text-[10px] font-bold tracking-wider uppercase text-slate-400">Mutations</span>
+                      {(['structural', 'pattern', 'density', 'meta'] as const).map((cat) => {
+                        const catTypes = ALL_MUTATION_TYPES.filter((t) => MUTATION_CATEGORY[t] === cat);
+                        if (catTypes.length === 0) return null;
+                        const catLabel: Record<MutationCategory, string> = {
+                          structural: 'Structural',
+                          pattern: 'Pattern',
+                          density: 'Density',
+                          meta: 'Meta',
+                        };
+                        return (
+                          <div key={cat} className="flex flex-col gap-1">
+                            <span className="text-[9px] font-bold tracking-wider uppercase text-slate-500 pl-0.5">
+                              {catLabel[cat]}
+                            </span>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {catTypes.map((t) => {
+                                const on = enabledMutations.includes(t);
+                                return (
+                                  <button
+                                    key={t}
+                                    onClick={() => toggleMutationType(t)}
+                                    className={`flex flex-col items-center justify-center py-1.5 rounded-md text-[10px] font-bold transition-all duration-150 border leading-tight ${
+                                      on
+                                        ? 'bg-purple-600/20 border-purple-500/50 text-purple-300'
+                                        : 'bg-[#1a253c]/40 border-[#23314f] text-slate-500 hover:text-slate-400 hover:bg-[#1a253c]/80'
+                                    }`}
+                                  >
+                                    <span>{MUTATION_LABEL[t]}</span>
+                                    <span className="text-[9px] opacity-70">{MUTATION_PHRASE_LEN[t]}b</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="flex flex-col gap-1.5 pt-1">
+                      <span className="text-[10px] font-bold tracking-wider uppercase text-slate-400">Form preset</span>
+                      <div className="grid grid-cols-4 gap-1">
+                        {ALL_FORM_PRESETS.map((p) => {
+                          const on = formPresetId === p;
+                          return (
+                            <button
+                              key={p}
+                              onClick={() => setFormPresetId(p)}
+                              className={`py-1.5 rounded-md text-[10px] font-bold transition-all duration-150 border leading-tight ${
+                                on
+                                  ? 'bg-purple-600/20 border-purple-500/50 text-purple-300'
+                                  : 'bg-[#1a253c]/40 border-[#23314f] text-slate-500 hover:text-slate-400 hover:bg-[#1a253c]/80'
+                              }`}
+                            >
+                              {FORM_PRESET_LABEL[p]}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Read-only линейка phrase schedule: один прямоугольник = один такт, цвет = тип мутации. */}
+                    {phraseScheduleView.length > 0 && (() => {
+                      const SHORT: Record<MutationType | 'parent' | 'free', string> = {
+                        substitution: 'Su',
+                        retrograde: 'Rt',
+                        inversion: 'Iv',
+                        rotation: 'Ro',
+                        truncation: 'Tr',
+                        augmentation: 'Au',
+                        diminution: 'Di',
+                        prepend_append: 'Pa',
+                        fractal: 'Fr',
+                        tihai: 'Th',
+                        echo_decay: 'Ec',
+                        neighbour_pulsation: 'Np',
+                        call_fill: 'Cf',
+                        parent: 'P',
+                        free: 'F',
+                      };
+                      const COLOR: Record<string, string> = {
+                        parent: 'bg-slate-700/60 text-slate-300 border-slate-600',
+                        free: 'bg-emerald-600/30 text-emerald-300 border-emerald-500/50',
+                        structural: 'bg-amber-600/30 text-amber-300 border-amber-500/50',
+                        pattern: 'bg-purple-600/30 text-purple-300 border-purple-500/50',
+                        density: 'bg-sky-600/30 text-sky-300 border-sky-500/50',
+                        meta: 'bg-fuchsia-600/30 text-fuchsia-300 border-fuchsia-500/50',
+                      };
+                      return (
+                        <div className="flex flex-col gap-1 pt-1">
+                          <span className="text-[10px] font-bold tracking-wider uppercase text-slate-400">Schedule</span>
+                          <div className="flex flex-wrap gap-0.5 items-stretch">
+                            {phraseScheduleView.map((role, i) => {
+                              const key = role.type === 'parent' ? 'parent'
+                                : role.type === 'free' ? 'free'
+                                : MUTATION_CATEGORY[role.type];
+                              const color = COLOR[key] ?? COLOR.parent!;
+                              const isFirst = role.phraseStep === 0;
+                              const boundaryClass = isFirst && i > 0 ? 'ml-1' : '';
+                              return (
+                                <div
+                                  key={i}
+                                  title={`Bar ${i + 1}: ${role.type} (step ${role.phraseStep + 1}/${role.phraseLength})`}
+                                  className={`${boundaryClass} ${color} border rounded text-[9px] font-bold leading-none flex items-center justify-center min-w-[22px] h-5 px-1`}
+                                >
+                                  {SHORT[role.type]}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    <button
+                      onClick={() => rerollPhraseSchedule()}
+                      className="mt-1 py-1.5 rounded-md text-[10px] font-bold border bg-[#1a253c]/60 border-[#2a385b] text-slate-300 hover:text-white hover:bg-[#1a243b]"
+                    >
+                      Re-roll schedule
+                    </button>
+                  </div>
+                  )}
 
                   <div className="flex flex-col gap-2 px-1">
                     <div className="flex items-center justify-between">
@@ -6060,6 +6589,8 @@ export default function App() {
           allBarsFitViewport={allBarsFitViewport}
           activeEditRow={activeEditRow}
           activeEditCell={activeEditCell}
+          parentRoleLabels={parentRoleLabels}
+          parentRoleBadgeClasses={parentRoleBadgeClasses}
           sequencerGridRowActionsRef={sequencerGridRowActionsRef}
           setRowElStable={setRowElStable}
         />
