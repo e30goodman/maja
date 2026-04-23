@@ -55,36 +55,24 @@ export function barSpeedChangeProbFromChaos(chaos: number): number {
 	return smoothstep01((c - 30) / 50);
 }
 
-/** Random pulsation: пул по chaos; пульсации 1 и 2 (Ta) с сильно пониженным весом к 3–9. */
-export const RANDOM_PULSE_POOL_LE_30 = [1, 2, 3, 4, 5] as const;
-export const RANDOM_PULSE_POOL_LE_70 = [1, 2, 3, 4, 5, 6, 7] as const;
-export const RANDOM_PULSE_POOL_FULL = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
-/** Вес пульсации 1 vs остальные (=1), кроме 2 — отдельно. */
-const RANDOM_PULSE_1_WEIGHT = 0.06;
-/** Вес пульсации 2 (Ta): как у 1 — редко относительно 3–9. */
-const RANDOM_PULSE_2_WEIGHT = 0.06;
+/**
+ * Random pulsation: пул по chaos. Пульсации 1 и 2 исключены как целые метры —
+ * в Тала Шастре самостоятельных Anga длиной 1 или 2 удара нет, минимум Tisra (3).
+ * Единицы/двойки существуют только как составные части фраз (2+3=5), но не как такт.
+ */
+export const RANDOM_PULSE_POOL_LE_30 = [3, 4, 5] as const;
+export const RANDOM_PULSE_POOL_LE_70 = [3, 4, 5, 6, 7] as const;
+export const RANDOM_PULSE_POOL_FULL = [3, 4, 5, 6, 7, 8, 9] as const;
 
 export function pulsationPoolForChaos(chaos: number): readonly number[] {
 	const c = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
 	return c <= 30 ? RANDOM_PULSE_POOL_LE_30 : c <= 70 ? RANDOM_PULSE_POOL_LE_70 : RANDOM_PULSE_POOL_FULL;
 }
 
-/** Weighted выборка пульсации из пула (без Markov). */
+/** Uniform выборка пульсации из пула (без Markov). */
 function pickPulsationWeighted(chaos: number, rng: RNG): number {
 	const pool = pulsationPoolForChaos(chaos);
-	let sum = 0;
-	const w: number[] = [];
-	for (const v of pool) {
-		const wi = v === 1 ? RANDOM_PULSE_1_WEIGHT : v === 2 ? RANDOM_PULSE_2_WEIGHT : 1;
-		w.push(wi);
-		sum += wi;
-	}
-	let r = rng() * sum;
-	for (let i = 0; i < pool.length; i++) {
-		r -= w[i]!;
-		if (r <= 0) return pool[i]!;
-	}
-	return pool[pool.length - 1]!;
+	return pool[Math.floor(rng() * pool.length)]!;
 }
 
 /**
@@ -122,8 +110,20 @@ export function accentFillRatioFromChaos(c: number): number {
 export const CELL_SPEED_RANDOM_POOL = [2, 3, 4] as const;
 
 /**
- * Random Speed: {2, 3, 4}. При наличии prev — Markov-bias сохранять предыдущее подделение,
- * stickProb = 1 − chaos/100 (пробежки одинаковой микроритмики — учебно ценно).
+ * Веса подделений: 2 (Chatusra) и 4 — основа (четные деления), 3 (Tisra) — специя/синкопа.
+ * Равномерный пул делает грув "рваным" и нехарактерным для Востока; при этих весах
+ * триоли остаются заметным, но не доминирующим цветом.
+ */
+const CELL_SPEED_WEIGHTS: readonly (readonly [number, number])[] = [
+	[2, 0.5],
+	[4, 0.35],
+	[3, 0.15],
+];
+
+/**
+ * Random Speed: {2, 3, 4} с весами 0.5/0.35/0.15. При наличии prev — Markov-bias
+ * сохранять предыдущее подделение, stickProb = 1 − chaos/100 (пробежки одинаковой
+ * микроритмики — учебно ценно).
  */
 export function pickRandomCellSpeedSubdiv(
 	rng: RNG = Math.random,
@@ -137,7 +137,14 @@ export function pickRandomCellSpeedSubdiv(
 		const stickProb = Math.max(0, 1 - chaos / 100);
 		if (rng() < stickProb) return prev;
 	}
-	return CELL_SPEED_RANDOM_POOL[Math.floor(rng() * CELL_SPEED_RANDOM_POOL.length)]!;
+	let sum = 0;
+	for (const [, w] of CELL_SPEED_WEIGHTS) sum += w;
+	let r = rng() * sum;
+	for (const [v, w] of CELL_SPEED_WEIGHTS) {
+		r -= w;
+		if (r <= 0) return v;
+	}
+	return CELL_SPEED_WEIGHTS[CELL_SPEED_WEIGHTS.length - 1]![0];
 }
 
 /**
@@ -211,6 +218,14 @@ export function buildLegacyPlaybackSequence(
  * Порядок: pulsation → barSpeed → pattern → speed. Dead-cells считаются до pattern/speed,
  * чтобы не назначать акценты/подделения на уже срубленные ячейки.
  *
+ * `forceFirstBeat`: гарантирует акцент на доле 0 при мутации pattern (диктант-режим / низкий
+ * chaos). Первая доля такта — Sam/Eduppu, гравитационный центр Тала; без неё ученик теряет
+ * сетку. Вызывающая сторона обычно даёт `dictantMode || chaos < 80`.
+ *
+ * `onlyAccents` оставлен в сигнатуре для backward-compat снэпшотов, но на генерацию
+ * рандома не влияет: подделения (Speed) всегда могут попадать на любые живые клетки,
+ * включая безакцентные (проходящие ноты в индийской традиции дробятся для скорости).
+ *
  * `rng` по умолчанию Math.random; для replay такта передаётся mulberry32(seed).
  */
 export function applyRandomizerEffectsToBar(
@@ -220,10 +235,11 @@ export function applyRandomizerEffectsToBar(
 	randomPattern: boolean,
 	randomSpeed: boolean,
 	randomBarSpeed: boolean,
-	onlyAccents: boolean,
+	_onlyAccents: boolean,
 	syllablesDefault: number,
 	m: BarRandomizerMutable,
 	rng: RNG = Math.random,
+	forceFirstBeat: boolean = false,
 ): boolean {
 	let didChange = false;
 
@@ -253,33 +269,26 @@ export function applyRandomizerEffectsToBar(
 		} else {
 			const flatCap = Math.min(2, maxDeadPossible);
 			let deadCount = 0;
-			if (chaos < 50) {
-				// Soft 0/1/2 distribution: 90/9/1 → 70/25/5 при chaos 0 → 50.
-				const t = Math.max(0, Math.min(1, chaos / 50));
-				const p0 = 0.9 - 0.2 * t;
+			if (chaos < 70) {
+				// Soft 0/1/2 distribution, независимо от accents (тишина-Karvai и акцент —
+				// разные концепты: динамика vs структура времени). Непрерывная кривая от
+				// 90/9/1 при chaos=0 до 40/25/35 при chaos=70.
+				const t = Math.max(0, Math.min(1, chaos / 70));
+				const p0 = 0.9 - 0.5 * t;
 				const p1 = 0.09 + 0.16 * t;
 				const roll = rng();
 				const deadCountSoft = roll < p0 ? 0 : roll < p0 + p1 ? 1 : 2;
 				deadCount = Math.min(deadCountSoft, flatCap);
 			} else {
-				const noDeadChance = chaos < 70 ? 0.3 : 0;
-				if (noDeadChance > 0 && rng() < noDeadChance) {
-					deadCount = 0;
-				} else if (chaos < 70) {
-					// 50..69: базовая плотность завязана на акцентный расчёт.
-					const baseActive = Math.max(1, Math.min(curSyl, pickAccentCountForBar(chaos, curSyl, rng)));
-					const baseDead = Math.max(0, curSyl - baseActive);
-					deadCount = Math.min(baseDead, flatCap);
-				} else {
-					// 70..100: экспоненциальная кривая к capу 50% (не 80% — педагогика, а не фермата).
-					const tail = Math.max(0, Math.min(1, (chaos - 70) / 30));
-					const exp01 = Math.expm1(3 * tail) / Math.expm1(3);
-					const deadAt100 = Math.min(maxDeadPossible, Math.max(flatCap, Math.floor(curSyl * 0.5)));
-					deadCount = Math.max(
-						flatCap,
-						Math.min(deadAt100, Math.round(flatCap + exp01 * (deadAt100 - flatCap))),
-					);
-				}
+				// 70..100: экспоненциальная кривая к capу 80% — Vilambit Laya, где
+				// большая часть такта удерживается внутренним пульсом.
+				const tail = Math.max(0, Math.min(1, (chaos - 70) / 30));
+				const exp01 = Math.expm1(3 * tail) / Math.expm1(3);
+				const deadAt100 = Math.min(maxDeadPossible, Math.max(flatCap, Math.floor(curSyl * 0.8)));
+				deadCount = Math.max(
+					flatCap,
+					Math.min(deadAt100, Math.round(flatCap + exp01 * (deadAt100 - flatCap))),
+				);
 			}
 			const activeCount = Math.max(1, curSyl - deadCount);
 			if (activeCount >= curSyl) {
@@ -312,18 +321,30 @@ export function applyRandomizerEffectsToBar(
 
 	if (randomPattern && rng() < patternChangeProbFromChaos(chaos)) {
 		for (let i = 0; i < 9; i++) m.accents.delete(`${prevBar}-${i}`);
-		const candidates = Array.from({ length: liveEnd }, (_, i) => i).sort(() => rng() - 0.5);
 		const fillCount = pickAccentCountForBar(chaos, liveEnd, rng);
-		for (let i = 0; i < fillCount && i < candidates.length; i++) {
-			m.accents.add(`${prevBar}-${candidates[i]}`);
+		if (forceFirstBeat && liveEnd >= 1) {
+			// Первая доля (Sam/Eduppu) — гарантированный акцент; остальные fillCount-1
+			// раскидываем по [1..liveEnd) с sort-bias (см. точка 7 ревизии эксперта).
+			m.accents.add(`${prevBar}-0`);
+			const rest = Array.from({ length: Math.max(0, liveEnd - 1) }, (_, i) => i + 1)
+				.sort(() => rng() - 0.5);
+			const remaining = Math.max(0, fillCount - 1);
+			for (let i = 0; i < remaining && i < rest.length; i++) {
+				m.accents.add(`${prevBar}-${rest[i]}`);
+			}
+		} else {
+			const candidates = Array.from({ length: liveEnd }, (_, i) => i).sort(() => rng() - 0.5);
+			for (let i = 0; i < fillCount && i < candidates.length; i++) {
+				m.accents.add(`${prevBar}-${candidates[i]}`);
+			}
 		}
 		didChange = true;
 	}
 
 	if (randomSpeed && rng() < speedChangeProbFromChaos(chaos)) {
-		const candidates = onlyAccents
-			? Array.from({ length: liveEnd }, (_, i) => i).filter((i) => m.accents.has(`${prevBar}-${i}`))
-			: Array.from({ length: liveEnd }, (_, i) => i);
+		// Speed бьёт любые живые клетки, включая безакцентные — проходящие ноты
+		// часто дробятся для скорости, акценты держат устойчивость (индийская традиция).
+		const candidates = Array.from({ length: liveEnd }, (_, i) => i);
 		for (let i = 0; i < 9; i++) delete m.customSubdivisions[`${prevBar}-${i}`];
 		const hitP = cellSpeedHitPFromChaos(chaos);
 		let prevSubdiv: number | undefined;

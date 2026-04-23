@@ -4532,10 +4532,11 @@ export default function App() {
             randomPatternRef.current,
             randomSpeedRef.current,
             randomBarSpeedRef.current,
-            onlyAccentsRef.current,
+            false,
             syllablesRef.current,
             m,
             mulberry32(barSeed),
+            dictantModeRef.current || chaos < 80,
           );
 
           if (didChange) {
@@ -4806,10 +4807,11 @@ export default function App() {
       randomPatternRef.current,
       randomSpeedRef.current,
       randomBarSpeedRef.current,
-      onlyAccentsRef.current,
+      false,
       syllablesRef.current,
       m,
       mulberry32(barSeed),
+      dictantModeRef.current || chaos < 80,
     );
     if (!didChange) return;
     setTimeout(() => {
