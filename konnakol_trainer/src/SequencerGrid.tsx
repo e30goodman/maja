@@ -282,6 +282,11 @@ const SequencerGridRow = React.memo(
 		);
 		const accentBits = accentSig;
 		const taDingBits = taDingSig;
+		/** Явный Ta не на первой доле — при legacy не рисуем «фантом» белой рамки на col 0 только из-за forceFirstBeatEditorFrames. */
+		const rowHasExplicitTaDingPastCol0 = useMemo(
+			() => taDingSig.length > 1 && taDingSig.slice(1).includes('1'),
+			[taDingSig],
+		);
 		const firstBeatRowSuppressed = useMemo(() => {
 			if (!firstBeatEditorSuppressedSig) return new Set<number>();
 			return new Set(
@@ -491,9 +496,13 @@ const SequencerGridRow = React.memo(
 						const showNonEditorDing =
 							(!isDead && cIdx > 0 && isTaDing) ||
 							(cIdx === 0 &&
+								!isDead &&
 								!isTaEditorMode &&
-								forceFirstBeatEditorFrames &&
-								!firstBeatRowSuppressed.has(rIdx));
+								!firstBeatRowSuppressed.has(rIdx) &&
+								(isTaDing ||
+									(accentMapVersion === 0 &&
+										forceFirstBeatEditorFrames &&
+										!rowHasExplicitTaDingPastCol0)));
 						const isActive = highlightCol === cIdx;
 						const subdivs = isDead ? 1 : (rowSubdivs[cIdx] ?? 1);
 						const cellBorder2 = 'border-2 box-border border-[#2f4066]';

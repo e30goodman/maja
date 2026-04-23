@@ -13,7 +13,6 @@ import {
 	Eraser,
 	Copy,
 	ClipboardPaste,
-	X,
 } from 'lucide-react';
 import { SequencerGrid, type SequencerGridRowActions } from './SequencerGrid';
 import {
@@ -281,11 +280,8 @@ const POLY_VOICES_STORAGE_KEY = 'konnakol_poly_voices';
 const POLY_VOICE_GAINS_STORAGE_KEY = 'konnakol_poly_voice_gains';
 const CLICK_PRESET_BUS_GAINS_STORAGE_KEY = 'konnakol_click_preset_bus_gains';
 const DEFAULT_POLY_VOICE_GAINS: PolyVoiceGainMap = { 0: 1, 1: 1, 2: 1 };
-/** Long-press preset tile → per-preset accent/alt/passive balance panel. */
-const CLICK_PRESET_BUS_HOLD_MS = 480;
-const CLICK_PRESET_BUS_MAX_MOVE_PX = 10;
-/** Debounce test beat while dragging bus balance sliders. */
-const CLICK_PRESET_BALANCE_PREVIEW_DEBOUNCE_MS = 100;
+/** Debounce `playTwoBarsPreviewFromGrid` after bus 1/2/3 slider moves. */
+const CLICK_PRESET_BUS_TWO_BARS_PREVIEW_DEBOUNCE_MS = 120;
 const APP_COMMIT_VERSION = (() => {
 	if (typeof __GIT_SHA7__ === 'string' && __GIT_SHA7__.length >= 7) return __GIT_SHA7__.slice(0, 7);
 	return 'dev';
@@ -1670,7 +1666,10 @@ function packGridTokenPacked(
 	out.push(Math.min(255, pulseRows.length));
 	for (let i = 0; i < Math.min(255, pulseRows.length); i++) out.push(pulseRows[i]! & 0xff);
 
-	if (useV2) {
+	// p3: всегда пишем байт версии карты (0/1), чтобы при приёме не оставался legacy=0 и сетка не дорисовывала Ta на 0-й доле.
+	if (gridVersion >= 0x03) {
+		out.push(((snapshot.accentMapVersion ?? 0) >= 1 ? 1 : 0) & 0xff);
+	} else if (useV2) {
 		out.push(Math.min(255, Math.max(0, Math.floor(snapshot.accentMapVersion ?? 1))) & 0xff);
 	}
 
@@ -1771,6 +1770,14 @@ function unpackGridTokenPacked(
 	}
 	d.pulseMeterUnlinked = nextPulse;
 	if (version === 0x02) {
+		if (off < bytes.length) {
+			const v = bytes[off++]!;
+			d.accentMapVersion = v >= 1 ? 1 : 0;
+		} else {
+			d.accentMapVersion = 1;
+		}
+	} else if (version === 0x03) {
+		// В p3 битовая карта Ta явная; без хвоста старые блобы трактуем как явную карту (не legacy).
 		if (off < bytes.length) {
 			const v = bytes[off++]!;
 			d.accentMapVersion = v >= 1 ? 1 : 0;
@@ -2942,7 +2949,6 @@ export default function App() {
       typeof localStorage !== 'undefined' ? localStorage.getItem(CLICK_PRESET_BUS_GAINS_STORAGE_KEY) : null,
     ),
   );
-  const [busBalanceExpandedPresetId, setBusBalanceExpandedPresetId] = useState<string | null>(null);
   const [activeClickVoiceTarget, setActiveClickVoiceTarget] = useState<0 | 1 | 2>(0);
   const activeClickVoiceTargetRef = useRef<0 | 1 | 2>(0);
   const [isClickSoundSelectorOpen, setIsClickSoundSelectorOpen] = useState(false);
@@ -3065,15 +3071,13 @@ export default function App() {
 
   useEffect(() => {
     if (isClickSoundSelectorOpen) return;
-    setBusBalanceExpandedPresetId(null);
-    if (clickPresetBusHoldTimerRef.current !== null) {
-      window.clearTimeout(clickPresetBusHoldTimerRef.current);
-      clickPresetBusHoldTimerRef.current = null;
+    if (clickPresetBusTwoBarsPreviewRetryTimerRef.current !== null) {
+      window.clearTimeout(clickPresetBusTwoBarsPreviewRetryTimerRef.current);
+      clickPresetBusTwoBarsPreviewRetryTimerRef.current = null;
     }
-    clickPresetBusHoldStartRef.current = null;
-    if (busBalancePreviewDebounceRef.current !== null) {
-      window.clearTimeout(busBalancePreviewDebounceRef.current);
-      busBalancePreviewDebounceRef.current = null;
+    if (clickPresetBusTwoBarsPreviewDebounceRef.current !== null) {
+      window.clearTimeout(clickPresetBusTwoBarsPreviewDebounceRef.current);
+      clickPresetBusTwoBarsPreviewDebounceRef.current = null;
     }
     if (previewResetTimerRef.current !== null) {
       window.clearTimeout(previewResetTimerRef.current);
@@ -3221,10 +3225,8 @@ export default function App() {
   const eraserHoldTimerRef = useRef<number | null>(null);
   const eraserHoldAteClickRef = useRef(false);
   const polyVoiceGainHoldTimerRef = useRef<number | null>(null);
-  const clickPresetBusHoldTimerRef = useRef<number | null>(null);
-  const clickPresetBusHoldStartRef = useRef<{ x: number; y: number } | null>(null);
-  const clickPresetBusHoldOpenedRef = useRef(false);
-  const busBalancePreviewDebounceRef = useRef<number | null>(null);
+  const clickPresetBusTwoBarsPreviewDebounceRef = useRef<number | null>(null);
+  const clickPresetBusTwoBarsPreviewRetryTimerRef = useRef<number | null>(null);
   const [randomDiceMintFlash, setRandomDiceMintFlash] = useState(false);
   const randomDiceMintFlashClearRef = useRef<number | null>(null);
   const [syllableReadMuteMode, setSyllableReadMuteMode] = useState<SyllableReadMuteMode>(() =>
@@ -5155,13 +5157,13 @@ export default function App() {
         window.clearTimeout(polyVoiceGainHoldTimerRef.current);
         polyVoiceGainHoldTimerRef.current = null;
       }
-      if (clickPresetBusHoldTimerRef.current !== null) {
-        window.clearTimeout(clickPresetBusHoldTimerRef.current);
-        clickPresetBusHoldTimerRef.current = null;
+      if (clickPresetBusTwoBarsPreviewDebounceRef.current !== null) {
+        window.clearTimeout(clickPresetBusTwoBarsPreviewDebounceRef.current);
+        clickPresetBusTwoBarsPreviewDebounceRef.current = null;
       }
-      if (busBalancePreviewDebounceRef.current !== null) {
-        window.clearTimeout(busBalancePreviewDebounceRef.current);
-        busBalancePreviewDebounceRef.current = null;
+      if (clickPresetBusTwoBarsPreviewRetryTimerRef.current !== null) {
+        window.clearTimeout(clickPresetBusTwoBarsPreviewRetryTimerRef.current);
+        clickPresetBusTwoBarsPreviewRetryTimerRef.current = null;
       }
       if (randomDiceHoldTimerRef.current !== null) {
         window.clearTimeout(randomDiceHoldTimerRef.current);
@@ -5695,6 +5697,10 @@ export default function App() {
         const supRow = firstBeatDingSuppressedRowsRef.current.has(rIdx);
         const fa = laneFirstBeat;
         const laneId = laneForRow(rIdx, polyVoicesRef.current);
+        const firstBeatHitPolicy: FirstBeatHitPolicy =
+          accentMapVersionRef.current >= 1
+            ? 'explicit_ta_only'
+            : resolveRuntimeFirstBeatPolicy(polyModeRef.current, laneId);
         const polyVoiceGain = polyModeRef.current
           ? Math.max(0, Math.min(1.6, polyVoiceGainsRef.current[voice as 0 | 1 | 2] ?? 1))
           : 1;
@@ -5704,7 +5710,7 @@ export default function App() {
           return polyVoiceGain * roleLinear;
         };
         const firstBeatCellHitRow = resolveFirstBeatHitRow(
-          resolveRuntimeFirstBeatPolicy(polyModeRef.current, laneId),
+          firstBeatHitPolicy,
           on0Accent,
           on0Ding,
           fa,
@@ -5949,43 +5955,40 @@ export default function App() {
     }, resetDelayMs);
   }, [clearPlayheadScheduling, getLegacyNoteDurationSeconds, scheduleGridCellAtTime]);
 
-  /** Short one-bar preview (accent / passive / alt / accent+alt-dub) for bus balance sliders; debounced. */
-  const scheduleClickPresetBusBalancePreview = useCallback((soundPreset: ClickSoundPreset) => {
+  /** After bus 1/2/3 moves: same two-bar grid preview as preset selection (debounced). Waits until any running grid preview finishes before starting, so the beat is audible. */
+  const scheduleClickPresetBusTwoBarsPreview = useCallback(() => {
     if (isTaEditorModeRef.current || isDeadCellsEditorModeRef.current) return;
-    if (busBalancePreviewDebounceRef.current !== null) {
-      window.clearTimeout(busBalancePreviewDebounceRef.current);
-      busBalancePreviewDebounceRef.current = null;
+    if (clickPresetBusTwoBarsPreviewRetryTimerRef.current !== null) {
+      window.clearTimeout(clickPresetBusTwoBarsPreviewRetryTimerRef.current);
+      clickPresetBusTwoBarsPreviewRetryTimerRef.current = null;
     }
-    busBalancePreviewDebounceRef.current = window.setTimeout(() => {
-      busBalancePreviewDebounceRef.current = null;
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      let ctx = audioCtxRef.current;
-      if (!ctx || ctx.state === 'closed') {
-        if (isPlayingRef.current) return;
-        ctx = new AudioContextClass();
-        audioCtxRef.current = ctx;
-      }
-      if (ctx.state === 'suspended') {
-        void ctx.resume();
-      }
-      const gBoot = clickMixerGroupRef.current;
-      if (gBoot) {
-        for (const v of ['accent', 'alt', 'passive'] as const) {
-          getVoiceLayerSumInput(ctx, v);
-          applyVoiceGroupChain(ctx, v, gBoot[v].groupHpHz, gBoot[v].groupLpHz, gBoot[v].groupMasterLinear);
+    if (clickPresetBusTwoBarsPreviewDebounceRef.current !== null) {
+      window.clearTimeout(clickPresetBusTwoBarsPreviewDebounceRef.current);
+      clickPresetBusTwoBarsPreviewDebounceRef.current = null;
+    }
+    clickPresetBusTwoBarsPreviewDebounceRef.current = window.setTimeout(() => {
+      clickPresetBusTwoBarsPreviewDebounceRef.current = null;
+      const preset = polyModeRef.current
+        ? resolveClickSoundForPolyVoice(
+            activeClickVoiceTargetRef.current,
+            true,
+            clickSoundByPolyVoiceRef.current,
+            clickSoundRef.current,
+          )
+        : clickSoundRef.current;
+      const tryPlay = () => {
+        if (gridPreviewAudioActiveRef.current) {
+          clickPresetBusTwoBarsPreviewRetryTimerRef.current = window.setTimeout(() => {
+            clickPresetBusTwoBarsPreviewRetryTimerRef.current = null;
+            tryPlay();
+          }, 90);
+          return;
         }
-      }
-      cloneClickMixerFromLibrary(soundPreset);
-      const busG = getClickPresetBusGainsForPreset(clickPresetBusGainsRef.current, soundPreset);
-      const t0 = ctx.currentTime + 0.045;
-      const quarterSec = 60 / 96;
-      playSharpClick(ctx, t0, true, soundPreset, false, 'accent', busG.accent);
-      playSharpClick(ctx, t0 + quarterSec, false, soundPreset, false, 'base', busG.passive);
-      playSharpClick(ctx, t0 + 2 * quarterSec, false, soundPreset, false, 'alt', busG.alt);
-      playSharpClick(ctx, t0 + 3 * quarterSec, true, soundPreset, false, 'accent', busG.accent);
-      playSharpClick(ctx, t0 + 3 * quarterSec, false, soundPreset, false, 'alt', busG.alt);
-    }, CLICK_PRESET_BALANCE_PREVIEW_DEBOUNCE_MS);
-  }, []);
+        playTwoBarsPreviewFromGrid(preset);
+      };
+      tryPlay();
+    }, CLICK_PRESET_BUS_TWO_BARS_PREVIEW_DEBOUNCE_MS);
+  }, [playTwoBarsPreviewFromGrid]);
 
   const scheduleNote = (stepIdx: number, absR: number, time: number) => {
     const seq = sequenceRef.current;
@@ -6091,13 +6094,13 @@ export default function App() {
         window.clearTimeout(polyVoiceGainHoldTimerRef.current);
         polyVoiceGainHoldTimerRef.current = null;
       }
-      if (clickPresetBusHoldTimerRef.current !== null) {
-        window.clearTimeout(clickPresetBusHoldTimerRef.current);
-        clickPresetBusHoldTimerRef.current = null;
+      if (clickPresetBusTwoBarsPreviewDebounceRef.current !== null) {
+        window.clearTimeout(clickPresetBusTwoBarsPreviewDebounceRef.current);
+        clickPresetBusTwoBarsPreviewDebounceRef.current = null;
       }
-      if (busBalancePreviewDebounceRef.current !== null) {
-        window.clearTimeout(busBalancePreviewDebounceRef.current);
-        busBalancePreviewDebounceRef.current = null;
+      if (clickPresetBusTwoBarsPreviewRetryTimerRef.current !== null) {
+        window.clearTimeout(clickPresetBusTwoBarsPreviewRetryTimerRef.current);
+        clickPresetBusTwoBarsPreviewRetryTimerRef.current = null;
       }
       if (randomDiceHoldTimerRef.current !== null) {
         window.clearTimeout(randomDiceHoldTimerRef.current);
@@ -6536,9 +6539,11 @@ export default function App() {
                         <div className="h-8" />
                         <div className="w-8 h-8" />
                       </div>
-                      {polyMode ? (
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="flex items-center gap-1.5">
+                      <div
+                        className={`flex items-center gap-2 min-w-0 shrink-0 ${polyMode ? 'justify-between' : 'justify-center'}`}
+                      >
+                        {polyMode ? (
+                          <div className="flex items-center gap-1 shrink-0">
                             {([0, 1, 2] as const).filter((v) => v < (polyVoices === 3 ? 3 : 2)).map((voiceIdx) => {
                               const isActive = activeClickVoiceTarget === voiceIdx;
                               const label = `V${voiceIdx + 1}`;
@@ -6564,7 +6569,75 @@ export default function App() {
                               );
                             })}
                           </div>
-                          <label className="flex items-center gap-1.5">
+                        ) : null}
+                        {(() => {
+                          const busPreset =
+                            polyMode
+                              ? resolveClickSoundForPolyVoice(
+                                  activeClickVoiceTarget,
+                                  true,
+                                  clickSoundByPolyVoice,
+                                  clickSound,
+                                )
+                              : clickSound;
+                          const gRow = getClickPresetBusGainsForPreset(clickPresetBusGains, busPreset);
+                          const busKeys: { key: keyof ClickPresetBusGains; idx: string }[] = [
+                            { key: 'accent', idx: '1' },
+                            { key: 'alt', idx: '2' },
+                            { key: 'passive', idx: '3' },
+                          ];
+                          const busRowSliderClass =
+                            'min-w-0 w-full h-1.5 rounded bg-[#0f1526] appearance-none cursor-pointer';
+                          return (
+                            <div className="flex flex-col justify-center gap-1.5 w-[9rem] min-w-[8rem] max-w-[10.5rem] shrink-0">
+                              {busKeys.map(({ key, idx }) => (
+                                <label
+                                  key={key}
+                                  className="flex items-center gap-1.5 w-full min-w-0"
+                                >
+                                  <span className="w-2 shrink-0 text-center text-[9px] font-bold text-slate-500 tabular-nums leading-none">
+                                    {idx}
+                                  </span>
+                                  <input
+                                    type="range"
+                                    min={0}
+                                    max={1.6}
+                                    step={0.01}
+                                    value={gRow[key]}
+                                    onChange={(e) => {
+                                      const raw = Number(e.target.value);
+                                      const nextVal = Number.isFinite(raw)
+                                        ? Math.max(0, Math.min(1.6, raw))
+                                        : 1;
+                                      setClickPresetBusGains((prev) => {
+                                        const cur = getClickPresetBusGainsForPreset(prev, busPreset);
+                                        const row: ClickPresetBusGains = { ...cur, [key]: nextVal };
+                                        const updated = { ...prev, [busPreset]: row };
+                                        clickPresetBusGainsRef.current = updated;
+                                        return updated;
+                                      });
+                                      scheduleClickPresetBusTwoBarsPreview();
+                                    }}
+                                    onDoubleClick={(e) => {
+                                      e.preventDefault();
+                                      setClickPresetBusGains((prev) => {
+                                        const cur = getClickPresetBusGainsForPreset(prev, busPreset);
+                                        const row: ClickPresetBusGains = { ...cur, [key]: 1 };
+                                        const updated = { ...prev, [busPreset]: row };
+                                        clickPresetBusGainsRef.current = updated;
+                                        return updated;
+                                      });
+                                      scheduleClickPresetBusTwoBarsPreview();
+                                    }}
+                                    className={busRowSliderClass}
+                                  />
+                                </label>
+                              ))}
+                            </div>
+                          );
+                        })()}
+                        {polyMode ? (
+                          <label className="flex items-center gap-1 shrink-0">
                             <input
                               type="range"
                               min={0}
@@ -6626,8 +6699,8 @@ export default function App() {
                               {Math.round((polyVoiceGains[activeClickVoiceTarget] ?? 1) * 100)}%
                             </span>
                           </label>
-                        </div>
-                      ) : null}
+                        ) : null}
+                      </div>
                       <div className="grid grid-cols-4 gap-2.5 flex-1 content-start">
                         {CLICK_SOUND_PRESET_META.map((preset) => {
                           const selectedForTarget = polyMode
@@ -6639,137 +6712,11 @@ export default function App() {
                               )
                             : clickSound;
                           const isSelected = selectedForTarget === preset.mappedSound;
-                          if (busBalanceExpandedPresetId === preset.id) {
-                            const gRow = getClickPresetBusGainsForPreset(clickPresetBusGains, preset.mappedSound);
-                            const busSliderRows: { key: keyof ClickPresetBusGains; idx: string }[] = [
-                              { key: 'accent', idx: '1' },
-                              { key: 'alt', idx: '2' },
-                              { key: 'passive', idx: '3' },
-                            ];
-                            return (
-                              <div
-                                key={preset.id}
-                                className="relative min-h-[64px] rounded-xl border border-[#5a7cc5] bg-[#1a243b] px-1 py-1 pr-5 flex flex-col justify-center gap-px overflow-hidden"
-                              >
-                                <button
-                                  type="button"
-                                  aria-label="Close bus balance"
-                                  onClick={() => setBusBalanceExpandedPresetId(null)}
-                                  className="absolute right-0 top-0 z-10 rounded-md p-0.5 text-slate-500 hover:bg-[#24365c] hover:text-white"
-                                >
-                                  <X size={12} strokeWidth={2.5} />
-                                </button>
-                                <div className="flex flex-col gap-px justify-center min-h-0 flex-1">
-                                  {busSliderRows.map(({ key, idx }) => (
-                                    <label
-                                      key={key}
-                                      className="flex items-center gap-0.5 min-w-0 text-[7px] leading-none text-slate-500 tabular-nums"
-                                    >
-                                      <span className="w-2 shrink-0 text-center font-bold text-slate-500">{idx}</span>
-                                      <input
-                                        type="range"
-                                        min={0}
-                                        max={1.6}
-                                        step={0.01}
-                                        value={gRow[key]}
-                                        onChange={(e) => {
-                                          const raw = Number(e.target.value);
-                                          const nextVal = Number.isFinite(raw)
-                                            ? Math.max(0, Math.min(1.6, raw))
-                                            : 1;
-                                          setClickPresetBusGains((prev) => {
-                                            const cur = getClickPresetBusGainsForPreset(prev, preset.mappedSound);
-                                            const row: ClickPresetBusGains = { ...cur, [key]: nextVal };
-                                            const updated = { ...prev, [preset.mappedSound]: row };
-                                            clickPresetBusGainsRef.current = updated;
-                                            return updated;
-                                          });
-                                          scheduleClickPresetBusBalancePreview(preset.mappedSound);
-                                        }}
-                                        onDoubleClick={(e) => {
-                                          e.preventDefault();
-                                          setClickPresetBusGains((prev) => {
-                                            const cur = getClickPresetBusGainsForPreset(prev, preset.mappedSound);
-                                            const row: ClickPresetBusGains = { ...cur, [key]: 1 };
-                                            const updated = { ...prev, [preset.mappedSound]: row };
-                                            clickPresetBusGainsRef.current = updated;
-                                            return updated;
-                                          });
-                                          scheduleClickPresetBusBalancePreview(preset.mappedSound);
-                                        }}
-                                        className={
-                                          'min-w-0 flex-1 h-2 cursor-pointer appearance-none bg-transparent ' +
-                                          '[&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-[#0f1526] ' +
-                                          '[&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:w-2 ' +
-                                          '[&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:bg-slate-400 ' +
-                                          '[&::-webkit-slider-thumb]:mt-[-3px] ' +
-                                          '[&::-moz-range-track]:h-1 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-[#0f1526] ' +
-                                          '[&::-moz-range-thumb]:h-2 [&::-moz-range-thumb]:w-2 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-slate-400'
-                                        }
-                                      />
-                                      <span className="w-[22px] shrink-0 text-right text-slate-400">
-                                        {Math.round(gRow[key] * 100)}
-                                      </span>
-                                    </label>
-                                  ))}
-                                </div>
-                              </div>
-                            );
-                          }
                           return (
                             <button
                               key={preset.id}
                               type="button"
-                              onPointerDown={(e) => {
-                                clickPresetBusHoldOpenedRef.current = false;
-                                clickPresetBusHoldStartRef.current = { x: e.clientX, y: e.clientY };
-                                if (clickPresetBusHoldTimerRef.current !== null) {
-                                  window.clearTimeout(clickPresetBusHoldTimerRef.current);
-                                  clickPresetBusHoldTimerRef.current = null;
-                                }
-                                clickPresetBusHoldTimerRef.current = window.setTimeout(() => {
-                                  clickPresetBusHoldTimerRef.current = null;
-                                  clickPresetBusHoldOpenedRef.current = true;
-                                  setBusBalanceExpandedPresetId(preset.id);
-                                }, CLICK_PRESET_BUS_HOLD_MS);
-                              }}
-                              onPointerMove={(e) => {
-                                const start = clickPresetBusHoldStartRef.current;
-                                if (!start || clickPresetBusHoldTimerRef.current === null) return;
-                                const dx = e.clientX - start.x;
-                                const dy = e.clientY - start.y;
-                                if (dx * dx + dy * dy > CLICK_PRESET_BUS_MAX_MOVE_PX * CLICK_PRESET_BUS_MAX_MOVE_PX) {
-                                  window.clearTimeout(clickPresetBusHoldTimerRef.current);
-                                  clickPresetBusHoldTimerRef.current = null;
-                                  clickPresetBusHoldStartRef.current = null;
-                                }
-                              }}
-                              onPointerUp={() => {
-                                if (clickPresetBusHoldTimerRef.current !== null) {
-                                  window.clearTimeout(clickPresetBusHoldTimerRef.current);
-                                  clickPresetBusHoldTimerRef.current = null;
-                                }
-                                clickPresetBusHoldStartRef.current = null;
-                              }}
-                              onPointerLeave={() => {
-                                if (clickPresetBusHoldTimerRef.current !== null) {
-                                  window.clearTimeout(clickPresetBusHoldTimerRef.current);
-                                  clickPresetBusHoldTimerRef.current = null;
-                                }
-                                clickPresetBusHoldStartRef.current = null;
-                              }}
-                              onPointerCancel={() => {
-                                if (clickPresetBusHoldTimerRef.current !== null) {
-                                  window.clearTimeout(clickPresetBusHoldTimerRef.current);
-                                  clickPresetBusHoldTimerRef.current = null;
-                                }
-                                clickPresetBusHoldStartRef.current = null;
-                              }}
                               onClick={() => {
-                                if (clickPresetBusHoldOpenedRef.current) {
-                                  clickPresetBusHoldOpenedRef.current = false;
-                                  return;
-                                }
                                 if (polyMode) {
                                   if (activeClickVoiceTarget === 0) {
                                     setClickSound(preset.mappedSound);
