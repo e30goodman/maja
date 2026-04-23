@@ -139,6 +139,29 @@ function parsePolyVoices(raw: unknown): 2 | 3 | 4 {
 }
 
 /**
+ * При включённом poly: число тактов кратно числу голосов (3 → 3,6,9,…; иначе 2 → 2,4,…).
+ * Без poly — только clamp 1..100.
+ */
+function snapBarsToPolyGrid(raw: number, polyActive: boolean, voices: 2 | 3 | 4): number {
+	const rounded = Math.round(raw);
+	const clamped = Math.max(1, Math.min(100, rounded));
+	if (!polyActive) return clamped;
+	const V = voices === 3 ? 3 : 2;
+	const minBars = V;
+	const constrained = Math.max(minBars, clamped);
+	const down = Math.floor(constrained / V) * V;
+	const up = Math.ceil(constrained / V) * V;
+	let snapped = down;
+	if (down < minBars) snapped = up;
+	else if (up <= 100 && Math.abs(up - constrained) < Math.abs(constrained - down)) snapped = up;
+	if (snapped > 100) {
+		snapped = 100 - (100 % V);
+		if (snapped < minBars) snapped = minBars;
+	}
+	return snapped;
+}
+
+/**
  * Доля долей такта, в которых random speed выставляет новую поддоль (остальные сбрасываются в дефолт).
  * Используется только при chaos > 25: chaos 26–33 → 33%; 34–66 → 66%; 67–89 → линейно 66%→100%; ≥90 → 100%.
  * При chaos 0–25 см. ветку в планировщике: не более одной ячейки на такт.
@@ -2393,6 +2416,8 @@ type StructuralSliderProps = {
   label: string;
   min: number;
   max: number;
+  /** Шаг native range (poly 3 → 3; poly 2 → 2). */
+  step?: number;
   value: number;
   colorClass: string;
   onCommit: (next: number) => void;
@@ -2407,6 +2432,7 @@ function StructuralSlider({
   label,
   min,
   max,
+  step = 1,
   value,
   colorClass,
   onCommit,
@@ -2475,6 +2501,7 @@ function StructuralSlider({
       type="range"
       min={String(min)}
       max={String(max)}
+      step={String(step)}
       value={localValue}
       onPointerDown={(e) => {
         if (!isPointerDownOnThumb(e.clientX, e.currentTarget)) {
@@ -2911,24 +2938,10 @@ export default function App() {
 
   const potatoAutoFreezeArmedRef = useRef(true);
   const prevLowPerfModeRef = useRef(lowPerfMode);
-  const normalizeBarsForMode = useCallback((raw: number) => {
-    const rounded = Math.round(raw);
-    const clamped = Math.max(1, Math.min(100, rounded));
-    if (!polyModeRef.current) return clamped;
-    const voices = polyVoicesRef.current;
-    const minBars = voices;
-    const constrained = Math.max(minBars, clamped);
-    const down = Math.floor(constrained / voices) * voices;
-    const up = Math.ceil(constrained / voices) * voices;
-    let snapped = down;
-    if (down < minBars) snapped = up;
-    else if (up <= 100 && Math.abs(up - constrained) < Math.abs(constrained - down)) snapped = up;
-    if (snapped > 100) {
-      snapped = 100 - (100 % voices);
-      if (snapped < minBars) snapped = minBars;
-    }
-    return snapped;
-  }, []);
+  const normalizeBarsForMode = useCallback(
+    (raw: number) => snapBarsToPolyGrid(raw, polyModeRef.current, polyVoicesRef.current),
+    [],
+  );
   useEffect(() => {
     const prev = prevLowPerfModeRef.current;
     prevLowPerfModeRef.current = lowPerfMode;
@@ -3043,7 +3056,7 @@ export default function App() {
     setFirstBeatDingSuppressedRows(new Set());
     setTempo(defaults.tempo);
     tempoRef.current = defaults.tempo;
-    const defaultBars = defaults.bars;
+    const defaultBars = snapBarsToPolyGrid(defaults.bars, polyModeRef.current, polyVoicesRef.current);
     setBars(defaultBars);
     barsRef.current = defaultBars;
     setSyllables(PULSE_METER_BASE_SYLLABLES);
@@ -3236,11 +3249,11 @@ export default function App() {
   useEffect(() => { polyVoicesRef.current = polyVoices; }, [polyVoices]);
   useEffect(() => {
     if (!polyMode) return;
-    const normalized = normalizeBarsForMode(barsRef.current);
-    if (normalized !== barsRef.current) {
+    const normalized = snapBarsToPolyGrid(bars, true, polyVoices);
+    if (normalized !== bars) {
       applyBarsWithPotatoFreeze(normalized);
     }
-  }, [polyMode, polyVoices, normalizeBarsForMode, applyBarsWithPotatoFreeze]);
+  }, [polyMode, polyVoices, bars, applyBarsWithPotatoFreeze]);
 
   const clampTempo = useCallback((n: number) => Math.min(400, Math.max(20, Math.round(n))), []);
 
@@ -3781,6 +3794,13 @@ export default function App() {
   const polyChunksRef = useRef(polyChunks);
   polyChunksRef.current = polyChunks;
 
+  /** Слайдер Bars: в poly на 3 голоса только кратно 3 (native step); на 2 — кратно 2 (до 100 как в normalize). */
+  const barsStructuralRange = useMemo(() => {
+    if (!polyMode) return { min: 1, max: 32, step: 1 };
+    if (polyVoices === 3) return { min: 3, max: 99, step: 3 };
+    return { min: 2, max: 100, step: 2 };
+  }, [polyMode, polyVoices]);
+
   // Auto-save preset whenever parameters change (пропуск во время drag Bars/Syllables — см. pointerup flush)
   useEffect(() => {
     if (barsSliderDraggingRef.current || syllablesSliderDraggingRef.current) {
@@ -3885,7 +3905,7 @@ export default function App() {
     options?: { preservePanel?: boolean },
   ) => {
       setTempo(snap.tempo);
-      setBars(snap.bars);
+      setBars(snapBarsToPolyGrid(snap.bars, snap.polyMode === true, parsePolyVoices(snap.polyVoices)));
       setSyllables(snap.syllables);
     setAccents(
       new Set(
@@ -5588,8 +5608,9 @@ export default function App() {
               </div>
               <StructuralSlider
                 label="Bars"
-                min={1}
-                max={32}
+                min={barsStructuralRange.min}
+                max={barsStructuralRange.max}
+                step={barsStructuralRange.step}
                 value={bars}
                 colorClass="[&::-webkit-slider-thumb]:bg-blue-400"
                 onBeginDrag={() => {
