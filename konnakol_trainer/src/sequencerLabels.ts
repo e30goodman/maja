@@ -1,15 +1,22 @@
 export const KONNAKOL_PYRAMID: Record<number, string[]> = {
 	1: ['Ta'],
 	2: ['Ta', 'Ka'],
-	/** В разбитой клетке последние две поддоли — Ta Ka вместо Ki Ta (как у двойки). */
-	3: ['Ta', 'Ta', 'Ka'],
+	/** В разбитой клетке триоль: Ta Ki Ta. */
+	3: ['Ta', 'Ki', 'Ta'],
 	4: ['Ta', 'Ka', 'Di', 'Mi'],
-	5: ['Ta', 'Ka', 'Ta', 'Ta', 'Ka'],
+	5: ['Ta', 'Ka', 'Ta', 'Ki', 'Ta'],
 	6: ['Ta', 'Ka', 'Di', 'Mi', 'Ta', 'Ka'],
-	7: ['Ta', 'Ka', 'Di', 'Mi', 'Ta', 'Ta', 'Ka'],
+	7: ['Ta', 'Ka', 'Di', 'Mi', 'Ta', 'Ki', 'Ta'],
 	8: ['Ta', 'Ka', 'Di', 'Mi', 'Ta', 'Ka', 'Ju', 'Nu'],
-	9: ['Ta', 'Ka', 'Di', 'Mi', 'Ta', 'Ka', 'Ta', 'Ta', 'Ka'],
+	9: ['Ta', 'Ka', 'Di', 'Mi', 'Ta', 'Ka', 'Ta', 'Ki', 'Ta'],
 };
+
+/**
+ * Паттерн такта (клетки без разбивки): без split-исключений Ta Ka Ta / Ta Ta Ka.
+ * Исключения остаются только в KONNAKOL_PYRAMID для subdivs > 1.
+ */
+const BAR_SYLLABLE_PATTERN = ['Ta', 'Ka', 'Di', 'Mi'] as const;
+const BAR_PULSE5_PATTERN = ['Ta', 'Ki', 'Ta', 'Ki', 'Ta'] as const;
 
 /**
  * Подписи по клеткам: при **subdivs === 1** — паттерн такта + **anti-repeat по хвосту** (см. ниже `lastTail` / сдвиг `start`).
@@ -22,7 +29,7 @@ export function buildRowCellSyllableLabels(
 	customSubdivs: Record<string, number>,
 	rowIdx: number,
 ): string[][] {
-	const seq = KONNAKOL_PYRAMID[rowSyllCount] ?? KONNAKOL_PYRAMID[1]!;
+	const seq = BAR_SYLLABLE_PATTERN;
 	const out: string[][] = [];
 	if (seq.length === 0) {
 		for (let cIdx = 0; cIdx < rowSyllCount; cIdx++) {
@@ -52,6 +59,13 @@ export function buildRowCellSyllableLabels(
 
 		const afterTaKaDhiMiCell = prevCellWasFourPulse;
 		prevCellWasFourPulse = false;
+
+		if (rowSyllCount === 5) {
+			const t = BAR_PULSE5_PATTERN[cIdx % BAR_PULSE5_PATTERN.length] ?? 'Ta';
+			out.push([t]);
+			lastTail = t;
+			continue;
+		}
 
 		const isLastBeat = cIdx === rowSyllCount - 1;
 		let start = cIdx % seq.length;

@@ -1,5 +1,5 @@
 import React, { useMemo, useCallback, useRef } from 'react';
-import { KONNAKOL_PYRAMID, buildRowCellSyllableLabels, getSyllableStyles } from './sequencerLabels';
+import { buildRowCellSyllableLabels, getSyllableStyles } from './sequencerLabels';
 import type { PlayheadPosition } from './playheadTypes';
 
 /** Long-press по клетке: Ta (1) → Ta Ka (2) → триоль Ta Ta Ka (3) → Ta Ka Dhi Mi (4) → снова Ta. */
@@ -8,8 +8,8 @@ function nextSubdivLongPress(current: number): number {
 	if (c === 1) return 2;
 	if (c === 2) return 3;
 	if (c === 3) return 4;
-	if (c === 4) return 1;
-	return 2;
+	if (c >= 4 && c < 9) return c + 1;
+	return 1;
 }
 
 /** Poly play: голос 0 — emerald; 1 — sky; 2 — violet; 3+ — amber (отличие от первого). */
@@ -460,6 +460,10 @@ const SequencerGridRow = React.memo(
 							} else if (isAccent) {
 								cellClasses = purpleAccentCell;
 							}
+						} else if (isAccent && showNonEditorDing) {
+							cellClasses = lowPerfMode
+								? `${purpleAccentCell} z-[1] ring-2 ring-inset ring-white`
+								: `${purpleAccentCell} z-[1] ring-2 ring-inset ring-white/95 shadow-[0_0_12px_rgba(255,255,255,0.18)]`;
 						} else if (isAccent) {
 							cellClasses = purpleAccentCell;
 						} else if (showNonEditorDing) {
@@ -602,9 +606,7 @@ const SequencerGridRow = React.memo(
 										>
 											{isDead
 												? ''
-												: subdivs === 1
-													? (KONNAKOL_PYRAMID[rowSylls]?.[cIdx] ?? rowCellLabels[cIdx]?.[i] ?? 'Ta')
-													: (rowCellLabels[cIdx]?.[i] ?? 'Ta')}
+												: (rowCellLabels[cIdx]?.[i] ?? 'Ta')}
 										</span>
 									))}
 								</div>
