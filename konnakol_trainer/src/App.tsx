@@ -182,7 +182,7 @@ const TEMPO_THROTTLE_MS = 56;
 const TEMPO_HOLD_REPEAT_MS = 100;
 const TEMPO_HOLD_REPEAT_STEP = 5;
 /** Long press on tempo slider track (without much move) → inline BPM on thumb. */
-const TEMPO_MANUAL_HOLD_MS = 520;
+const TEMPO_MANUAL_HOLD_MS = 800;
 const TEMPO_MANUAL_MAX_MOVE_PX = 14;
 /** Clipboard export: kawaii magic marker for compact preset payload. */
 const SNAPSHOT_CLIPBOARD_MARKER = '(⁠ʘ⁠ᴗ⁠ʘ⁠)⁠♪:';
