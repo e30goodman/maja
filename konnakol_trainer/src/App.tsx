@@ -5059,20 +5059,19 @@ export default function App() {
         const supRow = firstBeatDingSuppressedRowsRef.current.has(rIdx);
         const fa = firstBeatAccentRef.current;
         const firstBeatCellHitRow = on0Accent || on0Ding || (fa && !supRow);
+        // Poly: не тащим "дефолтный" Ta с глобальной кнопки в чужие строки/голоса.
+        // В полиритме первая доля Ta должна звучать только при явной разметке строки (0-акцент/0-taDing).
+        const firstBeatCellHitRowPolySafe = polyModeRef.current
+          ? (on0Accent || on0Ding)
+          : firstBeatCellHitRow;
         const polySlotKey = polyModeRef.current
           ? `${voice}:${rIdx}:${Math.round(subTime * 1_000_000)}`
           : '';
         const shouldDedupPolyClick = polyModeRef.current && polyClickSlotsRef.current.has(polySlotKey);
         const isFirstBarCell = cIdx === 0;
         const mainAccentClick = isAccent && (subdivs > 1 || sub === 0);
-        const playbackMode = squarePlaybackModeRef.current;
-        const allowTaArticulation = playbackMode === 'all_beats';
         const shouldPlayFirstBeatTa =
-          allowTaArticulation &&
-          isFirstBarCell &&
-          firstBeatAccentRef.current &&
-          firstBeatCellHitRow &&
-          (subdivs > 1 || sub === 0);
+          isFirstBarCell && firstBeatAccentRef.current && firstBeatCellHitRowPolySafe && (subdivs > 1 || sub === 0);
         if (shouldPlayFirstBeatTa) {
           playBarFirstHighClick(ctx, subTime, soundPreset);
           if (polyModeRef.current) {
@@ -5082,10 +5081,11 @@ export default function App() {
         if (shouldDedupPolyClick) {
           return;
         }
+        const playbackMode = squarePlaybackModeRef.current;
         const taEnabled = firstBeatAccentRef.current;
         const isTaDingCell = taEnabled && cIdx >= 1 && taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
         /** Ta-клетка с поддолями должна звучать на каждую поддолю, не только на sub=0. */
-        const shouldPlayTaDingSound = allowTaArticulation && isTaDingCell && (subdivs > 1 || sub === 0);
+        const shouldPlayTaDingSound = isTaDingCell && (subdivs > 1 || sub === 0);
         const hasTaDingHere = taEnabled && taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
         const dictantActive = dictantModeRef.current;
         const shouldPlayBeat =
@@ -5095,7 +5095,7 @@ export default function App() {
               ? isAccent || hasTaDingHere
               : false;
         const isTaFirstBeatArticulation =
-          cIdx === 0 && firstBeatAccentRef.current && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
+          cIdx === 0 && firstBeatAccentRef.current && firstBeatCellHitRowPolySafe && (subdivs > 1 || sub === 0);
         const sharpAsChecked = (() => {
           if (dictantActive) return mainAccentClick;
           if (muteMode === 'no_accent_sharp' && mainAccentClick && !isTaFirstBeatArticulation) return false;
