@@ -5517,6 +5517,7 @@ export default function App() {
         const ctx = audioCtxRef.current;
         if (!ctx) return;
         if (!isPlayingRef.current && !gridPreviewAudioActiveRef.current) return;
+        const isClickSelectorPreview = gridPreviewAudioActiveRef.current && !isPlayingRef.current;
         const tooLateBy = ctx.currentTime - subTime;
         if (tooLateBy > schedulerConfigRef.current.maxCatchUpLagSec) {
           recordAudioDroppedEvent();
@@ -5537,7 +5538,7 @@ export default function App() {
         const laneTaDing = getLaneTaSetRef(rIdx);
         const laneFirstBeat = getLaneFirstBeatRef(rIdx);
         const isAccent = laneAccents.has(`${rIdx}-${cIdx}`);
-        const muteMode = syllableReadMuteModeRef.current;
+        const muteMode: SyllableReadMuteMode = isClickSelectorPreview ? 'off' : syllableReadMuteModeRef.current;
         const on0Accent = laneAccents.has(`${rIdx}-0`);
         const on0Ding = laneTaDing.has(`${rIdx}-0`);
         const supRow = firstBeatDingSuppressedRowsRef.current.has(rIdx);
@@ -5570,13 +5571,13 @@ export default function App() {
         if (shouldDedupPolyClick) {
           return;
         }
-        const playbackMode = squarePlaybackModeRef.current;
+        const playbackMode: SquarePlaybackMode = isClickSelectorPreview ? 'all_beats' : squarePlaybackModeRef.current;
         const taEnabled = laneFirstBeat;
         const isTaDingCell = taEnabled && cIdx >= 1 && laneTaDing.has(`${rIdx}-${cIdx}`);
         /** Ta-клетка с поддолями должна звучать на каждую поддолю, не только на sub=0. */
         const shouldPlayTaDingSound = isTaDingCell && (subdivs > 1 || sub === 0);
         const hasTaDingHere = taEnabled && laneTaDing.has(`${rIdx}-${cIdx}`);
-        const dictantActive = dictantModeRef.current;
+        const dictantActive = isClickSelectorPreview ? false : dictantModeRef.current;
         const shouldPlayBeat =
           playbackMode === 'all_beats'
             ? true
