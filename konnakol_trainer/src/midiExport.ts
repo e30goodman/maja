@@ -87,7 +87,13 @@ export function resolveFirstBeatHitRow(
 ): boolean {
 	if (policy === 'explicit_ta_only') return on0Ding;
 	if (policy === 'explicit_any') return on0Accent || on0Ding;
-	return on0Accent || on0Ding || (firstBeatAccent && !suppressedRow);
+	/**
+	 * Legacy: default first-beat Ta when `firstBeatAccent && !suppressedRow`, or explicit
+	 * mark on 0. If the user **suppressed** default Ta for this row, a plain 0-accent must
+	 * not resurrect the Ta hit (only `on0Ding` does), or the row sounds «Ta» without a Ta mark.
+	 */
+	if (suppressedRow) return on0Ding;
+	return on0Accent || on0Ding || firstBeatAccent;
 }
 
 function toStringSet(iter: Set<string> | Iterable<string>): Set<string> {

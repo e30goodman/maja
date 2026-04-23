@@ -190,6 +190,9 @@ function testClassifyLane0LegacyDefaultFirstBeat() {
 
 function testFirstBeatPolicyParityRuntimeVsMidi() {
 	assert.equal(resolveFirstBeatHitRow('legacy', false, false, true, false), true);
+	/* Suppressed row: plain 0-accent must not trigger Ta hit. */
+	assert.equal(resolveFirstBeatHitRow('legacy', true, false, true, true), false);
+	assert.equal(resolveFirstBeatHitRow('legacy', false, true, true, true), true);
 	assert.equal(resolveFirstBeatHitRow('explicit_ta_only', true, false, true, false), false);
 	assert.equal(resolveFirstBeatHitRow('explicit_ta_only', false, true, true, true), true);
 }
