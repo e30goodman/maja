@@ -4548,6 +4548,11 @@ export default function App() {
       setFormPresetId(fp);
     }
     setIsTaEditorMode(false);
+    /**
+     * Agent note (snapshot contract):
+     * `firstBeatDingSuppressedRows` can arrive as Set (runtime snapshot) or Array (JSON/clipboard).
+     * Always normalize both shapes, otherwise suppressed rows are lost and default first-beat marks come back.
+     */
     const supRaw = (snap as { firstBeatDingSuppressedRows?: unknown }).firstBeatDingSuppressedRows;
     const supList: unknown[] =
       supRaw instanceof Set
@@ -5364,9 +5369,12 @@ export default function App() {
         const fa = laneFirstBeat;
         const firstBeatCellHitRow = on0Accent || on0Ding || (fa && !supRow);
         const laneId = laneForRow(rIdx, polyVoicesRef.current);
-        // Poly: не тащим "дефолтный" Ta с глобальной кнопки в чужие строки/голоса.
-        // lane0 сохраняет дефолтный first-beat Ta (master-голос),
-        // lane>0 триггерит first-beat Ta только по явному Ta-маркеру (0-taDing), не по accent.
+        /**
+         * Agent note (poly first-beat contract):
+         * - lane0 (master voice): legacy behavior with default first-beat Ta preserved.
+         * - lane>0: first-beat Ta is allowed only by explicit 0-taDing marker (NOT by 0-accent).
+         * This prevents ghost Ta bleed in secondary voices while keeping lane0 feel unchanged.
+         */
         const firstBeatCellHitRowPolySafe = polyModeRef.current
           ? (laneId === 0 ? firstBeatCellHitRow : on0Ding)
           : firstBeatCellHitRow;
