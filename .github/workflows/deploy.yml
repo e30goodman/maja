@@ -14,7 +14,9 @@ permissions:
 
 concurrency:
   group: "pages"
-  cancel-in-progress: true
+  # Queue deployments to avoid GitHub Pages API 400:
+  # "due to in progress deployment".
+  cancel-in-progress: false
 
 jobs:
   deploy:
