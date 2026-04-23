@@ -6477,7 +6477,7 @@ export default function App() {
                       <Dices size={14} /> Randomizer
                     </span>
                     <span className="text-[10px] font-medium normal-case tracking-normal text-slate-500">
-                      Commit: {APP_COMMIT_VERSION}
+                      {APP_COMMIT_VERSION}
                     </span>
                   </div>
 
