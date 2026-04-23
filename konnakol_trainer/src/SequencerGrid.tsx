@@ -300,7 +300,8 @@ const SequencerGridRow = React.memo(
 					.filter((n) => Number.isFinite(n)),
 			);
 		}, [firstBeatByRowSig]);
-		const firstBeatAccentRow = firstBeatRows.has(rIdx) || firstBeatAccent;
+		/** Poly: только строка своего голоса (`firstBeatByRowSig`); иначе глобальный `firstBeatAccent` даёт фантом на чужих линиях. */
+		const firstBeatAccentRow = polyMode ? firstBeatRows.has(rIdx) : firstBeatRows.has(rIdx) || firstBeatAccent;
 		const polyVoiceIdx = polyMode ? rIdx % polyVoices : 0;
 		return (
 			<div

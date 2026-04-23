@@ -6649,26 +6649,23 @@ export default function App() {
                             return (
                               <div
                                 key={preset.id}
-                                className="col-span-4 rounded-xl border border-[#5a7cc5] bg-[#1a243b] p-3 flex flex-col gap-2.5"
+                                className="relative min-h-[64px] rounded-xl border border-[#5a7cc5] bg-[#1a243b] px-1 py-1 pr-5 flex flex-col justify-center gap-px overflow-hidden"
                               >
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="text-[10px] font-semibold text-slate-100">{preset.label}</span>
-                                  <button
-                                    type="button"
-                                    aria-label="Close bus balance"
-                                    onClick={() => setBusBalanceExpandedPresetId(null)}
-                                    className="rounded-lg p-1 text-slate-400 hover:bg-[#24365c] hover:text-white"
-                                  >
-                                    <X size={16} />
-                                  </button>
-                                </div>
-                                <div className="flex flex-col gap-2">
+                                <button
+                                  type="button"
+                                  aria-label="Close bus balance"
+                                  onClick={() => setBusBalanceExpandedPresetId(null)}
+                                  className="absolute right-0 top-0 z-10 rounded-md p-0.5 text-slate-500 hover:bg-[#24365c] hover:text-white"
+                                >
+                                  <X size={12} strokeWidth={2.5} />
+                                </button>
+                                <div className="flex flex-col gap-px justify-center min-h-0 flex-1">
                                   {busSliderRows.map(({ key, idx }) => (
                                     <label
                                       key={key}
-                                      className="flex items-center gap-2 text-[9px] text-slate-400 tabular-nums"
+                                      className="flex items-center gap-0.5 min-w-0 text-[7px] leading-none text-slate-500 tabular-nums"
                                     >
-                                      <span className="w-3 shrink-0 text-center font-semibold text-slate-500">{idx}</span>
+                                      <span className="w-2 shrink-0 text-center font-bold text-slate-500">{idx}</span>
                                       <input
                                         type="range"
                                         min={0}
@@ -6689,10 +6686,29 @@ export default function App() {
                                           });
                                           scheduleClickPresetBusBalancePreview(preset.mappedSound);
                                         }}
-                                        className="flex-1 h-1.5 bg-[#0f1526] rounded-lg appearance-none cursor-pointer"
+                                        onDoubleClick={(e) => {
+                                          e.preventDefault();
+                                          setClickPresetBusGains((prev) => {
+                                            const cur = getClickPresetBusGainsForPreset(prev, preset.mappedSound);
+                                            const row: ClickPresetBusGains = { ...cur, [key]: 1 };
+                                            const updated = { ...prev, [preset.mappedSound]: row };
+                                            clickPresetBusGainsRef.current = updated;
+                                            return updated;
+                                          });
+                                          scheduleClickPresetBusBalancePreview(preset.mappedSound);
+                                        }}
+                                        className={
+                                          'min-w-0 flex-1 h-2 cursor-pointer appearance-none bg-transparent ' +
+                                          '[&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-[#0f1526] ' +
+                                          '[&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:w-2 ' +
+                                          '[&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:bg-slate-400 ' +
+                                          '[&::-webkit-slider-thumb]:mt-[-3px] ' +
+                                          '[&::-moz-range-track]:h-1 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-[#0f1526] ' +
+                                          '[&::-moz-range-thumb]:h-2 [&::-moz-range-thumb]:w-2 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-slate-400'
+                                        }
                                       />
-                                      <span className="w-9 text-right text-slate-400">
-                                        {Math.round(gRow[key] * 100)}%
+                                      <span className="w-[22px] shrink-0 text-right text-slate-400">
+                                        {Math.round(gRow[key] * 100)}
                                       </span>
                                     </label>
                                   ))}
@@ -7577,13 +7593,11 @@ export default function App() {
                   // Долгое удержание Ta из OFF: сначала включаем Ta, затем открываем редактор.
                   if (!firstBeatAccentRef.current) {
                     if (polyModeRef.current) {
-                      const lane = activeClickVoiceTargetRef.current as LaneId;
-                      setFirstBeatAccentByLane((prev) => {
-                        const next = { ...prev, [lane]: true };
-                        firstBeatAccentByLaneRef.current = { ...next };
-                        setFirstBeatAccent(Boolean(next[0]));
-                        return next;
-                      });
+                      /* Как в легаси `setFirstBeatAccent(true)` — один общий Ta на все голоса. */
+                      const next = { 0: true, 1: true, 2: true } as LaneBoolMap;
+                      firstBeatAccentByLaneRef.current = next;
+                      setFirstBeatAccentByLane(next);
+                      setFirstBeatAccent(true);
                     } else {
                       setFirstBeatAccent(true);
                     }
@@ -7622,13 +7636,13 @@ export default function App() {
               if (isTaEditorModeRef.current) return;
               flushSync(() => {
                 if (polyModeRef.current) {
-                  const lane = activeClickVoiceTargetRef.current as LaneId;
-                  setFirstBeatAccentByLane((prev) => {
-                    const next = { ...prev, [lane]: !prev[lane] };
-                    firstBeatAccentByLaneRef.current = { ...next };
-                    setFirstBeatAccent(Boolean(next[0]));
-                    return next;
-                  });
+                  /* Как в легаси: один тап инвертирует общий Ta для всех линий (канон — lane 0). */
+                  const nextVal = !firstBeatAccentByLaneRef.current[0];
+                  const next = { 0: nextVal, 1: nextVal, 2: nextVal } as LaneBoolMap;
+                  firstBeatAccentByLaneRef.current = next;
+                  firstBeatAccentRef.current = nextVal;
+                  setFirstBeatAccentByLane(next);
+                  setFirstBeatAccent(nextVal);
                 } else {
                   setFirstBeatAccent((prev) => !prev);
                 }
