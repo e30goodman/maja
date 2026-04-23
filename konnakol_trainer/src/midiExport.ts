@@ -10,15 +10,35 @@ import { buildRowCellSyllableLabels, type KalamMap } from './sequencerLabels';
 
 const PULSE_METER_BASE_SYLLABLES = 4;
 
-/** GM drum note for ta/ding layer (distinct from snare/hat/tom). */
-export const MIDI_TA_HIGH_NOTE = 56;
-export const MIDI_ACCENT_NOTE = 24; // C1
-export const MIDI_ALT_NOTE = 26; // D1
-export const MIDI_PASSIVE_NOTE = 50; // D3
+/** Lane 1 (legacy + poly V1). */
+export const MIDI_V1_ACCENT_NOTE = 23; // B0
+export const MIDI_V1_PASSIVE_NOTE = 50; // D3
+export const MIDI_V1_ALT_NOTE = 26; // D1 (legacy default, unchanged)
+export const MIDI_V1_TA_HIGH_NOTE = 56; // G#2 (legacy default, unchanged)
+
+/** Lane 2 (poly V2). */
+export const MIDI_V2_ACCENT_NOTE = 34; // A#1
+export const MIDI_V2_ALT_NOTE = 21; // A0
+export const MIDI_V2_PASSIVE_NOTE = 51; // D#3
+export const MIDI_V2_TA_HIGH_NOTE = 29; // F1
 
 const DRUM_CHANNEL = 10;
 
 export type MidiExportRole = 'accent' | 'alt' | 'passive' | 'taHigh';
+
+export function resolveMidiNoteForLaneRole(lane: number, role: MidiExportRole): number {
+	// Legacy mode always emits lane 0, so it follows V1 mapping.
+	if (lane === 1) {
+		if (role === 'accent') return MIDI_V2_ACCENT_NOTE;
+		if (role === 'alt') return MIDI_V2_ALT_NOTE;
+		if (role === 'passive') return MIDI_V2_PASSIVE_NOTE;
+		return MIDI_V2_TA_HIGH_NOTE;
+	}
+	if (role === 'accent') return MIDI_V1_ACCENT_NOTE;
+	if (role === 'alt') return MIDI_V1_ALT_NOTE;
+	if (role === 'passive') return MIDI_V1_PASSIVE_NOTE;
+	return MIDI_V1_TA_HIGH_NOTE;
+}
 
 export interface MidiExportInput {
 	bpm: number;
@@ -55,6 +75,20 @@ export type ClassifiedHits = {
 	altShadow: boolean;
 	passive: boolean;
 };
+
+export type FirstBeatHitPolicy = 'legacy' | 'explicit_any' | 'explicit_ta_only';
+
+export function resolveFirstBeatHitRow(
+	policy: FirstBeatHitPolicy,
+	on0Accent: boolean,
+	on0Ding: boolean,
+	firstBeatAccent: boolean,
+	suppressedRow: boolean,
+): boolean {
+	if (policy === 'explicit_ta_only') return on0Ding;
+	if (policy === 'explicit_any') return on0Accent || on0Ding;
+	return on0Accent || on0Ding || (firstBeatAccent && !suppressedRow);
+}
 
 function toStringSet(iter: Set<string> | Iterable<string>): Set<string> {
 	return iter instanceof Set ? iter : new Set(iter);
@@ -213,6 +247,7 @@ export function classifyGridCellHits(args: {
 	muteMode: 'off' | 'full' | 'no_accent_sharp';
 	dictantActive: boolean;
 	firstBeatRequiresExplicitMark?: boolean;
+	firstBeatHitPolicy?: FirstBeatHitPolicy;
 }): ClassifiedHits {
 	const {
 		rowIdx,
@@ -230,6 +265,7 @@ export function classifyGridCellHits(args: {
 		muteMode,
 		dictantActive,
 		firstBeatRequiresExplicitMark,
+		firstBeatHitPolicy,
 	} = args;
 
 	const out: ClassifiedHits = { taHigh: false, accent: false, altShadow: false, passive: false };
@@ -237,9 +273,15 @@ export function classifyGridCellHits(args: {
 
 	const on0Accent = accents.has(`${rowIdx}-0`);
 	const on0Ding = taDingKeys.has(`${rowIdx}-0`);
-	const firstBeatCellHitRow = firstBeatRequiresExplicitMark
-		? (on0Accent || on0Ding)
-		: (on0Accent || on0Ding || (firstBeatAccent && !suppressedRow));
+	const policy: FirstBeatHitPolicy = firstBeatHitPolicy
+		?? (firstBeatRequiresExplicitMark ? 'explicit_any' : 'legacy');
+	const firstBeatCellHitRow = resolveFirstBeatHitRow(
+		policy,
+		on0Accent,
+		on0Ding,
+		firstBeatAccent,
+		suppressedRow,
+	);
 	const sub = 0;
 	const mainAccentClick = isAccent && (subdivs > 1 || sub === 0);
 	const shouldPlayFirstBeatTa =
@@ -421,14 +463,7 @@ export function generateMidi(input: MidiExportInput): Uint8Array {
 		shouldPlayFirstBeatTa: boolean,
 	) => {
 		if (noteCount >= maxNotes) return;
-		const pitch =
-			role === 'taHigh'
-				? MIDI_TA_HIGH_NOTE
-				: role === 'accent'
-					? MIDI_ACCENT_NOTE
-					: role === 'alt'
-						? MIDI_ALT_NOTE
-						: MIDI_PASSIVE_NOTE;
+		const pitch = resolveMidiNoteForLaneRole(lane, role);
 		const vel = computeVelocity(role, colIdx, mainAccent, shouldPlayFirstBeatTa, headSyl, humanize, rng);
 		pushNote(pending, trackIndexFor(lane, role), baseTick, pitch, vel, cellTicks, humanize, rng);
 		noteCount++;
@@ -454,6 +489,9 @@ export function generateMidi(input: MidiExportInput): Uint8Array {
 		const rowTaDing = input.polyMode ? taDingByLane[laneSetIdx] : taDingKeys;
 		const rowFirstBeat = input.polyMode ? firstBeatByLane[laneSetIdx] : input.firstBeatAccent;
 		const isAccent = rowAccents.has(`${rowIdx}-${colIdx}`);
+		const firstBeatPolicy: FirstBeatHitPolicy = input.polyMode
+			? (laneSetIdx === 0 ? 'legacy' : 'explicit_ta_only')
+			: 'legacy';
 		const hits = classifyGridCellHits({
 			rowIdx,
 			colIdx,
@@ -469,14 +507,18 @@ export function generateMidi(input: MidiExportInput): Uint8Array {
 			playbackMode,
 			muteMode,
 			dictantActive,
-			firstBeatRequiresExplicitMark: input.polyMode,
+			firstBeatHitPolicy: firstBeatPolicy,
 		});
 
 		const on0Accent = rowAccents.has(`${rowIdx}-0`);
 		const on0Ding = rowTaDing.has(`${rowIdx}-0`);
-		const firstBeatCellHitRow = input.polyMode
-			? (on0Accent || on0Ding)
-			: (on0Accent || on0Ding || (rowFirstBeat && !suppressed.has(rowIdx)));
+		const firstBeatCellHitRow = resolveFirstBeatHitRow(
+			firstBeatPolicy,
+			on0Accent,
+			on0Ding,
+			rowFirstBeat,
+			suppressed.has(rowIdx),
+		);
 		const shouldPlayFirstBeatTa =
 			colIdx === 0 && rowFirstBeat && firstBeatCellHitRow && (subdivs > 1 || 0 === 0);
 		const mainAccent = isAccent;

@@ -7,6 +7,8 @@ import {
 	computeVelocity,
 	generateMidi,
 	mulberry32,
+	resolveFirstBeatHitRow,
+	resolveMidiNoteForLaneRole,
 	syllableToDrumNote,
 	ticksPerCellFromRow,
 } from './midiExport';
@@ -143,6 +145,55 @@ function testClassifyPolyFirstBeatSafeNoBleed() {
 	assert.equal(hits.taHigh, false);
 }
 
+function testClassifyPolyLane1AccentOnlyNoTa() {
+	const hits = classifyGridCellHits({
+		rowIdx: 1,
+		colIdx: 0,
+		subdivs: 1,
+		isAccent: true,
+		taDingKeys: new Set<string>(),
+		accents: new Set(['1-0']),
+		firstBeatAccent: true,
+		suppressedRow: false,
+		polyMode: true,
+		polyDedupKey: '1:0',
+		polyClickSlots: new Set<string>(),
+		playbackMode: 'all_beats',
+		muteMode: 'off',
+		dictantActive: false,
+		firstBeatHitPolicy: 'explicit_ta_only',
+	});
+	assert.equal(hits.taHigh, false);
+	assert.equal(hits.accent, true);
+}
+
+function testClassifyLane0LegacyDefaultFirstBeat() {
+	const hits = classifyGridCellHits({
+		rowIdx: 0,
+		colIdx: 0,
+		subdivs: 1,
+		isAccent: false,
+		taDingKeys: new Set<string>(),
+		accents: new Set<string>(),
+		firstBeatAccent: true,
+		suppressedRow: false,
+		polyMode: true,
+		polyDedupKey: '0:0',
+		polyClickSlots: new Set<string>(),
+		playbackMode: 'all_beats',
+		muteMode: 'off',
+		dictantActive: false,
+		firstBeatHitPolicy: 'legacy',
+	});
+	assert.equal(hits.taHigh, true);
+}
+
+function testFirstBeatPolicyParityRuntimeVsMidi() {
+	assert.equal(resolveFirstBeatHitRow('legacy', false, false, true, false), true);
+	assert.equal(resolveFirstBeatHitRow('explicit_ta_only', true, false, true, false), false);
+	assert.equal(resolveFirstBeatHitRow('explicit_ta_only', false, true, true, true), true);
+}
+
 function testBuildLaneBarIndices() {
 	assert.deepEqual(buildLaneBarIndices(4, 2), [
 		[0, 2],
@@ -183,6 +234,15 @@ function testGenerateMidiSmoke() {
 	assert.equal(bytes[3], 0x64);
 }
 
+function testLaneRoleMidiNotes() {
+	assert.equal(resolveMidiNoteForLaneRole(0, 'passive'), 50); // V1/legacy D3
+	assert.equal(resolveMidiNoteForLaneRole(0, 'accent'), 23); // V1/legacy B0
+	assert.equal(resolveMidiNoteForLaneRole(1, 'accent'), 34); // V2 A#1
+	assert.equal(resolveMidiNoteForLaneRole(1, 'alt'), 21); // V2 A0
+	assert.equal(resolveMidiNoteForLaneRole(1, 'passive'), 51); // V2 D#3
+	assert.equal(resolveMidiNoteForLaneRole(1, 'taHigh'), 29); // V2 F1
+}
+
 function run() {
 	testSyllableToDrumNote();
 	testComputeVelocity();
@@ -191,8 +251,12 @@ function run() {
 	testClassifyAccentShadow();
 	testClassifyPolyDedup();
 	testClassifyPolyFirstBeatSafeNoBleed();
+	testClassifyPolyLane1AccentOnlyNoTa();
+	testClassifyLane0LegacyDefaultFirstBeat();
+	testFirstBeatPolicyParityRuntimeVsMidi();
 	testBuildLaneBarIndices();
 	testGenerateMidiSmoke();
+	testLaneRoleMidiNotes();
 	console.log('midiExport.test.ts: all passed');
 }
 

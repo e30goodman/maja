@@ -82,8 +82,58 @@ function testFillLookaheadSingleLiveCellNotStuck() {
 	assert.ok(events.every((e) => e.c === 0), 'only live column is 0');
 }
 
+function testMixedBarLengthsProduceInterleaving() {
+	const events: { bar: number; voice: number; t: number }[] = [];
+	const sch = createPolySubLegacyScheduler({
+		polyVoices: () => 3,
+		barCount: () => 6,
+		getBarTimeWindowSeconds: (bar) => (bar % 3 === 0 ? 0.5 : bar % 3 === 1 ? 0.75 : 1.0),
+		getRowSyllables: (bar) => (bar % 3 === 0 ? 2 : bar % 3 === 1 ? 3 : 4),
+		getDeadStart: () => undefined,
+		emit: (bar, _c, _absR, t, voice) => {
+			events.push({ bar, voice, t });
+		},
+	});
+	sch.reset(12);
+	sch.fillLookahead(13.5);
+	assert.ok(events.length > 0, 'scheduler must emit events');
+	const byVoice = new Map<number, number[]>();
+	for (const e of events) {
+		const arr = byVoice.get(e.voice) ?? [];
+		arr.push(e.t);
+		byVoice.set(e.voice, arr);
+	}
+	for (const [voice, times] of byVoice) {
+		for (let i = 1; i < times.length; i++) {
+			assert.ok(times[i]! > times[i - 1]!, `voice ${voice} time must be monotone`);
+		}
+	}
+}
+
+function testLaneBoundaryCallbackPerVoice() {
+	const boundaries: { prevBar: number; laneId: number; wrappedPattern: boolean }[] = [];
+	const sch = createPolySubLegacyScheduler({
+		polyVoices: () => 2,
+		barCount: () => 4,
+		getBarTimeWindowSeconds: () => 1,
+		getRowSyllables: () => 2,
+		getDeadStart: () => undefined,
+		emit: () => {},
+		onLaneBarBoundary: (prevBar, laneId, wrappedPattern) => {
+			boundaries.push({ prevBar, laneId, wrappedPattern });
+		},
+	});
+	sch.reset(0);
+	sch.fillLookahead(6);
+	assert.ok(boundaries.some((x) => x.laneId === 0), 'lane 0 must report boundaries');
+	assert.ok(boundaries.some((x) => x.laneId === 1), 'lane 1 must report boundaries');
+	assert.ok(boundaries.some((x) => x.wrappedPattern), 'wrappedPattern must eventually be true');
+}
+
 testBuildLaneBarIndices();
 testAdvancePolyLaneAfterEmit();
 testFillLookaheadMonotone();
 testFillLookaheadSingleLiveCellNotStuck();
+testMixedBarLengthsProduceInterleaving();
+testLaneBoundaryCallbackPerVoice();
 console.log('polySubLegacyScheduler.test.ts: ok');

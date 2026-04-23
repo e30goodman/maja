@@ -21,10 +21,23 @@ export type MetroLayerGraphConfig = {
 };
 
 const METRO_LAYER_ATTACK_SEC = 0.002;
+const SHARED_NOISE_BUFFER_SEC = 2;
+const sharedNoiseBufferByContext = new WeakMap<AudioContext, AudioBuffer>();
 
 /** Same floor as engine example (`max(1e-5, peak * 0.001)`). */
 export function metroEnvelopeEndFromPeak(peakLinear: number): number {
 	return Math.max(0.00001, peakLinear * 0.001);
+}
+
+function getSharedNoiseBuffer(ctx: AudioContext): AudioBuffer {
+	const cached = sharedNoiseBufferByContext.get(ctx);
+	if (cached) return cached;
+	const frameCount = Math.max(1, Math.floor(ctx.sampleRate * SHARED_NOISE_BUFFER_SEC));
+	const buf = ctx.createBuffer(1, frameCount, ctx.sampleRate);
+	const output = buf.getChannelData(0);
+	for (let i = 0; i < output.length; i++) output[i] = Math.random() * 2 - 1;
+	sharedNoiseBufferByContext.set(ctx, buf);
+	return buf;
 }
 
 /**
@@ -56,13 +69,8 @@ export function scheduleLayerToBus(
 	layerLp.connect(summingInput);
 
 	if (layer.type === 'noise') {
-		const noiseLen = Math.max(1, Math.floor(ctx.sampleRate * decaySec));
-		const noiseBuf = ctx.createBuffer(1, noiseLen, ctx.sampleRate);
-		const output = noiseBuf.getChannelData(0);
-		for (let i = 0; i < output.length; i++) output[i] = Math.random() * 2 - 1;
-
 		const noiseSrc = ctx.createBufferSource();
-		noiseSrc.buffer = noiseBuf;
+		noiseSrc.buffer = getSharedNoiseBuffer(ctx);
 
 		const noiseFilter = ctx.createBiquadFilter();
 		noiseFilter.type = layer.noiseFilterType || 'highpass';
