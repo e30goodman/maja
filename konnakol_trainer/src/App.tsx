@@ -3361,6 +3361,9 @@ export default function App() {
   const gridRef = useRef<HTMLDivElement | null>(null);
   const lastScrolledPageRef = useRef<number>(-1);
   const wasPlayingAutoscrollRef = useRef(false);
+  const autoscrollDisabledByUserRef = useRef(false);
+  const programmaticAutoscrollRef = useRef(false);
+  const programmaticAutoscrollClearTimerRef = useRef<number | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const timerIDRef = useRef<number | null>(null);
   const playheadQueueRef = useRef<PlayheadHighlightEvent[]>([]);
@@ -4880,6 +4883,18 @@ export default function App() {
   const setRowElStable = useCallback((absR: number, el: HTMLDivElement | null) => {
     rowRefs.current[absR] = el;
   }, []);
+  const performAutoscrollToRow = useCallback((rowEl: HTMLDivElement) => {
+    if (programmaticAutoscrollClearTimerRef.current !== null) {
+      window.clearTimeout(programmaticAutoscrollClearTimerRef.current);
+      programmaticAutoscrollClearTimerRef.current = null;
+    }
+    programmaticAutoscrollRef.current = true;
+    rowEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    programmaticAutoscrollClearTimerRef.current = window.setTimeout(() => {
+      programmaticAutoscrollClearTimerRef.current = null;
+      programmaticAutoscrollRef.current = false;
+    }, 180);
+  }, []);
   const primaryActivePos = useMemo(() => {
     if (!polyMode || activePositions.length === 0) return activePos;
     const masters = activePositions.filter((pos) => pos.voice === 0);
@@ -4914,6 +4929,7 @@ export default function App() {
       return cleanup;
     }
     wasPlayingAutoscrollRef.current = true;
+    if (autoscrollDisabledByUserRef.current) return cleanup;
 
     const frozenOneBarViewport =
       frozenScale !== null && Math.min(frozenScale, 10) === 1 && bars > 1;
@@ -4928,7 +4944,7 @@ export default function App() {
             const nextAbs = primaryActivePos.absR + 1;
             const rowEl = rowRefs.current[nextAbs];
             if (rowEl) {
-              rowEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              performAutoscrollToRow(rowEl);
             }
           }, 10);
         }
@@ -4959,7 +4975,7 @@ export default function App() {
         const rowEl = rowRefs.current[pageStartAbsR];
         
         if (rowEl) {
-           rowEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+           performAutoscrollToRow(rowEl);
         }
       }
     }
@@ -4975,7 +4991,34 @@ export default function App() {
     syllables,
     bars,
     displayScaleBars,
+    performAutoscrollToRow,
   ]);
+
+  useEffect(() => {
+    const node = gridRef.current;
+    if (!node) return;
+    const onWheel = () => {
+      if (!isPlayingRef.current) return;
+      autoscrollDisabledByUserRef.current = true;
+    };
+    const onTouchMove = () => {
+      if (!isPlayingRef.current) return;
+      autoscrollDisabledByUserRef.current = true;
+    };
+    const onScroll = () => {
+      if (!isPlayingRef.current) return;
+      if (programmaticAutoscrollRef.current) return;
+      autoscrollDisabledByUserRef.current = true;
+    };
+    node.addEventListener('wheel', onWheel, { passive: true });
+    node.addEventListener('touchmove', onTouchMove, { passive: true });
+    node.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      node.removeEventListener('wheel', onWheel);
+      node.removeEventListener('touchmove', onTouchMove);
+      node.removeEventListener('scroll', onScroll);
+    };
+  }, [gridRef]);
 
   useEffect(() => {
     return () => {
@@ -5876,6 +5919,11 @@ export default function App() {
       polySubLegacyRef.current = null;
       currentStepRef.current = 0; // Reset pattern position to start
       if (timerIDRef.current) clearTimeout(timerIDRef.current);
+      if (programmaticAutoscrollClearTimerRef.current !== null) {
+        window.clearTimeout(programmaticAutoscrollClearTimerRef.current);
+        programmaticAutoscrollClearTimerRef.current = null;
+      }
+      programmaticAutoscrollRef.current = false;
       if (squareHoldTimerRef.current !== null) {
         window.clearTimeout(squareHoldTimerRef.current);
         squareHoldTimerRef.current = null;
@@ -5925,6 +5973,7 @@ export default function App() {
       }
       setIsPlaying(true);
       isPlayingRef.current = true;
+      autoscrollDisabledByUserRef.current = false;
       clearPlayheadScheduling();
       setActivePositions([]);
       coldStartRef.current = true; // Mark cold start
