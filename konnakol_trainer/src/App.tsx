@@ -5732,13 +5732,14 @@ export default function App() {
     }
     gridPreviewAudioActiveRef.current = false;
     clearPendingGridClickTimers();
+    polyClickSlotsRef.current.clear();
     if (audioCtxRef.current) {
       audioCtxRef.current.close().catch(() => {});
       audioCtxRef.current = null;
     }
     audioCtxRef.current = new AudioContextClass();
     if (audioCtxRef.current.state === 'suspended') {
-      audioCtxRef.current.resume();
+      audioCtxRef.current.resume().catch(() => {});
     }
     if (!audioCtxRef.current) return;
     gridPreviewAudioActiveRef.current = true;
@@ -5755,6 +5756,7 @@ export default function App() {
     clearPlayheadScheduling();
     setActivePos({ r: -1, c: -1, absR: -1 });
     setActivePositions([]);
+    polyClickSlotsRef.current.clear();
     cloneClickMixerFromLibrary(soundPreset);
     const barsCount = Math.max(1, barsRef.current);
     let cursor = audioCtxRef.current.currentTime + schedulerConfigRef.current.scheduleAheadSec;
@@ -6314,7 +6316,7 @@ export default function App() {
                         >
                           <ChevronLeft className="w-4 h-4" />
                         </button>
-                        <span className="font-bold text-[11px] uppercase tracking-wider text-[#a4abc5]">Select Click</span>
+                        <div className="h-8" />
                         <div className="w-8 h-8" />
                       </div>
                       {polyMode ? (
