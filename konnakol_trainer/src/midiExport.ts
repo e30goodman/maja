@@ -29,8 +29,11 @@ export interface MidiExportInput {
 	pulseMeterUnlinked?: Record<number, boolean>;
 	customMultipliers?: Record<number, number>;
 	accents: Set<string> | Iterable<string>;
+	accentsByLane?: Partial<Record<0 | 1 | 2, Set<string> | Iterable<string>>>;
 	taDingKeys: Set<string> | Iterable<string>;
+	taDingKeysByLane?: Partial<Record<0 | 1 | 2, Set<string> | Iterable<string>>>;
 	firstBeatAccent: boolean;
+	firstBeatAccentByLane?: Partial<Record<0 | 1 | 2, boolean>>;
 	firstBeatDingSuppressedRows: Set<number> | Iterable<number>;
 	deadCells: DeadCellsMap | Record<number, { deadStart?: number; displayLen?: number; baseLen?: number }>;
 	polyMode: boolean;
@@ -141,6 +144,29 @@ export function ticksPerCellFromRow(
 	return (ppq * bpm) / eff;
 }
 
+function resolveAdaptivePpq(input: MidiExportInput, requestedPpq: number): number {
+	const targetMinCellTicks = 96;
+	let minCellTicks = Infinity;
+	const bars = Math.max(0, Math.floor(input.bars));
+	for (let r = 0; r < bars; r++) {
+		const t = ticksPerCellFromRow(
+			input.bpm,
+			r,
+			input.baseSyllables,
+			input.customSyllables,
+			input.pulseMeterUnlinked,
+			input.customMultipliers,
+			requestedPpq,
+		);
+		if (Number.isFinite(t) && t > 0) minCellTicks = Math.min(minCellTicks, t);
+	}
+	if (!Number.isFinite(minCellTicks) || minCellTicks <= 0 || minCellTicks >= targetMinCellTicks) {
+		return requestedPpq;
+	}
+	const scale = Math.ceil(targetMinCellTicks / minCellTicks);
+	return Math.min(15360, requestedPpq * Math.max(1, scale));
+}
+
 function toWriterVelocity(vMidi: number): number {
 	const c = Math.max(1, Math.min(127, Math.round(vMidi)));
 	return Math.max(1, Math.min(100, Math.round((c / 127) * 100)));
@@ -186,6 +212,7 @@ export function classifyGridCellHits(args: {
 	playbackMode: 'all_beats' | 'accent_only' | 'passive_only';
 	muteMode: 'off' | 'full' | 'no_accent_sharp';
 	dictantActive: boolean;
+	firstBeatRequiresExplicitMark?: boolean;
 }): ClassifiedHits {
 	const {
 		rowIdx,
@@ -202,6 +229,7 @@ export function classifyGridCellHits(args: {
 		playbackMode,
 		muteMode,
 		dictantActive,
+		firstBeatRequiresExplicitMark,
 	} = args;
 
 	const out: ClassifiedHits = { taHigh: false, accent: false, altShadow: false, passive: false };
@@ -209,7 +237,9 @@ export function classifyGridCellHits(args: {
 
 	const on0Accent = accents.has(`${rowIdx}-0`);
 	const on0Ding = taDingKeys.has(`${rowIdx}-0`);
-	const firstBeatCellHitRow = on0Accent || on0Ding || (firstBeatAccent && !suppressedRow);
+	const firstBeatCellHitRow = firstBeatRequiresExplicitMark
+		? (on0Accent || on0Ding)
+		: (on0Accent || on0Ding || (firstBeatAccent && !suppressedRow));
 	const sub = 0;
 	const mainAccentClick = isAccent && (subdivs > 1 || sub === 0);
 	const shouldPlayFirstBeatTa =
@@ -314,10 +344,12 @@ function pushNote(
 	if (humanize) {
 		t += Math.floor(rng() * 7) - 3;
 	}
-	const durRaw = Math.max(1, Math.floor(cellTicks) - 8);
-	const maxStart = Math.max(0, Math.floor(tick + cellTicks) - 1);
+	const cellTicksInt = Math.max(1, Math.round(cellTicks));
+	const minDurTicks = 24;
+	const durRaw = Math.max(minDurTicks, Math.round(cellTicksInt * 0.82));
+	const maxStart = Math.max(0, Math.round(tick + cellTicksInt) - 1);
 	t = Math.max(0, Math.min(maxStart, t));
-	const noteEnd = Math.min(Math.floor(tick + cellTicks), t + durRaw);
+	const noteEnd = Math.min(Math.round(tick + cellTicksInt), t + durRaw);
 	const durationTicks = Math.max(1, noteEnd - t);
 	list.push({
 		trackIndex,
@@ -335,11 +367,12 @@ function trackIndexFor(lane: number, role: 'accent' | 'alt' | 'passive' | 'taHig
 
 export function generateMidi(input: MidiExportInput): Uint8Array {
 	const bpm = input.bpm;
-	const ppq = input.ppq ?? 960;
+	const requestedPpq = input.ppq ?? 960;
+	const ppq = resolveAdaptivePpq(input, requestedPpq);
 	const humanize = input.humanize !== false;
 	const seed = input.seed ?? 0x9e3779b9;
 	const rng = mulberry32(seed);
-	const maxNotes = input.maxNoteEvents ?? 20_000;
+	const maxNotes = input.maxNoteEvents ?? 200_000;
 	const maxWall = input.maxWallSeconds ?? 48;
 	const revolutions = Math.max(1, Math.floor(input.patternRevolutions ?? 1));
 	const playbackMode = input.squarePlaybackMode ?? 'all_beats';
@@ -348,6 +381,21 @@ export function generateMidi(input: MidiExportInput): Uint8Array {
 
 	const accents = toStringSet(input.accents);
 	const taDingKeys = toStringSet(input.taDingKeys);
+	const accentsByLane: Record<0 | 1 | 2, Set<string>> = {
+		0: toStringSet(input.accentsByLane?.[0] ?? accents),
+		1: toStringSet(input.accentsByLane?.[1] ?? []),
+		2: toStringSet(input.accentsByLane?.[2] ?? []),
+	};
+	const taDingByLane: Record<0 | 1 | 2, Set<string>> = {
+		0: toStringSet(input.taDingKeysByLane?.[0] ?? taDingKeys),
+		1: toStringSet(input.taDingKeysByLane?.[1] ?? []),
+		2: toStringSet(input.taDingKeysByLane?.[2] ?? []),
+	};
+	const firstBeatByLane: Record<0 | 1 | 2, boolean> = {
+		0: input.firstBeatAccentByLane?.[0] ?? input.firstBeatAccent,
+		1: input.firstBeatAccentByLane?.[1] ?? input.firstBeatAccent,
+		2: input.firstBeatAccentByLane?.[2] ?? input.firstBeatAccent,
+	};
 	const suppressed = toNumberSet(input.firstBeatDingSuppressedRows);
 	const deadMap = toDeadCellsMap(input.deadCells);
 	const pulseU = input.pulseMeterUnlinked ?? {};
@@ -401,15 +449,19 @@ export function generateMidi(input: MidiExportInput): Uint8Array {
 		if (typeof deadCut === 'number' && colIdx >= deadCut) return;
 
 		const polyDedupKey = `${polyVoice}:${rowIdx}:${Math.round(wallSec * 1_000_000)}`;
-		const isAccent = accents.has(`${rowIdx}-${colIdx}`);
+		const laneSetIdx = (lane <= 0 ? 0 : lane === 1 ? 1 : 2) as 0 | 1 | 2;
+		const rowAccents = input.polyMode ? accentsByLane[laneSetIdx] : accents;
+		const rowTaDing = input.polyMode ? taDingByLane[laneSetIdx] : taDingKeys;
+		const rowFirstBeat = input.polyMode ? firstBeatByLane[laneSetIdx] : input.firstBeatAccent;
+		const isAccent = rowAccents.has(`${rowIdx}-${colIdx}`);
 		const hits = classifyGridCellHits({
 			rowIdx,
 			colIdx,
 			subdivs,
 			isAccent,
-			taDingKeys,
-			accents,
-			firstBeatAccent: input.firstBeatAccent,
+			taDingKeys: rowTaDing,
+			accents: rowAccents,
+			firstBeatAccent: rowFirstBeat,
 			suppressedRow: suppressed.has(rowIdx),
 			polyMode,
 			polyDedupKey,
@@ -417,14 +469,16 @@ export function generateMidi(input: MidiExportInput): Uint8Array {
 			playbackMode,
 			muteMode,
 			dictantActive,
+			firstBeatRequiresExplicitMark: input.polyMode,
 		});
 
-		const on0Accent = accents.has(`${rowIdx}-0`);
-		const on0Ding = taDingKeys.has(`${rowIdx}-0`);
-		const firstBeatCellHitRow =
-			on0Accent || on0Ding || (input.firstBeatAccent && !suppressed.has(rowIdx));
+		const on0Accent = rowAccents.has(`${rowIdx}-0`);
+		const on0Ding = rowTaDing.has(`${rowIdx}-0`);
+		const firstBeatCellHitRow = input.polyMode
+			? (on0Accent || on0Ding)
+			: (on0Accent || on0Ding || (rowFirstBeat && !suppressed.has(rowIdx)));
 		const shouldPlayFirstBeatTa =
-			colIdx === 0 && input.firstBeatAccent && firstBeatCellHitRow && (subdivs > 1 || 0 === 0);
+			colIdx === 0 && rowFirstBeat && firstBeatCellHitRow && (subdivs > 1 || 0 === 0);
 		const mainAccent = isAccent;
 
 		const headSyl = headSyllableForCell(rowSyl, input.customSubdivisions, rowIdx, colIdx, bpm, kalamMap);

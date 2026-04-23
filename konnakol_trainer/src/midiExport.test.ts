@@ -122,6 +122,27 @@ function testClassifyPolyDedup() {
 	assert.deepEqual(hits, { taHigh: false, accent: false, altShadow: false, passive: false });
 }
 
+function testClassifyPolyFirstBeatSafeNoBleed() {
+	const hits = classifyGridCellHits({
+		rowIdx: 1,
+		colIdx: 0,
+		subdivs: 1,
+		isAccent: false,
+		taDingKeys: new Set<string>(),
+		accents: new Set<string>(),
+		firstBeatAccent: true,
+		suppressedRow: false,
+		polyMode: true,
+		polyDedupKey: '1:1:0',
+		polyClickSlots: new Set<string>(),
+		playbackMode: 'all_beats',
+		muteMode: 'off',
+		dictantActive: false,
+		firstBeatRequiresExplicitMark: true,
+	});
+	assert.equal(hits.taHigh, false);
+}
+
 function testBuildLaneBarIndices() {
 	assert.deepEqual(buildLaneBarIndices(4, 2), [
 		[0, 2],
@@ -169,6 +190,7 @@ function run() {
 	testClassifyAccentPlusTaDing();
 	testClassifyAccentShadow();
 	testClassifyPolyDedup();
+	testClassifyPolyFirstBeatSafeNoBleed();
 	testBuildLaneBarIndices();
 	testGenerateMidiSmoke();
 	console.log('midiExport.test.ts: all passed');

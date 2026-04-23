@@ -182,6 +182,7 @@ type SequencerGridRowProps = {
 	isDeadCellsEditorMode: boolean;
 	accentMapVersion: number;
 	firstBeatAccent: boolean;
+	firstBeatByRowSig: string;
 	forceFirstBeatEditorFrames: boolean;
 	/** Сортированные r через запятую: снятые в редакторе дефолтные белые на первой доле. */
 	firstBeatEditorSuppressedSig: string;
@@ -221,6 +222,7 @@ function sequencerGridRowPropsEqual(a: SequencerGridRowProps, b: SequencerGridRo
 		a.isDeadCellsEditorMode === b.isDeadCellsEditorMode &&
 		a.accentMapVersion === b.accentMapVersion &&
 		a.firstBeatAccent === b.firstBeatAccent &&
+		a.firstBeatByRowSig === b.firstBeatByRowSig &&
 		a.forceFirstBeatEditorFrames === b.forceFirstBeatEditorFrames &&
 		a.firstBeatEditorSuppressedSig === b.firstBeatEditorSuppressedSig &&
 		a.deadStartByRow === b.deadStartByRow &&
@@ -260,6 +262,7 @@ const SequencerGridRow = React.memo(
 			isDeadCellsEditorMode,
 			accentMapVersion,
 			firstBeatAccent,
+			firstBeatByRowSig,
 			forceFirstBeatEditorFrames,
 			firstBeatEditorSuppressedSig,
 			deadStartByRow,
@@ -288,6 +291,16 @@ const SequencerGridRow = React.memo(
 					.filter((n) => Number.isFinite(n)),
 			);
 		}, [firstBeatEditorSuppressedSig]);
+		const firstBeatRows = useMemo(() => {
+			if (!firstBeatByRowSig) return new Set<number>();
+			return new Set(
+				firstBeatByRowSig
+					.split(',')
+					.map((x) => parseInt(x, 10))
+					.filter((n) => Number.isFinite(n)),
+			);
+		}, [firstBeatByRowSig]);
+		const firstBeatAccentRow = firstBeatRows.has(rIdx) || firstBeatAccent;
 		const polyVoiceIdx = polyMode ? rIdx % polyVoices : 0;
 		return (
 			<div
@@ -473,7 +486,7 @@ const SequencerGridRow = React.memo(
 							(cIdx === 0 &&
 								isTaEditorMode &&
 								!firstBeatRowSuppressed.has(rIdx) &&
-								(firstBeatAccent || forceFirstBeatEditorFrames));
+								(firstBeatAccentRow || forceFirstBeatEditorFrames));
 						const showNonEditorDing =
 							(!isDead && cIdx > 0 && isTaDing) ||
 							(cIdx === 0 &&
@@ -518,7 +531,7 @@ const SequencerGridRow = React.memo(
 							isAccent ||
 							(isTaEditorMode &&
 								(isTaDing ||
-									(cIdx === 0 && firstBeatAccent && !firstBeatRowSuppressed.has(rIdx)))) ||
+									(cIdx === 0 && firstBeatAccentRow && !firstBeatRowSuppressed.has(rIdx)))) ||
 							(!isTaEditorMode && showNonEditorDing);
 						if (isActive) {
 							cellClasses = playheadHighlightCellClasses(
@@ -715,6 +728,7 @@ export type SequencerGridProps = {
 	isDeadCellsEditorMode: boolean;
 	accentMapVersion: number;
 	firstBeatAccent: boolean;
+	firstBeatByRowSig: string;
 	forceFirstBeatEditorFrames: boolean;
 	firstBeatEditorSuppressedSig: string;
 	deadStartByRow: Record<number, number>;
@@ -750,6 +764,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	isDeadCellsEditorMode,
 	accentMapVersion,
 	firstBeatAccent,
+	firstBeatByRowSig,
 	forceFirstBeatEditorFrames,
 	firstBeatEditorSuppressedSig,
 	deadStartByRow,
@@ -854,6 +869,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 						isDeadCellsEditorMode={isDeadCellsEditorMode}
 						accentMapVersion={accentMapVersion}
 						firstBeatAccent={firstBeatAccent}
+						firstBeatByRowSig={firstBeatByRowSig}
 						forceFirstBeatEditorFrames={forceFirstBeatEditorFrames}
 						firstBeatEditorSuppressedSig={firstBeatEditorSuppressedSig}
 						deadStartByRow={deadStartByRow}

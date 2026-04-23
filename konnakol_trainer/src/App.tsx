@@ -121,6 +121,9 @@ function parsePolyVoices(raw: unknown): 2 | 3 | 4 {
 }
 
 type PolyVoiceTarget = 0 | 1 | 2 | 3;
+type LaneId = 0 | 1 | 2;
+type LaneSetMap = Record<LaneId, Set<string>>;
+type LaneBoolMap = Record<LaneId, boolean>;
 type ClickSoundByPolyVoice = Partial<Record<PolyVoiceTarget, ClickSoundPreset>>;
 
 function normalizeClickSoundByPolyVoice(raw: unknown): ClickSoundByPolyVoice {
@@ -143,6 +146,68 @@ function resolveClickSoundForPolyVoice(
 	if (!isPoly) return master;
 	const mapped = perVoice[voice as PolyVoiceTarget];
 	return mapped ?? master;
+}
+
+function laneForRow(r: number, voices: 2 | 3 | 4): LaneId {
+	return (voices === 3 ? (r % 3) : (r % 2)) as LaneId;
+}
+
+function makeEmptyLaneSetMap(seedLane0?: Iterable<string>): LaneSetMap {
+	return {
+		0: new Set(seedLane0 ?? []),
+		1: new Set<string>(),
+		2: new Set<string>(),
+	};
+}
+
+function makeLaneBoolMap(defaultValue: boolean): LaneBoolMap {
+	return { 0: defaultValue, 1: defaultValue, 2: defaultValue };
+}
+
+function cloneLaneSetMap(src?: Partial<Record<number, Iterable<string>>>): LaneSetMap {
+	const toSafeSet = (value: unknown): Set<string> => {
+		if (value instanceof Set) return new Set([...value].filter((x): x is string => typeof x === 'string'));
+		if (Array.isArray(value)) return new Set(value.filter((x): x is string => typeof x === 'string'));
+		return new Set<string>();
+	};
+	return {
+		0: toSafeSet(src?.[0]),
+		1: toSafeSet(src?.[1]),
+		2: toSafeSet(src?.[2]),
+	};
+}
+
+function cloneLaneBoolMap(src?: Partial<Record<number, boolean>>, fallback = true): LaneBoolMap {
+	return {
+		0: typeof src?.[0] === 'boolean' ? src[0]! : fallback,
+		1: typeof src?.[1] === 'boolean' ? src[1]! : fallback,
+		2: typeof src?.[2] === 'boolean' ? src[2]! : fallback,
+	};
+}
+
+function flattenLaneSetMap(map: LaneSetMap, bars: number, voices: 2 | 3 | 4): Set<string> {
+	const out = new Set<string>();
+	for (const lane of [0, 1, 2] as const) {
+		for (const key of map[lane]) {
+			const [rRaw] = key.split('-');
+			const r = parseInt(rRaw ?? '', 10);
+			if (!Number.isFinite(r) || r < 0 || r >= bars) continue;
+			if (laneForRow(r, voices) !== lane) continue;
+			out.add(key);
+		}
+	}
+	return out;
+}
+
+function distributeSetToLanes(set: Set<string>, bars: number, voices: 2 | 3 | 4): LaneSetMap {
+	const out = makeEmptyLaneSetMap();
+	for (const key of set) {
+		const [rRaw] = key.split('-');
+		const r = parseInt(rRaw ?? '', 10);
+		if (!Number.isFinite(r) || r < 0 || r >= bars) continue;
+		out[laneForRow(r, voices)].add(key);
+	}
+	return out;
 }
 
 /**
@@ -193,6 +258,8 @@ const SNAPSHOT_CLIPBOARD_MARKER_REGEX =
 const SNAPSHOT_CLIPBOARD_PREFIX_LEGACY_COMPACT = 'METRONOME_CONFIG:';
 /** Legacy prefix with raw JSON after colon — still accepted when pasting. */
 const SNAPSHOT_CLIPBOARD_PREFIX_LEGACY = 'konnakolTrainerSnapshotV1:';
+/** JSON clipboard with lane-separated accent/Ta maps. */
+const SNAPSHOT_CLIPBOARD_PREFIX_V2 = 'konnakolTrainerSnapshotV2:';
 /** Hold snapshot slot to open Copy / Paste menu. */
 const SNAPSHOT_SLOT_HOLD_MS = 300;
 /** Long-press Ta / ластик dead-editor / прочие UI-таймеры (~0,5 с). */
@@ -1681,6 +1748,7 @@ function createEmptySnapshot() {
 		bars: 4,
 		syllables: 4,
 		accents: new Set<string>(),
+		accentsByLane: makeEmptyLaneSetMap(),
 		customSyllables: {} as Record<number, number>,
 		customMultipliers: {} as Record<number, number>,
 		customSubdivisions: {} as Record<string, number>,
@@ -1706,6 +1774,7 @@ function createEmptySnapshot() {
 		onlyAccents: false,
 		squarePlaybackMode: 'all_beats' as SquarePlaybackMode,
 		firstBeatAccent: true,
+		firstBeatAccentByLane: makeLaneBoolMap(true),
 		/** 0 = legacy: первая доля Ta без явных ключей `r-0` считается включённой; 1 = карта `accents` для первых долей. */
 		accentMapVersion: 0,
 		syllableReadMuteMode: 'off' as SyllableReadMuteMode,
@@ -1714,6 +1783,9 @@ function createEmptySnapshot() {
 		deadCells: {} as DeadCellsMap,
 		/** Звук 1 (Ta-динг): любые `r-c`, включая `r-0` (белая рамка в редакторе Ta без записи в `accents`). */
 		taDingKeys: new Set<string>(),
+		/** Строки, где снят дефолтный first-beat Ta в Ta-редакторе. */
+		firstBeatDingSuppressedRows: new Set<number>(),
+		taDingKeysByLane: makeEmptyLaneSetMap(),
 		/** Режим рандома: free = оси (текущая логика); parent = наследственные мутации мотива. */
 		randomMode: 'free' as RandomMode,
 		/** ParentGenome (1 или 2 такта) — ядро для parent-режима. null если не задан. */
@@ -1739,6 +1811,10 @@ function parseSnapshotRow(raw: unknown) {
 	if (Number.isFinite(syllables) && syllables >= 1 && syllables <= 9) d.syllables = syllables;
 	const acc = o.accents;
 	if (Array.isArray(acc)) d.accents = new Set(acc.filter((x): x is string => typeof x === 'string'));
+	const accByLane = o.accentsByLane;
+	if (accByLane && typeof accByLane === 'object') {
+		d.accentsByLane = cloneLaneSetMap(accByLane as Partial<Record<number, Iterable<string>>>);
+	}
 	const cs = o.customSyllables;
 	if (cs && typeof cs === 'object') {
 		for (const [k, v] of Object.entries(cs as Record<string, unknown>)) {
@@ -1803,6 +1879,10 @@ function parseSnapshotRow(raw: unknown) {
 	}
 	if (typeof o.dictantMode === 'boolean') d.dictantMode = o.dictantMode;
 	if (typeof o.firstBeatAccent === 'boolean') d.firstBeatAccent = o.firstBeatAccent;
+	const firstBeatByLane = o.firstBeatAccentByLane;
+	if (firstBeatByLane && typeof firstBeatByLane === 'object') {
+		d.firstBeatAccentByLane = cloneLaneBoolMap(firstBeatByLane as Partial<Record<number, boolean>>, d.firstBeatAccent);
+	}
 	if (o.accentMapVersion === true) d.accentMapVersion = 1;
 	else {
 		const amv = parseInt(String(o.accentMapVersion), 10);
@@ -1866,6 +1946,28 @@ function parseSnapshotRow(raw: unknown) {
 		}
 		d.taDingKeys = next;
 	}
+	const tdkByLane = o.taDingKeysByLane;
+	if (tdkByLane && typeof tdkByLane === 'object') {
+		d.taDingKeysByLane = cloneLaneSetMap(tdkByLane as Partial<Record<number, Iterable<string>>>);
+	}
+	const supRowsIn = o.firstBeatDingSuppressedRows;
+	if (Array.isArray(supRowsIn)) {
+		const next = new Set<number>();
+		for (const x of supRowsIn) {
+			const r = parseInt(String(x), 10);
+			if (Number.isFinite(r) && r >= 0 && r < d.bars) next.add(r);
+		}
+		d.firstBeatDingSuppressedRows = next;
+	}
+	const hasLaneAcc = accByLane && typeof accByLane === 'object';
+	const hasLaneTdk = tdkByLane && typeof tdkByLane === 'object';
+	const hasLaneFb = firstBeatByLane && typeof firstBeatByLane === 'object';
+	if (!hasLaneAcc) d.accentsByLane = distributeSetToLanes(d.accents, d.bars, d.polyVoices);
+	if (!hasLaneTdk) d.taDingKeysByLane = distributeSetToLanes(d.taDingKeys, d.bars, d.polyVoices);
+	if (!hasLaneFb) d.firstBeatAccentByLane = makeLaneBoolMap(d.firstBeatAccent);
+	d.accents = flattenLaneSetMap(d.accentsByLane, d.bars, d.polyVoices);
+	d.taDingKeys = flattenLaneSetMap(d.taDingKeysByLane, d.bars, d.polyVoices);
+	d.firstBeatAccent = Boolean(d.firstBeatAccentByLane[0]);
 	return d;
 }
 
@@ -1906,6 +2008,11 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		bars: s.bars,
 		syllables: s.syllables,
 		accents: [...s.accents],
+		accentsByLane: {
+			0: [...(s.accentsByLane?.[0] ?? [])],
+			1: [...(s.accentsByLane?.[1] ?? [])],
+			2: [...(s.accentsByLane?.[2] ?? [])],
+		},
 		sequencerCells: buildSequencerCellsForSnapshot(s),
 		customSyllables: s.customSyllables,
 		customMultipliers: s.customMultipliers,
@@ -1928,12 +2035,19 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		onlyAccents: s.onlyAccents,
 		squarePlaybackMode: (s as { squarePlaybackMode?: SquarePlaybackMode }).squarePlaybackMode ?? (s.onlyAccents ? 'accent_only' : 'all_beats'),
 		firstBeatAccent: s.firstBeatAccent,
+		firstBeatAccentByLane: { ...makeLaneBoolMap(s.firstBeatAccent !== false), ...(s.firstBeatAccentByLane ?? {}) },
 		accentMapVersion: (s as { accentMapVersion?: number }).accentMapVersion === 1 ? 1 : 0,
 		taEditorMode: false,
 		syllableReadMuteMode: s.syllableReadMuteMode,
 		dictantMode: s.dictantMode === true,
 		deadCells: (s as { deadCells?: DeadCellsMap }).deadCells ?? {},
 		taDingKeys: [...s.taDingKeys],
+		firstBeatDingSuppressedRows: [...(s.firstBeatDingSuppressedRows ?? [])],
+		taDingKeysByLane: {
+			0: [...(s.taDingKeysByLane?.[0] ?? [])],
+			1: [...(s.taDingKeysByLane?.[1] ?? [])],
+			2: [...(s.taDingKeysByLane?.[2] ?? [])],
+		},
 		randomMode: s.randomMode,
 		parentGenome: s.parentGenome ? parentGenomeToJSON(s.parentGenome) : null,
 		parentLength: s.parentLength,
@@ -1943,6 +2057,14 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 }
 
 function encodeSnapshotClipboard(s: ReturnType<typeof createEmptySnapshot>): string {
+	const hasLanePayload =
+		(s.accentsByLane[1]?.size ?? 0) > 0 ||
+		(s.accentsByLane[2]?.size ?? 0) > 0 ||
+		(s.taDingKeysByLane[1]?.size ?? 0) > 0 ||
+		(s.taDingKeysByLane[2]?.size ?? 0) > 0;
+	if (hasLanePayload) {
+		return `${SNAPSHOT_CLIPBOARD_PREFIX_V2}${JSON.stringify(snapshotToJSON(s))}`;
+	}
 	const accents = s.accents instanceof Set ? s.accents : new Set(Array.isArray(s.accents) ? s.accents : []);
 	const cells = buildCellIndexMapForSnapshot(s.bars, s.syllables, s.customSyllables);
 	const gridToken = packGridTokenPacked(s, cells, accents);
@@ -2102,6 +2224,14 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 	if (t.startsWith(SNAPSHOT_CLIPBOARD_PREFIX_LEGACY)) {
 		try {
 			const raw = JSON.parse(t.slice(SNAPSHOT_CLIPBOARD_PREFIX_LEGACY.length));
+			return parseSnapshotRow(raw);
+		} catch {
+			return null;
+		}
+	}
+	if (t.startsWith(SNAPSHOT_CLIPBOARD_PREFIX_V2)) {
+		try {
+			const raw = JSON.parse(t.slice(SNAPSHOT_CLIPBOARD_PREFIX_V2.length));
 			return parseSnapshotRow(raw);
 		} catch {
 			return null;
@@ -2553,7 +2683,13 @@ export default function App() {
   // Metronome state
   const [isPlaying, setIsPlaying] = useState(false);
   const [accents, setAccents] = useState<Set<string>>(() => new Set(seed.accents));
+  const [accentsByLane, setAccentsByLane] = useState<LaneSetMap>(() =>
+    cloneLaneSetMap((seed as { accentsByLane?: Partial<Record<number, Iterable<string>>> }).accentsByLane)
+  );
   const [taDingKeys, setTaDingKeys] = useState<Set<string>>(() => new Set(seed.taDingKeys));
+  const [taDingKeysByLane, setTaDingKeysByLane] = useState<LaneSetMap>(() =>
+    cloneLaneSetMap((seed as { taDingKeysByLane?: Partial<Record<number, Iterable<string>>> }).taDingKeysByLane)
+  );
   const [activePos, setActivePos] = useState({ r: -1, c: -1, absR: -1 });
   const [activePositions, setActivePositions] = useState<PlayheadPosition[]>([]);
   const playAbsBarRef = useRef(0);
@@ -2575,6 +2711,9 @@ export default function App() {
   const onlyAccents = squarePlaybackMode === 'accent_only';
   const [dictantMode, setDictantMode] = useState(() => (seed as { dictantMode?: boolean }).dictantMode === true);
   const [firstBeatAccent, setFirstBeatAccent] = useState(() => seed.firstBeatAccent !== false);
+  const [firstBeatAccentByLane, setFirstBeatAccentByLane] = useState<LaneBoolMap>(() =>
+    cloneLaneBoolMap((seed as { firstBeatAccentByLane?: Partial<Record<number, boolean>> }).firstBeatAccentByLane, seed.firstBeatAccent !== false)
+  );
   const [accentMapVersion, setAccentMapVersion] = useState(() =>
     (seed as { accentMapVersion?: number }).accentMapVersion === 1 ? 1 : 0,
   );
@@ -2635,6 +2774,7 @@ export default function App() {
     normalizeClickSoundByPolyVoice((seed as { clickSoundByPolyVoice?: unknown }).clickSoundByPolyVoice),
   );
   const [activeClickVoiceTarget, setActiveClickVoiceTarget] = useState<0 | 1 | 2>(0);
+  const activeClickVoiceTargetRef = useRef<0 | 1 | 2>(0);
   const [isClickSoundSelectorOpen, setIsClickSoundSelectorOpen] = useState(false);
 
   // Preset Snapshot State (7 slots; persisted in localStorage)
@@ -2950,9 +3090,15 @@ export default function App() {
     const emptyAcc = new Set<string>();
     setAccents(emptyAcc);
     accentsRef.current = emptyAcc;
+    const emptyAccByLane = makeEmptyLaneSetMap();
+    setAccentsByLane(emptyAccByLane);
+    accentsByLaneRef.current = cloneLaneSetMap(emptyAccByLane);
     const emptyTaDing = new Set<string>();
     setTaDingKeys(emptyTaDing);
     taDingKeysRef.current = emptyTaDing;
+    const emptyTaByLane = makeEmptyLaneSetMap();
+    setTaDingKeysByLane(emptyTaByLane);
+    taDingKeysByLaneRef.current = cloneLaneSetMap(emptyTaByLane);
     setAccentMapVersion(0);
     setSquarePlaybackMode('all_beats');
     setDictantMode(false);
@@ -3151,7 +3297,9 @@ export default function App() {
   const syllablesRef = useRef(syllables);
   const tempoRef = useRef(tempo);
   const accentsRef = useRef<Set<string>>(accents);
+  const accentsByLaneRef = useRef<LaneSetMap>(cloneLaneSetMap(accentsByLane));
   const taDingKeysRef = useRef<Set<string>>(taDingKeys);
+  const taDingKeysByLaneRef = useRef<LaneSetMap>(cloneLaneSetMap(taDingKeysByLane));
   const customSyllablesRef = useRef(customSyllables);
   const deadCellsRef = useRef<DeadCellsMap>(deadCells);
   const customMultipliersRef = useRef(customMultipliers);
@@ -3161,6 +3309,7 @@ export default function App() {
   const squarePlaybackModeRef = useRef<SquarePlaybackMode>(squarePlaybackMode);
   const dictantModeRef = useRef(dictantMode);
   const firstBeatAccentRef = useRef(firstBeatAccent);
+  const firstBeatAccentByLaneRef = useRef<LaneBoolMap>(firstBeatAccentByLane);
   const accentMapVersionRef = useRef(accentMapVersion);
   const isTaEditorModeRef = useRef(isTaEditorMode);
   const isDeadCellsEditorModeRef = useRef(isDeadCellsEditorMode);
@@ -3226,6 +3375,9 @@ export default function App() {
   useEffect(() => { tempoRef.current = tempo; }, [tempo]);
   useEffect(() => { setTempoUi(tempo); }, [tempo]);
   useEffect(() => { accentsRef.current = new Set(accents); }, [accents]);
+  useEffect(() => { taDingKeysRef.current = new Set(taDingKeys); }, [taDingKeys]);
+  useEffect(() => { accentsByLaneRef.current = cloneLaneSetMap(accentsByLane); }, [accentsByLane]);
+  useEffect(() => { taDingKeysByLaneRef.current = cloneLaneSetMap(taDingKeysByLane); }, [taDingKeysByLane]);
   useEffect(() => { clickSoundByPolyVoiceRef.current = { ...clickSoundByPolyVoice }; }, [clickSoundByPolyVoice]);
   /* Прямые присваивания (без spread) для ref-first путей (poly randomizer и т.п.):
    * ref === state → мутации переживают перерендеры и долетают до setState({...ref}). */
@@ -3269,6 +3421,19 @@ export default function App() {
     squarePlaybackModeRef.current = squarePlaybackMode;
   }, [squarePlaybackMode]);
   useEffect(() => { firstBeatAccentRef.current = firstBeatAccent; }, [firstBeatAccent]);
+  useEffect(() => { firstBeatAccentByLaneRef.current = { ...firstBeatAccentByLane }; }, [firstBeatAccentByLane]);
+  useEffect(() => {
+    if (!polyMode) return;
+    const next = distributeSetToLanes(accents, bars, polyVoices);
+    setAccentsByLane(next);
+    accentsByLaneRef.current = cloneLaneSetMap(next);
+  }, [accents, bars, polyMode, polyVoices]);
+  useEffect(() => {
+    if (!polyMode) return;
+    const next = distributeSetToLanes(taDingKeys, bars, polyVoices);
+    setTaDingKeysByLane(next);
+    taDingKeysByLaneRef.current = cloneLaneSetMap(next);
+  }, [taDingKeys, bars, polyMode, polyVoices]);
   useEffect(() => {
     setFirstBeatDingSuppressedRows((prev) => {
       const next = new Set<number>();
@@ -3284,6 +3449,21 @@ export default function App() {
       return next;
     });
   }, [bars]);
+
+  const getLaneAccentsSetRef = useCallback((r: number): Set<string> => {
+    if (!polyModeRef.current) return accentsRef.current;
+    return accentsByLaneRef.current[laneForRow(r, polyVoicesRef.current)] ?? new Set<string>();
+  }, []);
+
+  const getLaneTaSetRef = useCallback((r: number): Set<string> => {
+    if (!polyModeRef.current) return taDingKeysRef.current;
+    return taDingKeysByLaneRef.current[laneForRow(r, polyVoicesRef.current)] ?? new Set<string>();
+  }, []);
+
+  const getLaneFirstBeatRef = useCallback((r: number): boolean => {
+    if (!polyModeRef.current) return firstBeatAccentRef.current;
+    return Boolean(firstBeatAccentByLaneRef.current[laneForRow(r, polyVoicesRef.current)]);
+  }, []);
   useEffect(() => { randomModeEnabledRef.current = randomModeEnabled; }, [randomModeEnabled]);
   useEffect(() => { randomPulsationRef.current = randomPulsation; }, [randomPulsation]);
   useEffect(() => { randomPatternRef.current = randomPattern; }, [randomPattern]);
@@ -3524,7 +3704,10 @@ export default function App() {
     bars: barsRef.current,
     syllables: syllablesRef.current,
     accents: new Set(accentsRef.current),
+    accentsByLane: cloneLaneSetMap(accentsByLaneRef.current),
     taDingKeys: new Set(taDingKeysRef.current),
+    firstBeatDingSuppressedRows: new Set(firstBeatDingSuppressedRowsRef.current),
+    taDingKeysByLane: cloneLaneSetMap(taDingKeysByLaneRef.current),
     customSyllables: { ...customSyllablesRef.current },
     customMultipliers: { ...customMultipliersRef.current },
     customSubdivisions: { ...customSubdivisionsRef.current },
@@ -3544,6 +3727,7 @@ export default function App() {
     onlyAccents: squarePlaybackModeRef.current === 'accent_only',
     squarePlaybackMode: squarePlaybackModeRef.current,
     firstBeatAccent: firstBeatAccentRef.current,
+    firstBeatAccentByLane: { ...firstBeatAccentByLaneRef.current },
     accentMapVersion: accentMapVersionRef.current,
     syllableReadMuteMode: syllableReadMuteModeRef.current,
     dictantMode: dictantModeRef.current,
@@ -3913,6 +4097,9 @@ export default function App() {
     }
     setAccents(prunedAccents);
     accentsRef.current = prunedAccents;
+    const prunedAccByLane = distributeSetToLanes(prunedAccents, nBars, polyVoicesRef.current);
+    setAccentsByLane(prunedAccByLane);
+    accentsByLaneRef.current = cloneLaneSetMap(prunedAccByLane);
 
     const prunedTaDing = new Set<string>();
     for (const k of taDingKeysRef.current) {
@@ -3926,6 +4113,9 @@ export default function App() {
     }
     setTaDingKeys(prunedTaDing);
     taDingKeysRef.current = prunedTaDing;
+    const prunedTaByLane = distributeSetToLanes(prunedTaDing, nBars, polyVoicesRef.current);
+    setTaDingKeysByLane(prunedTaByLane);
+    taDingKeysByLaneRef.current = cloneLaneSetMap(prunedTaByLane);
 
     const prevSub = customSubdivisionsRef.current;
     const nextSub: Record<string, number> = {};
@@ -4064,7 +4254,10 @@ export default function App() {
       bars: raw.bars,
       syllables: raw.syllables,
       accents: accentsArr,
+      accentsByLane: (raw as { accentsByLane?: unknown }).accentsByLane,
       taDingKeys: taDingKeysArr,
+      firstBeatDingSuppressedRows: (raw as { firstBeatDingSuppressedRows?: unknown }).firstBeatDingSuppressedRows,
+      taDingKeysByLane: (raw as { taDingKeysByLane?: unknown }).taDingKeysByLane,
       sequencerCells: raw.sequencerCells,
       customSyllables: raw.customSyllables,
       customMultipliers: raw.customMultipliers,
@@ -4085,6 +4278,7 @@ export default function App() {
       onlyAccents: raw.onlyAccents,
       squarePlaybackMode: (raw as { squarePlaybackMode?: SquarePlaybackMode }).squarePlaybackMode,
       firstBeatAccent: raw.firstBeatAccent,
+      firstBeatAccentByLane: (raw as { firstBeatAccentByLane?: unknown }).firstBeatAccentByLane,
       accentMapVersion: (raw as { accentMapVersion?: number }).accentMapVersion,
       syllableReadMuteMode: raw.syllableReadMuteMode,
       syllableReadMuteLatched: raw.syllableReadMuteLatched,
@@ -4145,7 +4339,10 @@ export default function App() {
           bars,
           syllables,
           accents,
+          accentsByLane,
           taDingKeys,
+          firstBeatDingSuppressedRows,
+          taDingKeysByLane,
           customSyllables,
           deadCells,
           customMultipliers,
@@ -4166,6 +4363,7 @@ export default function App() {
           squarePlaybackMode,
           onlyAccents: squarePlaybackMode === 'accent_only',
           firstBeatAccent,
+          firstBeatAccentByLane,
           accentMapVersion,
           syllableReadMuteMode,
           dictantMode,
@@ -4177,7 +4375,10 @@ export default function App() {
     bars,
     syllables,
     accents,
+    accentsByLane,
     taDingKeys,
+    firstBeatDingSuppressedRows,
+    taDingKeysByLane,
     customSyllables,
     deadCells,
     customMultipliers,
@@ -4197,6 +4398,7 @@ export default function App() {
     polyVoices,
     squarePlaybackMode,
     firstBeatAccent,
+    firstBeatAccentByLane,
     accentMapVersion,
     syllableReadMuteMode,
     dictantMode,
@@ -4237,27 +4439,40 @@ export default function App() {
     snap: ReturnType<typeof createEmptySnapshot>,
     options?: { preservePanel?: boolean },
   ) => {
+      const snapVoices = parsePolyVoices(snap.polyVoices);
       setTempo(snap.tempo);
-      setBars(snapBarsToPolyGrid(snap.bars, snap.polyMode === true, parsePolyVoices(snap.polyVoices)));
+      setBars(snapBarsToPolyGrid(snap.bars, snap.polyMode === true, snapVoices));
       setSyllables(snap.syllables);
+    const nextAccents = new Set(
+      Array.isArray(snap.accents)
+        ? snap.accents
+        : snap.accents instanceof Set
+          ? [...snap.accents]
+          : [],
+    );
     setAccents(
       new Set(
-        Array.isArray(snap.accents)
-          ? snap.accents
-          : snap.accents instanceof Set
-            ? [...snap.accents]
-            : [],
+        nextAccents,
       ),
+    );
+    const nextTaDing = new Set(
+      Array.isArray(snap.taDingKeys)
+        ? snap.taDingKeys
+        : snap.taDingKeys instanceof Set
+          ? [...snap.taDingKeys]
+          : [],
     );
     setTaDingKeys(
       new Set(
-        Array.isArray(snap.taDingKeys)
-          ? snap.taDingKeys
-          : snap.taDingKeys instanceof Set
-            ? [...snap.taDingKeys]
-            : [],
+        nextTaDing,
       ),
     );
+    const nextAccByLane = cloneLaneSetMap((snap as { accentsByLane?: Partial<Record<number, Iterable<string>>> }).accentsByLane);
+    const nextTaByLane = cloneLaneSetMap((snap as { taDingKeysByLane?: Partial<Record<number, Iterable<string>>> }).taDingKeysByLane);
+    setAccentsByLane(nextAccByLane);
+    accentsByLaneRef.current = cloneLaneSetMap(nextAccByLane);
+    setTaDingKeysByLane(nextTaByLane);
+    taDingKeysByLaneRef.current = cloneLaneSetMap(nextTaByLane);
       setCustomSyllables({ ...snap.customSyllables });
       setDeadCells({ ...((snap as { deadCells?: DeadCellsMap }).deadCells || {}) });
       deadCellsRef.current = { ...((snap as { deadCells?: DeadCellsMap }).deadCells || {}) };
@@ -4299,7 +4514,13 @@ export default function App() {
     } else {
       setSquarePlaybackMode(snap.onlyAccents === true ? 'accent_only' : 'all_beats');
     }
-    setFirstBeatAccent(snap.firstBeatAccent !== false);
+    const nextFirstBeatByLane = cloneLaneBoolMap(
+      (snap as { firstBeatAccentByLane?: Partial<Record<number, boolean>> }).firstBeatAccentByLane,
+      snap.firstBeatAccent !== false,
+    );
+    setFirstBeatAccentByLane(nextFirstBeatByLane);
+    firstBeatAccentByLaneRef.current = { ...nextFirstBeatByLane };
+    setFirstBeatAccent(Boolean(nextFirstBeatByLane[0]));
     setAccentMapVersion((snap as { accentMapVersion?: number }).accentMapVersion === 1 ? 1 : 0);
     setDictantMode((snap as { dictantMode?: boolean }).dictantMode === true);
     {
@@ -4327,7 +4548,20 @@ export default function App() {
       setFormPresetId(fp);
     }
     setIsTaEditorMode(false);
-    setFirstBeatDingSuppressedRows(new Set());
+    const supRaw = (snap as { firstBeatDingSuppressedRows?: unknown }).firstBeatDingSuppressedRows;
+    const supList: unknown[] =
+      supRaw instanceof Set
+        ? [...supRaw]
+        : Array.isArray(supRaw)
+          ? supRaw
+          : [];
+    setFirstBeatDingSuppressedRows(
+      new Set(
+        supList
+          .map((x) => parseInt(String(x), 10))
+          .filter((r) => Number.isFinite(r) && r >= 0 && r < snap.bars),
+      ),
+    );
     const nextMute = normalizeSyllableReadMuteModeFromSnapshot(
       snap.syllableReadMuteMode,
       (snap as { syllableReadMuteLatched?: boolean }).syllableReadMuteLatched,
@@ -4338,7 +4572,7 @@ export default function App() {
       typeof snap.frozenScale === 'number' && snap.frozenScale >= 1 ? snap.frozenScale : null,
     );
     setPolyMode(snap.polyMode === true);
-    setPolyVoices(parsePolyVoices(snap.polyVoices));
+    setPolyVoices(snapVoices);
     setActiveClickVoiceTarget(0);
     if (!options?.preservePanel) {
       setIsPanelExpanded(snap.panelExpanded === true);
@@ -4414,8 +4648,11 @@ export default function App() {
         pulseMeterUnlinked: { ...pulseMeterUnlinkedRef.current },
         customMultipliers: { ...customMultipliersRef.current },
         accents: new Set(accentsRef.current),
+        accentsByLane: cloneLaneSetMap(accentsByLaneRef.current),
         taDingKeys: new Set(taDingKeysRef.current),
+        taDingKeysByLane: cloneLaneSetMap(taDingKeysByLaneRef.current),
         firstBeatAccent: firstBeatAccentRef.current,
+        firstBeatAccentByLane: { ...firstBeatAccentByLaneRef.current },
         firstBeatDingSuppressedRows: new Set(firstBeatDingSuppressedRowsRef.current),
         deadCells: { ...deadCellsRef.current },
         polyMode: polyModeRef.current,
@@ -4756,6 +4993,21 @@ export default function App() {
   const toggleAccent = useCallback((r: number, c: number) => {
     if (c === 0) setAccentMapVersion(1);
     const key = `${r}-${c}`;
+    if (polyModeRef.current) {
+      const lane = laneForRow(r, polyVoicesRef.current);
+      setAccentsByLane((prev) => {
+        const next = cloneLaneSetMap(prev);
+        const laneSet = next[lane];
+        if (laneSet.has(key)) laneSet.delete(key);
+        else laneSet.add(key);
+        const flat = flattenLaneSetMap(next, barsRef.current, polyVoicesRef.current);
+        accentsRef.current = flat;
+        setAccents(flat);
+        accentsByLaneRef.current = cloneLaneSetMap(next);
+        return next;
+      });
+      return;
+    }
     setAccents((prev) => {
       const next = new Set(prev);
       if (next.has(key)) {
@@ -4770,6 +5022,55 @@ export default function App() {
   const toggleTaDing = useCallback((r: number, c: number) => {
     if (c < 0) return;
     const key = `${r}-${c}`;
+    if (polyModeRef.current) {
+      const lane = laneForRow(r, polyVoicesRef.current);
+      if (isTaEditorModeRef.current && c === 0) {
+        setTaDingKeysByLane((prev) => {
+          const next = cloneLaneSetMap(prev);
+          const laneSet = next[lane];
+          const hadKey = laneSet.has(key);
+          const suppressed = firstBeatDingSuppressedRowsRef.current.has(r);
+          const fa = Boolean(firstBeatAccentByLaneRef.current[lane]);
+
+          if (hadKey) {
+            laneSet.delete(key);
+            if (fa) {
+              setFirstBeatDingSuppressedRows((prevRows) => new Set(prevRows).add(r));
+            }
+          } else if (fa && !suppressed) {
+            setFirstBeatDingSuppressedRows((prevRows) => new Set(prevRows).add(r));
+          } else {
+            if (suppressed) {
+              setFirstBeatDingSuppressedRows((prevRows) => {
+                const n = new Set(prevRows);
+                n.delete(r);
+                return n;
+              });
+            }
+            laneSet.add(key);
+          }
+
+          const flat = flattenLaneSetMap(next, barsRef.current, polyVoicesRef.current);
+          taDingKeysRef.current = flat;
+          setTaDingKeys(flat);
+          taDingKeysByLaneRef.current = cloneLaneSetMap(next);
+          return next;
+        });
+        return;
+      }
+      setTaDingKeysByLane((prev) => {
+        const next = cloneLaneSetMap(prev);
+        const laneSet = next[lane];
+        if (laneSet.has(key)) laneSet.delete(key);
+        else laneSet.add(key);
+        const flat = flattenLaneSetMap(next, barsRef.current, polyVoicesRef.current);
+        taDingKeysRef.current = flat;
+        setTaDingKeys(flat);
+        taDingKeysByLaneRef.current = cloneLaneSetMap(next);
+        return next;
+      });
+      return;
+    }
     if (!isTaEditorModeRef.current || c !== 0) {
       setTaDingKeys((prev) => {
         const next = new Set(prev);
@@ -5052,17 +5353,22 @@ export default function App() {
           );
         const deadCut = deadCellsRef.current[rIdx]?.deadStart;
         if (typeof deadCut === 'number' && cIdx >= deadCut) return;
-        const isAccent = accentsRef.current.has(`${rIdx}-${cIdx}`);
+        const laneAccents = getLaneAccentsSetRef(rIdx);
+        const laneTaDing = getLaneTaSetRef(rIdx);
+        const laneFirstBeat = getLaneFirstBeatRef(rIdx);
+        const isAccent = laneAccents.has(`${rIdx}-${cIdx}`);
         const muteMode = syllableReadMuteModeRef.current;
-        const on0Accent = accentsRef.current.has(`${rIdx}-0`);
-        const on0Ding = taDingKeysRef.current.has(`${rIdx}-0`);
+        const on0Accent = laneAccents.has(`${rIdx}-0`);
+        const on0Ding = laneTaDing.has(`${rIdx}-0`);
         const supRow = firstBeatDingSuppressedRowsRef.current.has(rIdx);
-        const fa = firstBeatAccentRef.current;
+        const fa = laneFirstBeat;
         const firstBeatCellHitRow = on0Accent || on0Ding || (fa && !supRow);
+        const laneId = laneForRow(rIdx, polyVoicesRef.current);
         // Poly: не тащим "дефолтный" Ta с глобальной кнопки в чужие строки/голоса.
-        // В полиритме первая доля Ta должна звучать только при явной разметке строки (0-акцент/0-taDing).
+        // lane0 сохраняет дефолтный first-beat Ta (master-голос),
+        // lane>0 триггерит first-beat Ta только по явному Ta-маркеру (0-taDing), не по accent.
         const firstBeatCellHitRowPolySafe = polyModeRef.current
-          ? (on0Accent || on0Ding)
+          ? (laneId === 0 ? firstBeatCellHitRow : on0Ding)
           : firstBeatCellHitRow;
         const polySlotKey = polyModeRef.current
           ? `${voice}:${rIdx}:${Math.round(subTime * 1_000_000)}`
@@ -5082,11 +5388,11 @@ export default function App() {
           return;
         }
         const playbackMode = squarePlaybackModeRef.current;
-        const taEnabled = firstBeatAccentRef.current;
-        const isTaDingCell = taEnabled && cIdx >= 1 && taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
+        const taEnabled = laneFirstBeat;
+        const isTaDingCell = taEnabled && cIdx >= 1 && laneTaDing.has(`${rIdx}-${cIdx}`);
         /** Ta-клетка с поддолями должна звучать на каждую поддолю, не только на sub=0. */
         const shouldPlayTaDingSound = isTaDingCell && (subdivs > 1 || sub === 0);
-        const hasTaDingHere = taEnabled && taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
+        const hasTaDingHere = taEnabled && laneTaDing.has(`${rIdx}-${cIdx}`);
         const dictantActive = dictantModeRef.current;
         const shouldPlayBeat =
           playbackMode === 'all_beats'
@@ -5459,7 +5765,9 @@ export default function App() {
   barsRef.current = bars;
   syllablesRef.current = syllables;
   accentsRef.current = accents;
+  accentsByLaneRef.current = accentsByLane;
   taDingKeysRef.current = taDingKeys;
+  taDingKeysByLaneRef.current = taDingKeysByLane;
   customSyllablesRef.current = customSyllables;
   deadCellsRef.current = deadCells;
   customMultipliersRef.current = customMultipliers;
@@ -5471,12 +5779,14 @@ export default function App() {
   isTaEditorModeRef.current = isTaEditorMode;
   isDeadCellsEditorModeRef.current = isDeadCellsEditorMode;
   firstBeatAccentRef.current = firstBeatAccent;
+  firstBeatAccentByLaneRef.current = firstBeatAccentByLane;
   squarePlaybackModeRef.current = squarePlaybackMode;
   onlyAccentsRef.current = squarePlaybackMode === 'accent_only';
   dictantModeRef.current = dictantMode;
   firstBeatDingSuppressedRowsRef.current = firstBeatDingSuppressedRows;
   clickSoundRef.current = clickSound;
   clickSoundByPolyVoiceRef.current = { ...clickSoundByPolyVoice };
+  activeClickVoiceTargetRef.current = activeClickVoiceTarget;
   if (clickSoundMixerClonedKeyRef.current !== clickSound) {
     clickSoundMixerClonedKeyRef.current = clickSound;
     cloneClickMixerFromLibrary(clickSound);
@@ -5505,22 +5815,43 @@ export default function App() {
     return out;
   }, [deadCells]);
 
+  const accentsUi = useMemo(
+    () => (polyMode ? flattenLaneSetMap(accentsByLane, bars, polyVoices) : accents),
+    [polyMode, accentsByLane, accents, bars, polyVoices],
+  );
+  const taDingKeysUi = useMemo(
+    () => (polyMode ? flattenLaneSetMap(taDingKeysByLane, bars, polyVoices) : taDingKeys),
+    [polyMode, taDingKeysByLane, taDingKeys, bars, polyVoices],
+  );
+  const firstBeatByRowSig = useMemo(() => {
+    const rows: number[] = [];
+    for (let r = 0; r < bars; r++) {
+      const lane = laneForRow(r, polyVoices);
+      const on = polyMode ? Boolean(firstBeatAccentByLane[lane]) : firstBeatAccent;
+      if (on) rows.push(r);
+    }
+    return rows.join(',');
+  }, [bars, polyMode, polyVoices, firstBeatAccentByLane, firstBeatAccent]);
+
   const forceFirstBeatEditorFrames = useMemo(() => {
-    if (!firstBeatAccent) return false;
+    const anyFirstBeat = polyMode
+      ? Boolean(firstBeatAccentByLane[0] || firstBeatAccentByLane[1] || firstBeatAccentByLane[2])
+      : firstBeatAccent;
+    if (!anyFirstBeat) return false;
     if (firstBeatEditorSuppressedRowsSorted.length > 0) return true;
     // Если есть явные ding-метки не на дефолтной первой доле, держим белые рамки видимыми.
-    for (const key of taDingKeys) {
+    for (const key of taDingKeysUi) {
       const parts = key.split('-');
       if (parts.length !== 2) continue;
       const c = parseInt(parts[1]!, 10);
       if (Number.isFinite(c) && c > 0) return true;
     }
     return false;
-  }, [firstBeatAccent, firstBeatEditorSuppressedRowsSorted, taDingKeys]);
-  const visibleTaDingKeys = useMemo(
-    () => (firstBeatAccent ? taDingKeys : new Set<string>()),
-    [firstBeatAccent, taDingKeys],
-  );
+  }, [polyMode, firstBeatAccentByLane, firstBeatAccent, firstBeatEditorSuppressedRowsSorted, taDingKeysUi]);
+  const visibleTaDingKeys = useMemo(() => {
+    if (polyMode) return taDingKeysUi;
+    return firstBeatAccent ? taDingKeysUi : new Set<string>();
+  }, [polyMode, taDingKeysUi, firstBeatAccent]);
 
   sequencerGridRowActionsRef.current = {
     isHoldingRef,
@@ -6516,8 +6847,9 @@ export default function App() {
           customSyllables={customSyllables}
           customSubdivisions={customSubdivisions}
           customMultipliers={customMultipliers}
-          accents={accents}
+          accents={accentsUi}
           taDingKeys={visibleTaDingKeys}
+          firstBeatByRowSig={firstBeatByRowSig}
           pulseMeterUnlinked={pulseMeterUnlinked}
           isPlaying={isPlaying}
           activePos={activePos}
@@ -6652,7 +6984,17 @@ export default function App() {
                 } else {
                   // Долгое удержание Ta из OFF: сначала включаем Ta, затем открываем редактор.
                   if (!firstBeatAccentRef.current) {
-                    setFirstBeatAccent(true);
+                    if (polyModeRef.current) {
+                      const lane = activeClickVoiceTargetRef.current as LaneId;
+                      setFirstBeatAccentByLane((prev) => {
+                        const next = { ...prev, [lane]: true };
+                        firstBeatAccentByLaneRef.current = { ...next };
+                        setFirstBeatAccent(Boolean(next[0]));
+                        return next;
+                      });
+                    } else {
+                      setFirstBeatAccent(true);
+                    }
                   }
                   setIsTaEditorMode(true);
                 }
@@ -6687,7 +7029,17 @@ export default function App() {
               }
               if (isTaEditorModeRef.current) return;
               flushSync(() => {
-                setFirstBeatAccent((prev) => !prev);
+                if (polyModeRef.current) {
+                  const lane = activeClickVoiceTargetRef.current as LaneId;
+                  setFirstBeatAccentByLane((prev) => {
+                    const next = { ...prev, [lane]: !prev[lane] };
+                    firstBeatAccentByLaneRef.current = { ...next };
+                    setFirstBeatAccent(Boolean(next[0]));
+                    return next;
+                  });
+                } else {
+                  setFirstBeatAccent((prev) => !prev);
+                }
               });
             }}
             className={`flex-1 rounded-xl flex justify-center items-center transition-all bg-[#161f33] ${
