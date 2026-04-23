@@ -2328,6 +2328,12 @@ type TempoSliderTrackProps = {
 	onTempoManualTextChange: (v: string) => void;
 	onCommitTempoInline: () => void;
 	onCancelTempoInline: () => void;
+	/**
+	 * Long-press (без drag > `TEMPO_MANUAL_MAX_MOVE_PX`) → inline-редактор BPM.
+	 * По аналогии с tap-кнопкой: тот же порог и тот же таймаут. Opt-in: если не
+	 * передан — hold игнорируется, старый drag-only режим.
+	 */
+	onBeginInlineEdit?: (slot: TempoSliderSlot) => void;
 	className?: string;
 };
 
@@ -2343,6 +2349,7 @@ function TempoSliderTrack({
 	onTempoManualTextChange,
 	onCommitTempoInline,
 	onCancelTempoInline,
+	onBeginInlineEdit,
 	className = '',
 }: TempoSliderTrackProps) {
 	const inlineInputRef = useRef<HTMLInputElement>(null);
@@ -2362,16 +2369,23 @@ function TempoSliderTrack({
 				let finished = false;
 				const rect = el.getBoundingClientRect();
 				const thumbHalf = 24;
+				const startX = e.clientX;
+				const startY = e.clientY;
+				const moveCancelSq = TEMPO_MANUAL_MAX_MOVE_PX * TEMPO_MANUAL_MAX_MOVE_PX;
+				let holdTimer: number | null = null;
+				const clearHold = () => {
+					if (holdTimer !== null) {
+						window.clearTimeout(holdTimer);
+						holdTimer = null;
+					}
+				};
 				const updateTempo = (clientX: number) => {
 					const activeWidth = rect.width - thumbHalf * 2;
 					const x = Math.max(0, Math.min(activeWidth, clientX - rect.left - thumbHalf));
 					const percent = x / Math.max(1, activeWidth);
 					scheduleTempoCommit(Math.round(20 + percent * 380));
 				};
-				const cleanup = () => {
-					if (finished) return;
-					finished = true;
-					flushTempoCommit();
+				const detachListeners = () => {
 					el.removeEventListener('pointermove', onMove);
 					el.removeEventListener('pointerup', onUp);
 					el.removeEventListener('pointercancel', onUp);
@@ -2381,8 +2395,19 @@ function TempoSliderTrack({
 						/* already released */
 					}
 				};
+				const cleanup = () => {
+					if (finished) return;
+					finished = true;
+					clearHold();
+					flushTempoCommit();
+					detachListeners();
+				};
 				const onMove = (moveEvt: PointerEvent) => {
 					if (finished) return;
+					const dx = moveEvt.clientX - startX;
+					const dy = moveEvt.clientY - startY;
+					// Любое существенное движение → отмена hold'а, продолжаем drag как обычно.
+					if (dx * dx + dy * dy > moveCancelSq) clearHold();
 					updateTempo(moveEvt.clientX);
 				};
 				const onUp = () => {
@@ -2393,6 +2418,18 @@ function TempoSliderTrack({
 				el.addEventListener('pointermove', onMove);
 				el.addEventListener('pointerup', onUp);
 				el.addEventListener('pointercancel', onUp);
+				if (typeof onBeginInlineEdit === 'function') {
+					holdTimer = window.setTimeout(() => {
+						holdTimer = null;
+						if (finished) return;
+						finished = true;
+						// Фиксируем текущее значение слайдера (от первого press), отцепляемся,
+						// передаём управление inline-редактору — поведение как на tap-кнопке.
+						flushTempoCommit();
+						detachListeners();
+						onBeginInlineEdit(tempoSliderSlot);
+					}, TEMPO_MANUAL_HOLD_MS);
+				}
 			}}
 		>
 			<div className="absolute w-full h-1.5 bg-[#0b101e] rounded-full overflow-hidden">
@@ -5177,6 +5214,7 @@ export default function App() {
                 onTempoManualTextChange={setTempoManualText}
                 onCommitTempoInline={commitTempoInlineEdit}
                 onCancelTempoInline={cancelTempoInlineEdit}
+                onBeginInlineEdit={beginTempoInlineEdit}
                 className="flex-1 relative flex items-center h-8 min-w-0"
               />
               <button
@@ -5615,6 +5653,7 @@ export default function App() {
                       onTempoManualTextChange={setTempoManualText}
                       onCommitTempoInline={commitTempoInlineEdit}
                       onCancelTempoInline={cancelTempoInlineEdit}
+                      onBeginInlineEdit={beginTempoInlineEdit}
                       className="flex-1 relative flex items-center h-8"
                     />
                     <button 
