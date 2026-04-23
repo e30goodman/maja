@@ -118,7 +118,7 @@ export const ALL_FORM_PRESETS: readonly FormPresetId[] = [
 
 export const FORM_PRESET_LABEL: Record<FormPresetId, string> = {
 	random: 'Random',
-	tihai_heavy: 'Tihai-heavy',
+	tihai_heavy: 'Tihay',
 	progressive: 'Progressive',
 	call_fill: 'Call-fill',
 };

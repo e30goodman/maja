@@ -5846,39 +5846,41 @@ export default function App() {
                     <>
                   <div className="flex justify-between items-center text-slate-300 font-bold text-[11px] uppercase tracking-wider">
                     <span className={`flex items-center gap-2 text-blue-300 ${lowPerfMode ? '' : 'drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]'}`}>
-                      <Dices size={14} /> Random
+                      <Dices size={14} /> Randomizer
                     </span>
                     <span className="text-[10px] font-medium normal-case tracking-normal text-slate-500">
                       {APP_COMMIT_VERSION}
                     </span>
                   </div>
 
-                  {/* Free / Parent mode toggle */}
-                  <div className="grid grid-cols-2 gap-2">
+                  {/* Free / Parent segmented toggle */}
+                  <div className="flex rounded-xl border border-[#23314f] bg-[#131d30]/80 p-1">
                     <button
+                      type="button"
                       onClick={() => setRandomMode('free')}
-                      className={`flex items-center justify-center py-2 rounded-lg text-xs font-bold transition-all duration-200 border ${
+                      className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${
                         randomMode === 'free'
-                          ? `bg-blue-600/20 border-blue-500/50 text-blue-300 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(59,130,246,0.15)]'}`
-                          : 'bg-[#1a253c]/40 border-[#23314f] text-slate-500 hover:text-slate-400 hover:bg-[#1a253c]/80'
+                          ? `bg-blue-600/25 text-blue-200 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(59,130,246,0.15)]'}`
+                          : 'text-slate-500 hover:text-slate-400'
                       }`}
                     >
                       Free
                     </button>
                     <button
+                      type="button"
                       onClick={() => {
                         if (polyMode) return;
                         setRandomMode('parent');
                       }}
                       disabled={polyMode}
                       title={polyMode ? 'Parent mode в Polyrhythm временно отключён' : undefined}
-                      className={`flex items-center justify-center py-2 rounded-lg text-xs font-bold transition-all duration-200 border ${
+                      className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${
                         polyMode
-                          ? 'bg-[#121b2e]/60 border-[#1d2942] text-slate-600 cursor-not-allowed'
+                          ? 'text-slate-600 cursor-not-allowed'
                           :
                         randomMode === 'parent'
-                          ? `bg-blue-600/20 border-blue-500/50 text-blue-300 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(59,130,246,0.15)]'}`
-                          : 'bg-[#1a253c]/40 border-[#23314f] text-slate-500 hover:text-slate-400 hover:bg-[#1a253c]/80'
+                          ? `bg-blue-600/25 text-blue-200 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(59,130,246,0.15)]'}`
+                          : 'text-slate-500 hover:text-slate-400'
                       }`}
                     >
                       Parent
