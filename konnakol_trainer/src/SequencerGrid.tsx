@@ -1,5 +1,5 @@
 import React, { useMemo, useCallback, useRef } from 'react';
-import { buildRowCellSyllableLabels, getSyllableStyles } from './sequencerLabels';
+import { buildRowCellSyllableLabels, getSyllableStyles, type KalamMap } from './sequencerLabels';
 import type { PlayheadPosition } from './playheadTypes';
 
 /** Long-press по клетке: Ta (1) → Ta Ka (2) → триоль Ta Ta Ka (3) → Ta Ka Dhi Mi (4) → снова Ta. */
@@ -66,14 +66,23 @@ function useStableRowCellLabelsCache(
 	syllables: number,
 	customSyllables: Record<number, number>,
 	customSubdivisions: Record<string, number>,
+	deadStartByRow: Record<number, number>,
+	bpm: number,
 ): string[][][] {
 	const prevRef = useRef<string[][][]>([]);
+	const kalamMapRef = useRef<KalamMap>(new Map());
 	return useMemo(() => {
 		const prev = prevRef.current;
 		const next: string[][][] = [];
+		const touched = new Set<string>();
 		for (let r = 0; r < bars; r++) {
 			const rowSylls = customSyllables[r] !== undefined ? customSyllables[r] : syllables;
-			const built = buildRowCellSyllableLabels(rowSylls, customSubdivisions, r);
+			const built = buildRowCellSyllableLabels(rowSylls, customSubdivisions, r, {
+				bpm,
+				deadStart: deadStartByRow[r],
+				kalamMap: kalamMapRef.current,
+				touchedKeys: touched,
+			});
 			const oldRow = prev[r];
 			if (oldRow !== undefined && rowCellLabelsEqual(oldRow, built)) {
 				next[r] = oldRow;
@@ -81,9 +90,16 @@ function useStableRowCellLabelsCache(
 				next[r] = built;
 			}
 		}
+		/** GC: удаляем hysteresis-ключи сегментов/клеток, которых больше нет в сетке. */
+		const km = kalamMapRef.current;
+		const stale: string[] = [];
+		km.forEach((_, key) => {
+			if (!touched.has(key)) stale.push(key);
+		});
+		for (const key of stale) km.delete(key);
 		prevRef.current = next;
 		return next;
-	}, [bars, syllables, customSyllables, customSubdivisions]);
+	}, [bars, syllables, customSyllables, customSubdivisions, deadStartByRow, bpm]);
 }
 
 /** Ref-filled each App render — stable identity for memoized grid row. */
@@ -647,6 +663,8 @@ export type SequencerGridProps = {
 	firstBeatEditorSuppressedSig: string;
 	deadStartByRow: Record<number, number>;
 	deadDisplayByRow: Record<number, number>;
+	/** BPM доли. Используется для расчёта NPS и выбора Kalam (slow/medium/fast) в слогах. */
+	bpm: number;
 	activeEditRow: number | null;
 	activeEditCell: string | null;
 	sequencerGridRowActionsRef: React.MutableRefObject<SequencerGridRowActions | null>;
@@ -680,6 +698,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	firstBeatEditorSuppressedSig,
 	deadStartByRow,
 	deadDisplayByRow,
+	bpm,
 	activeEditRow,
 	activeEditCell,
 	sequencerGridRowActionsRef,
@@ -690,6 +709,8 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 		syllables,
 		customSyllables,
 		customSubdivisions,
+		deadStartByRow,
+		bpm,
 	);
 
 	/**

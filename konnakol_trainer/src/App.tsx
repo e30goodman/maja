@@ -138,6 +138,31 @@ function parsePolyVoices(raw: unknown): 2 | 3 | 4 {
 	return n === 3 ? n : 2;
 }
 
+type PolyVoiceTarget = 0 | 1 | 2 | 3;
+type ClickSoundByPolyVoice = Partial<Record<PolyVoiceTarget, ClickSoundPreset>>;
+
+function normalizeClickSoundByPolyVoice(raw: unknown): ClickSoundByPolyVoice {
+	const out: ClickSoundByPolyVoice = {};
+	if (!raw || typeof raw !== 'object') return out;
+	for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+		const voice = parseInt(k, 10);
+		if (!Number.isFinite(voice) || voice < 0 || voice > 3) continue;
+		if (isClickSoundPreset(v)) out[voice as PolyVoiceTarget] = v;
+	}
+	return out;
+}
+
+function resolveClickSoundForPolyVoice(
+	voice: number,
+	isPoly: boolean,
+	perVoice: ClickSoundByPolyVoice,
+	master: ClickSoundPreset,
+): ClickSoundPreset {
+	if (!isPoly) return master;
+	const mapped = perVoice[voice as PolyVoiceTarget];
+	return mapped ?? master;
+}
+
 /**
  * При включённом poly: число тактов кратно числу голосов (3 → 3,6,9,…; иначе 2 → 2,4,…).
  * Без poly — только clamp 1..100.
@@ -1890,6 +1915,8 @@ function createEmptySnapshot() {
 		chaosLevel: 15,
 		/** Classic = legacy maja без `konnakol_metronome`: акцент / пассив + Ta на первой доле. */
 		clickSound: 'classic' as ClickSoundPreset,
+		/** Poly: override пресета по голосу (0..3); отсутствие ключа = наследует `clickSound`. */
+		clickSoundByPolyVoice: {} as ClickSoundByPolyVoice,
 		/** Верхняя панель: темп + слайдеры (Chevron) развёрнута. */
 		panelExpanded: false,
 		/** Ряд r: длительность клетки от PULSE_METER_BASE_SYLLABLES, не от customSyllables[r]. */
@@ -1964,6 +1991,7 @@ function parseSnapshotRow(raw: unknown) {
 	if (isClickSoundPreset(o.clickSound)) d.clickSound = o.clickSound;
 	else if (o.clickSound === 'old-school') d.clickSound = 'oldschool';
 	else d.clickSound = 'classic';
+	d.clickSoundByPolyVoice = normalizeClickSoundByPolyVoice(o.clickSoundByPolyVoice);
 	if (typeof o.panelExpanded === 'boolean') d.panelExpanded = o.panelExpanded;
 	if (o.sequencerCells && typeof o.sequencerCells === 'object') {
 		hydrateSequencerFromCells(o.sequencerCells, d);
@@ -2052,6 +2080,7 @@ function snapSlotLooksUsed(s: ReturnType<typeof createEmptySnapshot>) {
 	if (s.randomModeEnabled || s.randomPulsation || !s.randomPattern || s.randomSpeed || s.randomBarSpeed) return true;
 	if (s.chaosLevel !== 0) return true;
 	if (s.clickSound !== 'classic') return true;
+	if (Object.keys(s.clickSoundByPolyVoice || {}).length > 0) return true;
 	if (s.panelExpanded === true) return true;
 	if (s.pulseMeterUnlinked && Object.values(s.pulseMeterUnlinked).some(Boolean)) return true;
 	if (s.onlyAccents) return true;
@@ -2085,6 +2114,7 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		randomBarSpeed: s.randomBarSpeed,
 		chaosLevel: s.chaosLevel,
 		clickSound: s.clickSound,
+		clickSoundByPolyVoice: normalizeClickSoundByPolyVoice(s.clickSoundByPolyVoice),
 		panelExpanded: s.panelExpanded,
 		pulseMeterUnlinked: Object.fromEntries(
 			Object.entries(s.pulseMeterUnlinked || {}).filter(([, v]) => v),
@@ -2304,16 +2334,16 @@ function loadSnapshotStorage(): {
 
 type ClickMixerGroup = { groupHpHz: number; groupLpHz: number; groupMasterLinear: number };
 
-const clickMixerLayerClonesRef: {
-	current: { accent: ClickLayerConfig[]; alt: ClickLayerConfig[]; passive: ClickLayerConfig[] } | null;
-} = { current: null };
+type ClickMixerLayerBag = { accent: ClickLayerConfig[]; alt: ClickLayerConfig[]; passive: ClickLayerConfig[] };
+type ClickMixerPerPresetCache = Partial<Record<ClickSoundPreset, ClickMixerLayerBag>>;
+const clickMixerLayerClonesByPresetRef: { current: ClickMixerPerPresetCache } = { current: {} };
 
 const clickMixerGroupRef: { current: Record<MetroVoiceKey, ClickMixerGroup> | null } = { current: null };
 
 function cloneClickMixerFromLibrary(soundType: ClickSoundPreset): void {
 	const cfg = CLICK_SOUND_LIBRARY[soundType] ?? CLICK_SOUND_LIBRARY.classic;
 	const built = cfg.layers ?? buildLegacyVoiceLayers(cfg);
-	clickMixerLayerClonesRef.current = {
+	clickMixerLayerClonesByPresetRef.current[soundType] = {
 		accent: structuredClone(built.accent),
 		alt: structuredClone(built.alt),
 		passive: structuredClone(built.passive),
@@ -2343,7 +2373,8 @@ const playSharpClick = (
   const voiceKey: MetroVoiceKey = voiceRole === 'accent' ? 'accent' : voiceRole === 'alt' ? 'alt' : 'passive';
   const busIn = getVoiceLayerSumInput(ctx, voiceKey);
   const libLayers = (cfg.layers ?? buildLegacyVoiceLayers(cfg))[voiceKey];
-  const layers = clickMixerLayerClonesRef.current?.[voiceKey] ?? libLayers;
+  const cachedForPreset = clickMixerLayerClonesByPresetRef.current[soundType];
+  const layers = cachedForPreset?.[voiceKey] ?? libLayers;
   const activeLayers = layers.filter(
     (layer) => layer.mute !== true && layer.params.volume > CLICK_LAYER_VOLUME_GATE && layer.type !== 'none',
   );
@@ -2748,6 +2779,10 @@ export default function App() {
 
   // Click Sound
   const [clickSound, setClickSound] = useState<ClickSoundPreset>(seed.clickSound);
+  const [clickSoundByPolyVoice, setClickSoundByPolyVoice] = useState<ClickSoundByPolyVoice>(
+    normalizeClickSoundByPolyVoice((seed as { clickSoundByPolyVoice?: unknown }).clickSoundByPolyVoice),
+  );
+  const [activeClickVoiceTarget, setActiveClickVoiceTarget] = useState<0 | 1 | 2>(0);
   const [isClickSoundSelectorOpen, setIsClickSoundSelectorOpen] = useState(false);
 
   // Preset Snapshot State (7 slots; persisted in localStorage)
@@ -2788,6 +2823,9 @@ export default function App() {
             return new Set(raw.filter((x): x is string => typeof x === 'string'));
           return new Set<string>();
         })(),
+        clickSoundByPolyVoice: normalizeClickSoundByPolyVoice(
+          (s as { clickSoundByPolyVoice?: unknown }).clickSoundByPolyVoice,
+        ),
       };
     }
     return out;
@@ -2991,6 +3029,8 @@ export default function App() {
   const squareHoldAteClickRef = useRef(false);
   const randomDiceHoldTimerRef = useRef<number | null>(null);
   const randomDiceHoldAteClickRef = useRef(false);
+  const randomDicePointerTapHandledRef = useRef(false);
+  const randomDiceHoldStartedAtRef = useRef<number | null>(null);
   const taHoldTimerRef = useRef<number | null>(null);
   const taHoldAteClickRef = useRef(false);
   const eraserHoldTimerRef = useRef<number | null>(null);
@@ -3069,6 +3109,8 @@ export default function App() {
     customMultipliersRef.current = {};
     setCustomSubdivisions({});
     customSubdivisionsRef.current = {};
+    setClickSoundByPolyVoice({});
+    clickSoundByPolyVoiceRef.current = {};
     setPulseMeterUnlinked({});
     pulseMeterUnlinkedRef.current = {};
     setFrozenScale(null);
@@ -3091,7 +3133,8 @@ export default function App() {
       setRandomBarSpeed(!randomBarSpeed);
     }
     
-    if (willBeEnabled && !randomModeEnabled) {
+    if (willBeEnabled && !randomModeEnabledRef.current) {
+      randomModeEnabledRef.current = true;
       setRandomModeEnabled(true);
     }
   };
@@ -3154,6 +3197,7 @@ export default function App() {
   const randomBarSpeedRef = useRef(randomBarSpeed);
   const chaosLevelRef = useRef(chaosLevel);
   const clickSoundRef = useRef(clickSound);
+  const clickSoundByPolyVoiceRef = useRef<ClickSoundByPolyVoice>(clickSoundByPolyVoice);
   /** Последний пресет, для которого вызван cloneClickMixerFromLibrary (см. блок синхронизации в render). */
   const clickSoundMixerClonedKeyRef = useRef<ClickSoundPreset | null>(null);
   const frozenScaleRef = useRef(frozenScale);
@@ -3180,6 +3224,7 @@ export default function App() {
   useEffect(() => { tempoRef.current = tempo; }, [tempo]);
   useEffect(() => { setTempoUi(tempo); }, [tempo]);
   useEffect(() => { accentsRef.current = new Set(accents); }, [accents]);
+  useEffect(() => { clickSoundByPolyVoiceRef.current = { ...clickSoundByPolyVoice }; }, [clickSoundByPolyVoice]);
   useEffect(() => { customMultipliersRef.current = { ...customMultipliers }; }, [customMultipliers]);
   useEffect(() => { customSubdivisionsRef.current = { ...customSubdivisions }; }, [customSubdivisions]);
   useEffect(() => {
@@ -3247,6 +3292,14 @@ export default function App() {
   useEffect(() => { frozenScaleRef.current = frozenScale; }, [frozenScale]);
   useEffect(() => { polyModeRef.current = polyMode; }, [polyMode]);
   useEffect(() => { polyVoicesRef.current = polyVoices; }, [polyVoices]);
+  useEffect(() => {
+    if (!polyMode) {
+      setActiveClickVoiceTarget(0);
+      return;
+    }
+    const maxVoice = polyVoices === 3 ? 2 : 1;
+    setActiveClickVoiceTarget((prev) => (prev > maxVoice ? maxVoice : prev));
+  }, [polyMode, polyVoices]);
   useEffect(() => {
     if (!polyMode) return;
     const normalized = snapBarsToPolyGrid(bars, true, polyVoices);
@@ -3468,6 +3521,7 @@ export default function App() {
     randomBarSpeed: randomBarSpeedRef.current,
     chaosLevel: chaosLevelRef.current,
     clickSound: clickSoundRef.current,
+    clickSoundByPolyVoice: { ...clickSoundByPolyVoiceRef.current },
     panelExpanded: isPanelExpandedRef.current,
     pulseMeterUnlinked: { ...pulseMeterUnlinkedRef.current },
     frozenScale: frozenScaleRef.current,
@@ -3746,6 +3800,7 @@ export default function App() {
       randomBarSpeed: raw.randomBarSpeed,
       chaosLevel: raw.chaosLevel,
       clickSound: raw.clickSound,
+      clickSoundByPolyVoice: (raw as { clickSoundByPolyVoice?: unknown }).clickSoundByPolyVoice,
       panelExpanded: raw.panelExpanded,
       pulseMeterUnlinked: raw.pulseMeterUnlinked,
       frozenScale: raw.frozenScale,
@@ -3826,6 +3881,7 @@ export default function App() {
           randomBarSpeed,
           chaosLevel: chaosLevelRef.current,
           clickSound,
+          clickSoundByPolyVoice,
           panelExpanded: isPanelExpanded,
           pulseMeterUnlinked: { ...pulseMeterUnlinked },
           frozenScale,
@@ -3858,6 +3914,7 @@ export default function App() {
     randomSpeed,
     randomBarSpeed,
     clickSound,
+    clickSoundByPolyVoice,
     isPanelExpanded,
     frozenScale,
     polyMode,
@@ -3930,9 +3987,12 @@ export default function App() {
       deadCellsRef.current = { ...((snap as { deadCells?: DeadCellsMap }).deadCells || {}) };
       setCustomMultipliers({ ...(snap.customMultipliers || {}) });
       setCustomSubdivisions({ ...(snap.customSubdivisions || {}) });
-    setRandomModeEnabled(
-      snap.randomModeEnabled !== undefined ? Boolean(snap.randomModeEnabled) : false,
-    );
+    {
+      const nextRandomMode =
+        snap.randomModeEnabled !== undefined ? Boolean(snap.randomModeEnabled) : false;
+      randomModeEnabledRef.current = nextRandomMode;
+      setRandomModeEnabled(nextRandomMode);
+    }
     setRandomPulsation(
       snap.randomPulsation !== undefined ? Boolean(snap.randomPulsation) : false,
     );
@@ -3951,6 +4011,11 @@ export default function App() {
         : 0,
     );
     setClickSound(isClickSoundPreset(snap.clickSound) ? snap.clickSound : 'classic');
+    const nextClickByVoice = normalizeClickSoundByPolyVoice(
+      (snap as { clickSoundByPolyVoice?: unknown }).clickSoundByPolyVoice,
+    );
+    clickSoundByPolyVoiceRef.current = { ...nextClickByVoice };
+    setClickSoundByPolyVoice(nextClickByVoice);
     setPulseMeterUnlinked(normalizePulseMeterUnlinked(snap.pulseMeterUnlinked));
     const modeFromSnap = (snap as { squarePlaybackMode?: unknown }).squarePlaybackMode;
     if (modeFromSnap === 'all_beats' || modeFromSnap === 'accent_only' || modeFromSnap === 'passive_only') {
@@ -3974,6 +4039,7 @@ export default function App() {
     );
     setPolyMode(snap.polyMode === true);
     setPolyVoices(parsePolyVoices(snap.polyVoices));
+    setActiveClickVoiceTarget(0);
     if (!options?.preservePanel) {
       setIsPanelExpanded(snap.panelExpanded === true);
     }
@@ -3999,6 +4065,7 @@ export default function App() {
     customMultipliers: { ...s.customMultipliers },
     customSubdivisions: { ...s.customSubdivisions },
     panelExpanded: s.panelExpanded === true,
+    clickSoundByPolyVoice: normalizeClickSoundByPolyVoice(s.clickSoundByPolyVoice),
     pulseMeterUnlinked: { ...(s.pulseMeterUnlinked || {}) },
     frozenScale: typeof s.frozenScale === 'number' && s.frozenScale >= 1 ? s.frozenScale : null,
     polyMode: s.polyMode === true,
@@ -4563,7 +4630,16 @@ export default function App() {
   }, [getLegacyNoteDurationSeconds]);
 
   const scheduleGridCellAtTime = useCallback(
-    (rIdx: number, cIdx: number, absR: number, time: number, voice: number, step: number, noteDuration: number) => {
+    (
+      rIdx: number,
+      cIdx: number,
+      absR: number,
+      time: number,
+      voice: number,
+      step: number,
+      noteDuration: number,
+      forcedSoundPreset?: ClickSoundPreset,
+    ) => {
       if (!audioCtxRef.current) return;
       const subdivs = customSubdivisionsRef.current[`${rIdx}-${cIdx}`] || 1;
       const subDuration = Math.max(0.001, noteDuration / Math.max(1, subdivs));
@@ -4572,6 +4648,14 @@ export default function App() {
         const ctx = audioCtxRef.current;
         if (!ctx) return;
         if (!isPlayingRef.current && !gridPreviewAudioActiveRef.current) return;
+        const soundPreset =
+          forcedSoundPreset ??
+          resolveClickSoundForPolyVoice(
+            voice,
+            polyModeRef.current,
+            clickSoundByPolyVoiceRef.current,
+            clickSoundRef.current,
+          );
         const deadCut = deadCellsRef.current[rIdx]?.deadStart;
         if (typeof deadCut === 'number' && cIdx >= deadCut) return;
         const isAccent = accentsRef.current.has(`${rIdx}-${cIdx}`);
@@ -4585,12 +4669,12 @@ export default function App() {
           ? `${voice}:${rIdx}:${Math.round(subTime * 1_000_000)}`
           : '';
         const shouldDedupPolyClick = polyModeRef.current && polyClickSlotsRef.current.has(polySlotKey);
-        const isFirstOfBar = cIdx === 0 && sub === 0;
+        const isFirstBarCell = cIdx === 0;
         const mainAccentClick = isAccent && (subdivs > 1 || sub === 0);
         const shouldPlayFirstBeatTa =
-          isFirstOfBar && firstBeatAccentRef.current && firstBeatCellHitRow;
+          isFirstBarCell && firstBeatAccentRef.current && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
         if (shouldPlayFirstBeatTa) {
-          playBarFirstHighClick(ctx, subTime, clickSoundRef.current);
+          playBarFirstHighClick(ctx, subTime, soundPreset);
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
           }
@@ -4601,7 +4685,8 @@ export default function App() {
         const playbackMode = squarePlaybackModeRef.current;
         const taEnabled = firstBeatAccentRef.current;
         const isTaDingCell = taEnabled && cIdx >= 1 && taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
-        const shouldPlayTaDingSound = sub === 0 && isTaDingCell;
+        /** Ta-клетка с поддолями должна звучать на каждую поддолю, не только на sub=0. */
+        const shouldPlayTaDingSound = isTaDingCell && (subdivs > 1 || sub === 0);
         const hasTaDingHere = taEnabled && taDingKeysRef.current.has(`${rIdx}-${cIdx}`);
         const dictantActive = dictantModeRef.current;
         const shouldPlayBeat =
@@ -4611,14 +4696,14 @@ export default function App() {
               ? isAccent || hasTaDingHere
               : false;
         const isTaFirstBeatArticulation =
-          cIdx === 0 && sub === 0 && firstBeatAccentRef.current && firstBeatCellHitRow;
+          cIdx === 0 && firstBeatAccentRef.current && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
         const sharpAsChecked = (() => {
           if (dictantActive) return mainAccentClick;
           if (muteMode === 'no_accent_sharp' && mainAccentClick && !isTaFirstBeatArticulation) return false;
           return mainAccentClick;
         })();
         if (shouldPlayTaDingSound) {
-          playBarFirstHighClick(ctx, subTime, clickSoundRef.current);
+          playBarFirstHighClick(ctx, subTime, soundPreset);
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
           }
@@ -4643,9 +4728,9 @@ export default function App() {
               : shouldPlayTaDingSound
                 ? 'base'
                 : 'base';
-        playSharpClick(ctx, subTime, sharpAsChecked, clickSoundRef.current, accentOnlyPlayback, voiceRole);
+        playSharpClick(ctx, subTime, sharpAsChecked, soundPreset, accentOnlyPlayback, voiceRole);
         if (sharpAsChecked && playbackMode === 'all_beats' && !shouldPlayFirstBeatTa && !shouldPlayTaDingSound) {
-          playSharpClick(ctx, subTime, false, clickSoundRef.current, false, 'alt');
+          playSharpClick(ctx, subTime, false, soundPreset, false, 'alt');
         }
         if (polyModeRef.current) {
           polyClickSlotsRef.current.add(polySlotKey);
@@ -4774,8 +4859,6 @@ export default function App() {
     clearPlayheadScheduling();
     setActivePos({ r: -1, c: -1, absR: -1 });
     setActivePositions([]);
-    clickSoundRef.current = soundPreset;
-    clickSoundMixerClonedKeyRef.current = soundPreset;
     cloneClickMixerFromLibrary(soundPreset);
     const barsCount = Math.max(1, barsRef.current);
     let cursor = audioCtxRef.current.currentTime + METRA_SCHEDULE_AHEAD_SEC;
@@ -4788,7 +4871,7 @@ export default function App() {
       const noteDuration = getLegacyNoteDurationSeconds(rowIdx);
       for (let cIdx = 0; cIdx < rowSyllables; cIdx++) {
         const noteTime = cursor + cIdx * noteDuration;
-        scheduleGridCellAtTime(rowIdx, cIdx, rowIdx, noteTime, 0, cIdx, noteDuration);
+        scheduleGridCellAtTime(rowIdx, cIdx, rowIdx, noteTime, 0, cIdx, noteDuration, soundPreset);
       }
       cursor += noteDuration * Math.max(1, rowSyllables);
     }
@@ -4973,6 +5056,7 @@ export default function App() {
   dictantModeRef.current = dictantMode;
   firstBeatDingSuppressedRowsRef.current = firstBeatDingSuppressedRows;
   clickSoundRef.current = clickSound;
+  clickSoundByPolyVoiceRef.current = { ...clickSoundByPolyVoice };
   if (clickSoundMixerClonedKeyRef.current !== clickSound) {
     clickSoundMixerClonedKeyRef.current = clickSound;
     cloneClickMixerFromLibrary(clickSound);
@@ -5265,16 +5349,76 @@ export default function App() {
                         <span className="font-bold text-[11px] uppercase tracking-wider text-[#a4abc5]">Select Click</span>
                         <div className="w-8 h-8" />
                       </div>
+                      {polyMode ? (
+                        <div className="flex items-center gap-1.5">
+                          {([0, 1, 2] as const).filter((v) => v < (polyVoices === 3 ? 3 : 2)).map((voiceIdx) => {
+                            const isActive = activeClickVoiceTarget === voiceIdx;
+                            const label = `V${voiceIdx + 1}`;
+                            const activeCls =
+                              voiceIdx === 0
+                                ? 'border-emerald-400 text-emerald-200 bg-emerald-500/10'
+                                : voiceIdx === 1
+                                  ? 'border-sky-400 text-sky-200 bg-sky-500/10'
+                                  : 'border-violet-400 text-violet-200 bg-violet-500/10';
+                            return (
+                              <button
+                                key={voiceIdx}
+                                type="button"
+                                onClick={() => setActiveClickVoiceTarget(voiceIdx)}
+                                className={`px-2 py-1 rounded-md border text-[10px] font-bold transition-colors ${
+                                  isActive
+                                    ? activeCls
+                                    : 'border-[#2a385b] text-slate-400 hover:text-slate-200 hover:border-[#3b4f7a]'
+                                }`}
+                              >
+                                {label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
                       <div className="grid grid-cols-4 gap-2.5 flex-1 content-start">
                         {CLICK_SOUND_PRESET_META.map((preset) => {
-                          const isSelected = clickSound === preset.mappedSound;
+                          const selectedForTarget = polyMode
+                            ? resolveClickSoundForPolyVoice(
+                                activeClickVoiceTarget,
+                                true,
+                                clickSoundByPolyVoice,
+                                clickSound,
+                              )
+                            : clickSound;
+                          const isSelected = selectedForTarget === preset.mappedSound;
                           return (
                             <button
                               key={preset.id}
                               type="button"
                               onClick={() => {
-                                setClickSound(preset.mappedSound);
-                                clickSoundRef.current = preset.mappedSound;
+                                if (polyMode) {
+                                  if (activeClickVoiceTarget === 0) {
+                                    setClickSound(preset.mappedSound);
+                                    setClickSoundByPolyVoice((prev) => {
+                                      const next = { ...prev };
+                                      delete next[0];
+                                      clickSoundByPolyVoiceRef.current = { ...next };
+                                      return next;
+                                    });
+                                  } else {
+                                    setClickSoundByPolyVoice((prev) => {
+                                      const next = { ...prev };
+                                      if (preset.mappedSound === clickSoundRef.current) delete next[activeClickVoiceTarget];
+                                      else next[activeClickVoiceTarget] = preset.mappedSound;
+                                      clickSoundByPolyVoiceRef.current = { ...next };
+                                      return next;
+                                    });
+                                  }
+                                  if (polyVoices === 3) {
+                                    setActiveClickVoiceTarget((prev) => (prev === 0 ? 1 : prev === 1 ? 2 : 2));
+                                  } else {
+                                    setActiveClickVoiceTarget((prev) => (prev === 0 ? 1 : 1));
+                                  }
+                                } else {
+                                  setClickSound(preset.mappedSound);
+                                }
                                 playTwoBarsPreviewFromGrid(preset.mappedSound);
                               }}
                               className={`rounded-xl border p-3 min-h-[64px] text-center flex items-center justify-center transition-all ${
@@ -5829,6 +5973,7 @@ export default function App() {
           firstBeatEditorSuppressedSig={firstBeatEditorSuppressedSig}
           deadStartByRow={deadStartByRow}
           deadDisplayByRow={deadDisplayByRow}
+          bpm={tempoUi}
           customSyllables={customSyllables}
           customSubdivisions={customSubdivisions}
           customMultipliers={customMultipliers}
@@ -5859,13 +6004,19 @@ export default function App() {
             onPointerDown={() => {
               if (isDeadCellsEditorMode) return;
               randomDiceHoldAteClickRef.current = false;
+              randomDicePointerTapHandledRef.current = false;
+              randomDiceHoldStartedAtRef.current = Date.now();
               if (randomDiceHoldTimerRef.current !== null) {
                 window.clearTimeout(randomDiceHoldTimerRef.current);
                 randomDiceHoldTimerRef.current = null;
               }
               randomDiceHoldTimerRef.current = window.setTimeout(() => {
                 randomDiceHoldTimerRef.current = null;
-                setRandomModeEnabled((prev) => !prev);
+                setRandomModeEnabled((prev) => {
+                  const next = !prev;
+                  randomModeEnabledRef.current = next;
+                  return next;
+                });
                 randomDiceHoldAteClickRef.current = true;
               }, RANDOM_DICE_PREFILL_HOLD_MS);
                   }}
@@ -5875,6 +6026,20 @@ export default function App() {
                 window.clearTimeout(randomDiceHoldTimerRef.current);
                 randomDiceHoldTimerRef.current = null;
               }
+              const startedAt = randomDiceHoldStartedAtRef.current;
+              randomDiceHoldStartedAtRef.current = null;
+              if (randomDiceHoldAteClickRef.current) return;
+              if (startedAt !== null && Date.now() - startedAt >= RANDOM_DICE_PREFILL_HOLD_MS) {
+                setRandomModeEnabled((prev) => {
+                  const next = !prev;
+                  randomModeEnabledRef.current = next;
+                  return next;
+                });
+                randomDiceHoldAteClickRef.current = true;
+                return;
+              }
+              randomDicePointerTapHandledRef.current = true;
+              prefillAllTactsRandomizer();
                   }}
                   onPointerLeave={() => {
               if (isDeadCellsEditorMode) return;
@@ -5882,6 +6047,7 @@ export default function App() {
                 window.clearTimeout(randomDiceHoldTimerRef.current);
                 randomDiceHoldTimerRef.current = null;
               }
+              randomDiceHoldStartedAtRef.current = null;
             }}
             onPointerCancel={() => {
               if (isDeadCellsEditorMode) return;
@@ -5889,11 +6055,16 @@ export default function App() {
                 window.clearTimeout(randomDiceHoldTimerRef.current);
                 randomDiceHoldTimerRef.current = null;
               }
+              randomDiceHoldStartedAtRef.current = null;
                       }}
                       onClick={() => {
               if (isDeadCellsEditorMode) return;
               if (randomDiceHoldAteClickRef.current) {
                 randomDiceHoldAteClickRef.current = false;
+                return;
+              }
+              if (randomDicePointerTapHandledRef.current) {
+                randomDicePointerTapHandledRef.current = false;
                 return;
               }
               prefillAllTactsRandomizer();
