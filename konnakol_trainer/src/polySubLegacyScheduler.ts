@@ -24,8 +24,12 @@ export type PolySubLegacyDeps = {
 	getRowSyllables: (bar: number) => number;
 	getDeadStart: (bar: number) => number | undefined;
 	emit: PolySubLegacyEmit;
-	/** Lane 0 завершила полный круг по своим тактам (для randomizer / wrap паттерна). `prevBar` — такт, с которого ушли в ноль первого такта линии. */
-	onLane0PatternWrap?: (prevBar: number) => void;
+	/**
+	 * Любая lane пересекла границу такта (advanceBar): `prevBar` — такт, который только что доиграл,
+	 * `laneId` — индекс линии, `wrappedPattern` — линия замкнула круг по своим тактам.
+	 * Используется per-voice рандомайзером в режиме sub_legacy: каждому голосу — свой рандомизатор.
+	 */
+	onLaneBarBoundary?: (prevBar: number, laneId: number, wrappedPattern: boolean) => void;
 };
 
 /** Совместимо с прежним `nextPolyCell` в schedulePolyStep: следующий индекс клетки (0 = рестарт внутри такта). */
@@ -164,10 +168,8 @@ export function createPolySubLegacyScheduler(deps: PolySubLegacyDeps): PolySubLe
 				best.barCursor = (best.barCursor + 1) % best.barIndices.length;
 				best.cellCursor = 0;
 				const wrappedPattern =
-					best.laneId === 0 && best.barCursor === 0 && prevCursor === best.barIndices.length - 1;
-				if (wrappedPattern) {
-					deps.onLane0PatternWrap?.(prevBar);
-				}
+					best.barCursor === 0 && prevCursor === best.barIndices.length - 1;
+				deps.onLaneBarBoundary?.(prevBar, best.laneId, wrappedPattern);
 			} else {
 				best.cellCursor = nextC;
 			}

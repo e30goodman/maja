@@ -1906,9 +1906,9 @@ function createEmptySnapshot() {
 		customSyllables: {} as Record<number, number>,
 		customMultipliers: {} as Record<number, number>,
 		customSubdivisions: {} as Record<string, number>,
-		/** Дефолт рандомайзера: режим вкл., pulsation + cell speed + accents (pattern), chaos 15. */
+		/** Дефолт рандомайзера: режим вкл., pulsation выкл., cell speed + accents (pattern), chaos 15. */
 		randomModeEnabled: true,
-		randomPulsation: true,
+		randomPulsation: false,
 		randomPattern: true,
 		randomSpeed: true,
 		randomBarSpeed: false,
@@ -3109,19 +3109,39 @@ export default function App() {
     customMultipliersRef.current = {};
     setCustomSubdivisions({});
     customSubdivisionsRef.current = {};
-    setClickSoundByPolyVoice({});
-    clickSoundByPolyVoiceRef.current = {};
+    // Keep per-voice click assignments on clear (eraser should reset pattern, not voice timbres).
     setPulseMeterUnlinked({});
     pulseMeterUnlinkedRef.current = {};
     setFrozenScale(null);
     frozenScaleRef.current = null;
   };
 
+  const handleChaosSliderChange = (raw: number) => {
+    const nextChaos = Math.max(0, Math.min(100, Math.round(raw)));
+    if (nextChaos === chaosLevelRef.current) return;
+    chaosLevelRef.current = nextChaos;
+    setChaosLevel(nextChaos);
+
+    const shouldPulsation = nextChaos > 30;
+    if (randomPulsationRef.current !== shouldPulsation) {
+      randomPulsationRef.current = shouldPulsation;
+      setRandomPulsation(shouldPulsation);
+    }
+
+    const shouldBarSpeed = nextChaos > 50;
+    if (randomBarSpeedRef.current !== shouldBarSpeed) {
+      randomBarSpeedRef.current = shouldBarSpeed;
+      setRandomBarSpeed(shouldBarSpeed);
+    }
+  };
+
   const toggleRandomFeature = (feature: 'pulsation' | 'pattern' | 'speed' | 'barSpeed') => {
     let willBeEnabled = false;
     if (feature === 'pulsation') {
       willBeEnabled = !randomPulsation;
-      setRandomPulsation(!randomPulsation);
+      const next = !randomPulsation;
+      randomPulsationRef.current = next;
+      setRandomPulsation(next);
     } else if (feature === 'pattern') {
       willBeEnabled = !randomPattern;
       setRandomPattern(!randomPattern);
@@ -3130,7 +3150,9 @@ export default function App() {
       setRandomSpeed(!randomSpeed);
     } else if (feature === 'barSpeed') {
       willBeEnabled = !randomBarSpeed;
-      setRandomBarSpeed(!randomBarSpeed);
+      const next = !randomBarSpeed;
+      randomBarSpeedRef.current = next;
+      setRandomBarSpeed(next);
     }
     
     if (willBeEnabled && !randomModeEnabledRef.current) {
@@ -3225,13 +3247,13 @@ export default function App() {
   useEffect(() => { setTempoUi(tempo); }, [tempo]);
   useEffect(() => { accentsRef.current = new Set(accents); }, [accents]);
   useEffect(() => { clickSoundByPolyVoiceRef.current = { ...clickSoundByPolyVoice }; }, [clickSoundByPolyVoice]);
-  useEffect(() => { customMultipliersRef.current = { ...customMultipliers }; }, [customMultipliers]);
-  useEffect(() => { customSubdivisionsRef.current = { ...customSubdivisions }; }, [customSubdivisions]);
-  useEffect(() => {
-    pulseMeterUnlinkedRef.current = { ...pulseMeterUnlinked };
-  }, [pulseMeterUnlinked]);
-  useEffect(() => { customSyllablesRef.current = { ...customSyllables }; }, [customSyllables]);
-  useEffect(() => { deadCellsRef.current = { ...deadCells }; }, [deadCells]);
+  /* Прямые присваивания (без spread) для ref-first путей (poly randomizer и т.п.):
+   * ref === state → мутации переживают перерендеры и долетают до setState({...ref}). */
+  useEffect(() => { customMultipliersRef.current = customMultipliers; }, [customMultipliers]);
+  useEffect(() => { customSubdivisionsRef.current = customSubdivisions; }, [customSubdivisions]);
+  useEffect(() => { pulseMeterUnlinkedRef.current = pulseMeterUnlinked; }, [pulseMeterUnlinked]);
+  useEffect(() => { customSyllablesRef.current = customSyllables; }, [customSyllables]);
+  useEffect(() => { deadCellsRef.current = deadCells; }, [deadCells]);
 
   /** Dead-cells meta не должна блокировать снижение пульсации: при меньшем числе слогов в такте убираем «пустые» хвосты и запись, если первый мёртвый индекс ≥ длины такта. */
   useEffect(() => {
@@ -4767,12 +4789,14 @@ export default function App() {
     [],
   );
 
-  const polyHandleLane0PatternWrap = useCallback((prevBar: number) => {
+  /**
+   * Poly sub_legacy: рандомайзер вызывается на каждой границе такта каждой линии (N голосов → N независимых
+   * рандомизаторов). Такты партиционированы по `barIdx % V === laneId`, поэтому каждый bar принадлежит
+   * ровно одной линии — мутации refs по bar изолированы между линиями.
+   * `coldStart` здесь не нужен: колбек срабатывает только после того, как такт уже был полностью отыгран.
+   */
+  const polyHandleLaneBarBoundary = useCallback((prevBar: number, _laneId: number, _wrappedPattern: boolean) => {
     if (!isPlayingRef.current) return;
-    if (coldStartRef.current) {
-      coldStartRef.current = false;
-      return;
-    }
     if (!randomModeEnabledRef.current) return;
     const chaos = chaosLevelRef.current;
     const m = {
@@ -4821,11 +4845,11 @@ export default function App() {
           }
           scheduleGridCellAtTime(bar, c, absR, t, voice, step, dBar);
         },
-        onLane0PatternWrap: polyHandleLane0PatternWrap,
+        onLaneBarBoundary: polyHandleLaneBarBoundary,
       });
     }
     return polySubLegacyRef.current;
-  }, [getBarTimeWindowSeconds, polyHandleLane0PatternWrap, scheduleGridCellAtTime]);
+  }, [getBarTimeWindowSeconds, polyHandleLaneBarBoundary, scheduleGridCellAtTime]);
 
   const playTwoBarsPreviewFromGrid = useCallback((soundPreset: ClickSoundPreset) => {
     if (isPlayingRef.current || isTaEditorModeRef.current || isDeadCellsEditorModeRef.current) return;
@@ -5035,16 +5059,20 @@ export default function App() {
   };
 
   /* Синхронизация refs с render до pointerup flush (до useEffect по deps). */
+  /* Прямое присваивание (без spread) — чтобы ref === state. Тогда in-place мутации ref
+   * (в poly randomizer и прочих ref-first путях) мутируют и state, и сохраняются
+   * между перерендерами до `setTimeout(0) → setState`. Spread-копия создавала
+   * disconnected объект, который перезаписывался на каждом рендере → мутация терялась. */
   tempoRef.current = pendingTempoRef.current ?? tempo;
   barsRef.current = bars;
   syllablesRef.current = syllables;
   accentsRef.current = accents;
   taDingKeysRef.current = taDingKeys;
-  customSyllablesRef.current = { ...customSyllables };
-  deadCellsRef.current = { ...deadCells };
-  customMultipliersRef.current = { ...customMultipliers };
-  customSubdivisionsRef.current = { ...customSubdivisions };
-  pulseMeterUnlinkedRef.current = { ...pulseMeterUnlinked };
+  customSyllablesRef.current = customSyllables;
+  deadCellsRef.current = deadCells;
+  customMultipliersRef.current = customMultipliers;
+  customSubdivisionsRef.current = customSubdivisions;
+  pulseMeterUnlinkedRef.current = pulseMeterUnlinked;
   polyModeRef.current = polyMode;
   polyVoicesRef.current = polyVoices;
   accentMapVersionRef.current = accentMapVersion;
@@ -5499,7 +5527,7 @@ export default function App() {
                       min={0}
                       max={100}
                       value={chaosLevel}
-                      onChange={(e) => setChaosLevel(parseInt(e.target.value, 10))}
+                      onChange={(e) => handleChaosSliderChange(parseInt(e.target.value, 10))}
                       onPointerUp={() => flushChaosToActiveSnapshot()}
                       onPointerCancel={() => flushChaosToActiveSnapshot()}
                       onBlur={() => flushChaosToActiveSnapshot()}
