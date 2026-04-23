@@ -2903,67 +2903,71 @@ export default function App() {
   };
 
   /**
-   * Chaos-слайдер только меняет `chaosLevel`. Тумблеры Pulsation/BarSpeed/Pattern/Speed —
-   * исключительно по воле пользователя. Плавность усложнения реализована per-axis probability
-   * gate в `applyRandomizerEffectsToBar` (см. *ChangeProbFromChaos + Markov-bias).
+   * Chaos training mode (long-press toggle):
+   * - Origin — где активировали mode. Drag не переносит chaos, но задаёт target'у speed.
+   * - Target — куда слайдер будет автоматически дрейфовать.
+   * - Speed = |target - origin| / CHAOS_RAMP_SPEED_DIVISOR → chaos units per bar.
+   *   Пример: origin=15, target=100 → distance=85 → speed=8.5 units/bar → ~10 bars к 100.
+   *   origin=15, target=30 → distance=15 → speed=1.5 units/bar → медленный подъём.
+   * - Advance тик каждое bar-boundary: chaos += sign * min(remaining, round(speed)).
    *
-   * Manual drag (этот обработчик) дополнительно **выключает** chaos auto-ramp —
-   * ученик берёт управление назад. Ramp изменяет chaos через `advanceChaosRampOneStep`
-   * (минуя этот хендлер), так что его собственные setChaosLevel ramp сюда не попадают.
+   * Вне training (chaosRampActiveRef.current === false) — обычный слайдер.
    */
+  const CHAOS_RAMP_SPEED_DIVISOR = 10;
+
   const handleChaosSliderChange = (raw: number) => {
     const nextChaos = Math.max(0, Math.min(100, Math.round(raw)));
+    if (chaosRampActiveRef.current) {
+      // Training: drag задаёт target+speed, chaosLevel НЕ меняем.
+      const origin = chaosRampOriginRef.current;
+      chaosRampTargetRef.current = nextChaos;
+      const distance = Math.abs(nextChaos - origin);
+      chaosRampSpeedRef.current = distance / CHAOS_RAMP_SPEED_DIVISOR;
+      setChaosRampTarget(nextChaos);
+      return;
+    }
     if (nextChaos === chaosLevelRef.current) return;
     chaosLevelRef.current = nextChaos;
     setChaosLevel(nextChaos);
-    if (chaosRampActiveRef.current) {
-      chaosRampActiveRef.current = false;
-      setChaosRampActive(false);
-    }
   };
-
-  /**
-   * Bars per +1 chaos (learning-curve): быстрый warmup (4 bars/step в 0..30),
-   * долгое освоение в зоне обучения (~16 bars/step в 30..70), плавное восхождение
-   * (~4 bars/step к 100). Ease-in-out через smoothstep от "дистанции до середины 50".
-   */
-  const barsPerChaosStep = useCallback((cur: number): number => {
-    const x = Math.max(0, Math.min(100, cur)) / 100;
-    const mid = 1 - Math.abs(1 - 2 * x); // треугольник 0 → 1 → 0, пик на x=0.5
-    const eased = mid * mid * (3 - 2 * mid); // smoothstep → мягкие переходы
-    return Math.round(4 + eased * 12); // 4..16 bars per +1
-  }, []);
 
   const activateChaosRamp = useCallback(() => {
     chaosRampActiveRef.current = true;
     setChaosRampActive(true);
-    chaosRampBarsToNextStepRef.current = barsPerChaosStep(chaosLevelRef.current);
-  }, [barsPerChaosStep]);
+    const origin = chaosLevelRef.current;
+    chaosRampOriginRef.current = origin;
+    chaosRampTargetRef.current = origin;
+    chaosRampSpeedRef.current = 0;
+    setChaosRampTarget(null);
+  }, []);
 
   const deactivateChaosRamp = useCallback(() => {
     if (!chaosRampActiveRef.current) return;
     chaosRampActiveRef.current = false;
     setChaosRampActive(false);
+    chaosRampTargetRef.current = 0;
+    chaosRampSpeedRef.current = 0;
+    setChaosRampTarget(null);
   }, []);
 
-  /** Один тик ramp'а на границе такта — декремент счётчика и инкремент chaos при нуле. */
+  /** Один тик ramp'а на границе такта — сдвиг chaos к target на round(speed) шагов. */
   const advanceChaosRampOneStep = useCallback(() => {
     if (!chaosRampActiveRef.current) return;
-    chaosRampBarsToNextStepRef.current -= 1;
-    if (chaosRampBarsToNextStepRef.current > 0) return;
     const cur = chaosLevelRef.current;
-    if (cur >= 100) {
-      chaosRampActiveRef.current = false;
-      setChaosRampActive(false);
-      return;
-    }
-    const next = cur + 1;
+    const target = chaosRampTargetRef.current;
+    const speed = chaosRampSpeedRef.current;
+    if (speed < 0.5) return; // target не задан / совпадает с origin → idle
+    if (cur === target) return; // уже достигли
+    const delta = target - cur;
+    const sign = delta > 0 ? 1 : -1;
+    const mag = Math.min(Math.abs(delta), Math.max(1, Math.round(speed)));
+    const next = Math.max(0, Math.min(100, cur + sign * mag));
+    if (next === cur) return;
     chaosLevelRef.current = next;
     setChaosLevel(next);
-    chaosRampBarsToNextStepRef.current = barsPerChaosStep(next);
-  }, [barsPerChaosStep]);
+  }, []);
 
-  /** Long-press hold-detect: 600ms без drag-движения > 3px → активация ramp. */
+  /** Long-press hold-detect: 600ms без drag-движения > 3px → toggle training-режима. */
   const CHAOS_RAMP_HOLD_MS = 600;
   const CHAOS_RAMP_MOVE_CANCEL_PX = 3;
 
@@ -2978,15 +2982,16 @@ export default function App() {
   const handleChaosSliderPointerDown = useCallback(
     (e: React.PointerEvent<HTMLInputElement>) => {
       cancelChaosRampPress();
-      if (chaosRampActiveRef.current) {
-        // Ramp активен → любой новый pointerdown сдаёт управление ученику.
-        deactivateChaosRamp();
-        return;
-      }
       chaosRampPointerStartRef.current = { x: e.clientX, y: e.clientY };
+      // Hold без движения → toggle training on/off. Drag > threshold отменяет hold
+      // (см. handleChaosSliderPointerMove), так что обычное перетаскивание не переключает режим.
       chaosRampPressTimerRef.current = window.setTimeout(() => {
         chaosRampPressTimerRef.current = null;
-        activateChaosRamp();
+        if (chaosRampActiveRef.current) {
+          deactivateChaosRamp();
+        } else {
+          activateChaosRamp();
+        }
       }, CHAOS_RAMP_HOLD_MS);
     },
     [activateChaosRamp, cancelChaosRampPress, deactivateChaosRamp],
@@ -3095,7 +3100,14 @@ export default function App() {
    */
   const [chaosRampActive, setChaosRampActive] = useState(false);
   const chaosRampActiveRef = useRef(false);
-  const chaosRampBarsToNextStepRef = useRef(0);
+  /** Origin (точка старта training-режима) — slider визуально "стоит" здесь во время drag'а. */
+  const chaosRampOriginRef = useRef(0);
+  /** Target — цель автопродвижения chaos'а, задаётся drag'ом по слайдеру. */
+  const chaosRampTargetRef = useRef(0);
+  /** Speed (chaos units per bar) — пропорциональна |target - origin|. */
+  const chaosRampSpeedRef = useRef(0);
+  /** UI-state для вторичного ring'а (target-индикатор на треке). null = таргет не задан. */
+  const [chaosRampTarget, setChaosRampTarget] = useState<number | null>(null);
   const chaosRampPressTimerRef = useRef<number | null>(null);
   const chaosRampPointerStartRef = useRef<{ x: number; y: number } | null>(null);
   const clickSoundRef = useRef(clickSound);
@@ -3446,7 +3458,6 @@ export default function App() {
     const rpat = randomPatternRef.current;
     const rs = randomSpeedRef.current;
     const rbs = randomBarSpeedRef.current;
-    const oa = onlyAccentsRef.current;
     const hasAny = rp || rpat || rs || rbs;
 
     if (randomDiceMintFlashClearRef.current !== null) {
@@ -3467,6 +3478,10 @@ export default function App() {
     const dc = { ...deadCellsRef.current };
     const acc = new Set<string>(accentsRef.current);
 
+    // Sam/Eduppu-guard: гарантируем акцент на 1 доле в диктанте и на низком chaos
+    // (<80 — вне Korvai-зоны). Выше 80 — разрешаем "плавающие" акценты.
+    const forceFirstBeat = dictantModeRef.current || chaos < 80;
+
     const nextSeeds: Record<number, number> = {};
     let any = false;
     for (let r = 0; r < nBars; r++) {
@@ -3474,7 +3489,7 @@ export default function App() {
       nextSeeds[r] = seed;
       if (
         applyRandomizerEffectsToBar(
-          r, chaos, rp, rpat, rs, rbs, oa, syllablesDefault,
+          r, chaos, rp, rpat, rs, rbs, false, syllablesDefault,
           {
             customSyllables: cs,
             accents: acc,
@@ -3483,6 +3498,7 @@ export default function App() {
             deadCells: dc,
           },
           mulberry32(seed),
+          forceFirstBeat,
         )
       ) {
         any = true;
@@ -3534,11 +3550,13 @@ export default function App() {
     const dc = { ...deadCellsRef.current };
     const acc = new Set<string>(accentsRef.current);
 
+    const chaosNow = chaosLevelRef.current;
+    const forceFirstBeat = dictantModeRef.current || chaosNow < 80;
     const didChange = applyRandomizerEffectsToBar(
       barIndex,
-      chaosLevelRef.current,
+      chaosNow,
       rp, rpat, rs, rbs,
-      onlyAccentsRef.current,
+      false,
       syllablesDefault,
       {
         customSyllables: cs,
@@ -3548,6 +3566,7 @@ export default function App() {
         deadCells: dc,
       },
       mulberry32(seed),
+      forceFirstBeat,
     );
     if (!didChange) return false;
 
@@ -5510,7 +5529,14 @@ export default function App() {
                       min={0}
                       max={100}
                       value={chaosLevel}
-                      onChange={(e) => handleChaosSliderChange(parseInt(e.target.value, 10))}
+                      onChange={(e) => {
+                        const raw = parseInt(e.target.value, 10);
+                        handleChaosSliderChange(raw);
+                        // Training: DOM-thumb мог "убежать" за пальцем при drag'е — фиксируем обратно к chaos.
+                        if (chaosRampActiveRef.current) {
+                          e.currentTarget.value = String(chaosLevelRef.current);
+                        }
+                      }}
                       onPointerDown={handleChaosSliderPointerDown}
                       onPointerMove={handleChaosSliderPointerMove}
                       onPointerUp={() => {
@@ -5525,14 +5551,25 @@ export default function App() {
                         className="w-full h-2 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110"
                       />
                       {chaosRampActive ? (
-                        <span
-                          aria-hidden
-                          className="pointer-events-none absolute top-1/2 w-4 h-4 rounded-full -translate-y-1/2 -translate-x-1/2"
-                          style={{ left: `calc(8px + (100% - 16px) * ${chaosLevel / 100})` }}
-                        >
-                          <span className="absolute inset-0 rounded-full bg-purple-400/70 animate-ping" />
-                          <span className="absolute inset-0 rounded-full ring-2 ring-purple-300/60" />
-                        </span>
+                        <>
+                          <span
+                            aria-hidden
+                            className="pointer-events-none absolute top-1/2 w-4 h-4 rounded-full -translate-y-1/2 -translate-x-1/2"
+                            style={{ left: `calc(8px + (100% - 16px) * ${chaosLevel / 100})` }}
+                          >
+                            <span className="absolute inset-0 rounded-full bg-purple-400/70 animate-ping" />
+                            <span className="absolute inset-0 rounded-full ring-2 ring-purple-300/60" />
+                          </span>
+                          {chaosRampTarget !== null && Math.abs(chaosRampTarget - chaosLevel) >= 1 ? (
+                            <span
+                              aria-hidden
+                              className="pointer-events-none absolute top-1/2 w-3 h-3 rounded-full -translate-y-1/2 -translate-x-1/2"
+                              style={{ left: `calc(8px + (100% - 16px) * ${chaosRampTarget / 100})` }}
+                            >
+                              <span className="absolute inset-0 rounded-full ring-2 ring-fuchsia-400/80" />
+                            </span>
+                          ) : null}
+                        </>
                       ) : null}
                     </div>
                   </div>
