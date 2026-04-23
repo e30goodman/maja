@@ -3110,6 +3110,7 @@ export default function App() {
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
   const gridRef = useRef<HTMLDivElement | null>(null);
   const lastScrolledPageRef = useRef<number>(-1);
+  const wasPlayingAutoscrollRef = useRef(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const timerIDRef = useRef<number | null>(null);
   const playheadQueueRef = useRef<PlayheadHighlightEvent[]>([]);
@@ -4552,10 +4553,14 @@ export default function App() {
     };
 
     if (!isPlaying) {
-      lastScrolledPageRef.current = -1;
-      if (gridRef.current) gridRef.current.scrollTop = 0;
+      if (wasPlayingAutoscrollRef.current) {
+        lastScrolledPageRef.current = -1;
+        if (gridRef.current) gridRef.current.scrollTop = 0;
+      }
+      wasPlayingAutoscrollRef.current = false;
       return cleanup;
     }
+    wasPlayingAutoscrollRef.current = true;
 
     const frozenOneBarViewport =
       frozenScale !== null && Math.min(frozenScale, 10) === 1 && bars > 1;
@@ -5876,7 +5881,7 @@ export default function App() {
                           : 'bg-[#1a253c]/40 border-[#23314f] text-slate-500 hover:text-slate-400 hover:bg-[#1a253c]/80'
                       }`}
                     >
-                      {polyMode ? 'Parent (stub)' : 'Parent'}
+                      Parent
                     </button>
                   </div>
 
