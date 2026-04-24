@@ -2560,9 +2560,6 @@ const playSharpClick = (
   voiceGainMul = 1,
 ) => {
   // USER-SOURCE-OF-TRUTH: render only the role explicitly requested by scheduler from user grid state.
-  // #region agent log
-  fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'68dc12'},body:JSON.stringify({sessionId:'68dc12',runId:'pre-fix',hypothesisId:'H1',location:'src/App.tsx:playSharpClick',message:'playSharpClick entry',data:{isChecked,voiceRole,accentOnlyPlayback,soundType},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   const cfg = CLICK_SOUND_LIBRARY[soundType] ?? CLICK_SOUND_LIBRARY.classic;
   const t0 = Math.max(time, ctx.currentTime + AUDIO_START_GUARD_SEC);
   const voiceKey: MetroVoiceKey = voiceRole === 'accent' ? 'accent' : voiceRole === 'alt' ? 'alt' : 'passive';
@@ -2570,9 +2567,6 @@ const playSharpClick = (
   const libLayers = (cfg.layers ?? buildLegacyVoiceLayers(cfg))[voiceKey];
   const cachedForPreset = clickMixerLayerClonesByPresetRef.current[soundType];
   const layers = cachedForPreset?.[voiceKey] ?? libLayers;
-  // #region agent log
-  fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'68dc12'},body:JSON.stringify({sessionId:'68dc12',runId:'pre-fix',hypothesisId:'H2',location:'src/App.tsx:playSharpClick',message:'resolved voice layers',data:{voiceKey,layers:layers.map((l)=>({type:l.type,mute:l.mute===true,solo:l.solo===true,volume:l.params.volume}))},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   const activeLayers = layers.filter(
     (layer) => layer.mute !== true && layer.params.volume > CLICK_LAYER_VOLUME_GATE && layer.type !== 'none',
   );
@@ -5472,22 +5466,23 @@ export default function App() {
           const suppressed = firstBeatDingSuppressedRowsRef.current.has(r);
           const fa = Boolean(firstBeatAccentByLaneRef.current[lane]);
 
-          if (hadKey) {
+          if (fa) {
+            // Default first-beat Ta is ON: tap on col0 toggles only suppression.
+            // Explicit col0 key must stay cleared to avoid mixed semantics.
             laneSet.delete(key);
-            if (fa) {
-              setFirstBeatDingSuppressedRows((prevRows) => new Set(prevRows).add(r));
-            }
-          } else if (fa && !suppressed) {
-            setFirstBeatDingSuppressedRows((prevRows) => new Set(prevRows).add(r));
-          } else {
             if (suppressed) {
               setFirstBeatDingSuppressedRows((prevRows) => {
                 const n = new Set(prevRows);
                 n.delete(r);
                 return n;
               });
+            } else {
+              setFirstBeatDingSuppressedRows((prevRows) => new Set(prevRows).add(r));
             }
-            laneSet.add(key);
+          } else {
+            // Default first-beat Ta is OFF: col0 behaves like a regular explicit Ta cell.
+            if (hadKey) laneSet.delete(key);
+            else laneSet.add(key);
           }
 
           const flat = flattenLaneSetMap(next, barsRef.current, polyVoicesRef.current);
@@ -5522,33 +5517,35 @@ export default function App() {
     }
     const hadKey = taDingKeysRef.current.has(key);
     const suppressed = firstBeatDingSuppressedRowsRef.current.has(r);
-    const fa = firstBeatAccentRef.current;
-    if (hadKey) {
+    const fa = Boolean(
+      firstBeatAccentRef.current ||
+      firstBeatAccentByLaneRef.current[0] ||
+      firstBeatAccentByLaneRef.current[1] ||
+      firstBeatAccentByLaneRef.current[2]
+    );
+    if (fa) {
+      // Default first-beat Ta is ON: tap on col0 toggles suppression only.
       setTaDingKeys((prev) => {
         const next = new Set(prev);
         next.delete(key);
         return next;
       });
-      /* Иначе при снятии явного taDing на первой доле снова показывается дефолтный белый от `firstBeatAccent`. */
-      if (fa) {
+      if (suppressed) {
+        setFirstBeatDingSuppressedRows((prev) => {
+          const n = new Set(prev);
+          n.delete(r);
+          return n;
+        });
+      } else {
         setFirstBeatDingSuppressedRows((prev) => new Set(prev).add(r));
       }
       return;
     }
-    if (fa && !suppressed) {
-      setFirstBeatDingSuppressedRows((prev) => new Set(prev).add(r));
-      return;
-    }
-    if (suppressed) {
-      setFirstBeatDingSuppressedRows((prev) => {
-        const n = new Set(prev);
-        n.delete(r);
-        return n;
-      });
-    }
+    // Default first-beat Ta is OFF: col0 behaves like regular explicit Ta cell.
     setTaDingKeys((prev) => {
       const next = new Set(prev);
-      next.add(key);
+      if (hadKey) next.delete(key);
+      else next.add(key);
       return next;
     });
   }, []);
@@ -5839,9 +5836,6 @@ export default function App() {
         const shouldPlayFirstBeatTa =
           isFirstBarCell && fa && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
         if (shouldPlayFirstBeatTa && !isAccent) {
-          // #region agent log
-          fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'68dc12'},body:JSON.stringify({sessionId:'68dc12',runId:'pre-fix',hypothesisId:'H3',location:'src/App.tsx:scheduleGridCellAtTime',message:'playBarFirstHighClick from first beat Ta',data:{rIdx,cIdx,isAccent,shouldPlayFirstBeatTa},timestamp:Date.now()})}).catch(()=>{});
-          // #endregion
           playBarFirstHighClick(ctx, subTime, soundPreset, gainMulForRole('accent'));
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
@@ -5871,9 +5865,6 @@ export default function App() {
           return mainAccentClick;
         })();
         if (shouldPlayTaDingSound && !isAccent) {
-          // #region agent log
-          fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'68dc12'},body:JSON.stringify({sessionId:'68dc12',runId:'pre-fix',hypothesisId:'H4',location:'src/App.tsx:scheduleGridCellAtTime',message:'playBarFirstHighClick from Ta cell',data:{rIdx,cIdx,isAccent,shouldPlayTaDingSound,hasTaDingHere},timestamp:Date.now()})}).catch(()=>{});
-          // #endregion
           playBarFirstHighClick(ctx, subTime, soundPreset, gainMulForRole('accent'));
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
@@ -5903,9 +5894,6 @@ export default function App() {
           : hasUserPurpleAltAccent
             ? 'alt'
             : 'base';
-        // #region agent log
-        fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'68dc12'},body:JSON.stringify({sessionId:'68dc12',runId:'pre-fix',hypothesisId:'H5',location:'src/App.tsx:scheduleGridCellAtTime',message:'resolved voiceRole for cell',data:{rIdx,cIdx,isAccent,hasTaDingHere,shouldPlayFirstBeatTa,shouldPlayTaDingSound,voiceRole,sharpAsChecked,playbackMode},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
         playSharpClick(
           ctx,
           subTime,
@@ -6391,25 +6379,14 @@ export default function App() {
     [polyMode, taDingKeysByLane, taDingKeys, bars, polyVoices],
   );
   const forceFirstBeatEditorFrames = useMemo(() => {
-    const anyFirstBeat = polyMode
-      ? Boolean(firstBeatAccentByLane[0] || firstBeatAccentByLane[1] || firstBeatAccentByLane[2])
-      : firstBeatAccent;
-    if (!anyFirstBeat) return false;
-    if (firstBeatEditorSuppressedRowsSorted.length > 0) return true;
-    // Если есть явные ding-метки не на дефолтной первой доле, держим белые рамки видимыми.
-    for (const key of taDingKeysUi) {
-      const parts = key.split('-');
-      if (parts.length !== 2) continue;
-      const c = parseInt(parts[1]!, 10);
-      if (Number.isFinite(c) && c > 0) return true;
-    }
-    return false;
-  }, [polyMode, firstBeatAccentByLane, firstBeatAccent, firstBeatEditorSuppressedRowsSorted, taDingKeysUi]);
+    const anyLaneFirstBeat = Boolean(firstBeatAccentByLane[0] || firstBeatAccentByLane[1] || firstBeatAccentByLane[2]);
+    const anyFirstBeat = polyMode ? anyLaneFirstBeat : (firstBeatAccent || anyLaneFirstBeat);
+    return anyFirstBeat;
+  }, [polyMode, firstBeatAccentByLane, firstBeatAccent]);
   // FRAGILE — legacy hides all Ta keys when global Ta off; poly always shows lane-flattened keys.
   const visibleTaDingKeys = useMemo(() => {
-    if (polyMode) return taDingKeysUi;
-    return firstBeatAccent ? taDingKeysUi : new Set<string>();
-  }, [polyMode, taDingKeysUi, firstBeatAccent]);
+    return taDingKeysUi;
+  }, [taDingKeysUi]);
 
   sequencerGridRowActionsRef.current = {
     isHoldingRef,

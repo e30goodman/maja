@@ -471,18 +471,22 @@ const SequencerGridRow = React.memo(
 						const isAccent = accentBits[cIdx] === '1';
 						const isTaDing = taDingBits[cIdx] === '1';
 						// FRAGILE — showEditorDing / showNonEditorDing gate all white-ring styling; must stay aligned with emitGridSubAudio Ta paths.
-						/** В Ta-редакторе белая рамка только по явному ключу taDing — без автоподсветки первой доли. */
-						const showEditorDing = isTaDing;
-						const showNonEditorDing =
-							(!isDead && cIdx > 0 && isTaDing) ||
+						/** В Ta-редакторе legacy должен показывать дефолт Ta на 1-й доле (если не подавлено явно). */
+						const showEditorDing =
+							isTaDing ||
 							(cIdx === 0 &&
 								!isDead &&
-								!isTaEditorMode &&
 								!firstBeatRowSuppressed.has(rIdx) &&
-								(isTaDing ||
-									(accentMapVersion === 0 &&
-										forceFirstBeatEditorFrames &&
-										!rowHasExplicitTaDingPastCol0)));
+								accentMapVersion === 0 &&
+								forceFirstBeatEditorFrames);
+						const showLegacyDefaultInNormal =
+							cIdx === 0 &&
+							!isDead &&
+							accentMapVersion === 0 &&
+							forceFirstBeatEditorFrames &&
+							firstBeatRowSuppressed.size > 0 &&
+							!firstBeatRowSuppressed.has(rIdx);
+						const showNonEditorDing = (!isDead && isTaDing) || showLegacyDefaultInNormal;
 						const isActive = highlightCol === cIdx;
 						const subdivs = isDead ? 1 : (rowSubdivs[cIdx] ?? 1);
 						const cellBorder2 = 'border-2 box-border border-[#2f4066]';
