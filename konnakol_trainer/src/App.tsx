@@ -8018,7 +8018,7 @@ export default function App() {
                       min={1}
                       max={9}
                       value={syllables}
-                      colorClass="[&::-webkit-slider-thumb]:bg-emerald-400"
+                      colorClass="[&::-webkit-slider-thumb]:bg-emerald-500 [&::-moz-range-thumb]:bg-emerald-500"
                       onBeginDrag={() => {
                         syllablesSliderDraggingRef.current = true;
                         attachSliderWindowListeners();
