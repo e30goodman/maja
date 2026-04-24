@@ -718,6 +718,7 @@ export type SequencerGridProps = {
 	taDingKeys: Set<string>;
 	pulseMeterUnlinked: Record<number, boolean>;
 	isPlaying: boolean;
+	autoscrollVirtualRowsEnabled: boolean;
 	activePos: { r: number; c: number; absR: number };
 	activePositions: PlayheadPosition[];
 	polyMode: boolean;
@@ -753,6 +754,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	taDingKeys,
 	pulseMeterUnlinked,
 	isPlaying,
+	autoscrollVirtualRowsEnabled,
 	activePos,
 	activePositions,
 	polyMode,
@@ -790,8 +792,12 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	 */
 	const virtualRowCount = useMemo(() => {
 		if (polyMode || !isPlaying || allBarsFitViewport) return bars;
-		return Math.max(bars, activePos.absR + displayScaleBars * 2);
-	}, [polyMode, isPlaying, allBarsFitViewport, bars, displayScaleBars, activePos.absR]);
+		if (autoscrollVirtualRowsEnabled) {
+			return Math.max(bars, activePos.absR + displayScaleBars * 2);
+		}
+		const limitedCycles = 3;
+		return bars * limitedCycles;
+	}, [polyMode, isPlaying, allBarsFitViewport, bars, displayScaleBars, activePos.absR, autoscrollVirtualRowsEnabled]);
 
 	return (
 		<div

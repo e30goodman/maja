@@ -3007,6 +3007,7 @@ export default function App() {
 
   // Metronome state
   const [isPlaying, setIsPlaying] = useState(false);
+  const [autoscrollVirtualRowsEnabled, setAutoscrollVirtualRowsEnabled] = useState(false);
   const [accents, setAccents] = useState<Set<string>>(() => new Set(seed.accents));
   const [accentsByLane, setAccentsByLane] = useState<LaneSetMap>(() =>
     cloneLaneSetMap((seed as { accentsByLane?: Partial<Record<number, Iterable<string>>> }).accentsByLane)
@@ -5360,7 +5361,9 @@ export default function App() {
       return cleanup;
     }
     wasPlayingAutoscrollRef.current = true;
-    if (autoscrollDisabledByUserRef.current) return cleanup;
+    if (autoscrollDisabledByUserRef.current) {
+      return cleanup;
+    }
 
     const frozenOneBarViewport =
       frozenScale !== null && Math.min(frozenScale, 10) === 1 && bars > 1;
@@ -5428,18 +5431,22 @@ export default function App() {
   useEffect(() => {
     const node = gridRef.current;
     if (!node) return;
-    const onWheel = () => {
+    const disableAutoscrollByUser = (reason: 'wheel' | 'touchmove' | 'scroll') => {
       if (!isPlayingRef.current) return;
+      if (autoscrollDisabledByUserRef.current) return;
       autoscrollDisabledByUserRef.current = true;
+      setAutoscrollVirtualRowsEnabled(false);
+    };
+    const onWheel = () => {
+      disableAutoscrollByUser('wheel');
     };
     const onTouchMove = () => {
-      if (!isPlayingRef.current) return;
-      autoscrollDisabledByUserRef.current = true;
+      disableAutoscrollByUser('touchmove');
     };
     const onScroll = () => {
       if (!isPlayingRef.current) return;
       if (programmaticAutoscrollRef.current) return;
-      autoscrollDisabledByUserRef.current = true;
+      disableAutoscrollByUser('scroll');
     };
     node.addEventListener('wheel', onWheel, { passive: true });
     node.addEventListener('touchmove', onTouchMove, { passive: true });
@@ -6510,6 +6517,7 @@ export default function App() {
     if (isPlaying) {
       endLiveControlWindow();
       setIsPlaying(false);
+      setAutoscrollVirtualRowsEnabled(false);
       isPlayingRef.current = false;
       logAudioTimingMetricsIfDue(Number.MAX_SAFE_INTEGER);
       // Chaos auto-ramp: pause/stop всегда выключает автопилот.
@@ -6594,6 +6602,7 @@ export default function App() {
       setIsPlaying(true);
       isPlayingRef.current = true;
       autoscrollDisabledByUserRef.current = false;
+      setAutoscrollVirtualRowsEnabled(true);
       clearPlayheadScheduling();
       setActivePositions([]);
       coldStartRef.current = true; // Mark cold start
@@ -7958,6 +7967,7 @@ export default function App() {
           taDingKeys={visibleTaDingKeys}
           pulseMeterUnlinked={pulseMeterUnlinked}
           isPlaying={isPlaying}
+          autoscrollVirtualRowsEnabled={autoscrollVirtualRowsEnabled}
           activePos={activePos}
           activePositions={activePositions}
           polyMode={polyMode}
