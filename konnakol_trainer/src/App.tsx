@@ -293,6 +293,10 @@ const TEMPO_HOLD_REPEAT_STEP = 5;
 /** Long press on tempo slider track (without much move) → inline BPM on thumb. */
 const TEMPO_MANUAL_HOLD_MS = 2000;
 const TEMPO_MANUAL_MAX_MOVE_PX = 14;
+// #region agent log
+let __agentTaExitDbgCount = 0;
+const __agentTaExitDbgCap = 80;
+// #endregion
 /*
  * Кто потрогает этот код, дебаггер ты или хуй с горы — умрёшь насильственной смертью.
  * ЗАПРЕЩЕНО ТРОГАТЬ СУКА
@@ -5009,6 +5013,9 @@ export default function App() {
       (snap as { firstBeatAccentByLane?: Partial<Record<number, boolean>> }).firstBeatAccentByLane,
       snap.firstBeatAccent !== false,
     );
+    // #region agent log
+    fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H1_H3',location:'App.tsx:applySnapshotDataToUi:firstBeatHydrate',message:'snapshot first-beat hydrate',data:{bars:snap.bars,polyMode:snap.polyMode===true,polyVoices:snapVoices,firstBeatAccent:snap.firstBeatAccent!==false,lane0:Boolean(nextFirstBeatByLane[0]),lane1:Boolean(nextFirstBeatByLane[1]),lane2:Boolean(nextFirstBeatByLane[2]),suppressedSize:normalizeSuppressedRows((snap as { firstBeatDingSuppressedRows?: unknown }).firstBeatDingSuppressedRows,snap.bars).size,taLane0:cloneLaneSetMap((snap as { taDingKeysByLane?: Partial<Record<number, Iterable<string>>> }).taDingKeysByLane)[0].size,taLane1:cloneLaneSetMap((snap as { taDingKeysByLane?: Partial<Record<number, Iterable<string>>> }).taDingKeysByLane)[1].size},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     setFirstBeatAccentByLane(nextFirstBeatByLane);
     firstBeatAccentByLaneRef.current = { ...nextFirstBeatByLane };
     setFirstBeatAccent(Boolean(nextFirstBeatByLane[0]));
@@ -5655,25 +5662,36 @@ export default function App() {
           const hadKey = laneSet.has(key);
           const suppressed = firstBeatDingSuppressedRowsRef.current.has(r);
           const fa = Boolean(firstBeatAccentByLaneRef.current[lane]);
+          let action: 'toggle_suppression_on' | 'toggle_suppression_off' | 'explicit_add' | 'explicit_remove' = 'explicit_add';
 
           if (fa) {
             // Default first-beat Ta is ON: tap on col0 toggles only suppression.
             // Explicit col0 key must stay cleared to avoid mixed semantics.
             laneSet.delete(key);
             if (suppressed) {
+              action = 'toggle_suppression_off';
               setFirstBeatDingSuppressedRows((prevRows) => {
                 const n = new Set(prevRows);
                 n.delete(r);
                 return n;
               });
             } else {
+              action = 'toggle_suppression_on';
               setFirstBeatDingSuppressedRows((prevRows) => new Set(prevRows).add(r));
             }
           } else {
             // Default first-beat Ta is OFF: col0 behaves like a regular explicit Ta cell.
-            if (hadKey) laneSet.delete(key);
-            else laneSet.add(key);
+            if (hadKey) {
+              action = 'explicit_remove';
+              laneSet.delete(key);
+            } else {
+              action = 'explicit_add';
+              laneSet.add(key);
+            }
           }
+          // #region agent log
+          fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H2_H4_H5',location:'App.tsx:toggleTaDing:polyCol0',message:'poly ta col0 transition',data:{r,c,lane,hadKey,suppressed,fa,action,laneHasAfter:laneSet.has(key),suppressedStillRef:firstBeatDingSuppressedRowsRef.current.has(r)},timestamp:Date.now()})}).catch(()=>{});
+          // #endregion
 
           const flat = flattenLaneSetMap(next, barsRef.current, polyVoicesRef.current);
           taDingKeysRef.current = flat;
@@ -6617,6 +6635,12 @@ export default function App() {
   const forceFirstBeatEditorFrames = useMemo(() => {
     const anyLaneFirstBeat = Boolean(firstBeatAccentByLane[0] || firstBeatAccentByLane[1] || firstBeatAccentByLane[2]);
     const anyFirstBeat = polyMode ? anyLaneFirstBeat : (firstBeatAccent || anyLaneFirstBeat);
+    // #region agent log
+    if (polyMode && __agentTaExitDbgCount < __agentTaExitDbgCap) {
+      __agentTaExitDbgCount++;
+      fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H14_H15',location:'App.tsx:forceFirstBeatEditorFrames',message:'force first-beat visibility gate',data:{polyMode,firstBeatAccent,lane0:Boolean(firstBeatAccentByLane[0]),lane1:Boolean(firstBeatAccentByLane[1]),lane2:Boolean(firstBeatAccentByLane[2]),suppressedSize:firstBeatEditorSuppressedRowsSorted.length,taDingUiSize:taDingKeysUi.size,anyFirstBeat},timestamp:Date.now()})}).catch(()=>{});
+    }
+    // #endregion
     return anyFirstBeat;
   }, [polyMode, firstBeatAccentByLane, firstBeatAccent]);
   // FRAGILE — UI source for explicit Ta markers.
@@ -6625,6 +6649,74 @@ export default function App() {
   const visibleTaDingKeys = useMemo(() => {
     return taDingKeysUi;
   }, [taDingKeysUi]);
+  const hasAnyExplicitTaOutsideFirstBeat = useMemo(() => {
+    let sampleKey = '';
+    let sampleMeta: Record<string, unknown> | null = null;
+    for (const key of taDingKeysUi) {
+      const parts = key.split('-');
+      if (parts.length !== 2) continue;
+      const r = parseInt(parts[0]!, 10);
+      const c = parseInt(parts[1]!, 10);
+      if (!Number.isFinite(r) || !Number.isFinite(c)) continue;
+      if (r < 0 || r >= bars) continue;
+      if (c <= 0) continue;
+      const rowSylls = customSyllables[r] !== undefined ? customSyllables[r]! : syllables;
+      if (c >= rowSylls) continue;
+      const deadStart = deadCells[r]?.deadStart;
+      if (typeof deadStart === 'number' && c >= deadStart) continue;
+      sampleKey = key;
+      sampleMeta = { r, c, rowSylls, deadStart: typeof deadStart === 'number' ? deadStart : null };
+      // #region agent log
+      if (__agentTaExitDbgCount < __agentTaExitDbgCap) {
+        __agentTaExitDbgCount++;
+        fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H16',location:'App.tsx:hasAnyExplicitTaOutsideFirstBeat',message:'explicit Ta outside first detected',data:{sampleKey,sampleMeta,taDingUiSize:taDingKeysUi.size,bars},timestamp:Date.now()})}).catch(()=>{});
+      }
+      // #endregion
+      return true;
+    }
+    // #region agent log
+    if (__agentTaExitDbgCount < __agentTaExitDbgCap) {
+      __agentTaExitDbgCount++;
+      fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H16',location:'App.tsx:hasAnyExplicitTaOutsideFirstBeat',message:'no explicit Ta outside first',data:{taDingUiSize:taDingKeysUi.size,bars},timestamp:Date.now()})}).catch(()=>{});
+    }
+    // #endregion
+    return false;
+  }, [taDingKeysUi, bars, customSyllables, syllables, deadCells]);
+  const allFirstSyllablesFilled = useMemo(() => {
+    const suppressed = firstBeatDingSuppressedRows;
+    for (let r = 0; r < bars; r++) {
+      const lane = laneForRow(r, polyVoices);
+      const defaultFirstBeat = Boolean(firstBeatAccentByLane[lane]) && !suppressed.has(r);
+      const explicitFirstBeat = taDingKeysUi.has(`${r}-0`);
+      if (!defaultFirstBeat && !explicitFirstBeat) return false;
+    }
+    return true;
+  }, [bars, polyVoices, firstBeatAccentByLane, firstBeatDingSuppressedRows, taDingKeysUi]);
+  const hasAnyVisibleExplicitTa = useMemo(() => {
+    for (const key of taDingKeysUi) {
+      const parts = key.split('-');
+      if (parts.length !== 2) continue;
+      const r = parseInt(parts[0]!, 10);
+      const c = parseInt(parts[1]!, 10);
+      if (!Number.isFinite(r) || !Number.isFinite(c)) continue;
+      if (r < 0 || r >= bars) continue;
+      const rowSylls = customSyllables[r] !== undefined ? customSyllables[r]! : syllables;
+      if (c < 0 || c >= rowSylls) continue;
+      const deadStart = deadCells[r]?.deadStart;
+      if (typeof deadStart === 'number' && c >= deadStart) continue;
+      return true;
+    }
+    return false;
+  }, [taDingKeysUi, bars, customSyllables, syllables, deadCells]);
+  const isTaGridAtDefault = firstBeatDingSuppressedRows.size === 0 && !hasAnyVisibleExplicitTa;
+  useEffect(() => {
+    // #region agent log
+    if (__agentTaExitDbgCount < __agentTaExitDbgCap) {
+      __agentTaExitDbgCount++;
+      fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'post-fix',hypothesisId:'H14',location:'App.tsx:isTaEditorModeEffect',message:'ta editor mode changed',data:{isTaEditorMode,polyMode,firstBeatAccent,lane0:Boolean(firstBeatAccentByLane[0]),lane1:Boolean(firstBeatAccentByLane[1]),lane2:Boolean(firstBeatAccentByLane[2]),suppressedSize:firstBeatEditorSuppressedRowsSorted.length,taDingUiSize:taDingKeysUi.size,hasAnyExplicitTaOutsideFirstBeat,allFirstSyllablesFilled},timestamp:Date.now()})}).catch(()=>{});
+    }
+    // #endregion
+  }, [isTaEditorMode, polyMode, firstBeatAccent, firstBeatAccentByLane, firstBeatEditorSuppressedRowsSorted.length, taDingKeysUi.size, hasAnyExplicitTaOutsideFirstBeat, allFirstSyllablesFilled]);
 
   sequencerGridRowActionsRef.current = {
     isHoldingRef,
@@ -7856,6 +7948,7 @@ export default function App() {
           isDeadCellsEditorMode={isDeadCellsEditorMode}
           accentMapVersion={accentMapVersion}
           forceFirstBeatEditorFrames={forceFirstBeatEditorFrames}
+          isTaGridAtDefault={isTaGridAtDefault}
           firstBeatEditorSuppressedSig={firstBeatEditorSuppressedSig}
           deadStartByRow={deadStartByRow}
           deadDisplayByRow={deadDisplayByRow}
@@ -7988,6 +8081,9 @@ export default function App() {
             disabled={isDeadCellsEditorMode}
             onPointerDown={() => {
               if (isDeadCellsEditorMode) return;
+              // #region agent log
+              fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H8',location:'App.tsx:TaButton:onPointerDown',message:'ta pointer down',data:{isDeadCellsEditorMode,isTaEditorMode:isTaEditorModeRef.current,taHoldAteClick:taHoldAteClickRef.current},timestamp:Date.now()})}).catch(()=>{});
+              // #endregion
               taHoldAteClickRef.current = false;
               if (taHoldTimerRef.current !== null) {
                 window.clearTimeout(taHoldTimerRef.current);
@@ -8025,12 +8121,26 @@ export default function App() {
               }
             }}
             onClick={() => {
+              // #region agent log
+              fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H8',location:'App.tsx:TaButton:onClick:entry',message:'ta click entry',data:{isDeadCellsEditorMode,taHoldAteClick:taHoldAteClickRef.current,isTaEditorMode:isTaEditorModeRef.current,polyMode:polyModeRef.current},timestamp:Date.now()})}).catch(()=>{});
+              // #endregion
               if (isDeadCellsEditorMode) return;
               if (taHoldAteClickRef.current) {
+                // #region agent log
+                fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H8',location:'App.tsx:TaButton:onClick:returnHoldAte',message:'ta click ignored by hold flag',data:{taHoldAteClick:taHoldAteClickRef.current},timestamp:Date.now()})}).catch(()=>{});
+                // #endregion
                 taHoldAteClickRef.current = false;
                 return;
               }
-              if (isTaEditorModeRef.current) return;
+              if (isTaEditorModeRef.current) {
+                // #region agent log
+                fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H8',location:'App.tsx:TaButton:onClick:returnEditorMode',message:'ta click ignored in editor mode',data:{isTaEditorMode:true},timestamp:Date.now()})}).catch(()=>{});
+                // #endregion
+                return;
+              }
+              // #region agent log
+              fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H6_H7',location:'App.tsx:TaButton:onClick:before',message:'ta button click before toggle',data:{polyMode:polyModeRef.current,activeLane:activeClickVoiceTargetRef.current,fbGlobal:firstBeatAccentRef.current,lane0:Boolean(firstBeatAccentByLaneRef.current[0]),lane1:Boolean(firstBeatAccentByLaneRef.current[1]),lane2:Boolean(firstBeatAccentByLaneRef.current[2]),suppressedCount:firstBeatDingSuppressedRowsRef.current.size,isTaEditorMode:isTaEditorModeRef.current},timestamp:Date.now()})}).catch(()=>{});
+              // #endregion
               flushSync(() => {
                 if (polyModeRef.current) {
                   /* Как в легаси: один тап инвертирует общий Ta для всех линий (канон — lane 0). */
@@ -8040,6 +8150,9 @@ export default function App() {
                   firstBeatAccentRef.current = nextVal;
                   setFirstBeatAccentByLane(next);
                   setFirstBeatAccent(nextVal);
+                  // #region agent log
+                  fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H6_H7',location:'App.tsx:TaButton:onClick:polyAfter',message:'ta button toggled poly lanes',data:{nextVal,lane0:Boolean(next[0]),lane1:Boolean(next[1]),lane2:Boolean(next[2]),suppressedCount:firstBeatDingSuppressedRowsRef.current.size},timestamp:Date.now()})}).catch(()=>{});
+                  // #endregion
                 } else {
                   setFirstBeatAccent((prev) => !prev);
                 }

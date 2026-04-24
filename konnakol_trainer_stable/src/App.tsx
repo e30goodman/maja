@@ -293,6 +293,10 @@ const TEMPO_HOLD_REPEAT_STEP = 5;
 /** Long press on tempo slider track (without much move) → inline BPM on thumb. */
 const TEMPO_MANUAL_HOLD_MS = 2000;
 const TEMPO_MANUAL_MAX_MOVE_PX = 14;
+// #region agent log
+let __agentTaExitDbgCount = 0;
+const __agentTaExitDbgCap = 80;
+// #endregion
 /*
  * Кто потрогает этот код, дебаггер ты или хуй с горы — умрёшь насильственной смертью.
  * ЗАПРЕЩЕНО ТРОГАТЬ СУКА
@@ -343,10 +347,13 @@ const CLICK_ENV_ATTACK_SEC = 0.002;
 const CLICK_LAYER_VOLUME_GATE = 0.001;
 const CLICK_DECAY_MIN_SEC = 0.001;
 const CLICK_DECAY_MAX_SEC = 3;
-/** When true, each grid sub-hit reads gain refs just before sound time so slider / bus trims react immediately. */
-const AUDIO_SCHEDULER_DEFER_SUB_HIT = true;
-/** How far ahead of `subTime` we run the deferred emit (smaller = fresher refs, too small risks dropouts). */
-const AUDIO_DEFER_SUB_HIT_LEAD_SEC = 0.0008;
+const HYBRID_NEAR_HIT_MIN_MS = 8;
+const HYBRID_NEAR_HIT_MAX_MS = 35;
+const HYBRID_TAIL_MIN_MS = 120;
+const HYBRID_TAIL_MAX_MS = 220;
+const HYBRID_PENDING_DOIGR_LIMIT_MS = 10;
+const HYBRID_MODE_MIN_HOLD_FLOOR_MS = 20;
+const HYBRID_LIVE_WATCHDOG_MS = 800;
 const AUDIO_TIMING_METRICS_ENABLED = true;
 const AUDIO_TIMING_METRICS_LOG_EVERY_MS = 15000;
 const DEFAULT_SCHEDULER_PROFILE: MetraSchedulerProfile = 'safe';
@@ -366,6 +373,13 @@ type AudioTimingMetrics = {
 		mono: number[];
 		poly: number[];
 	};
+	totalSubHitCount: number;
+	deferSubHitCount: number;
+	liveWindowActiveMs: number;
+	modeSwitchCount: number;
+	flapCount: number;
+	deferCanceledCount: number;
+	deferRescheduledCount: number;
 	lastLogAtMs: number;
 };
 
@@ -380,6 +394,13 @@ function makeAudioTimingMetrics(): AudioTimingMetrics {
 		maxLatenessSec: 0,
 		maxLagSec: 0,
 		latenessSamples: { mono: [], poly: [] },
+		totalSubHitCount: 0,
+		deferSubHitCount: 0,
+		liveWindowActiveMs: 0,
+		modeSwitchCount: 0,
+		flapCount: 0,
+		deferCanceledCount: 0,
+		deferRescheduledCount: 0,
 		lastLogAtMs: 0,
 	};
 }
@@ -389,6 +410,12 @@ function percentile(sortedValues: number[], p: number): number {
 	const idx = Math.min(sortedValues.length - 1, Math.max(0, Math.floor((sortedValues.length - 1) * p)));
 	return sortedValues[idx]!;
 }
+
+type PendingGridDeferredEvent = {
+	id: number;
+	targetTime: number;
+	fire: () => void;
+};
 
 type ClickSoundPreset =
 	| 'classic'
@@ -3180,6 +3207,7 @@ export default function App() {
     }
   }, [showRandomSettings, isPanelExpanded]);
 
+
   useEffect(() => {
     if (isClickSoundSelectorOpen) return;
     if (clickPresetBusTwoBarsPreviewRetryTimerRef.current !== null) {
@@ -3571,19 +3599,49 @@ export default function App() {
   const polyClickSlotsRef = useRef<Set<number>>(new Set());
   /** Poly: независимые sub_legacy-линии (см. `polySubLegacyScheduler.ts`). */
   const polySubLegacyRef = useRef<PolySubLegacyScheduler | null>(null);
-  /** Таймеры отложенных щелчков (см. GRID_CLICK_*): сброс при стопе / превью / старте. */
-  const pendingGridClickTimerIdsRef = useRef<number[]>([]);
+  /** Таймеры отложенных щелчков (hybrid live-touch defer): сброс при стопе / превью / старте. */
+  const pendingGridClickDeferredRef = useRef<PendingGridDeferredEvent[]>([]);
   /** playTwoBars preview: emit разрешён без isPlaying. */
   const gridPreviewAudioActiveRef = useRef(false);
   const schedulerProfileRef = useRef<MetraSchedulerProfile>(DEFAULT_SCHEDULER_PROFILE);
   const schedulerConfigRef = useRef(getMetraSchedulerConfig(DEFAULT_SCHEDULER_PROFILE));
   const schedulerSafeProfileEscalationsRef = useRef(0);
   const audioTimingMetricsRef = useRef<AudioTimingMetrics>(makeAudioTimingMetrics());
-  const clearPendingGridClickTimers = () => {
-    for (const id of pendingGridClickTimerIdsRef.current) {
-      window.clearTimeout(id);
+  const liveControlActiveRef = useRef(false);
+  const liveControlUntilRef = useRef(0);
+  const liveControlWatchdogTimerRef = useRef<number | null>(null);
+  const hybridModeRef = useRef<'stable' | 'live'>('stable');
+  const hybridModeLockUntilRef = useRef(0);
+  const liveWindowStartedAtRef = useRef<number | null>(null);
+  const latestSubStepSecRef = useRef(60 / Math.max(1, tempo));
+  const emitDebugLog = useCallback((payload: { runId: string; hypothesisId: string; location: string; message: string; data: Record<string, unknown> }) => {
+    const body = {
+      sessionId: '7360e8',
+      ...payload,
+      timestamp: Date.now(),
+    };
+    // #region agent log
+    fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'7360e8'},body:JSON.stringify(body)}).catch(()=>{});
+    // #endregion
+    try {
+      // #region agent log
+      navigator.sendBeacon(
+        'http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',
+        new Blob([JSON.stringify(body)], { type: 'application/json' }),
+      );
+      // #endregion
+    } catch {
+      /* noop */
     }
-    pendingGridClickTimerIdsRef.current = [];
+    // #region agent log
+    console.info('[dbg7360e8]', body);
+    // #endregion
+  }, []);
+  const clearPendingGridClickTimers = () => {
+    for (const pending of pendingGridClickDeferredRef.current) {
+      window.clearTimeout(pending.id);
+    }
+    pendingGridClickDeferredRef.current = [];
   };
   const sequencerGridRowActionsRef = useRef<SequencerGridRowActions | null>(null);
   const nextNoteTimeRef = useRef(0);
@@ -3670,6 +3728,91 @@ export default function App() {
     startY: number;
     rect: { left: number; right: number; top: number; bottom: number };
   } | null>(null);
+
+  const accumulateLiveWindowMetrics = useCallback((nowMs: number) => {
+    const startedAt = liveWindowStartedAtRef.current;
+    if (startedAt === null) return;
+    if (nowMs <= startedAt) return;
+    audioTimingMetricsRef.current.liveWindowActiveMs += nowMs - startedAt;
+    liveWindowStartedAtRef.current = nowMs;
+  }, []);
+
+  const endLiveControlWindow = useCallback(() => {
+    const nowMs = performance.now();
+    liveControlActiveRef.current = false;
+    const tailMs = Math.max(
+      HYBRID_TAIL_MIN_MS,
+      Math.min(HYBRID_TAIL_MAX_MS, 0.8 * latestSubStepSecRef.current * 1000),
+    );
+    liveControlUntilRef.current = nowMs + tailMs;
+    if (liveControlWatchdogTimerRef.current !== null) {
+      window.clearTimeout(liveControlWatchdogTimerRef.current);
+      liveControlWatchdogTimerRef.current = null;
+    }
+    accumulateLiveWindowMetrics(nowMs);
+  }, [accumulateLiveWindowMetrics]);
+
+  const beginLiveControlWindow = useCallback(() => {
+    const nowMs = performance.now();
+    liveControlActiveRef.current = true;
+    liveControlUntilRef.current = nowMs + HYBRID_TAIL_MAX_MS;
+    if (liveWindowStartedAtRef.current === null) {
+      liveWindowStartedAtRef.current = nowMs;
+    }
+    if (liveControlWatchdogTimerRef.current !== null) {
+      window.clearTimeout(liveControlWatchdogTimerRef.current);
+    }
+    liveControlWatchdogTimerRef.current = window.setTimeout(() => {
+      endLiveControlWindow();
+    }, HYBRID_LIVE_WATCHDOG_MS);
+  }, [endLiveControlWindow]);
+
+  useEffect(() => {
+    return () => {
+      if (liveControlWatchdogTimerRef.current !== null) {
+        window.clearTimeout(liveControlWatchdogTimerRef.current);
+        liveControlWatchdogTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const registerModeSwitch = useCallback((nextMode: 'stable' | 'live', nowMs: number) => {
+    if (hybridModeRef.current === nextMode) return;
+    hybridModeRef.current = nextMode;
+    hybridModeLockUntilRef.current =
+      nowMs + Math.max(HYBRID_MODE_MIN_HOLD_FLOOR_MS, schedulerConfigRef.current.lookaheadMs);
+    audioTimingMetricsRef.current.modeSwitchCount += 1;
+    if (nextMode === 'stable') {
+      accumulateLiveWindowMetrics(nowMs);
+      liveWindowStartedAtRef.current = null;
+    } else if (liveWindowStartedAtRef.current === null) {
+      liveWindowStartedAtRef.current = nowMs;
+    }
+  }, [accumulateLiveWindowMetrics]);
+
+  const settleDeferredQueueForStable = useCallback(() => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    const nowSec = ctx.currentTime;
+    const keep: PendingGridDeferredEvent[] = [];
+    const safetyLeadSec = schedulerConfigRef.current.safetyLeadSec;
+    for (const pending of pendingGridClickDeferredRef.current) {
+      const remainingMs = (pending.targetTime - nowSec) * 1000;
+      if (remainingMs <= HYBRID_PENDING_DOIGR_LIMIT_MS) {
+        keep.push(pending);
+        continue;
+      }
+      window.clearTimeout(pending.id);
+      audioTimingMetricsRef.current.deferCanceledCount += 1;
+      if (pending.targetTime > nowSec + safetyLeadSec) {
+        pending.fire();
+        audioTimingMetricsRef.current.deferRescheduledCount += 1;
+      } else {
+        recordAudioDroppedEvent();
+      }
+    }
+    pendingGridClickDeferredRef.current = keep;
+  }, []);
 
   useEffect(() => { barsRef.current = bars; }, [bars]);
   useEffect(() => { syllablesRef.current = syllables; }, [syllables]);
@@ -4545,11 +4688,30 @@ export default function App() {
     const onVis = () => {
       if (document.visibilityState === 'hidden') {
         onWindowPointerEndCaptureRef.current();
+        endLiveControlWindow();
       }
     };
     document.addEventListener('visibilitychange', onVis);
     return () => document.removeEventListener('visibilitychange', onVis);
-  }, []);
+  }, [endLiveControlWindow]);
+
+  useEffect(() => {
+    const onPointerEnd = () => endLiveControlWindow();
+    const onBlur = () => endLiveControlWindow();
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') endLiveControlWindow();
+    };
+    window.addEventListener('pointerup', onPointerEnd, true);
+    window.addEventListener('pointercancel', onPointerEnd, true);
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('keydown', onEsc, true);
+    return () => {
+      window.removeEventListener('pointerup', onPointerEnd, true);
+      window.removeEventListener('pointercancel', onPointerEnd, true);
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('keydown', onEsc, true);
+    };
+  }, [endLiveControlWindow]);
 
   const getSnapshotPayloadForSlotExport = (slot: number): ReturnType<typeof createEmptySnapshot> => {
     if (activeSnapshotRef.current === slot) {
@@ -4851,6 +5013,9 @@ export default function App() {
       (snap as { firstBeatAccentByLane?: Partial<Record<number, boolean>> }).firstBeatAccentByLane,
       snap.firstBeatAccent !== false,
     );
+    // #region agent log
+    fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H1_H3',location:'App.tsx:applySnapshotDataToUi:firstBeatHydrate',message:'snapshot first-beat hydrate',data:{bars:snap.bars,polyMode:snap.polyMode===true,polyVoices:snapVoices,firstBeatAccent:snap.firstBeatAccent!==false,lane0:Boolean(nextFirstBeatByLane[0]),lane1:Boolean(nextFirstBeatByLane[1]),lane2:Boolean(nextFirstBeatByLane[2]),suppressedSize:normalizeSuppressedRows((snap as { firstBeatDingSuppressedRows?: unknown }).firstBeatDingSuppressedRows,snap.bars).size,taLane0:cloneLaneSetMap((snap as { taDingKeysByLane?: Partial<Record<number, Iterable<string>>> }).taDingKeysByLane)[0].size,taLane1:cloneLaneSetMap((snap as { taDingKeysByLane?: Partial<Record<number, Iterable<string>>> }).taDingKeysByLane)[1].size},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     setFirstBeatAccentByLane(nextFirstBeatByLane);
     firstBeatAccentByLaneRef.current = { ...nextFirstBeatByLane };
     setFirstBeatAccent(Boolean(nextFirstBeatByLane[0]));
@@ -5346,6 +5511,8 @@ export default function App() {
     };
     const mono = summarize(metrics.latenessSamples.mono);
     const poly = summarize(metrics.latenessSamples.poly);
+    const deferRatio =
+      metrics.totalSubHitCount > 0 ? metrics.deferSubHitCount / metrics.totalSubHitCount : 0;
     console.info('[audio-metrics]', {
       profile: schedulerProfileRef.current,
       scheduledEvents: metrics.scheduledEvents,
@@ -5356,6 +5523,14 @@ export default function App() {
       maxLagMs: metrics.maxLagSec * 1000,
       mono,
       poly,
+      deferSubHitCount: metrics.deferSubHitCount,
+      totalSubHitCount: metrics.totalSubHitCount,
+      deferRatio,
+      liveWindowActiveMs: metrics.liveWindowActiveMs,
+      modeSwitchCount: metrics.modeSwitchCount,
+      flapCount: metrics.flapCount,
+      deferCanceledCount: metrics.deferCanceledCount,
+      deferRescheduledCount: metrics.deferRescheduledCount,
     });
     metrics.lastLogAtMs = nowMs;
     metrics.latenessSamples.mono = [];
@@ -5487,25 +5662,36 @@ export default function App() {
           const hadKey = laneSet.has(key);
           const suppressed = firstBeatDingSuppressedRowsRef.current.has(r);
           const fa = Boolean(firstBeatAccentByLaneRef.current[lane]);
+          let action: 'toggle_suppression_on' | 'toggle_suppression_off' | 'explicit_add' | 'explicit_remove' = 'explicit_add';
 
           if (fa) {
             // Default first-beat Ta is ON: tap on col0 toggles only suppression.
             // Explicit col0 key must stay cleared to avoid mixed semantics.
             laneSet.delete(key);
             if (suppressed) {
+              action = 'toggle_suppression_off';
               setFirstBeatDingSuppressedRows((prevRows) => {
                 const n = new Set(prevRows);
                 n.delete(r);
                 return n;
               });
             } else {
+              action = 'toggle_suppression_on';
               setFirstBeatDingSuppressedRows((prevRows) => new Set(prevRows).add(r));
             }
           } else {
             // Default first-beat Ta is OFF: col0 behaves like a regular explicit Ta cell.
-            if (hadKey) laneSet.delete(key);
-            else laneSet.add(key);
+            if (hadKey) {
+              action = 'explicit_remove';
+              laneSet.delete(key);
+            } else {
+              action = 'explicit_add';
+              laneSet.add(key);
+            }
           }
+          // #region agent log
+          fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H2_H4_H5',location:'App.tsx:toggleTaDing:polyCol0',message:'poly ta col0 transition',data:{r,c,lane,hadKey,suppressed,fa,action,laneHasAfter:laneSet.has(key),suppressedStillRef:firstBeatDingSuppressedRowsRef.current.has(r)},timestamp:Date.now()})}).catch(()=>{});
+          // #endregion
 
           const flat = flattenLaneSetMap(next, barsRef.current, polyVoicesRef.current);
           taDingKeysRef.current = flat;
@@ -5932,21 +6118,62 @@ export default function App() {
         }
       };
 
+      const resolveHybridMode = (ctx: AudioContext, subTime: number): 'stable' | 'live' => {
+        const nowPerf = performance.now();
+        const deltaMs = (subTime - ctx.currentTime) * 1000;
+        if (!Number.isFinite(deltaMs) || !Number.isFinite(subDuration) || subDuration <= 0) {
+          registerModeSwitch('stable', nowPerf);
+          settleDeferredQueueForStable();
+          return 'stable';
+        }
+        const nearHitMs = Math.max(
+          HYBRID_NEAR_HIT_MIN_MS,
+          Math.min(HYBRID_NEAR_HIT_MAX_MS, 0.35 * subDuration * 1000),
+        );
+        const liveWindowActive = liveControlActiveRef.current || nowPerf < liveControlUntilRef.current;
+        const wantsLive = liveWindowActive && deltaMs > 0 && deltaMs <= nearHitMs;
+        const lockUntil = hybridModeLockUntilRef.current;
+        if (hybridModeRef.current === 'live' && !wantsLive && nowPerf < lockUntil) {
+          audioTimingMetricsRef.current.flapCount += 1;
+          return 'live';
+        }
+        if (hybridModeRef.current === 'stable' && wantsLive && nowPerf < lockUntil) {
+          audioTimingMetricsRef.current.flapCount += 1;
+          return 'stable';
+        }
+        if (wantsLive) {
+          registerModeSwitch('live', nowPerf);
+          return 'live';
+        }
+        registerModeSwitch('stable', nowPerf);
+        settleDeferredQueueForStable();
+        return 'stable';
+      };
+
       for (let sub = 0; sub < subdivs; sub++) {
+        audioTimingMetricsRef.current.totalSubHitCount += 1;
         const subTime = time + sub * subDuration;
-        if (AUDIO_SCHEDULER_DEFER_SUB_HIT) {
-          const ctx = audioCtxRef.current;
-          if (!ctx) continue;
-          const delayMs = Math.max(0, (subTime - ctx.currentTime - AUDIO_DEFER_SUB_HIT_LEAD_SEC) * 1000);
+        const ctx = audioCtxRef.current;
+        if (!ctx) continue;
+        latestSubStepSecRef.current = subDuration;
+        const mode = resolveHybridMode(ctx, subTime);
+        if (mode === 'live') {
+          audioTimingMetricsRef.current.deferSubHitCount += 1;
+          const delayMs = Math.max(0, (subTime - ctx.currentTime - schedulerConfigRef.current.safetyLeadSec) * 1000);
           const subI = sub;
           const subTimeI = subTime;
-          const id = window.setTimeout(() => {
+          const timer = window.setTimeout(() => {
+            pendingGridClickDeferredRef.current = pendingGridClickDeferredRef.current.filter((p) => p.id !== timer);
             emitGridSubAudio(subI, subTimeI);
           }, delayMs);
-          pendingGridClickTimerIdsRef.current.push(id);
-          continue;
+          pendingGridClickDeferredRef.current.push({
+            id: timer,
+            targetTime: subTimeI,
+            fire: () => emitGridSubAudio(subI, subTimeI),
+          });
+        } else {
+          emitGridSubAudio(sub, subTime);
         }
-        emitGridSubAudio(sub, subTime);
       }
       if (!dictantModeRef.current || cIdx === 0) {
         insertPlayheadSorted(playheadQueueRef.current, {
@@ -6196,6 +6423,7 @@ export default function App() {
       previewResetTimerRef.current = null;
     }
     if (isPlaying) {
+      endLiveControlWindow();
       setIsPlaying(false);
       isPlayingRef.current = false;
       logAudioTimingMetricsIfDue(Number.MAX_SAFE_INTEGER);
@@ -6270,6 +6498,7 @@ export default function App() {
         audioCtxRef.current = null;
       }
     } else {
+      endLiveControlWindow();
       if (isTaEditorModeRef.current || isDeadCellsEditorModeRef.current) return;
       if (!isClickSoundSelectorOpen) {
         if (!panelCollapseFrozenRef.current) {
@@ -6406,6 +6635,12 @@ export default function App() {
   const forceFirstBeatEditorFrames = useMemo(() => {
     const anyLaneFirstBeat = Boolean(firstBeatAccentByLane[0] || firstBeatAccentByLane[1] || firstBeatAccentByLane[2]);
     const anyFirstBeat = polyMode ? anyLaneFirstBeat : (firstBeatAccent || anyLaneFirstBeat);
+    // #region agent log
+    if (polyMode && __agentTaExitDbgCount < __agentTaExitDbgCap) {
+      __agentTaExitDbgCount++;
+      fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H14_H15',location:'App.tsx:forceFirstBeatEditorFrames',message:'force first-beat visibility gate',data:{polyMode,firstBeatAccent,lane0:Boolean(firstBeatAccentByLane[0]),lane1:Boolean(firstBeatAccentByLane[1]),lane2:Boolean(firstBeatAccentByLane[2]),suppressedSize:firstBeatEditorSuppressedRowsSorted.length,taDingUiSize:taDingKeysUi.size,anyFirstBeat},timestamp:Date.now()})}).catch(()=>{});
+    }
+    // #endregion
     return anyFirstBeat;
   }, [polyMode, firstBeatAccentByLane, firstBeatAccent]);
   // FRAGILE — UI source for explicit Ta markers.
@@ -6414,6 +6649,74 @@ export default function App() {
   const visibleTaDingKeys = useMemo(() => {
     return taDingKeysUi;
   }, [taDingKeysUi]);
+  const hasAnyExplicitTaOutsideFirstBeat = useMemo(() => {
+    let sampleKey = '';
+    let sampleMeta: Record<string, unknown> | null = null;
+    for (const key of taDingKeysUi) {
+      const parts = key.split('-');
+      if (parts.length !== 2) continue;
+      const r = parseInt(parts[0]!, 10);
+      const c = parseInt(parts[1]!, 10);
+      if (!Number.isFinite(r) || !Number.isFinite(c)) continue;
+      if (r < 0 || r >= bars) continue;
+      if (c <= 0) continue;
+      const rowSylls = customSyllables[r] !== undefined ? customSyllables[r]! : syllables;
+      if (c >= rowSylls) continue;
+      const deadStart = deadCells[r]?.deadStart;
+      if (typeof deadStart === 'number' && c >= deadStart) continue;
+      sampleKey = key;
+      sampleMeta = { r, c, rowSylls, deadStart: typeof deadStart === 'number' ? deadStart : null };
+      // #region agent log
+      if (__agentTaExitDbgCount < __agentTaExitDbgCap) {
+        __agentTaExitDbgCount++;
+        fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H16',location:'App.tsx:hasAnyExplicitTaOutsideFirstBeat',message:'explicit Ta outside first detected',data:{sampleKey,sampleMeta,taDingUiSize:taDingKeysUi.size,bars},timestamp:Date.now()})}).catch(()=>{});
+      }
+      // #endregion
+      return true;
+    }
+    // #region agent log
+    if (__agentTaExitDbgCount < __agentTaExitDbgCap) {
+      __agentTaExitDbgCount++;
+      fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H16',location:'App.tsx:hasAnyExplicitTaOutsideFirstBeat',message:'no explicit Ta outside first',data:{taDingUiSize:taDingKeysUi.size,bars},timestamp:Date.now()})}).catch(()=>{});
+    }
+    // #endregion
+    return false;
+  }, [taDingKeysUi, bars, customSyllables, syllables, deadCells]);
+  const allFirstSyllablesFilled = useMemo(() => {
+    const suppressed = firstBeatDingSuppressedRows;
+    for (let r = 0; r < bars; r++) {
+      const lane = laneForRow(r, polyVoices);
+      const defaultFirstBeat = Boolean(firstBeatAccentByLane[lane]) && !suppressed.has(r);
+      const explicitFirstBeat = taDingKeysUi.has(`${r}-0`);
+      if (!defaultFirstBeat && !explicitFirstBeat) return false;
+    }
+    return true;
+  }, [bars, polyVoices, firstBeatAccentByLane, firstBeatDingSuppressedRows, taDingKeysUi]);
+  const hasAnyVisibleExplicitTa = useMemo(() => {
+    for (const key of taDingKeysUi) {
+      const parts = key.split('-');
+      if (parts.length !== 2) continue;
+      const r = parseInt(parts[0]!, 10);
+      const c = parseInt(parts[1]!, 10);
+      if (!Number.isFinite(r) || !Number.isFinite(c)) continue;
+      if (r < 0 || r >= bars) continue;
+      const rowSylls = customSyllables[r] !== undefined ? customSyllables[r]! : syllables;
+      if (c < 0 || c >= rowSylls) continue;
+      const deadStart = deadCells[r]?.deadStart;
+      if (typeof deadStart === 'number' && c >= deadStart) continue;
+      return true;
+    }
+    return false;
+  }, [taDingKeysUi, bars, customSyllables, syllables, deadCells]);
+  const isTaGridAtDefault = firstBeatDingSuppressedRows.size === 0 && !hasAnyVisibleExplicitTa;
+  useEffect(() => {
+    // #region agent log
+    if (__agentTaExitDbgCount < __agentTaExitDbgCap) {
+      __agentTaExitDbgCount++;
+      fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'post-fix',hypothesisId:'H14',location:'App.tsx:isTaEditorModeEffect',message:'ta editor mode changed',data:{isTaEditorMode,polyMode,firstBeatAccent,lane0:Boolean(firstBeatAccentByLane[0]),lane1:Boolean(firstBeatAccentByLane[1]),lane2:Boolean(firstBeatAccentByLane[2]),suppressedSize:firstBeatEditorSuppressedRowsSorted.length,taDingUiSize:taDingKeysUi.size,hasAnyExplicitTaOutsideFirstBeat,allFirstSyllablesFilled},timestamp:Date.now()})}).catch(()=>{});
+    }
+    // #endregion
+  }, [isTaEditorMode, polyMode, firstBeatAccent, firstBeatAccentByLane, firstBeatEditorSuppressedRowsSorted.length, taDingKeysUi.size, hasAnyExplicitTaOutsideFirstBeat, allFirstSyllablesFilled]);
 
   sequencerGridRowActionsRef.current = {
     isHoldingRef,
@@ -6664,6 +6967,11 @@ export default function App() {
                         <button
                           type="button"
                           onClick={() => setIsClickSoundSelectorOpen(false)}
+                          onPointerDown={() => {
+                            // #region agent log
+                            emitDebugLog({ runId: 'pre-fix-2', hypothesisId: 'H2', location: 'App.tsx:click-menu-back-button', message: 'back button pointerdown', data: { reason: 'control event baseline' } });
+                            // #endregion
+                          }}
                           className="w-8 h-8 rounded-lg bg-[#131722] border border-[#1f2438] flex items-center justify-center text-[#5b6385] hover:text-[#c0c5db] hover:bg-[#1a2030] transition-colors pointer-events-auto"
                         >
                           <ChevronLeft className="w-4 h-4" />
@@ -6671,7 +6979,20 @@ export default function App() {
                         <div className="h-8" />
                         <div className="w-8 h-8" />
                       </div>
-                      <div className="flex items-start gap-2 w-full min-w-0 shrink-0 justify-between">
+                      <div
+                        className="flex items-start gap-2 w-full min-w-0 shrink-0 justify-between"
+                        onPointerDownCapture={(e) => {
+                          // #region agent log
+                          emitDebugLog({
+                            runId: 'pre-fix-2',
+                            hypothesisId: 'H1',
+                            location: 'App.tsx:click-menu-row-capture',
+                            message: 'row capture pointerdown',
+                            data: { targetTag: (e.target as HTMLElement | null)?.tagName ?? null, currentTag: (e.currentTarget as HTMLElement | null)?.tagName ?? null },
+                          });
+                          // #endregion
+                        }}
+                      >
                         {polyMode ? (
                           <div className="flex items-center gap-1 shrink-0 translate-y-12">
                             {([0, 1, 2] as const).filter((v) => v < (polyVoices === 3 ? 3 : 2)).map((voiceIdx) => {
@@ -6742,7 +7063,7 @@ export default function App() {
                             'w-7 shrink-0 text-left text-[10px] font-bold text-slate-500 leading-none';
                           const volVoiceIdx = (polyMode ? activeClickVoiceTarget : 0) as 0 | 1 | 2;
                           return (
-                            <div className="flex flex-col justify-start gap-2.5 min-w-0 max-w-[10.5rem] w-full shrink -mt-6">
+                            <div className="relative z-10 flex flex-col justify-start gap-2.5 min-w-0 max-w-[10.5rem] w-full shrink -mt-6">
                               {busKeys.map(({ key, aria, swatchClass }) => (
                                 <label
                                   key={key}
@@ -6759,6 +7080,7 @@ export default function App() {
                                     step={0.01}
                                     value={gRow[key]}
                                     onInput={(e) => {
+                                      beginLiveControlWindow();
                                       const raw = Number((e.target as HTMLInputElement).value);
                                       const nextVal = Number.isFinite(raw)
                                         ? Math.max(0, Math.min(1.6, raw))
@@ -6773,6 +7095,10 @@ export default function App() {
                                       scheduleClickPresetBusTwoBarsPreview();
                                     }}
                                     onChange={(e) => {
+                                      // #region agent log
+                                      emitDebugLog({ runId: 'pre-fix-2', hypothesisId: 'H3', location: 'App.tsx:bus-slider-onChange', message: 'bus slider change', data: { key, rawValue: (e.target as HTMLInputElement).value } });
+                                      // #endregion
+                                      beginLiveControlWindow();
                                       const raw = Number(e.target.value);
                                       const nextVal = Number.isFinite(raw)
                                         ? Math.max(0, Math.min(1.6, raw))
@@ -6781,6 +7107,15 @@ export default function App() {
                                         const cur = getClickPresetBusGainsForPreset(prev, busPreset);
                                         const row: ClickPresetBusGains = { ...cur, [key]: nextVal };
                                         const updated = { ...prev, [busPreset]: row };
+                                        // #region agent log
+                                        emitDebugLog({
+                                          runId: 'pre-fix-2',
+                                          hypothesisId: 'H5',
+                                          location: 'App.tsx:bus-slider-setState',
+                                          message: 'setClickPresetBusGains mutation',
+                                          data: { key, busPreset, prevValue: cur[key], nextValue: nextVal },
+                                        });
+                                        // #endregion
                                         clickPresetBusGainsRef.current = updated;
                                         return updated;
                                       });
@@ -6788,6 +7123,7 @@ export default function App() {
                                     }}
                                     onDoubleClick={(e) => {
                                       e.preventDefault();
+                                      beginLiveControlWindow();
                                       setClickPresetBusGains((prev) => {
                                         const cur = getClickPresetBusGainsForPreset(prev, busPreset);
                                         const row: ClickPresetBusGains = { ...cur, [key]: 1 };
@@ -6797,6 +7133,36 @@ export default function App() {
                                       });
                                       scheduleClickPresetBusTwoBarsPreview();
                                     }}
+                                    onPointerDown={() => {
+                                      // #region agent log
+                                      emitDebugLog({
+                                        runId: 'pre-fix-2',
+                                        hypothesisId: 'H4',
+                                        location: 'App.tsx:bus-slider-onPointerDown',
+                                        message: 'bus slider pointerdown',
+                                        data: { key, value: gRow[key], inputDisabled: false },
+                                      });
+                                      // #endregion
+                                      beginLiveControlWindow();
+                                    }}
+                                    onPointerEnter={(e) => {
+                                      // #region agent log
+                                      emitDebugLog({
+                                        runId: 'pre-fix-2',
+                                        hypothesisId: 'H6',
+                                        location: 'App.tsx:bus-slider-onPointerEnter',
+                                        message: 'bus slider hover enter',
+                                        data: {
+                                          key,
+                                          pointerEvents: window.getComputedStyle(e.currentTarget).pointerEvents,
+                                          opacity: window.getComputedStyle(e.currentTarget).opacity,
+                                        },
+                                      });
+                                      // #endregion
+                                    }}
+                                    onPointerUp={() => endLiveControlWindow()}
+                                    onPointerCancel={() => endLiveControlWindow()}
+                                    onPointerLeave={() => endLiveControlWindow()}
                                     className={busRowSliderClass}
                                   />
                                   <span className="w-7 shrink-0" aria-hidden />
@@ -6811,6 +7177,7 @@ export default function App() {
                                   step={0.01}
                                   value={polyVoiceGains[volVoiceIdx] ?? 1}
                                   onChange={(e) => {
+                                    beginLiveControlWindow();
                                     const raw = Number(e.target.value);
                                     const next = Number.isFinite(raw) ? Math.max(0, Math.min(1.6, raw)) : 1;
                                     setPolyVoiceGains((prev) => {
@@ -6823,6 +7190,7 @@ export default function App() {
                                     });
                                   }}
                                   onDoubleClick={() => {
+                                    beginLiveControlWindow();
                                     setPolyVoiceGains((prev) => {
                                       const updated: PolyVoiceGainMap = {
                                         ...prev,
@@ -6833,6 +7201,7 @@ export default function App() {
                                     });
                                   }}
                                   onPointerDown={() => {
+                                    beginLiveControlWindow();
                                     if (polyVoiceGainHoldTimerRef.current !== null) {
                                       window.clearTimeout(polyVoiceGainHoldTimerRef.current);
                                       polyVoiceGainHoldTimerRef.current = null;
@@ -6850,18 +7219,21 @@ export default function App() {
                                     }, 2000);
                                   }}
                                   onPointerUp={() => {
+                                    endLiveControlWindow();
                                     if (polyVoiceGainHoldTimerRef.current !== null) {
                                       window.clearTimeout(polyVoiceGainHoldTimerRef.current);
                                       polyVoiceGainHoldTimerRef.current = null;
                                     }
                                   }}
                                   onPointerLeave={() => {
+                                    endLiveControlWindow();
                                     if (polyVoiceGainHoldTimerRef.current !== null) {
                                       window.clearTimeout(polyVoiceGainHoldTimerRef.current);
                                       polyVoiceGainHoldTimerRef.current = null;
                                     }
                                   }}
                                   onPointerCancel={() => {
+                                    endLiveControlWindow();
                                     if (polyVoiceGainHoldTimerRef.current !== null) {
                                       window.clearTimeout(polyVoiceGainHoldTimerRef.current);
                                       polyVoiceGainHoldTimerRef.current = null;
@@ -7362,6 +7734,7 @@ export default function App() {
                 onBeginDrag={() => {
                   barsSliderDraggingRef.current = true;
                   attachSliderWindowListeners();
+                  beginLiveControlWindow();
                 }}
                 onLiveChange={(next) => {
                   applyBarsWithPotatoFreeze(next);
@@ -7406,6 +7779,7 @@ export default function App() {
                       onBeginDrag={() => {
                         syllablesSliderDraggingRef.current = true;
                         attachSliderWindowListeners();
+                        beginLiveControlWindow();
                       }}
                       onLiveChange={(next) => {
                         applyGlobalSyllablesFromSlider(String(next));
@@ -7574,6 +7948,7 @@ export default function App() {
           isDeadCellsEditorMode={isDeadCellsEditorMode}
           accentMapVersion={accentMapVersion}
           forceFirstBeatEditorFrames={forceFirstBeatEditorFrames}
+          isTaGridAtDefault={isTaGridAtDefault}
           firstBeatEditorSuppressedSig={firstBeatEditorSuppressedSig}
           deadStartByRow={deadStartByRow}
           deadDisplayByRow={deadDisplayByRow}
@@ -7706,6 +8081,9 @@ export default function App() {
             disabled={isDeadCellsEditorMode}
             onPointerDown={() => {
               if (isDeadCellsEditorMode) return;
+              // #region agent log
+              fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H8',location:'App.tsx:TaButton:onPointerDown',message:'ta pointer down',data:{isDeadCellsEditorMode,isTaEditorMode:isTaEditorModeRef.current,taHoldAteClick:taHoldAteClickRef.current},timestamp:Date.now()})}).catch(()=>{});
+              // #endregion
               taHoldAteClickRef.current = false;
               if (taHoldTimerRef.current !== null) {
                 window.clearTimeout(taHoldTimerRef.current);
@@ -7743,12 +8121,26 @@ export default function App() {
               }
             }}
             onClick={() => {
+              // #region agent log
+              fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H8',location:'App.tsx:TaButton:onClick:entry',message:'ta click entry',data:{isDeadCellsEditorMode,taHoldAteClick:taHoldAteClickRef.current,isTaEditorMode:isTaEditorModeRef.current,polyMode:polyModeRef.current},timestamp:Date.now()})}).catch(()=>{});
+              // #endregion
               if (isDeadCellsEditorMode) return;
               if (taHoldAteClickRef.current) {
+                // #region agent log
+                fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H8',location:'App.tsx:TaButton:onClick:returnHoldAte',message:'ta click ignored by hold flag',data:{taHoldAteClick:taHoldAteClickRef.current},timestamp:Date.now()})}).catch(()=>{});
+                // #endregion
                 taHoldAteClickRef.current = false;
                 return;
               }
-              if (isTaEditorModeRef.current) return;
+              if (isTaEditorModeRef.current) {
+                // #region agent log
+                fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H8',location:'App.tsx:TaButton:onClick:returnEditorMode',message:'ta click ignored in editor mode',data:{isTaEditorMode:true},timestamp:Date.now()})}).catch(()=>{});
+                // #endregion
+                return;
+              }
+              // #region agent log
+              fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H6_H7',location:'App.tsx:TaButton:onClick:before',message:'ta button click before toggle',data:{polyMode:polyModeRef.current,activeLane:activeClickVoiceTargetRef.current,fbGlobal:firstBeatAccentRef.current,lane0:Boolean(firstBeatAccentByLaneRef.current[0]),lane1:Boolean(firstBeatAccentByLaneRef.current[1]),lane2:Boolean(firstBeatAccentByLaneRef.current[2]),suppressedCount:firstBeatDingSuppressedRowsRef.current.size,isTaEditorMode:isTaEditorModeRef.current},timestamp:Date.now()})}).catch(()=>{});
+              // #endregion
               flushSync(() => {
                 if (polyModeRef.current) {
                   /* Как в легаси: один тап инвертирует общий Ta для всех линий (канон — lane 0). */
@@ -7758,6 +8150,9 @@ export default function App() {
                   firstBeatAccentRef.current = nextVal;
                   setFirstBeatAccentByLane(next);
                   setFirstBeatAccent(nextVal);
+                  // #region agent log
+                  fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H6_H7',location:'App.tsx:TaButton:onClick:polyAfter',message:'ta button toggled poly lanes',data:{nextVal,lane0:Boolean(next[0]),lane1:Boolean(next[1]),lane2:Boolean(next[2]),suppressedCount:firstBeatDingSuppressedRowsRef.current.size},timestamp:Date.now()})}).catch(()=>{});
+                  // #endregion
                 } else {
                   setFirstBeatAccent((prev) => !prev);
                 }
