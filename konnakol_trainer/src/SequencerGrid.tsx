@@ -778,7 +778,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	return (
 		<div
 			ref={gridRef}
-			className={`relative flex flex-col gap-1.5 flex-1 overflow-y-auto overflow-x-hidden ${
+			className={`relative flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto overflow-x-hidden ${
 				isPlaying
 					? 'scrollbar-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]'
 					: '[&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[#2f4066] [&::-webkit-scrollbar-thumb]:rounded-full'

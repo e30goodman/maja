@@ -2010,6 +2010,23 @@ function createEmptySnapshot() {
 	};
 }
 
+/** Снепшот-слот: только баланс шины (accent/alt/passive) для текущего `clickSound`; полная карта пресетов — в localStorage. */
+type AppSnapshot = ReturnType<typeof createEmptySnapshot> & { clickBusBalance?: ClickPresetBusGains };
+
+function parseClickBusBalanceFromUnknown(raw: unknown): ClickPresetBusGains | undefined {
+	if (!raw || typeof raw !== 'object') return undefined;
+	const o = raw as Record<string, unknown>;
+	const a = Number(o.accent);
+	const alt = Number(o.alt);
+	const p = Number(o.passive);
+	if (!Number.isFinite(a) && !Number.isFinite(alt) && !Number.isFinite(p)) return undefined;
+	return {
+		accent: clampClickPresetBusGain(Number.isFinite(a) ? a : 1),
+		alt: clampClickPresetBusGain(Number.isFinite(alt) ? alt : 1),
+		passive: clampClickPresetBusGain(Number.isFinite(p) ? p : 1),
+	};
+}
+
 function parseSnapshotRow(raw: unknown) {
 	const d = createEmptySnapshot();
 	if (!raw || typeof raw !== 'object') return d;
@@ -2067,6 +2084,8 @@ function parseSnapshotRow(raw: unknown) {
 	else if (o.clickSound === 'old-school') d.clickSound = 'oldschool';
 	else d.clickSound = 'classic';
 	d.clickSoundByPolyVoice = normalizeClickSoundByPolyVoice(o.clickSoundByPolyVoice);
+	const parsedBus = parseClickBusBalanceFromUnknown(o.clickBusBalance);
+	if (parsedBus) (d as AppSnapshot).clickBusBalance = parsedBus;
 	if (typeof o.panelExpanded === 'boolean') d.panelExpanded = o.panelExpanded;
 	if (o.sequencerCells && typeof o.sequencerCells === 'object') {
 		hydrateSequencerFromCells(o.sequencerCells, d);
@@ -2207,6 +2226,7 @@ function snapSlotLooksUsed(s: ReturnType<typeof createEmptySnapshot>) {
 }
 
 function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
+	const snap = s as AppSnapshot;
 	return {
 		tempo: s.tempo,
 		bars: s.bars,
@@ -2257,6 +2277,7 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		parentLength: s.parentLength,
 		enabledMutations: [...s.enabledMutations],
 		formPresetId: s.formPresetId,
+		...(snap.clickBusBalance ? { clickBusBalance: snap.clickBusBalance } : {}),
 	};
 }
 
@@ -3015,11 +3036,18 @@ export default function App() {
       return { ...DEFAULT_POLY_VOICE_GAINS };
     }
   });
-  const [clickPresetBusGains, setClickPresetBusGains] = useState<ClickPresetBusGainsMap>(() =>
-    parseClickPresetBusGainsFromStorage(
+  const [clickPresetBusGains, setClickPresetBusGains] = useState<ClickPresetBusGainsMap>(() => {
+    const fromStorage = parseClickPresetBusGainsFromStorage(
       typeof localStorage !== 'undefined' ? localStorage.getItem(CLICK_PRESET_BUS_GAINS_STORAGE_KEY) : null,
-    ),
-  );
+    );
+    const seedSnap = initialBoot.snapshots[initialBoot.activeSnapshot] as AppSnapshot;
+    const sb = seedSnap.clickBusBalance;
+    if (sb) {
+      const pk = isClickSoundPreset(seedSnap.clickSound) ? seedSnap.clickSound : 'classic';
+      return { ...fromStorage, [pk]: sb };
+    }
+    return fromStorage;
+  });
   const [activeClickVoiceTarget, setActiveClickVoiceTarget] = useState<0 | 1 | 2>(0);
   const activeClickVoiceTargetRef = useRef<0 | 1 | 2>(0);
   const [isClickSoundSelectorOpen, setIsClickSoundSelectorOpen] = useState(false);
@@ -3110,8 +3138,6 @@ export default function App() {
   const [frozenScale, setFrozenScale] = useState<number | null>(() =>
     typeof seed.frozenScale === 'number' && seed.frozenScale >= 1 ? seed.frozenScale : null,
   );
-  const frozenScaleBeforeMenuRef = useRef<number | null>(null);
-  const menuForcedFreezeRef = useRef(false);
   const [isPanelExpanded, setIsPanelExpanded] = useState(() => seed.panelExpanded === true);
   const isPanelExpandedRef = useRef(seed.panelExpanded === true);
   isPanelExpandedRef.current = isPanelExpanded;
@@ -3162,25 +3188,6 @@ export default function App() {
       audioCtxRef.current = null;
     }
   }, [isClickSoundSelectorOpen]);
-
-  useEffect(() => {
-    const menuOpen = showRandomSettings || isClickSoundSelectorOpen;
-    if (menuOpen) {
-      if (!menuForcedFreezeRef.current) {
-        frozenScaleBeforeMenuRef.current = frozenScale;
-        menuForcedFreezeRef.current = true;
-      }
-      setFrozenScale(2);
-      return;
-    }
-    if (menuForcedFreezeRef.current) {
-      menuForcedFreezeRef.current = false;
-      setFrozenScale(frozenScaleBeforeMenuRef.current);
-      frozenScaleBeforeMenuRef.current = null;
-      return;
-    }
-    setFrozenScale(null);
-  }, [showRandomSettings, isClickSoundSelectorOpen]);
 
   /** Закрыть окно Randomizer / Settings по клику вне панели (и вне кнопки-шестерёнки). */
   useEffect(() => {
@@ -3984,7 +3991,7 @@ export default function App() {
     [beginTempoInlineEdit],
   );
 
-  const buildLiveSnapshotFromRefs = (): ReturnType<typeof createEmptySnapshot> => ({
+  const buildLiveSnapshotFromRefs = (): AppSnapshot => ({
     tempo: tempoRef.current,
     bars: barsRef.current,
     syllables: syllablesRef.current,
@@ -4004,6 +4011,7 @@ export default function App() {
     chaosLevel: chaosLevelRef.current,
     clickSound: clickSoundRef.current,
     clickSoundByPolyVoice: { ...clickSoundByPolyVoiceRef.current },
+    clickBusBalance: getClickPresetBusGainsForPreset(clickPresetBusGainsRef.current, clickSoundRef.current),
     panelExpanded: isPanelExpandedRef.current,
     pulseMeterUnlinked: { ...pulseMeterUnlinkedRef.current },
     frozenScale: frozenScaleRef.current,
@@ -4555,6 +4563,7 @@ export default function App() {
       chaosLevel: raw.chaosLevel,
       clickSound: raw.clickSound,
       clickSoundByPolyVoice: (raw as { clickSoundByPolyVoice?: unknown }).clickSoundByPolyVoice,
+      clickBusBalance: (raw as AppSnapshot).clickBusBalance,
       panelExpanded: raw.panelExpanded,
       pulseMeterUnlinked: raw.pulseMeterUnlinked,
       frozenScale: raw.frozenScale,
@@ -4640,6 +4649,7 @@ export default function App() {
           chaosLevel: chaosLevelRef.current,
           clickSound,
           clickSoundByPolyVoice,
+          clickBusBalance: getClickPresetBusGainsForPreset(clickPresetBusGains, clickSound),
           panelExpanded: isPanelExpanded,
           pulseMeterUnlinked: { ...pulseMeterUnlinked },
           frozenScale,
@@ -4677,6 +4687,7 @@ export default function App() {
     randomBarSpeed,
     clickSound,
     clickSoundByPolyVoice,
+    clickPresetBusGains,
     isPanelExpanded,
     frozenScale,
     polyMode,
@@ -4786,12 +4797,21 @@ export default function App() {
         ? snap.chaosLevel
         : 0,
     );
-    setClickSound(isClickSoundPreset(snap.clickSound) ? snap.clickSound : 'classic');
+    const nextClickSound: ClickSoundPreset = isClickSoundPreset(snap.clickSound) ? snap.clickSound : 'classic';
+    setClickSound(nextClickSound);
     const nextClickByVoice = normalizeClickSoundByPolyVoice(
       (snap as { clickSoundByPolyVoice?: unknown }).clickSoundByPolyVoice,
     );
     clickSoundByPolyVoiceRef.current = { ...nextClickByVoice };
     setClickSoundByPolyVoice(nextClickByVoice);
+    const busFromSnap = (snap as AppSnapshot).clickBusBalance;
+    if (busFromSnap) {
+      setClickPresetBusGains((prev) => {
+        const updated = { ...prev, [nextClickSound]: busFromSnap };
+        clickPresetBusGainsRef.current = updated;
+        return updated;
+      });
+    }
     setPulseMeterUnlinked(normalizePulseMeterUnlinked(snap.pulseMeterUnlinked));
     const modeFromSnap = (snap as { squarePlaybackMode?: unknown }).squarePlaybackMode;
     if (modeFromSnap === 'all_beats' || modeFromSnap === 'accent_only' || modeFromSnap === 'passive_only') {
@@ -6409,7 +6429,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#0b101e] sm:bg-black/95 text-slate-200 p-0 sm:p-6 font-sans flex flex-col items-center justify-center">
       {/* Phone emulator container */}
-      <div className="w-full max-w-[390px] h-[100dvh] sm:h-[844px] sm:rounded-[2.5rem] sm:border-[6px] border-[#1e2a45] shadow-2xl bg-[#0b101e] flex flex-col gap-3 p-3 relative overflow-hidden shrink-0">
+      <div className="relative flex h-[100dvh] min-h-0 w-full max-w-[390px] shrink-0 flex-col gap-2 overflow-hidden bg-[#0b101e] px-3 pb-3 pt-1.5 shadow-2xl sm:h-[844px] sm:rounded-[2.5rem] sm:border-[6px] border-[#1e2a45]">
         
         {/* Top Header Controls */}
         <div className="flex gap-2 items-center">
@@ -6579,14 +6599,24 @@ export default function App() {
         </div>
 
         {/* Global Settings (Tempo & Row Selectors) */}
-        <div className="relative bg-[#161f33] rounded-2xl border border-[#23314f] flex flex-col shrink-0 mb-3">
+        <div
+          className={`relative flex shrink-0 flex-col rounded-2xl border border-[#23314f] bg-[#161f33] ${
+            isClickSoundSelectorOpen ? 'mb-1' : 'mb-2'
+          }`}
+        >
               {showRandomSettings ? (
             <div className={`grid ${disableMenuSmoothing ? '' : 'transition-all duration-300'} ${isPanelExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
               <div
                 ref={randomSettingsPanelRef}
-                className={`overflow-hidden flex flex-col ${disableMenuSmoothing ? '' : 'transition-all duration-300'} ${isPanelExpanded ? 'px-2.5 py-4 gap-5' : 'px-2.5 py-0 gap-0'}`}
+                className={`overflow-hidden flex flex-col ${disableMenuSmoothing ? '' : 'transition-all duration-300'} ${
+                  isPanelExpanded
+                    ? isClickSoundSelectorOpen
+                      ? 'gap-3 px-2.5 py-2'
+                      : 'gap-5 px-2.5 py-4'
+                    : 'gap-0 px-2.5 py-0'
+                }`}
               >
-                <div className="flex flex-col gap-4 px-1 pb-1">
+                <div className={`flex flex-col px-1 pb-1 ${isClickSoundSelectorOpen ? 'gap-2' : 'gap-4'}`}>
                   {isClickSoundSelectorOpen ? (
                     <div className="bg-[#0b101e] border border-[#2f4066]/50 rounded-xl p-3 flex flex-col gap-3 min-h-[400px]">
                       <div className="flex items-center justify-between">
@@ -7476,6 +7506,7 @@ export default function App() {
           </button>
         </div>
 
+        <div className="flex min-h-0 flex-1 flex-col gap-1">
         <SequencerGrid
           gridRef={gridRef}
           bars={bars}
@@ -7510,7 +7541,7 @@ export default function App() {
         />
 
         {/* Bottom Actions */}
-        <div className="flex gap-3 mt-1 shrink-0 h-[60px]">
+        <div className="flex h-[60px] shrink-0 gap-3">
           {/* Randomizer: короткий тап — префилл всех тактов. В parent-режиме long-press отключён. */}
                 <button 
             type="button"
@@ -7760,11 +7791,10 @@ export default function App() {
             />
           </button>
         </div>
-
-        {null}
+        </div>
 
         {/* Play Button */}
-        <div className="shrink-0 mb-2">
+        <div className="mb-2 shrink-0">
           <button
             type="button"
             disabled={(isTaEditorMode || isDeadCellsEditorMode) && !isPlaying}
