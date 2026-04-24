@@ -554,6 +554,12 @@ const CLICK_SOUND_PRESET_ORDER: ClickSoundPreset[] = [
 /** Per-preset gain for accent / alt / passive buses (multiplies layer output). */
 type ClickPresetBusGains = { accent: number; alt: number; passive: number };
 type ClickPresetBusGainsMap = Partial<Record<ClickSoundPreset, ClickPresetBusGains>>;
+type ClickPresetBusGainsByVoiceMap = Partial<Record<0 | 1 | 2, ClickPresetBusGainsMap>>;
+type ClickPresetBusGainsStorageV2 = {
+	v: 2;
+	byVoice?: ClickPresetBusGainsByVoiceMap;
+	byPreset?: ClickPresetBusGainsMap;
+};
 
 const DEFAULT_CLICK_PRESET_BUS_GAINS: ClickPresetBusGains = { accent: 1, alt: 1, passive: 1 };
 
@@ -571,25 +577,66 @@ function getClickPresetBusGainsForPreset(map: ClickPresetBusGainsMap, preset: Cl
 	};
 }
 
-function parseClickPresetBusGainsFromStorage(raw: string | null): ClickPresetBusGainsMap {
-	if (!raw) return {};
+function normalizeClickBusVoiceIndex(raw: unknown): 0 | 1 | 2 {
+	const n = Number(raw);
+	if (!Number.isFinite(n) || n < 0 || n > 2) return 0;
+	return Math.floor(n) as 0 | 1 | 2;
+}
+
+function parseClickPresetBusGainsMapFromUnknown(raw: unknown): ClickPresetBusGainsMap {
+	if (!raw || typeof raw !== 'object') return {};
+	const parsed = raw as Record<string, unknown>;
+	const out: ClickPresetBusGainsMap = {};
+	for (const preset of CLICK_SOUND_PRESET_ORDER) {
+		const row = parsed[preset];
+		if (!row || typeof row !== 'object') continue;
+		const o = row as Record<string, unknown>;
+		out[preset] = {
+			accent: clampClickPresetBusGain(Number(o.accent)),
+			alt: clampClickPresetBusGain(Number(o.alt)),
+			passive: clampClickPresetBusGain(Number(o.passive)),
+		};
+	}
+	return out;
+}
+
+function parseClickPresetBusGainsStorage(raw: string | null): {
+	byPreset: ClickPresetBusGainsMap;
+	byVoice: ClickPresetBusGainsByVoiceMap;
+} {
+	if (!raw) return { byPreset: {}, byVoice: {} };
 	try {
 		const parsed = JSON.parse(raw) as Record<string, unknown>;
-		const out: ClickPresetBusGainsMap = {};
-		for (const preset of CLICK_SOUND_PRESET_ORDER) {
-			const row = parsed[preset];
-			if (!row || typeof row !== 'object') continue;
-			const o = row as Record<string, unknown>;
-			out[preset] = {
-				accent: clampClickPresetBusGain(Number(o.accent)),
-				alt: clampClickPresetBusGain(Number(o.alt)),
-				passive: clampClickPresetBusGain(Number(o.passive)),
-			};
+		if (parsed && parsed.v === 2) {
+			const v2 = parsed as ClickPresetBusGainsStorageV2;
+			const byPreset = parseClickPresetBusGainsMapFromUnknown(v2.byPreset);
+			const byVoice: ClickPresetBusGainsByVoiceMap = {};
+			const rawByVoice = v2.byVoice;
+			if (rawByVoice && typeof rawByVoice === 'object') {
+				for (const [k, map] of Object.entries(rawByVoice as Record<string, unknown>)) {
+					const voice = normalizeClickBusVoiceIndex(k);
+					byVoice[voice] = parseClickPresetBusGainsMapFromUnknown(map);
+				}
+			}
+			return { byPreset, byVoice };
 		}
-		return out;
+		return { byPreset: parseClickPresetBusGainsMapFromUnknown(parsed), byVoice: {} };
 	} catch {
-		return {};
+		return { byPreset: {}, byVoice: {} };
 	}
+}
+
+function getClickPresetBusGainsForVoicePreset(
+	byVoice: ClickPresetBusGainsByVoiceMap,
+	byPreset: ClickPresetBusGainsMap,
+	voice: number,
+	preset: ClickSoundPreset,
+): ClickPresetBusGains {
+	const normVoice = normalizeClickBusVoiceIndex(voice);
+	const voiceMap = byVoice[normVoice];
+	if (voiceMap && voiceMap[preset]) return getClickPresetBusGainsForPreset(voiceMap, preset);
+	if (byPreset[preset]) return getClickPresetBusGainsForPreset(byPreset, preset);
+	return DEFAULT_CLICK_PRESET_BUS_GAINS;
 }
 
 const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
@@ -2046,6 +2093,7 @@ function createEmptySnapshot() {
 type AppSnapshot = ReturnType<typeof createEmptySnapshot> & {
 	clickBusBalance?: ClickPresetBusGains;
 	clickBusBalanceByPreset?: ClickPresetBusGainsMap;
+	clickBusBalanceByVoicePreset?: ClickPresetBusGainsByVoiceMap;
 };
 
 function parseClickBusBalanceFromUnknown(raw: unknown): ClickPresetBusGains | undefined {
@@ -2063,12 +2111,18 @@ function parseClickBusBalanceFromUnknown(raw: unknown): ClickPresetBusGains | un
 }
 
 function parseClickBusBalanceByPresetFromUnknown(raw: unknown): ClickPresetBusGainsMap | undefined {
+	const out = parseClickPresetBusGainsMapFromUnknown(raw);
+	return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function parseClickBusBalanceByVoicePresetFromUnknown(raw: unknown): ClickPresetBusGainsByVoiceMap | undefined {
 	if (!raw || typeof raw !== 'object') return undefined;
 	const parsed = raw as Record<string, unknown>;
-	const out: ClickPresetBusGainsMap = {};
-	for (const preset of CLICK_SOUND_PRESET_ORDER) {
-		const row = parseClickBusBalanceFromUnknown(parsed[preset]);
-		if (row) out[preset] = row;
+	const out: ClickPresetBusGainsByVoiceMap = {};
+	for (const [voiceRaw, mapRaw] of Object.entries(parsed)) {
+		const map = parseClickPresetBusGainsMapFromUnknown(mapRaw);
+		if (Object.keys(map).length === 0) continue;
+		out[normalizeClickBusVoiceIndex(voiceRaw)] = map;
 	}
 	return Object.keys(out).length > 0 ? out : undefined;
 }
@@ -2087,6 +2141,25 @@ function collectSnapshotClickBusBalanceByPreset(
 	}
 	const out: ClickPresetBusGainsMap = {};
 	for (const preset of presets) out[preset] = getClickPresetBusGainsForPreset(presetBusGains, preset);
+	return out;
+}
+
+function collectSnapshotClickBusBalanceByVoicePreset(
+	clickSound: ClickSoundPreset,
+	clickSoundByPolyVoice: ClickSoundByPolyVoice,
+	polyMode: boolean,
+	byVoice: ClickPresetBusGainsByVoiceMap,
+	legacyByPreset: ClickPresetBusGainsMap,
+): ClickPresetBusGainsByVoiceMap {
+	const voices: Array<0 | 1 | 2> = polyMode ? [0, 1, 2] : [0];
+	const out: ClickPresetBusGainsByVoiceMap = {};
+	for (const voice of voices) {
+		const preset = resolveClickSoundForPolyVoice(voice, polyMode, clickSoundByPolyVoice, clickSound);
+		const merged = getClickPresetBusGainsForVoicePreset(byVoice, legacyByPreset, voice, preset);
+		const voicePrev = byVoice[voice];
+		const nextMap: ClickPresetBusGainsMap = { ...(voicePrev ?? {}), [preset]: merged };
+		out[voice] = nextMap;
+	}
 	return out;
 }
 
@@ -2151,6 +2224,10 @@ function parseSnapshotRow(raw: unknown) {
 	if (parsedBus) (d as AppSnapshot).clickBusBalance = parsedBus;
 	const parsedBusByPreset = parseClickBusBalanceByPresetFromUnknown(o.clickBusBalanceByPreset);
 	if (parsedBusByPreset) (d as AppSnapshot).clickBusBalanceByPreset = parsedBusByPreset;
+	const parsedBusByVoicePreset = parseClickBusBalanceByVoicePresetFromUnknown(
+		o.clickBusBalanceByVoicePreset,
+	);
+	if (parsedBusByVoicePreset) (d as AppSnapshot).clickBusBalanceByVoicePreset = parsedBusByVoicePreset;
 	if (typeof o.panelExpanded === 'boolean') d.panelExpanded = o.panelExpanded;
 	if (o.sequencerCells && typeof o.sequencerCells === 'object') {
 		hydrateSequencerFromCells(o.sequencerCells, d);
@@ -2292,6 +2369,15 @@ function snapSlotLooksUsed(s: ReturnType<typeof createEmptySnapshot>) {
 
 function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 	const snap = s as AppSnapshot;
+	const clickBusByVoicePreset =
+		snap.clickBusBalanceByVoicePreset ??
+		collectSnapshotClickBusBalanceByVoicePreset(
+			s.clickSound,
+			normalizeClickSoundByPolyVoice(s.clickSoundByPolyVoice),
+			s.polyMode === true,
+			{},
+			{ ...(snap.clickBusBalance ? { [s.clickSound]: snap.clickBusBalance } : {}) },
+		);
 	const clickBusByPreset =
 		snap.clickBusBalanceByPreset ??
 		collectSnapshotClickBusBalanceByPreset(
@@ -2350,8 +2436,18 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		parentLength: s.parentLength,
 		enabledMutations: [...s.enabledMutations],
 		formPresetId: s.formPresetId,
-		...(snap.clickBusBalance ? { clickBusBalance: snap.clickBusBalance } : {}),
+		...(snap.clickBusBalance
+			? { clickBusBalance: snap.clickBusBalance }
+			: {
+					clickBusBalance: getClickPresetBusGainsForVoicePreset(
+						clickBusByVoicePreset,
+						clickBusByPreset,
+						0,
+						s.clickSound,
+					),
+				}),
 		...(clickBusByPreset ? { clickBusBalanceByPreset: clickBusByPreset } : {}),
+		...(clickBusByVoicePreset ? { clickBusBalanceByVoicePreset: clickBusByVoicePreset } : {}),
 	};
 }
 
@@ -3116,20 +3212,29 @@ export default function App() {
     }
   });
   const [clickPresetBusGains, setClickPresetBusGains] = useState<ClickPresetBusGainsMap>(() => {
-    const fromStorage = parseClickPresetBusGainsFromStorage(
+    const fromStorage = parseClickPresetBusGainsStorage(
       typeof localStorage !== 'undefined' ? localStorage.getItem(CLICK_PRESET_BUS_GAINS_STORAGE_KEY) : null,
     );
     const seedSnap = initialBoot.snapshots[initialBoot.activeSnapshot] as AppSnapshot;
     const fromSnapshotMap = parseClickBusBalanceByPresetFromUnknown(seedSnap.clickBusBalanceByPreset);
     if (fromSnapshotMap) {
-      return { ...fromStorage, ...fromSnapshotMap };
+      return { ...fromStorage.byPreset, ...fromSnapshotMap };
     }
     const legacySingle = seedSnap.clickBusBalance;
     if (legacySingle) {
       const pk = isClickSoundPreset(seedSnap.clickSound) ? seedSnap.clickSound : 'classic';
-      return { ...fromStorage, [pk]: legacySingle };
+      return { ...fromStorage.byPreset, [pk]: legacySingle };
     }
-    return fromStorage;
+    return fromStorage.byPreset;
+  });
+  const [clickPresetBusGainsByVoice, setClickPresetBusGainsByVoice] = useState<ClickPresetBusGainsByVoiceMap>(() => {
+    const fromStorage = parseClickPresetBusGainsStorage(
+      typeof localStorage !== 'undefined' ? localStorage.getItem(CLICK_PRESET_BUS_GAINS_STORAGE_KEY) : null,
+    );
+    const seedSnap = initialBoot.snapshots[initialBoot.activeSnapshot] as AppSnapshot;
+    const fromSnapshot = parseClickBusBalanceByVoicePresetFromUnknown(seedSnap.clickBusBalanceByVoicePreset);
+    if (fromSnapshot) return { ...fromStorage.byVoice, ...fromSnapshot };
+    return fromStorage.byVoice;
   });
   const [activeClickVoiceTarget, setActiveClickVoiceTarget] = useState<0 | 1 | 2>(0);
   const activeClickVoiceTargetRef = useRef<0 | 1 | 2>(0);
@@ -3735,6 +3840,7 @@ export default function App() {
   const clickSoundByPolyVoiceRef = useRef<ClickSoundByPolyVoice>(clickSoundByPolyVoice);
   const polyVoiceGainsRef = useRef<PolyVoiceGainMap>(polyVoiceGains);
   const clickPresetBusGainsRef = useRef<ClickPresetBusGainsMap>(clickPresetBusGains);
+  const clickPresetBusGainsByVoiceRef = useRef<ClickPresetBusGainsByVoiceMap>(clickPresetBusGainsByVoice);
   /** Последний пресет, для которого вызван cloneClickMixerFromLibrary (см. блок синхронизации в render). */
   const clickSoundMixerClonedKeyRef = useRef<ClickSoundPreset | null>(null);
   const frozenScaleRef = useRef(frozenScale);
@@ -3855,6 +3961,9 @@ export default function App() {
     clickPresetBusGainsRef.current = { ...clickPresetBusGains };
   }, [clickPresetBusGains]);
   useEffect(() => {
+    clickPresetBusGainsByVoiceRef.current = { ...clickPresetBusGainsByVoice };
+  }, [clickPresetBusGainsByVoice]);
+  useEffect(() => {
     try {
       localStorage.setItem(POLY_VOICE_GAINS_STORAGE_KEY, JSON.stringify(polyVoiceGains));
     } catch {
@@ -3863,11 +3972,16 @@ export default function App() {
   }, [polyVoiceGains]);
   useEffect(() => {
     try {
-      localStorage.setItem(CLICK_PRESET_BUS_GAINS_STORAGE_KEY, JSON.stringify(clickPresetBusGains));
+      const payload: ClickPresetBusGainsStorageV2 = {
+        v: 2,
+        byPreset: clickPresetBusGains,
+        byVoice: clickPresetBusGainsByVoice,
+      };
+      localStorage.setItem(CLICK_PRESET_BUS_GAINS_STORAGE_KEY, JSON.stringify(payload));
     } catch {
       /* ignore storage errors */
     }
-  }, [clickPresetBusGains]);
+  }, [clickPresetBusGains, clickPresetBusGainsByVoice]);
   /* Прямые присваивания (без spread) для ref-first путей (poly randomizer и т.п.):
    * ref === state → мутации переживают перерендеры и долетают до setState({...ref}). */
   useEffect(() => { customMultipliersRef.current = customMultipliers; }, [customMultipliers]);
@@ -4209,11 +4323,23 @@ export default function App() {
     chaosLevel: chaosLevelRef.current,
     clickSound: clickSoundRef.current,
     clickSoundByPolyVoice: { ...clickSoundByPolyVoiceRef.current },
-    clickBusBalance: getClickPresetBusGainsForPreset(clickPresetBusGainsRef.current, clickSoundRef.current),
+    clickBusBalance: getClickPresetBusGainsForVoicePreset(
+      clickPresetBusGainsByVoiceRef.current,
+      clickPresetBusGainsRef.current,
+      0,
+      clickSoundRef.current,
+    ),
     clickBusBalanceByPreset: collectSnapshotClickBusBalanceByPreset(
       clickSoundRef.current,
       clickSoundByPolyVoiceRef.current,
       polyModeRef.current,
+      clickPresetBusGainsRef.current,
+    ),
+    clickBusBalanceByVoicePreset: collectSnapshotClickBusBalanceByVoicePreset(
+      clickSoundRef.current,
+      clickSoundByPolyVoiceRef.current,
+      polyModeRef.current,
+      clickPresetBusGainsByVoiceRef.current,
       clickPresetBusGainsRef.current,
     ),
     panelExpanded: isPanelExpandedRef.current,
@@ -4788,6 +4914,7 @@ export default function App() {
       clickSoundByPolyVoice: (raw as { clickSoundByPolyVoice?: unknown }).clickSoundByPolyVoice,
       clickBusBalance: (raw as AppSnapshot).clickBusBalance,
       clickBusBalanceByPreset: (raw as AppSnapshot).clickBusBalanceByPreset,
+      clickBusBalanceByVoicePreset: (raw as AppSnapshot).clickBusBalanceByVoicePreset,
       panelExpanded: raw.panelExpanded,
       pulseMeterUnlinked: raw.pulseMeterUnlinked,
       frozenScale: raw.frozenScale,
@@ -4873,11 +5000,23 @@ export default function App() {
           chaosLevel: chaosLevelRef.current,
           clickSound,
           clickSoundByPolyVoice,
-          clickBusBalance: getClickPresetBusGainsForPreset(clickPresetBusGains, clickSound),
+          clickBusBalance: getClickPresetBusGainsForVoicePreset(
+            clickPresetBusGainsByVoice,
+            clickPresetBusGains,
+            0,
+            clickSound,
+          ),
           clickBusBalanceByPreset: collectSnapshotClickBusBalanceByPreset(
             clickSound,
             clickSoundByPolyVoice,
             polyMode,
+            clickPresetBusGains,
+          ),
+          clickBusBalanceByVoicePreset: collectSnapshotClickBusBalanceByVoicePreset(
+            clickSound,
+            clickSoundByPolyVoice,
+            polyMode,
+            clickPresetBusGainsByVoice,
             clickPresetBusGains,
           ),
           panelExpanded: isPanelExpanded,
@@ -4918,6 +5057,7 @@ export default function App() {
     clickSound,
     clickSoundByPolyVoice,
     clickPresetBusGains,
+    clickPresetBusGainsByVoice,
     isPanelExpanded,
     frozenScale,
     polyMode,
@@ -5037,7 +5177,17 @@ export default function App() {
     const busByPresetFromSnap = parseClickBusBalanceByPresetFromUnknown(
       (snap as AppSnapshot).clickBusBalanceByPreset,
     );
+    const busByVoicePresetFromSnap = parseClickBusBalanceByVoicePresetFromUnknown(
+      (snap as AppSnapshot).clickBusBalanceByVoicePreset,
+    );
     const busFromSnap = (snap as AppSnapshot).clickBusBalance;
+    if (busByVoicePresetFromSnap && Object.keys(busByVoicePresetFromSnap).length > 0) {
+      setClickPresetBusGainsByVoice((prev) => {
+        const updated = { ...prev, ...busByVoicePresetFromSnap };
+        clickPresetBusGainsByVoiceRef.current = updated;
+        return updated;
+      });
+    }
     if (busByPresetFromSnap && Object.keys(busByPresetFromSnap).length > 0) {
       setClickPresetBusGains((prev) => {
         const updated = { ...prev, ...busByPresetFromSnap };
@@ -6087,7 +6237,12 @@ export default function App() {
         const polyVoiceGain = polyModeRef.current
           ? Math.max(0, Math.min(1.6, polyVoiceGainsRef.current[voice as 0 | 1 | 2] ?? 1))
           : Math.max(0, Math.min(1.6, polyVoiceGainsRef.current[0] ?? 1));
-        const busG = getClickPresetBusGainsForPreset(clickPresetBusGainsRef.current, soundPreset);
+        const busG = getClickPresetBusGainsForVoicePreset(
+          clickPresetBusGainsByVoiceRef.current,
+          clickPresetBusGainsRef.current,
+          voice,
+          soundPreset,
+        );
         const gainMulForRole = (role: 'accent' | 'base' | 'alt'): number => {
           const roleLinear = role === 'accent' ? busG.accent : role === 'alt' ? busG.alt : busG.passive;
           return polyVoiceGain * roleLinear;
@@ -6410,7 +6565,7 @@ export default function App() {
     }, resetDelayMs);
   }, [clearPlayheadScheduling, getLegacyNoteDurationSeconds, scheduleGridCellAtTime]);
 
-  /** After bus 1/2/3 moves: same two-bar grid preview as preset selection (debounced). Waits until any running grid preview finishes before starting, so the beat is audible. */
+  /** After bus 1/2/3 moves: same two-bar grid preview as preset selection (debounced). If preview is already running, restart immediately to reflect slider movement live. */
   const scheduleClickPresetBusTwoBarsPreview = useCallback(() => {
     if (isTaEditorModeRef.current || isDeadCellsEditorModeRef.current) return;
     if (clickPresetBusTwoBarsPreviewRetryTimerRef.current !== null) {
@@ -6431,17 +6586,7 @@ export default function App() {
             clickSoundRef.current,
           )
         : clickSoundRef.current;
-      const tryPlay = () => {
-        if (gridPreviewAudioActiveRef.current) {
-          clickPresetBusTwoBarsPreviewRetryTimerRef.current = window.setTimeout(() => {
-            clickPresetBusTwoBarsPreviewRetryTimerRef.current = null;
-            tryPlay();
-          }, 90);
-          return;
-        }
-        playTwoBarsPreviewFromGrid(preset);
-      };
-      tryPlay();
+      playTwoBarsPreviewFromGrid(preset);
     }, CLICK_PRESET_BUS_TWO_BARS_PREVIEW_DEBOUNCE_MS);
   }, [playTwoBarsPreviewFromGrid]);
 
@@ -7074,7 +7219,13 @@ export default function App() {
                                   clickSound,
                                 )
                               : clickSound;
-                          const gRow = getClickPresetBusGainsForPreset(clickPresetBusGains, busPreset);
+                          const busVoice = (polyMode ? activeClickVoiceTarget : 0) as 0 | 1 | 2;
+                          const gRow = getClickPresetBusGainsForVoicePreset(
+                            clickPresetBusGainsByVoice,
+                            clickPresetBusGains,
+                            busVoice,
+                            busPreset,
+                          );
                           const busKeys: { key: keyof ClickPresetBusGains; aria: string; swatchClass: string }[] = [
                             {
                               key: 'accent',
@@ -7126,11 +7277,18 @@ export default function App() {
                                       const nextVal = Number.isFinite(raw)
                                         ? Math.max(0, Math.min(1.6, raw))
                                         : 1;
-                                      setClickPresetBusGains((prev) => {
-                                        const cur = getClickPresetBusGainsForPreset(prev, busPreset);
+                                      setClickPresetBusGainsByVoice((prev) => {
+                                        const voiceMap = { ...(prev[busVoice] ?? {}) };
+                                        const cur = getClickPresetBusGainsForVoicePreset(
+                                          prev,
+                                          clickPresetBusGainsRef.current,
+                                          busVoice,
+                                          busPreset,
+                                        );
                                         const row: ClickPresetBusGains = { ...cur, [key]: nextVal };
-                                        const updated = { ...prev, [busPreset]: row };
-                                        clickPresetBusGainsRef.current = updated;
+                                        const updatedVoice = { ...voiceMap, [busPreset]: row };
+                                        const updated = { ...prev, [busVoice]: updatedVoice };
+                                        clickPresetBusGainsByVoiceRef.current = updated;
                                         return updated;
                                       });
                                       scheduleClickPresetBusTwoBarsPreview();
@@ -7141,11 +7299,18 @@ export default function App() {
                                       const nextVal = Number.isFinite(raw)
                                         ? Math.max(0, Math.min(1.6, raw))
                                         : 1;
-                                      setClickPresetBusGains((prev) => {
-                                        const cur = getClickPresetBusGainsForPreset(prev, busPreset);
+                                      setClickPresetBusGainsByVoice((prev) => {
+                                        const voiceMap = { ...(prev[busVoice] ?? {}) };
+                                        const cur = getClickPresetBusGainsForVoicePreset(
+                                          prev,
+                                          clickPresetBusGainsRef.current,
+                                          busVoice,
+                                          busPreset,
+                                        );
                                         const row: ClickPresetBusGains = { ...cur, [key]: nextVal };
-                                        const updated = { ...prev, [busPreset]: row };
-                                        clickPresetBusGainsRef.current = updated;
+                                        const updatedVoice = { ...voiceMap, [busPreset]: row };
+                                        const updated = { ...prev, [busVoice]: updatedVoice };
+                                        clickPresetBusGainsByVoiceRef.current = updated;
                                         return updated;
                                       });
                                       scheduleClickPresetBusTwoBarsPreview();
@@ -7153,11 +7318,18 @@ export default function App() {
                                     onDoubleClick={(e) => {
                                       e.preventDefault();
                                       beginLiveControlWindow();
-                                      setClickPresetBusGains((prev) => {
-                                        const cur = getClickPresetBusGainsForPreset(prev, busPreset);
+                                      setClickPresetBusGainsByVoice((prev) => {
+                                        const voiceMap = { ...(prev[busVoice] ?? {}) };
+                                        const cur = getClickPresetBusGainsForVoicePreset(
+                                          prev,
+                                          clickPresetBusGainsRef.current,
+                                          busVoice,
+                                          busPreset,
+                                        );
                                         const row: ClickPresetBusGains = { ...cur, [key]: 1 };
-                                        const updated = { ...prev, [busPreset]: row };
-                                        clickPresetBusGainsRef.current = updated;
+                                        const updatedVoice = { ...voiceMap, [busPreset]: row };
+                                        const updated = { ...prev, [busVoice]: updatedVoice };
+                                        clickPresetBusGainsByVoiceRef.current = updated;
                                         return updated;
                                       });
                                       scheduleClickPresetBusTwoBarsPreview();
