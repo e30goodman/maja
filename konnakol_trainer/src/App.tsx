@@ -6260,9 +6260,11 @@ export default function App() {
           : -1;
         const shouldDedupPolyClick = polyModeRef.current && polyClickSlotsRef.current.has(polySlotKey);
         const isFirstBarCell = cIdx === 0;
-        const mainAccentClick = isAccent && (subdivs > 1 || sub === 0);
+        // Accent articulation stays on the first subdivision only.
+        // Subdivision tails are carried by role routing (alt/passive) for layer texture.
+        const mainAccentClick = isAccent && sub === 0;
         const shouldPlayFirstBeatTa =
-          isFirstBarCell && fa && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
+          isFirstBarCell && fa && firstBeatCellHitRow && sub === 0;
         const taDebugRenderMode: MetroNoiseRenderMode = 'shared';
         const taDebugDirectOut = debugTaEngineModeRef.current;
         if (shouldPlayFirstBeatTa && !isAccent && !debugTaEngineModeRef.current) {
@@ -6284,8 +6286,8 @@ export default function App() {
         const playbackMode: SquarePlaybackMode = isClickSelectorPreview ? 'all_beats' : squarePlaybackModeRef.current;
         const taEnabled = laneFirstBeat;
         const isTaDingCell = taEnabled && cIdx >= 1 && laneTaDing.has(`${rIdx}-${cIdx}`);
-        /** Ta-клетка с поддолями должна звучать на каждую поддолю, не только на sub=0. */
-        const shouldPlayTaDingSound = isTaDingCell && (subdivs > 1 || sub === 0);
+        /** Accent articulation should stay single-hit even on subdivided cells. */
+        const shouldPlayTaDingSound = isTaDingCell && sub === 0;
         const hasTaDingHere = taEnabled && laneTaDing.has(`${rIdx}-${cIdx}`);
         const dictantActive = isClickSelectorPreview ? false : dictantModeRef.current;
         const shouldPlayBeat =
@@ -6350,17 +6352,19 @@ export default function App() {
           return;
         }
         if (hasOverlapAccentAlt) {
-          playSharpClick(
-            ctx,
-            subTime,
-            sharpAsChecked,
-            soundPreset,
-            accentOnlyPlayback,
-            'accent',
-            gainMulForRole('accent'),
-            taNoiseRenderMode,
-            taDirectOut,
-          );
+          if (mainAccentClick) {
+            playSharpClick(
+              ctx,
+              subTime,
+              sharpAsChecked,
+              soundPreset,
+              accentOnlyPlayback,
+              'accent',
+              gainMulForRole('accent'),
+              taNoiseRenderMode,
+              taDirectOut,
+            );
+          }
           playSharpClick(
             ctx,
             subTime,
