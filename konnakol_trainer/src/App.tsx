@@ -8457,19 +8457,22 @@ export default function App() {
               cancelTaHoldFillAnim();
               setIsTaButtonPressed(true);
               taHoldAteClickRef.current = false;
-              taHoldPointerActiveRef.current = true;
-              const t0 = performance.now();
-              const tick = () => {
-                if (!taHoldPointerActiveRef.current) return;
-                const p = Math.min(1, (performance.now() - t0) / TA_EDITOR_HOLD_MS);
-                setTaHoldFill(p);
-                if (p < 1 && taHoldPointerActiveRef.current) {
-                  taHoldRafRef.current = requestAnimationFrame(tick);
-                } else {
-                  taHoldRafRef.current = null;
-                }
-              };
-              taHoldRafRef.current = requestAnimationFrame(tick);
+              /* Вход в Ta editor — растущая заливка; выход long-press — без заливки по удержанию, только таймер. */
+              if (!isTaEditorModeRef.current) {
+                taHoldPointerActiveRef.current = true;
+                const t0 = performance.now();
+                const tick = () => {
+                  if (!taHoldPointerActiveRef.current) return;
+                  const p = Math.min(1, (performance.now() - t0) / TA_EDITOR_HOLD_MS);
+                  setTaHoldFill(p);
+                  if (p < 1 && taHoldPointerActiveRef.current) {
+                    taHoldRafRef.current = requestAnimationFrame(tick);
+                  } else {
+                    taHoldRafRef.current = null;
+                  }
+                };
+                taHoldRafRef.current = requestAnimationFrame(tick);
+              }
               taHoldTimerRef.current = window.setTimeout(() => {
                 taHoldTimerRef.current = null;
                 taHoldAteClickRef.current = true;
@@ -8536,16 +8539,16 @@ export default function App() {
             className={`flex-1 rounded-xl flex justify-center items-center transition-all relative overflow-hidden bg-[#161f33] ${
               isDeadCellsEditorMode
                 ? 'border border-[#23314f] text-slate-600 opacity-45 cursor-not-allowed'
-                : isTaButtonPressed
-                ? `border border-[#23314f] text-white ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(255,255,255,0.2)]'}`
                 : isTaEditorMode
                 ? `border-2 border-white/90 text-white ${lowPerfMode ? '' : 'shadow-[0_0_18px_rgba(255,255,255,0.25)]'}`
+                : isTaButtonPressed
+                ? `border border-[#23314f] text-white ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(255,255,255,0.2)]'}`
                 : (polyMode ? Boolean(firstBeatAccentByLane[activeClickVoiceTarget]) : firstBeatAccent)
                   ? `border-2 border-white/90 text-white ${lowPerfMode ? '' : 'shadow-[0_0_15px_rgba(255,255,255,0.25)]'}`
                   : 'border border-[#23314f] text-slate-400 hover:text-slate-200 hover:bg-[#1a253c] active:bg-[#131b2c]'
             }`}
           >
-            {isTaButtonPressed ? (
+            {isTaButtonPressed && !isTaEditorMode ? (
               <span
                 aria-hidden
                 className="pointer-events-none absolute bottom-0 left-0 right-0 w-full bg-white/45"
