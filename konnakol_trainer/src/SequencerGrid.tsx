@@ -1,15 +1,14 @@
 import React, { useMemo, useCallback, useRef } from 'react';
 import { buildRowCellSyllableLabels, getSyllableStyles, type KalamMap } from './sequencerLabels';
 import type { PlayheadPosition } from './playheadTypes';
-
 // #region agent log
-let __agentGridNonEditorDbgCount = 0;
-const __agentGridNonEditorDbgCap = 80;
+let __agentGridTaDbgCountMain = 0;
+const __agentGridTaDbgCapMain = 120;
 // #endregion
 
-/** Available subdivisions for long-press: collapsed UI uses 1/2/3/4, expanded uses 1..9. */
-function allowedSubdivisions(panelExpanded: boolean): number[] {
-	return panelExpanded ? [1, 2, 3, 4, 5, 6, 7, 8, 9] : [1, 2, 3, 4];
+/** Keep long-press pulse switching consistent with collapsed behavior. */
+function allowedSubdivisions(_panelExpanded: boolean): number[] {
+	return [1, 2, 3, 4];
 }
 
 /** Next value in the available subdivision cycle. */
@@ -187,7 +186,7 @@ type SequencerGridRowProps = {
 	isDeadCellsEditorMode: boolean;
 	accentMapVersion: number;
 	forceFirstBeatEditorFrames: boolean;
-	isTaGridAtDefault: boolean;
+	canShowDefaultTaInNormal: boolean;
 	/** Comma-sorted row indices: rows where default first-beat white marker was disabled in editor. */
 	firstBeatEditorSuppressedSig: string;
 	deadStartByRow: Record<number, number>;
@@ -226,7 +225,7 @@ function sequencerGridRowPropsEqual(a: SequencerGridRowProps, b: SequencerGridRo
 		a.isDeadCellsEditorMode === b.isDeadCellsEditorMode &&
 		a.accentMapVersion === b.accentMapVersion &&
 		a.forceFirstBeatEditorFrames === b.forceFirstBeatEditorFrames &&
-		a.isTaGridAtDefault === b.isTaGridAtDefault &&
+		a.canShowDefaultTaInNormal === b.canShowDefaultTaInNormal &&
 		a.firstBeatEditorSuppressedSig === b.firstBeatEditorSuppressedSig &&
 		a.deadStartByRow === b.deadStartByRow &&
 		a.deadDisplayByRow === b.deadDisplayByRow &&
@@ -265,7 +264,7 @@ const SequencerGridRow = React.memo(
 			isDeadCellsEditorMode,
 			accentMapVersion,
 			forceFirstBeatEditorFrames,
-			isTaGridAtDefault,
+			canShowDefaultTaInNormal,
 			firstBeatEditorSuppressedSig,
 			deadStartByRow,
 			deadDisplayByRow,
@@ -285,11 +284,6 @@ const SequencerGridRow = React.memo(
 		const accentBits = accentSig;
 		const taDingBits = taDingSig;
 		// FRAGILE — Ta white rim / poly vs App.tsx taDingKeysUi + forceFirstBeatEditorFrames; easy visual/audio split.
-		/** Явный Ta не на первой доле — при legacy не рисуем «фантом» белой рамки на col 0 только из-за forceFirstBeatEditorFrames. */
-		const rowHasExplicitTaDingPastCol0 = useMemo(
-			() => taDingSig.length > 1 && taDingSig.slice(1).includes('1'),
-			[taDingSig],
-		);
 		const firstBeatRowSuppressed = useMemo(() => {
 			if (!firstBeatEditorSuppressedSig) return new Set<number>();
 			return new Set(
@@ -491,30 +485,29 @@ const SequencerGridRow = React.memo(
 							(cIdx === 0 &&
 								!isDead &&
 								!firstBeatRowSuppressed.has(rIdx) &&
+								accentMapVersion === 0 &&
 								forceFirstBeatEditorFrames);
-						// В обычном режиме дефолтные рамки col0 скрыты, пока не было «события изменения».
-						// Но если Ta-сетка снова полностью вернулась к дефолту, гасим рамки обратно.
-						const legacyNormalRevealReady =
-							(accentMapVersion === 1 || firstBeatRowSuppressed.size > 0) && !isTaGridAtDefault;
 						const showLegacyDefaultInNormal =
 							cIdx === 0 &&
 							!isDead &&
+							accentMapVersion === 0 &&
 							forceFirstBeatEditorFrames &&
-							legacyNormalRevealReady &&
+							canShowDefaultTaInNormal &&
 							!firstBeatRowSuppressed.has(rIdx);
-						const showNonEditorDing = !isDead && isTaDing;
-						const showNonEditorDingWithLegacy = showNonEditorDing || showLegacyDefaultInNormal;
-						// #region agent log
 						if (
+							rIdx === 0 &&
 							cIdx === 0 &&
 							!isTaEditorMode &&
-							(forceFirstBeatEditorFrames || firstBeatRowSuppressed.size > 0) &&
-							__agentGridNonEditorDbgCount < __agentGridNonEditorDbgCap
+							__agentGridTaDbgCountMain < __agentGridTaDbgCapMain
 						) {
-							__agentGridNonEditorDbgCount++;
-							fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'post-fix',hypothesisId:'H10_H11_H12_H13',location:'SequencerGrid.tsx:nonEditor:c0Visibility',message:'non-editor c0 visibility gate',data:{rIdx,cIdx,isTaEditorMode,accentMapVersion,forceFirstBeatEditorFrames,isTaGridAtDefault,legacyNormalRevealReady,suppressedSize:firstBeatRowSuppressed.size,rowSuppressed:firstBeatRowSuppressed.has(rIdx),isTaDing,showLegacyDefaultInNormal,showNonEditorDing:showNonEditorDingWithLegacy},timestamp:Date.now()})}).catch(()=>{});
+							__agentGridTaDbgCountMain++;
+							// #region agent log
+							fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H2_H4',location:'SequencerGrid.tsx:c0VisibilityMain',message:'main grid normal c0 visibility decision',data:{rIdx,cIdx,isTaEditorMode,isDead,isTaDing,accentMapVersion,forceFirstBeatEditorFrames,suppressedRowsSize:firstBeatRowSuppressed.size,rowSuppressed:firstBeatRowSuppressed.has(rIdx),showLegacyDefaultInNormal},timestamp:Date.now()})}).catch(()=>{});
+							fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H2_H4',location:'SequencerGrid.tsx:c0VisibilityMain',message:'main grid normal c0 visibility decision',data:{rIdx,cIdx,isTaEditorMode,isDead,isTaDing,accentMapVersion,forceFirstBeatEditorFrames,canShowDefaultTaInNormal,suppressedRowsSize:firstBeatRowSuppressed.size,rowSuppressed:firstBeatRowSuppressed.has(rIdx),showLegacyDefaultInNormal},timestamp:Date.now()})}).catch(()=>{});
+							// #endregion
 						}
-						// #endregion
+						const showNonEditorDing = !isDead && isTaDing;
+						const showNonEditorDingWithLegacy = showNonEditorDing || showLegacyDefaultInNormal;
 						const isActive = highlightCol === cIdx;
 						const subdivs = isDead ? 1 : (rowSubdivs[cIdx] ?? 1);
 						const cellBorder2 = 'border-2 box-border border-[#2f4066]';
@@ -566,6 +559,7 @@ const SequencerGridRow = React.memo(
 							<button
 								type="button"
 								key={cIdx}
+								data-subdiv-cell-key={checkKey}
 								onPointerDown={(e) => {
 									const a = actionsRef.current;
 									if (!a) return;
@@ -656,11 +650,6 @@ const SequencerGridRow = React.memo(
 								onClick={() => {
 									const a = actionsRef.current;
 									if (!a) return;
-									// #region agent log
-									if (cIdx === 0) {
-										fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H9',location:'SequencerGrid.tsx:onClick:entry',message:'grid click entry c0',data:{rIdx,cIdx,isTaEditorMode,isDeadCellsEditorMode,isDead,isHolding:a.isHoldingRef.current,isAccent,isTaDing,accentMapVersion},timestamp:Date.now()})}).catch(()=>{});
-									}
-									// #endregion
 									if (isDeadCellsEditorMode) {
 										if (isDead) a.restoreDeadRow(rIdx);
 										else a.triggerDeadCut(rIdx, cIdx);
@@ -668,28 +657,18 @@ const SequencerGridRow = React.memo(
 									}
 									if (isDead) {
 										if (a.isHoldingRef.current) a.isHoldingRef.current = false;
-										// #region agent log
-										if (cIdx === 0) {
-											fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H9',location:'SequencerGrid.tsx:onClick:returnDead',message:'grid click returned because dead cell',data:{rIdx,cIdx,isHoldingAfterReset:a.isHoldingRef.current},timestamp:Date.now()})}).catch(()=>{});
-										}
-										// #endregion
 										return;
 									}
 									if (a.isHoldingRef.current) {
 										a.isHoldingRef.current = false;
-										// #region agent log
-										if (cIdx === 0) {
-											fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H9',location:'SequencerGrid.tsx:onClick:returnHolding',message:'grid click eaten by hold flag',data:{rIdx,cIdx,isTaEditorMode},timestamp:Date.now()})}).catch(()=>{});
-										}
-										// #endregion
+										return;
+									}
+									// In expanded pulse edit, single tap on the same syllable exits edit mode.
+									if (activeEditCell === checkKey) {
+										a.setActiveEditCell(null);
 										return;
 									}
 									if (isTaEditorMode) {
-										if (cIdx === 0) {
-											// #region agent log
-											fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'post-fix',hypothesisId:'H2_H4',location:'SequencerGrid.tsx:onClick:taEditorCol0',message:'ta editor click col0',data:{rIdx,cIdx,polyMode,isAccent,isTaDing,showEditorDing,firstBeatSuppressed:firstBeatRowSuppressed.has(rIdx),accentMapVersion},timestamp:Date.now()})}).catch(()=>{});
-											// #endregion
-										}
 										a.toggleTaDing(rIdx, cIdx);
 										return;
 									}
@@ -768,7 +747,7 @@ export type SequencerGridProps = {
 	isDeadCellsEditorMode: boolean;
 	accentMapVersion: number;
 	forceFirstBeatEditorFrames: boolean;
-	isTaGridAtDefault: boolean;
+	canShowDefaultTaInNormal: boolean;
 	firstBeatEditorSuppressedSig: string;
 	deadStartByRow: Record<number, number>;
 	deadDisplayByRow: Record<number, number>;
@@ -803,7 +782,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	isDeadCellsEditorMode,
 	accentMapVersion,
 	forceFirstBeatEditorFrames,
-	isTaGridAtDefault,
+	canShowDefaultTaInNormal,
 	firstBeatEditorSuppressedSig,
 	deadStartByRow,
 	deadDisplayByRow,
@@ -908,7 +887,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 						isDeadCellsEditorMode={isDeadCellsEditorMode}
 						accentMapVersion={accentMapVersion}
 						forceFirstBeatEditorFrames={forceFirstBeatEditorFrames}
-						isTaGridAtDefault={isTaGridAtDefault}
+						canShowDefaultTaInNormal={canShowDefaultTaInNormal}
 						firstBeatEditorSuppressedSig={firstBeatEditorSuppressedSig}
 						deadStartByRow={deadStartByRow}
 						deadDisplayByRow={deadDisplayByRow}

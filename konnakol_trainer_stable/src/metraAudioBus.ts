@@ -19,7 +19,12 @@ export type MetraSchedulerConfig = {
 	lateResetThresholdSec: number;
 	maxCatchUpBatchesPerTick: number;
 	maxCatchUpLagSec: number;
+	safetyLeadSec: number;
 };
+
+function computeSafetyLeadSec(lookaheadMs: number): number {
+	return Math.max(0.006, Math.min(0.02, (lookaheadMs / 1000) * 0.5));
+}
 
 export const METRA_SCHEDULER_PROFILES: Record<MetraSchedulerProfile, MetraSchedulerConfig> = {
 	safe: {
@@ -28,6 +33,7 @@ export const METRA_SCHEDULER_PROFILES: Record<MetraSchedulerProfile, MetraSchedu
 		lateResetThresholdSec: 0.8,
 		maxCatchUpBatchesPerTick: 128,
 		maxCatchUpLagSec: 0.35,
+		safetyLeadSec: computeSafetyLeadSec(20),
 	},
 	balanced: {
 		lookaheadMs: METRA_LOOKAHEAD_MS,
@@ -35,6 +41,7 @@ export const METRA_SCHEDULER_PROFILES: Record<MetraSchedulerProfile, MetraSchedu
 		lateResetThresholdSec: 0.65,
 		maxCatchUpBatchesPerTick: 96,
 		maxCatchUpLagSec: 0.25,
+		safetyLeadSec: computeSafetyLeadSec(METRA_LOOKAHEAD_MS),
 	},
 	aggressive: {
 		lookaheadMs: 16,
@@ -42,6 +49,7 @@ export const METRA_SCHEDULER_PROFILES: Record<MetraSchedulerProfile, MetraSchedu
 		lateResetThresholdSec: 0.5,
 		maxCatchUpBatchesPerTick: 64,
 		maxCatchUpLagSec: 0.15,
+		safetyLeadSec: computeSafetyLeadSec(16),
 	},
 };
 

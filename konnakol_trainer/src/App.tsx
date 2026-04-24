@@ -294,8 +294,8 @@ const TEMPO_HOLD_REPEAT_STEP = 5;
 const TEMPO_MANUAL_HOLD_MS = 2000;
 const TEMPO_MANUAL_MAX_MOVE_PX = 14;
 // #region agent log
-let __agentTaExitDbgCount = 0;
-const __agentTaExitDbgCap = 80;
+let __agentBarsTaDbgCountMain = 0;
+const __agentBarsTaDbgCapMain = 80;
 // #endregion
 /*
  * Кто потрогает этот код, дебаггер ты или хуй с горы — умрёшь насильственной смертью.
@@ -601,13 +601,13 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 		oscType: 'sine',
 		baseFreq: 800,
 		accentFreq: 920,
-		altFreq: 800,
+		altFreq: 860,
 		decay: 0.04,
 		decayAccent: 0.04,
 		decayAlt: 0.04,
 		volume: 0.4,
 		volumeAccent: 0.5,
-		volumeAlt: 0.4,
+		volumeAlt: 0.44,
 		layers: {
 			accent: [
 				{
@@ -636,7 +636,7 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 					type: 'sine',
 					sweep: false,
 					noiseFilterType: 'highpass',
-					params: { volume: 0.4, decay: 0.04, freq: 800, hpFreq: 20, lpFreq: 20000 },
+					params: { volume: 0.44, decay: 0.04, freq: 860, hpFreq: 320, lpFreq: 20000 },
 				},
 				{
 					type: 'none',
@@ -681,14 +681,14 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 		oscType: 'triangle',
 		baseFreq: 250,
 		accentFreq: 500,
-		altFreq: 250,
+		altFreq: 320,
 		decay: 0.02,
 		decayAccent: 0.04,
-		decayAlt: 0.02,
+		decayAlt: 0.03,
 		sweep: true,
 		volume: 0.48,
 		volumeAccent: 0.9,
-		volumeAlt: 0.48,
+		volumeAlt: 0.56,
 		layers: {
 			accent: [
 				{
@@ -717,7 +717,7 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 					type: 'triangle',
 					sweep: true,
 					noiseFilterType: 'highpass',
-					params: { volume: 0.48, decay: 0.02, freq: 250, hpFreq: 20, lpFreq: 20000 },
+					params: { volume: 0.56, decay: 0.03, freq: 320, hpFreq: 260, lpFreq: 20000 },
 				},
 				{
 					type: 'none',
@@ -2047,8 +2047,10 @@ function createEmptySnapshot() {
 	};
 }
 
-/** Снепшот-слот: только баланс шины (accent/alt/passive) для текущего `clickSound`; полная карта пресетов — в localStorage. */
-type AppSnapshot = ReturnType<typeof createEmptySnapshot> & { clickBusBalance?: ClickPresetBusGains };
+type AppSnapshot = ReturnType<typeof createEmptySnapshot> & {
+	clickBusBalance?: ClickPresetBusGains;
+	clickBusBalanceByPreset?: ClickPresetBusGainsMap;
+};
 
 function parseClickBusBalanceFromUnknown(raw: unknown): ClickPresetBusGains | undefined {
 	if (!raw || typeof raw !== 'object') return undefined;
@@ -2062,6 +2064,34 @@ function parseClickBusBalanceFromUnknown(raw: unknown): ClickPresetBusGains | un
 		alt: clampClickPresetBusGain(Number.isFinite(alt) ? alt : 1),
 		passive: clampClickPresetBusGain(Number.isFinite(p) ? p : 1),
 	};
+}
+
+function parseClickBusBalanceByPresetFromUnknown(raw: unknown): ClickPresetBusGainsMap | undefined {
+	if (!raw || typeof raw !== 'object') return undefined;
+	const parsed = raw as Record<string, unknown>;
+	const out: ClickPresetBusGainsMap = {};
+	for (const preset of CLICK_SOUND_PRESET_ORDER) {
+		const row = parseClickBusBalanceFromUnknown(parsed[preset]);
+		if (row) out[preset] = row;
+	}
+	return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function collectSnapshotClickBusBalanceByPreset(
+	clickSound: ClickSoundPreset,
+	clickSoundByPolyVoice: ClickSoundByPolyVoice,
+	polyMode: boolean,
+	presetBusGains: ClickPresetBusGainsMap,
+): ClickPresetBusGainsMap {
+	const presets = new Set<ClickSoundPreset>([clickSound]);
+	if (polyMode) {
+		for (const lane of [0, 1, 2] as const) {
+			presets.add(resolveClickSoundForPolyVoice(lane, true, clickSoundByPolyVoice, clickSound));
+		}
+	}
+	const out: ClickPresetBusGainsMap = {};
+	for (const preset of presets) out[preset] = getClickPresetBusGainsForPreset(presetBusGains, preset);
+	return out;
 }
 
 function parseSnapshotRow(raw: unknown) {
@@ -2123,6 +2153,8 @@ function parseSnapshotRow(raw: unknown) {
 	d.clickSoundByPolyVoice = normalizeClickSoundByPolyVoice(o.clickSoundByPolyVoice);
 	const parsedBus = parseClickBusBalanceFromUnknown(o.clickBusBalance);
 	if (parsedBus) (d as AppSnapshot).clickBusBalance = parsedBus;
+	const parsedBusByPreset = parseClickBusBalanceByPresetFromUnknown(o.clickBusBalanceByPreset);
+	if (parsedBusByPreset) (d as AppSnapshot).clickBusBalanceByPreset = parsedBusByPreset;
 	if (typeof o.panelExpanded === 'boolean') d.panelExpanded = o.panelExpanded;
 	if (o.sequencerCells && typeof o.sequencerCells === 'object') {
 		hydrateSequencerFromCells(o.sequencerCells, d);
@@ -2264,6 +2296,14 @@ function snapSlotLooksUsed(s: ReturnType<typeof createEmptySnapshot>) {
 
 function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 	const snap = s as AppSnapshot;
+	const clickBusByPreset =
+		snap.clickBusBalanceByPreset ??
+		collectSnapshotClickBusBalanceByPreset(
+			s.clickSound,
+			normalizeClickSoundByPolyVoice(s.clickSoundByPolyVoice),
+			s.polyMode === true,
+			{ ...(snap.clickBusBalance ? { [s.clickSound]: snap.clickBusBalance } : {}) },
+		);
 	return {
 		tempo: s.tempo,
 		bars: s.bars,
@@ -2315,6 +2355,7 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		enabledMutations: [...s.enabledMutations],
 		formPresetId: s.formPresetId,
 		...(snap.clickBusBalance ? { clickBusBalance: snap.clickBusBalance } : {}),
+		...(clickBusByPreset ? { clickBusBalanceByPreset: clickBusByPreset } : {}),
 	};
 }
 
@@ -3082,15 +3123,20 @@ export default function App() {
       typeof localStorage !== 'undefined' ? localStorage.getItem(CLICK_PRESET_BUS_GAINS_STORAGE_KEY) : null,
     );
     const seedSnap = initialBoot.snapshots[initialBoot.activeSnapshot] as AppSnapshot;
-    const sb = seedSnap.clickBusBalance;
-    if (sb) {
+    const fromSnapshotMap = parseClickBusBalanceByPresetFromUnknown(seedSnap.clickBusBalanceByPreset);
+    if (fromSnapshotMap) {
+      return { ...fromStorage, ...fromSnapshotMap };
+    }
+    const legacySingle = seedSnap.clickBusBalance;
+    if (legacySingle) {
       const pk = isClickSoundPreset(seedSnap.clickSound) ? seedSnap.clickSound : 'classic';
-      return { ...fromStorage, [pk]: sb };
+      return { ...fromStorage, [pk]: legacySingle };
     }
     return fromStorage;
   });
   const [activeClickVoiceTarget, setActiveClickVoiceTarget] = useState<0 | 1 | 2>(0);
   const activeClickVoiceTargetRef = useRef<0 | 1 | 2>(0);
+  const debugTaEngineModeRef = useRef(false);
   const [isClickSoundSelectorOpen, setIsClickSoundSelectorOpen] = useState(false);
 
   // Preset Snapshot State (7 slots; persisted in localStorage)
@@ -3253,6 +3299,13 @@ export default function App() {
       const node = e.target as Node | null;
       if (!node) return;
       if (cellDivsSliderPanelRef.current?.contains(node)) return;
+      const el =
+        node instanceof Element
+          ? node
+          : (node.parentElement ?? null);
+      // Single tap on the same active syllable should close edit mode
+      // via cell click handler without immediate outside-click capture race.
+      if (el?.closest(`[data-subdiv-cell-key="${activeEditCell}"]`)) return;
       setActiveEditCell(null);
     };
     document.addEventListener('pointerdown', onPointerDown, true);
@@ -4183,6 +4236,12 @@ export default function App() {
     clickSound: clickSoundRef.current,
     clickSoundByPolyVoice: { ...clickSoundByPolyVoiceRef.current },
     clickBusBalance: getClickPresetBusGainsForPreset(clickPresetBusGainsRef.current, clickSoundRef.current),
+    clickBusBalanceByPreset: collectSnapshotClickBusBalanceByPreset(
+      clickSoundRef.current,
+      clickSoundByPolyVoiceRef.current,
+      polyModeRef.current,
+      clickPresetBusGainsRef.current,
+    ),
     panelExpanded: isPanelExpandedRef.current,
     pulseMeterUnlinked: { ...pulseMeterUnlinkedRef.current },
     frozenScale: frozenScaleRef.current,
@@ -4754,6 +4813,7 @@ export default function App() {
       clickSound: raw.clickSound,
       clickSoundByPolyVoice: (raw as { clickSoundByPolyVoice?: unknown }).clickSoundByPolyVoice,
       clickBusBalance: (raw as AppSnapshot).clickBusBalance,
+      clickBusBalanceByPreset: (raw as AppSnapshot).clickBusBalanceByPreset,
       panelExpanded: raw.panelExpanded,
       pulseMeterUnlinked: raw.pulseMeterUnlinked,
       frozenScale: raw.frozenScale,
@@ -4840,6 +4900,12 @@ export default function App() {
           clickSound,
           clickSoundByPolyVoice,
           clickBusBalance: getClickPresetBusGainsForPreset(clickPresetBusGains, clickSound),
+          clickBusBalanceByPreset: collectSnapshotClickBusBalanceByPreset(
+            clickSound,
+            clickSoundByPolyVoice,
+            polyMode,
+            clickPresetBusGains,
+          ),
           panelExpanded: isPanelExpanded,
           pulseMeterUnlinked: { ...pulseMeterUnlinked },
           frozenScale,
@@ -4994,8 +5060,17 @@ export default function App() {
     );
     clickSoundByPolyVoiceRef.current = { ...nextClickByVoice };
     setClickSoundByPolyVoice(nextClickByVoice);
+    const busByPresetFromSnap = parseClickBusBalanceByPresetFromUnknown(
+      (snap as AppSnapshot).clickBusBalanceByPreset,
+    );
     const busFromSnap = (snap as AppSnapshot).clickBusBalance;
-    if (busFromSnap) {
+    if (busByPresetFromSnap && Object.keys(busByPresetFromSnap).length > 0) {
+      setClickPresetBusGains((prev) => {
+        const updated = { ...prev, ...busByPresetFromSnap };
+        clickPresetBusGainsRef.current = updated;
+        return updated;
+      });
+    } else if (busFromSnap) {
       setClickPresetBusGains((prev) => {
         const updated = { ...prev, [nextClickSound]: busFromSnap };
         clickPresetBusGainsRef.current = updated;
@@ -5013,9 +5088,6 @@ export default function App() {
       (snap as { firstBeatAccentByLane?: Partial<Record<number, boolean>> }).firstBeatAccentByLane,
       snap.firstBeatAccent !== false,
     );
-    // #region agent log
-    fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H1_H3',location:'App.tsx:applySnapshotDataToUi:firstBeatHydrate',message:'snapshot first-beat hydrate',data:{bars:snap.bars,polyMode:snap.polyMode===true,polyVoices:snapVoices,firstBeatAccent:snap.firstBeatAccent!==false,lane0:Boolean(nextFirstBeatByLane[0]),lane1:Boolean(nextFirstBeatByLane[1]),lane2:Boolean(nextFirstBeatByLane[2]),suppressedSize:normalizeSuppressedRows((snap as { firstBeatDingSuppressedRows?: unknown }).firstBeatDingSuppressedRows,snap.bars).size,taLane0:cloneLaneSetMap((snap as { taDingKeysByLane?: Partial<Record<number, Iterable<string>>> }).taDingKeysByLane)[0].size,taLane1:cloneLaneSetMap((snap as { taDingKeysByLane?: Partial<Record<number, Iterable<string>>> }).taDingKeysByLane)[1].size},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     setFirstBeatAccentByLane(nextFirstBeatByLane);
     firstBeatAccentByLaneRef.current = { ...nextFirstBeatByLane };
     setFirstBeatAccent(Boolean(nextFirstBeatByLane[0]));
@@ -5689,10 +5761,6 @@ export default function App() {
               laneSet.add(key);
             }
           }
-          // #region agent log
-          fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H2_H4_H5',location:'App.tsx:toggleTaDing:polyCol0',message:'poly ta col0 transition',data:{r,c,lane,hadKey,suppressed,fa,action,laneHasAfter:laneSet.has(key),suppressedStillRef:firstBeatDingSuppressedRowsRef.current.has(r)},timestamp:Date.now()})}).catch(()=>{});
-          // #endregion
-
           const flat = flattenLaneSetMap(next, barsRef.current, polyVoicesRef.current);
           taDingKeysRef.current = flat;
           setTaDingKeys(flat);
@@ -5983,6 +6051,22 @@ export default function App() {
       if (!audioCtxRef.current) return;
       const subdivs = customSubdivisionsRef.current[`${rIdx}-${cIdx}`] || 1;
       const subDuration = Math.max(0.001, noteDuration / Math.max(1, subdivs));
+      const taStableRoutingActive = debugTaEngineModeRef.current;
+      const laneTaDingEarly = getLaneTaSetRef(rIdx);
+      const laneFirstBeatEarly = getLaneFirstBeatRef(rIdx);
+      const on0AccentEarly = getLaneAccentsSetRef(rIdx).has(`${rIdx}-0`);
+      const on0DingEarly = laneTaDingEarly.has(`${rIdx}-0`);
+      const firstBeatHitRowEarly = resolveFirstBeatHitRow(
+        accentMapVersionRef.current >= 1 ? 'explicit_ta_only' : resolveRuntimeFirstBeatPolicy(polyModeRef.current, laneForRow(rIdx, polyVoicesRef.current)),
+        on0AccentEarly,
+        on0DingEarly,
+        laneFirstBeatEarly,
+        firstBeatDingSuppressedRowsRef.current.has(rIdx),
+      );
+      const taCellScheduled =
+        (cIdx === 0 && laneFirstBeatEarly && firstBeatHitRowEarly) ||
+        (laneFirstBeatEarly && cIdx >= 1 && laneTaDingEarly.has(`${rIdx}-${cIdx}`));
+      const forceStableForTaCell = taStableRoutingActive && taCellScheduled;
 
       const emitGridSubAudio = (sub: number, subTime: number) => {
         const ctx = audioCtxRef.current;
@@ -6043,8 +6127,17 @@ export default function App() {
         const mainAccentClick = isAccent && (subdivs > 1 || sub === 0);
         const shouldPlayFirstBeatTa =
           isFirstBarCell && fa && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
-        if (shouldPlayFirstBeatTa && !isAccent) {
-          playBarFirstHighClick(ctx, subTime, soundPreset, gainMulForRole('accent'));
+        const taDebugRenderMode: MetroNoiseRenderMode = 'shared';
+        const taDebugDirectOut = debugTaEngineModeRef.current;
+        if (shouldPlayFirstBeatTa && !isAccent && !debugTaEngineModeRef.current) {
+          playBarFirstHighClick(
+            ctx,
+            subTime,
+            soundPreset,
+            gainMulForRole('accent'),
+            taDebugRenderMode,
+            taDebugDirectOut,
+          );
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
           }
@@ -6072,8 +6165,15 @@ export default function App() {
           if (muteMode === 'no_accent_sharp' && mainAccentClick && !isTaFirstBeatArticulation) return false;
           return mainAccentClick;
         })();
-        if (shouldPlayTaDingSound && !isAccent) {
-          playBarFirstHighClick(ctx, subTime, soundPreset, gainMulForRole('accent'));
+        if (shouldPlayTaDingSound && !isAccent && !debugTaEngineModeRef.current) {
+          playBarFirstHighClick(
+            ctx,
+            subTime,
+            soundPreset,
+            gainMulForRole('accent'),
+            taDebugRenderMode,
+            taDebugDirectOut,
+          );
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
           }
@@ -6097,11 +6197,21 @@ export default function App() {
         const hasUserWhiteAccent =
           shouldPlayFirstBeatTa || shouldPlayTaDingSound || hasTaDingHere;
         const hasUserPurpleAltAccent = isAccent;
+        const taNoiseRenderMode: MetroNoiseRenderMode = 'shared';
+        const taDirectOut = debugTaEngineModeRef.current && hasUserWhiteAccent;
+        const taStableSampleMode = debugTaEngineModeRef.current && hasUserWhiteAccent;
         const voiceRole: 'accent' | 'base' | 'alt' = hasUserWhiteAccent
           ? 'accent'
           : hasUserPurpleAltAccent
             ? 'alt'
             : 'base';
+        if (taStableSampleMode) {
+          playTaStableSample(ctx, subTime, gainMulForRole('accent'));
+          if (polyModeRef.current) {
+            polyClickSlotsRef.current.add(polySlotKey);
+          }
+          return;
+        }
         playSharpClick(
           ctx,
           subTime,
@@ -6110,6 +6220,8 @@ export default function App() {
           accentOnlyPlayback,
           voiceRole,
           gainMulForRole(voiceRole),
+          taNoiseRenderMode,
+          taDirectOut,
         );
         // USER-SOURCE-OF-TRUTH: removed implicit alt-shadow layering on accent hits.
         // Alt bus can only sound when a caller explicitly requests voiceRole='alt'.
@@ -6156,7 +6268,7 @@ export default function App() {
         const ctx = audioCtxRef.current;
         if (!ctx) continue;
         latestSubStepSecRef.current = subDuration;
-        const mode = resolveHybridMode(ctx, subTime);
+        const mode: 'stable' | 'live' = forceStableForTaCell ? 'stable' : resolveHybridMode(ctx, subTime);
         if (mode === 'live') {
           audioTimingMetricsRef.current.deferSubHitCount += 1;
           const delayMs = Math.max(0, (subTime - ctx.currentTime - schedulerConfigRef.current.safetyLeadSec) * 1000);
@@ -6635,12 +6747,6 @@ export default function App() {
   const forceFirstBeatEditorFrames = useMemo(() => {
     const anyLaneFirstBeat = Boolean(firstBeatAccentByLane[0] || firstBeatAccentByLane[1] || firstBeatAccentByLane[2]);
     const anyFirstBeat = polyMode ? anyLaneFirstBeat : (firstBeatAccent || anyLaneFirstBeat);
-    // #region agent log
-    if (polyMode && __agentTaExitDbgCount < __agentTaExitDbgCap) {
-      __agentTaExitDbgCount++;
-      fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H14_H15',location:'App.tsx:forceFirstBeatEditorFrames',message:'force first-beat visibility gate',data:{polyMode,firstBeatAccent,lane0:Boolean(firstBeatAccentByLane[0]),lane1:Boolean(firstBeatAccentByLane[1]),lane2:Boolean(firstBeatAccentByLane[2]),suppressedSize:firstBeatEditorSuppressedRowsSorted.length,taDingUiSize:taDingKeysUi.size,anyFirstBeat},timestamp:Date.now()})}).catch(()=>{});
-    }
-    // #endregion
     return anyFirstBeat;
   }, [polyMode, firstBeatAccentByLane, firstBeatAccent]);
   // FRAGILE — UI source for explicit Ta markers.
@@ -6649,14 +6755,11 @@ export default function App() {
   const visibleTaDingKeys = useMemo(() => {
     return taDingKeysUi;
   }, [taDingKeysUi]);
-  const hasAnyExplicitTaOutsideFirstBeat = useMemo(() => {
-    let sampleKey = '';
-    let sampleMeta: Record<string, unknown> | null = null;
-    for (const key of taDingKeysUi) {
-      const parts = key.split('-');
-      if (parts.length !== 2) continue;
-      const r = parseInt(parts[0]!, 10);
-      const c = parseInt(parts[1]!, 10);
+  const hasAnyVisibleAccentOutsideFirstBeat = useMemo(() => {
+    for (const key of accentsUi) {
+      const [rRaw, cRaw] = key.split('-');
+      const r = parseInt(rRaw ?? '', 10);
+      const c = parseInt(cRaw ?? '', 10);
       if (!Number.isFinite(r) || !Number.isFinite(c)) continue;
       if (r < 0 || r >= bars) continue;
       if (c <= 0) continue;
@@ -6664,60 +6767,38 @@ export default function App() {
       if (c >= rowSylls) continue;
       const deadStart = deadCells[r]?.deadStart;
       if (typeof deadStart === 'number' && c >= deadStart) continue;
-      sampleKey = key;
-      sampleMeta = { r, c, rowSylls, deadStart: typeof deadStart === 'number' ? deadStart : null };
-      // #region agent log
-      if (__agentTaExitDbgCount < __agentTaExitDbgCap) {
-        __agentTaExitDbgCount++;
-        fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H16',location:'App.tsx:hasAnyExplicitTaOutsideFirstBeat',message:'explicit Ta outside first detected',data:{sampleKey,sampleMeta,taDingUiSize:taDingKeysUi.size,bars},timestamp:Date.now()})}).catch(()=>{});
-      }
-      // #endregion
       return true;
     }
-    // #region agent log
-    if (__agentTaExitDbgCount < __agentTaExitDbgCap) {
-      __agentTaExitDbgCount++;
-      fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H16',location:'App.tsx:hasAnyExplicitTaOutsideFirstBeat',message:'no explicit Ta outside first',data:{taDingUiSize:taDingKeysUi.size,bars},timestamp:Date.now()})}).catch(()=>{});
-    }
-    // #endregion
     return false;
-  }, [taDingKeysUi, bars, customSyllables, syllables, deadCells]);
-  const allFirstSyllablesFilled = useMemo(() => {
-    const suppressed = firstBeatDingSuppressedRows;
-    for (let r = 0; r < bars; r++) {
-      const lane = laneForRow(r, polyVoices);
-      const defaultFirstBeat = Boolean(firstBeatAccentByLane[lane]) && !suppressed.has(r);
-      const explicitFirstBeat = taDingKeysUi.has(`${r}-0`);
-      if (!defaultFirstBeat && !explicitFirstBeat) return false;
-    }
-    return true;
-  }, [bars, polyVoices, firstBeatAccentByLane, firstBeatDingSuppressedRows, taDingKeysUi]);
-  const hasAnyVisibleExplicitTa = useMemo(() => {
+  }, [accentsUi, bars, customSyllables, syllables, deadCells]);
+  const hasAnyExplicitTaOutsideFirstBeat = useMemo(() => {
     for (const key of taDingKeysUi) {
-      const parts = key.split('-');
-      if (parts.length !== 2) continue;
-      const r = parseInt(parts[0]!, 10);
-      const c = parseInt(parts[1]!, 10);
+      const [rRaw, cRaw] = key.split('-');
+      const r = parseInt(rRaw ?? '', 10);
+      const c = parseInt(cRaw ?? '', 10);
       if (!Number.isFinite(r) || !Number.isFinite(c)) continue;
       if (r < 0 || r >= bars) continue;
+      if (c <= 0) continue;
       const rowSylls = customSyllables[r] !== undefined ? customSyllables[r]! : syllables;
-      if (c < 0 || c >= rowSylls) continue;
+      if (c >= rowSylls) continue;
       const deadStart = deadCells[r]?.deadStart;
       if (typeof deadStart === 'number' && c >= deadStart) continue;
       return true;
     }
     return false;
   }, [taDingKeysUi, bars, customSyllables, syllables, deadCells]);
-  const isTaGridAtDefault = firstBeatDingSuppressedRows.size === 0 && !hasAnyVisibleExplicitTa;
+  const canShowDefaultTaInNormal =
+    accentMapVersion === 1 ||
+    firstBeatDingSuppressedRows.size > 0 ||
+    hasAnyVisibleAccentOutsideFirstBeat ||
+    hasAnyExplicitTaOutsideFirstBeat;
   useEffect(() => {
+    if (__agentBarsTaDbgCountMain >= __agentBarsTaDbgCapMain) return;
+    __agentBarsTaDbgCountMain++;
     // #region agent log
-    if (__agentTaExitDbgCount < __agentTaExitDbgCap) {
-      __agentTaExitDbgCount++;
-      fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'post-fix',hypothesisId:'H14',location:'App.tsx:isTaEditorModeEffect',message:'ta editor mode changed',data:{isTaEditorMode,polyMode,firstBeatAccent,lane0:Boolean(firstBeatAccentByLane[0]),lane1:Boolean(firstBeatAccentByLane[1]),lane2:Boolean(firstBeatAccentByLane[2]),suppressedSize:firstBeatEditorSuppressedRowsSorted.length,taDingUiSize:taDingKeysUi.size,hasAnyExplicitTaOutsideFirstBeat,allFirstSyllablesFilled},timestamp:Date.now()})}).catch(()=>{});
-    }
+    fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H1_H2_H3',location:'App.tsx:taDerivedMain',message:'main app derived ta/accent flags',data:{bars,isTaEditorMode,accentMapVersion,forceFirstBeatEditorFrames,suppressedRowsSize:firstBeatDingSuppressedRows.size,firstBeatEditorSuppressedSig,taKeysUiSize:taDingKeysUi.size,accentsUiSize:accentsUi.size,hasAnyVisibleAccentOutsideFirstBeat,hasAnyExplicitTaOutsideFirstBeat,canShowDefaultTaInNormal},timestamp:Date.now()})}).catch(()=>{});
     // #endregion
-  }, [isTaEditorMode, polyMode, firstBeatAccent, firstBeatAccentByLane, firstBeatEditorSuppressedRowsSorted.length, taDingKeysUi.size, hasAnyExplicitTaOutsideFirstBeat, allFirstSyllablesFilled]);
-
+  }, [bars, isTaEditorMode, accentMapVersion, forceFirstBeatEditorFrames, firstBeatDingSuppressedRows.size, firstBeatEditorSuppressedSig, taDingKeysUi.size, accentsUi.size, hasAnyVisibleAccentOutsideFirstBeat, hasAnyExplicitTaOutsideFirstBeat, canShowDefaultTaInNormal]);
   sequencerGridRowActionsRef.current = {
     isHoldingRef,
     holdTimerRef,
@@ -7948,7 +8029,7 @@ export default function App() {
           isDeadCellsEditorMode={isDeadCellsEditorMode}
           accentMapVersion={accentMapVersion}
           forceFirstBeatEditorFrames={forceFirstBeatEditorFrames}
-          isTaGridAtDefault={isTaGridAtDefault}
+          canShowDefaultTaInNormal={canShowDefaultTaInNormal}
           firstBeatEditorSuppressedSig={firstBeatEditorSuppressedSig}
           deadStartByRow={deadStartByRow}
           deadDisplayByRow={deadDisplayByRow}
@@ -8081,9 +8162,6 @@ export default function App() {
             disabled={isDeadCellsEditorMode}
             onPointerDown={() => {
               if (isDeadCellsEditorMode) return;
-              // #region agent log
-              fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H8',location:'App.tsx:TaButton:onPointerDown',message:'ta pointer down',data:{isDeadCellsEditorMode,isTaEditorMode:isTaEditorModeRef.current,taHoldAteClick:taHoldAteClickRef.current},timestamp:Date.now()})}).catch(()=>{});
-              // #endregion
               taHoldAteClickRef.current = false;
               if (taHoldTimerRef.current !== null) {
                 window.clearTimeout(taHoldTimerRef.current);
@@ -8121,26 +8199,14 @@ export default function App() {
               }
             }}
             onClick={() => {
-              // #region agent log
-              fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H8',location:'App.tsx:TaButton:onClick:entry',message:'ta click entry',data:{isDeadCellsEditorMode,taHoldAteClick:taHoldAteClickRef.current,isTaEditorMode:isTaEditorModeRef.current,polyMode:polyModeRef.current},timestamp:Date.now()})}).catch(()=>{});
-              // #endregion
               if (isDeadCellsEditorMode) return;
               if (taHoldAteClickRef.current) {
-                // #region agent log
-                fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H8',location:'App.tsx:TaButton:onClick:returnHoldAte',message:'ta click ignored by hold flag',data:{taHoldAteClick:taHoldAteClickRef.current},timestamp:Date.now()})}).catch(()=>{});
-                // #endregion
                 taHoldAteClickRef.current = false;
                 return;
               }
               if (isTaEditorModeRef.current) {
-                // #region agent log
-                fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H8',location:'App.tsx:TaButton:onClick:returnEditorMode',message:'ta click ignored in editor mode',data:{isTaEditorMode:true},timestamp:Date.now()})}).catch(()=>{});
-                // #endregion
                 return;
               }
-              // #region agent log
-              fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H6_H7',location:'App.tsx:TaButton:onClick:before',message:'ta button click before toggle',data:{polyMode:polyModeRef.current,activeLane:activeClickVoiceTargetRef.current,fbGlobal:firstBeatAccentRef.current,lane0:Boolean(firstBeatAccentByLaneRef.current[0]),lane1:Boolean(firstBeatAccentByLaneRef.current[1]),lane2:Boolean(firstBeatAccentByLaneRef.current[2]),suppressedCount:firstBeatDingSuppressedRowsRef.current.size,isTaEditorMode:isTaEditorModeRef.current},timestamp:Date.now()})}).catch(()=>{});
-              // #endregion
               flushSync(() => {
                 if (polyModeRef.current) {
                   /* Как в легаси: один тап инвертирует общий Ta для всех линий (канон — lane 0). */
@@ -8150,9 +8216,6 @@ export default function App() {
                   firstBeatAccentRef.current = nextVal;
                   setFirstBeatAccentByLane(next);
                   setFirstBeatAccent(nextVal);
-                  // #region agent log
-                  fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H6_H7',location:'App.tsx:TaButton:onClick:polyAfter',message:'ta button toggled poly lanes',data:{nextVal,lane0:Boolean(next[0]),lane1:Boolean(next[1]),lane2:Boolean(next[2]),suppressedCount:firstBeatDingSuppressedRowsRef.current.size},timestamp:Date.now()})}).catch(()=>{});
-                  // #endregion
                 } else {
                   setFirstBeatAccent((prev) => !prev);
                 }
