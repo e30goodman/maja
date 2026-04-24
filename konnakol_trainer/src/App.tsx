@@ -350,6 +350,8 @@ const SNAPSHOT_SLOT_HOLD_MS = 300;
 const SNAPSHOT_MENU_HOLD_MS = 520;
 /** Только кнопка «Ta» внизу: вход/выход в режим правки рамок (короче `SNAPSHOT_MENU_HOLD_MS`, без ложных long-press на тапе). */
 const TA_EDITOR_HOLD_MS = 150;
+/** Холостой ход перед мгновенной полной заливкой на кнопке (мс); таймер long-press не сдвигается. */
+const TA_EDITOR_HOLD_FILL_DEAD_MS = 100;
 /** Удерживание кнопки «кости»: переключение режима Randomizer (вкл/выкл рандом на границах тактов). */
 const RANDOM_DICE_PREFILL_HOLD_MS = SNAPSHOT_MENU_HOLD_MS;
 
@@ -3195,7 +3197,7 @@ export default function App() {
   );
   const [isTaEditorMode, setIsTaEditorMode] = useState(false);
   const [isTaButtonPressed, setIsTaButtonPressed] = useState(false);
-  /** 0..1: прогресс удержания кнопки Ta до входа в редактор (синхрон с `TA_EDITOR_HOLD_MS`). */
+  /** Удержание Ta → вход в редактор: 0 = без заливки, 1 = полная заливка (включается скачком после `TA_EDITOR_HOLD_FILL_DEAD_MS`). */
   const [taHoldFill, setTaHoldFill] = useState(0);
   const [isDeadCellsEditorMode, setIsDeadCellsEditorMode] = useState(false);
   /** В режиме Ta-редактора: строки, где пользователь снял дефолтную белую метку на первой доле (без ключа taDing). */
@@ -3570,14 +3572,12 @@ export default function App() {
   const randomDiceHoldStartedAtRef = useRef<number | null>(null);
   const taHoldTimerRef = useRef<number | null>(null);
   const taHoldAteClickRef = useRef(false);
-  const taHoldRafRef = useRef<number | null>(null);
-  const taHoldPointerActiveRef = useRef(false);
+  const taHoldFillSnapTimerRef = useRef<number | null>(null);
   const cancelTaHoldFillAnim = () => {
-    if (taHoldRafRef.current !== null) {
-      cancelAnimationFrame(taHoldRafRef.current);
-      taHoldRafRef.current = null;
+    if (taHoldFillSnapTimerRef.current !== null) {
+      window.clearTimeout(taHoldFillSnapTimerRef.current);
+      taHoldFillSnapTimerRef.current = null;
     }
-    taHoldPointerActiveRef.current = false;
     setTaHoldFill(0);
   };
   const eraserHoldTimerRef = useRef<number | null>(null);
@@ -8457,21 +8457,12 @@ export default function App() {
               cancelTaHoldFillAnim();
               setIsTaButtonPressed(true);
               taHoldAteClickRef.current = false;
-              /* Вход в Ta editor — растущая заливка; выход long-press — без заливки по удержанию, только таймер. */
+              /* Вход в Ta editor — после паузы заливка включается сразу целиком (без RAF); выход long-press — без заливки. */
               if (!isTaEditorModeRef.current) {
-                taHoldPointerActiveRef.current = true;
-                const t0 = performance.now();
-                const tick = () => {
-                  if (!taHoldPointerActiveRef.current) return;
-                  const p = Math.min(1, (performance.now() - t0) / TA_EDITOR_HOLD_MS);
-                  setTaHoldFill(p);
-                  if (p < 1 && taHoldPointerActiveRef.current) {
-                    taHoldRafRef.current = requestAnimationFrame(tick);
-                  } else {
-                    taHoldRafRef.current = null;
-                  }
-                };
-                taHoldRafRef.current = requestAnimationFrame(tick);
+                taHoldFillSnapTimerRef.current = window.setTimeout(() => {
+                  taHoldFillSnapTimerRef.current = null;
+                  setTaHoldFill(1);
+                }, TA_EDITOR_HOLD_FILL_DEAD_MS);
               }
               taHoldTimerRef.current = window.setTimeout(() => {
                 taHoldTimerRef.current = null;
@@ -8548,12 +8539,8 @@ export default function App() {
                   : 'border border-[#23314f] text-slate-400 hover:text-slate-200 hover:bg-[#1a253c] active:bg-[#131b2c]'
             }`}
           >
-            {isTaButtonPressed && !isTaEditorMode ? (
-              <span
-                aria-hidden
-                className="pointer-events-none absolute bottom-0 left-0 right-0 w-full bg-white/45"
-                style={{ height: `${taHoldFill * 100}%` }}
-              />
+            {isTaButtonPressed && !isTaEditorMode && taHoldFill > 0 ? (
+              <span aria-hidden className="pointer-events-none absolute inset-0 bg-white/45" />
             ) : isTaEditorMode ? (
               <span aria-hidden className="pointer-events-none absolute inset-0 bg-white/30" />
             ) : null}
