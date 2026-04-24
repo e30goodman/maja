@@ -59,6 +59,12 @@ import {
 	PRESET_ENABLED_MUTATIONS,
 	PRESET_TARGET_BARS,
 } from './parentModeUi';
+import {
+	buildFreeBarRowSnapshot,
+	buildFreeRandomDicePayload,
+	buildParentModeSessionPayload,
+	postDiceRandomizerLog,
+} from './parentModeSessionLog';
 import { generateMidiBlob } from './midiExport';
 
 function buildPolyChunks(barCount: number, voiceCount: number): number[][] {
@@ -3891,7 +3897,10 @@ export default function App() {
   const wasPlayingAutoscrollRef = useRef(false);
   const autoscrollDisabledByUserRef = useRef(false);
   const programmaticAutoscrollRef = useRef(false);
-  const programmaticAutoscrollClearTimerRef = useRef<number | null>(null);
+  /** Макс. время держать programmatic после scrollIntoView, если не пришли scroll-события (уже у цели). */
+  const programmaticAutoscrollFallbackTimerRef = useRef<number | null>(null);
+  /** Сброс programmatic после последнего scroll во время программной анимации (smooth дольше 180ms). */
+  const programmaticAutoscrollSettleTimerRef = useRef<number | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const timerIDRef = useRef<number | null>(null);
   const playheadQueueRef = useRef<PlayheadHighlightEvent[]>([]);
@@ -4627,6 +4636,52 @@ export default function App() {
       if (didChange) any = true;
     }
     lastBarSeedRef.current = { ...lastBarSeedRef.current, ...nextSeeds };
+    if (parentActive) {
+      postDiceRandomizerLog({
+        log: 'prefill',
+        mode: 'parent',
+        session: buildParentModeSessionPayload({
+          compositionSeed,
+          bpm: tempoRef.current,
+          chaos,
+          formPresetId: formPresetIdRef.current,
+          formPresetLabel: FORM_PRESET_LABEL[formPresetIdRef.current],
+          enabledMutations: enabledMutationsRef.current,
+          parentLength: parentLengthRef.current,
+          parent: parentGenomeRef.current!,
+          schedule: phraseScheduleRef.current,
+          barSeeds: nextSeeds,
+          syllablesDefault,
+          customSyllables: cs,
+          accents: acc,
+          customSubdivisions: cd,
+          deadCells: dc,
+        }),
+      });
+    } else {
+      postDiceRandomizerLog({
+        log: 'prefill',
+        mode: 'free',
+        session: buildFreeRandomDicePayload({
+          compositionSeed,
+          bpm: tempoRef.current,
+          chaos,
+          barCount: nBars,
+          barSeeds: nextSeeds,
+          syllablesDefault,
+          customSyllables: cs,
+          accents: acc,
+          customSubdivisions: cd,
+          deadCells: dc,
+          axes: {
+            randomPulsation: rp,
+            randomPattern: rpat,
+            randomSpeed: rs,
+            randomBarSpeed: rbs,
+          },
+        }),
+      });
+    }
     if (!any) return;
 
     customSyllablesRef.current = cs;
@@ -5114,6 +5169,23 @@ export default function App() {
   const displayScaleBars = frozenScale !== null ? Math.min(frozenScale, 10) : Math.min(bars, 10);
   /** Все такты влезают в окно — без виртуальной ленты и без автопрокрутки (в т.ч. при включённом freeze). */
   const allBarsFitViewport = bars <= displayScaleBars;
+  /** Совпадает с `SequencerGrid` virtualRowCount — нужен в deps автоскролла, чтобы повторить попытку, когда лента дорисовалась в DOM. */
+  const legacyStripVirtualRowCount = useMemo(() => {
+    if (polyMode || !isPlaying || allBarsFitViewport) return bars;
+    if (autoscrollVirtualRowsEnabled) {
+      return Math.max(bars, activePos.absR + displayScaleBars * 2);
+    }
+    const limitedCycles = 3;
+    return bars * limitedCycles;
+  }, [
+    polyMode,
+    isPlaying,
+    allBarsFitViewport,
+    bars,
+    autoscrollVirtualRowsEnabled,
+    activePos.absR,
+    displayScaleBars,
+  ]);
   const disableMenuSmoothing = lowPerfMode || bars > 8 || syllables >= 9;
 
   const sequence = React.useMemo(
@@ -5639,16 +5711,25 @@ export default function App() {
     rowRefs.current[absR] = el;
   }, []);
   const performAutoscrollToRow = useCallback((rowEl: HTMLDivElement) => {
-    if (programmaticAutoscrollClearTimerRef.current !== null) {
-      window.clearTimeout(programmaticAutoscrollClearTimerRef.current);
-      programmaticAutoscrollClearTimerRef.current = null;
+    if (programmaticAutoscrollFallbackTimerRef.current !== null) {
+      window.clearTimeout(programmaticAutoscrollFallbackTimerRef.current);
+      programmaticAutoscrollFallbackTimerRef.current = null;
+    }
+    if (programmaticAutoscrollSettleTimerRef.current !== null) {
+      window.clearTimeout(programmaticAutoscrollSettleTimerRef.current);
+      programmaticAutoscrollSettleTimerRef.current = null;
     }
     programmaticAutoscrollRef.current = true;
     rowEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    programmaticAutoscrollClearTimerRef.current = window.setTimeout(() => {
-      programmaticAutoscrollClearTimerRef.current = null;
+    const AUTOSCROLL_FALLBACK_MS = 1600;
+    programmaticAutoscrollFallbackTimerRef.current = window.setTimeout(() => {
+      programmaticAutoscrollFallbackTimerRef.current = null;
+      if (programmaticAutoscrollSettleTimerRef.current !== null) {
+        window.clearTimeout(programmaticAutoscrollSettleTimerRef.current);
+        programmaticAutoscrollSettleTimerRef.current = null;
+      }
       programmaticAutoscrollRef.current = false;
-    }, 180);
+    }, AUTOSCROLL_FALLBACK_MS);
   }, []);
   const primaryActivePos = useMemo(() => {
     if (!polyMode || activePositions.length === 0) return activePos;
@@ -5727,12 +5808,13 @@ export default function App() {
       }
 
       if (logicalPage !== lastScrolledPageRef.current) {
-        lastScrolledPageRef.current = logicalPage;
         const pageStartAbsR = logicalPage * scrollStride;
         const rowEl = rowRefs.current[pageStartAbsR];
-        
+        // Не отмечаем страницу «перелистанной», пока нет DOM-строки: иначе при отстающем virtual strip
+        // скролл молча пропускается и пагинация залипает навсегда.
         if (rowEl) {
-           performAutoscrollToRow(rowEl);
+          lastScrolledPageRef.current = logicalPage;
+          performAutoscrollToRow(rowEl);
         }
       }
     }
@@ -5748,6 +5830,7 @@ export default function App() {
     syllables,
     bars,
     displayScaleBars,
+    legacyStripVirtualRowCount,
     performAutoscrollToRow,
   ]);
 
@@ -5766,9 +5849,23 @@ export default function App() {
     const onTouchMove = () => {
       disableAutoscrollByUser('touchmove');
     };
+    const AUTOSCROLL_SETTLE_MS = 160;
     const onScroll = () => {
       if (!isPlayingRef.current) return;
-      if (programmaticAutoscrollRef.current) return;
+      if (programmaticAutoscrollRef.current) {
+        if (programmaticAutoscrollSettleTimerRef.current !== null) {
+          window.clearTimeout(programmaticAutoscrollSettleTimerRef.current);
+        }
+        programmaticAutoscrollSettleTimerRef.current = window.setTimeout(() => {
+          programmaticAutoscrollSettleTimerRef.current = null;
+          programmaticAutoscrollRef.current = false;
+          if (programmaticAutoscrollFallbackTimerRef.current !== null) {
+            window.clearTimeout(programmaticAutoscrollFallbackTimerRef.current);
+            programmaticAutoscrollFallbackTimerRef.current = null;
+          }
+        }, AUTOSCROLL_SETTLE_MS);
+        return;
+      }
       disableAutoscrollByUser('scroll');
     };
     node.addEventListener('wheel', onWheel, { passive: true });
@@ -6231,6 +6328,35 @@ export default function App() {
                 dictantModeRef.current || chaos < 80,
               );
 
+          if (didChange && !useParent) {
+            postDiceRandomizerLog({
+              log: 'playback_bar',
+              session: {
+                kind: 'bar_boundary_playback',
+                source: 'mono',
+                barIndex: prevBar,
+                barSeed,
+                bpm: tempoRef.current,
+                chaos,
+                axes: {
+                  randomPulsation: randomPulsationRef.current,
+                  randomPattern: randomPatternRef.current,
+                  randomSpeed: randomSpeedRef.current,
+                  randomBarSpeed: randomBarSpeedRef.current,
+                },
+                row: buildFreeBarRowSnapshot({
+                  barIndex: prevBar,
+                  barSeed,
+                  bpm: tempoRef.current,
+                  syllablesDefault: syllablesRef.current,
+                  customSyllables: customSyllablesRef.current,
+                  accents: accentsRef.current,
+                  customSubdivisions: customSubdivisionsRef.current,
+                  deadCells: deadCellsRef.current,
+                }),
+              },
+            });
+          }
           if (didChange) {
             sequenceRef.current = buildLegacyPlaybackSequence(
               barsRef.current,
@@ -6674,6 +6800,35 @@ export default function App() {
       mulberry32(barSeed),
       dictantModeRef.current || chaos < 80,
     );
+    if (didChange) {
+      postDiceRandomizerLog({
+        log: 'playback_bar',
+        session: {
+          kind: 'bar_boundary_playback',
+          source: 'poly',
+          barIndex: prevBar,
+          barSeed,
+          bpm: tempoRef.current,
+          chaos,
+          axes: {
+            randomPulsation: randomPulsationRef.current,
+            randomPattern: randomPatternRef.current,
+            randomSpeed: randomSpeedRef.current,
+            randomBarSpeed: randomBarSpeedRef.current,
+          },
+          row: buildFreeBarRowSnapshot({
+            barIndex: prevBar,
+            barSeed,
+            bpm: tempoRef.current,
+            syllablesDefault: syllablesRef.current,
+            customSyllables: customSyllablesRef.current,
+            accents: accentsRef.current,
+            customSubdivisions: customSubdivisionsRef.current,
+            deadCells: deadCellsRef.current,
+          }),
+        },
+      });
+    }
     if (!didChange) return;
     setTimeout(() => {
       startTransition(() => {
@@ -6887,9 +7042,13 @@ export default function App() {
       polySubLegacyRef.current = null;
       currentStepRef.current = 0; // Reset pattern position to start
       if (timerIDRef.current) clearTimeout(timerIDRef.current);
-      if (programmaticAutoscrollClearTimerRef.current !== null) {
-        window.clearTimeout(programmaticAutoscrollClearTimerRef.current);
-        programmaticAutoscrollClearTimerRef.current = null;
+      if (programmaticAutoscrollFallbackTimerRef.current !== null) {
+        window.clearTimeout(programmaticAutoscrollFallbackTimerRef.current);
+        programmaticAutoscrollFallbackTimerRef.current = null;
+      }
+      if (programmaticAutoscrollSettleTimerRef.current !== null) {
+        window.clearTimeout(programmaticAutoscrollSettleTimerRef.current);
+        programmaticAutoscrollSettleTimerRef.current = null;
       }
       programmaticAutoscrollRef.current = false;
       if (squareHoldTimerRef.current !== null) {
