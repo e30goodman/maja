@@ -1,12 +1,20 @@
 /**
- * METRA-style master path: linear sum of all metronome layers → soft limiter → destination.
+ * METRA-style master path: linear sum of всех слоёв метронома → **мастер-лимитер** → destination.
+ * В Web Audio нет отдельного LimiterNode: используем `DynamicsCompressor` с настройками пикового лимитера.
  * One chain per AudioContext (WeakMap); safe when context is closed/GC’d.
  */
 
-const masterBusByContext = new WeakMap<
-	AudioContext,
-	{ summing: GainNode; compressor: DynamicsCompressorNode }
->();
+const masterBusByContext = new WeakMap<AudioContext, { summing: GainNode; masterLimiter: DynamicsCompressorNode }>();
+
+function createMasterPeakLimiter(ctx: AudioContext): DynamicsCompressorNode {
+	const lim = ctx.createDynamicsCompressor();
+	lim.threshold.value = -0.5;
+	lim.knee.value = 0;
+	lim.ratio.value = 20;
+	lim.attack.value = 0.001;
+	lim.release.value = 0.05;
+	return lim;
+}
 
 export const METRA_LOOKAHEAD_MS = 25;
 export const METRA_SCHEDULE_AHEAD_SEC = 0.1;
@@ -63,15 +71,10 @@ export function getMetronomeSummingInput(ctx: AudioContext): GainNode {
 	if (!entry) {
 		const summing = ctx.createGain();
 		summing.gain.value = 1;
-		const compressor = ctx.createDynamicsCompressor();
-		compressor.threshold.value = -1;
-		compressor.ratio.value = 20;
-		compressor.attack.value = 0.003;
-		compressor.release.value = 0.1;
-		compressor.knee.value = 0;
-		summing.connect(compressor);
-		compressor.connect(ctx.destination);
-		entry = { summing, compressor };
+		const masterLimiter = createMasterPeakLimiter(ctx);
+		summing.connect(masterLimiter);
+		masterLimiter.connect(ctx.destination);
+		entry = { summing, masterLimiter };
 		masterBusByContext.set(ctx, entry);
 	}
 	return entry.summing;

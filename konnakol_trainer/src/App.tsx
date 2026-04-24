@@ -348,6 +348,8 @@ const SNAPSHOT_CLIPBOARD_PREFIX_V2 = 'konnakolTrainerSnapshotV2:';
 const SNAPSHOT_SLOT_HOLD_MS = 300;
 /** Long-press Ta / ластик dead-editor / прочие UI-таймеры (~0,5 с). */
 const SNAPSHOT_MENU_HOLD_MS = 520;
+/** Только кнопка «Ta» внизу: вход/выход в режим правки рамок (короче `SNAPSHOT_MENU_HOLD_MS`, без ложных long-press на тапе). */
+const TA_EDITOR_HOLD_MS = 150;
 /** Удерживание кнопки «кости»: переключение режима Randomizer (вкл/выкл рандом на границах тактов). */
 const RANDOM_DICE_PREFILL_HOLD_MS = SNAPSHOT_MENU_HOLD_MS;
 
@@ -3193,6 +3195,8 @@ export default function App() {
   );
   const [isTaEditorMode, setIsTaEditorMode] = useState(false);
   const [isTaButtonPressed, setIsTaButtonPressed] = useState(false);
+  /** 0..1: прогресс удержания кнопки Ta до входа в редактор (синхрон с `TA_EDITOR_HOLD_MS`). */
+  const [taHoldFill, setTaHoldFill] = useState(0);
   const [isDeadCellsEditorMode, setIsDeadCellsEditorMode] = useState(false);
   /** В режиме Ta-редактора: строки, где пользователь снял дефолтную белую метку на первой доле (без ключа taDing). */
   const [firstBeatDingSuppressedRows, setFirstBeatDingSuppressedRows] = useState<Set<number>>(() => new Set());
@@ -3566,6 +3570,16 @@ export default function App() {
   const randomDiceHoldStartedAtRef = useRef<number | null>(null);
   const taHoldTimerRef = useRef<number | null>(null);
   const taHoldAteClickRef = useRef(false);
+  const taHoldRafRef = useRef<number | null>(null);
+  const taHoldPointerActiveRef = useRef(false);
+  const cancelTaHoldFillAnim = () => {
+    if (taHoldRafRef.current !== null) {
+      cancelAnimationFrame(taHoldRafRef.current);
+      taHoldRafRef.current = null;
+    }
+    taHoldPointerActiveRef.current = false;
+    setTaHoldFill(0);
+  };
   const eraserHoldTimerRef = useRef<number | null>(null);
   const eraserHoldAteClickRef = useRef(false);
   const polyVoiceGainHoldTimerRef = useRef<number | null>(null);
@@ -5740,6 +5754,7 @@ export default function App() {
         window.clearTimeout(taHoldTimerRef.current);
         taHoldTimerRef.current = null;
       }
+      cancelTaHoldFillAnim();
       if (eraserHoldTimerRef.current !== null) {
         window.clearTimeout(eraserHoldTimerRef.current);
         eraserHoldTimerRef.current = null;
@@ -6823,6 +6838,7 @@ export default function App() {
         window.clearTimeout(taHoldTimerRef.current);
         taHoldTimerRef.current = null;
       }
+      cancelTaHoldFillAnim();
       if (eraserHoldTimerRef.current !== null) {
         window.clearTimeout(eraserHoldTimerRef.current);
         eraserHoldTimerRef.current = null;
@@ -8432,22 +8448,37 @@ export default function App() {
             disabled={isDeadCellsEditorMode}
             onPointerDown={() => {
               if (isDeadCellsEditorMode) return;
-              setIsTaButtonPressed(true);
-              taHoldAteClickRef.current = false;
               if (taHoldTimerRef.current !== null) {
                 window.clearTimeout(taHoldTimerRef.current);
                 taHoldTimerRef.current = null;
               }
+              cancelTaHoldFillAnim();
+              setIsTaButtonPressed(true);
+              taHoldAteClickRef.current = false;
+              taHoldPointerActiveRef.current = true;
+              const t0 = performance.now();
+              const tick = () => {
+                if (!taHoldPointerActiveRef.current) return;
+                const p = Math.min(1, (performance.now() - t0) / TA_EDITOR_HOLD_MS);
+                setTaHoldFill(p);
+                if (p < 1 && taHoldPointerActiveRef.current) {
+                  taHoldRafRef.current = requestAnimationFrame(tick);
+                } else {
+                  taHoldRafRef.current = null;
+                }
+              };
+              taHoldRafRef.current = requestAnimationFrame(tick);
               taHoldTimerRef.current = window.setTimeout(() => {
                 taHoldTimerRef.current = null;
                 taHoldAteClickRef.current = true;
                 setIsTaButtonPressed(false);
+                cancelTaHoldFillAnim();
                 if (isTaEditorModeRef.current) {
                   setIsTaEditorMode(false);
                 } else {
                   setIsTaEditorMode(true);
                 }
-              }, SNAPSHOT_MENU_HOLD_MS);
+              }, TA_EDITOR_HOLD_MS);
             }}
             onPointerUp={() => {
               if (isDeadCellsEditorMode) return;
@@ -8456,6 +8487,7 @@ export default function App() {
                 window.clearTimeout(taHoldTimerRef.current);
                 taHoldTimerRef.current = null;
               }
+              cancelTaHoldFillAnim();
             }}
             onPointerLeave={() => {
               if (isDeadCellsEditorMode) return;
@@ -8464,6 +8496,7 @@ export default function App() {
                 window.clearTimeout(taHoldTimerRef.current);
                 taHoldTimerRef.current = null;
               }
+              cancelTaHoldFillAnim();
             }}
             onPointerCancel={() => {
               if (isDeadCellsEditorMode) return;
@@ -8472,6 +8505,7 @@ export default function App() {
                 window.clearTimeout(taHoldTimerRef.current);
                 taHoldTimerRef.current = null;
               }
+              cancelTaHoldFillAnim();
             }}
             onClick={() => {
               if (isDeadCellsEditorMode) return;
@@ -8509,7 +8543,13 @@ export default function App() {
                   : 'border border-[#23314f] text-slate-400 hover:text-slate-200 hover:bg-[#1a253c] active:bg-[#131b2c]'
             }`}
           >
-            {isTaButtonPressed || isTaEditorMode ? (
+            {isTaButtonPressed ? (
+              <span
+                aria-hidden
+                className="pointer-events-none absolute bottom-0 left-0 right-0 w-full bg-white/45"
+                style={{ height: `${taHoldFill * 100}%` }}
+              />
+            ) : isTaEditorMode ? (
               <span aria-hidden className="pointer-events-none absolute inset-0 bg-white/30" />
             ) : null}
             <span className="relative z-10 font-bold text-[22px] tracking-wide">Ta</span>
