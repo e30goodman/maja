@@ -8132,6 +8132,7 @@ export default function App() {
                 return;
               }
               if (isTaEditorModeRef.current) {
+                setIsTaEditorMode(false);
                 return;
               }
               flushSync(() => {
