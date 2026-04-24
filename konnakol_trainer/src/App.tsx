@@ -1364,13 +1364,91 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 		oscType: 'square',
 		baseFreq: 540,
 		accentFreq: 800,
-		altFreq: 670,
+		altFreq: 800,
 		decay: 0.08,
-		decayAccent: 0.08,
-		decayAlt: 0.08,
-		volume: 0.3,
-		volumeAccent: 0.3,
-		volumeAlt: 0.3,
+		decayAccent: 0.15,
+		decayAlt: 0.1,
+		volume: 0.8,
+		volumeAccent: 1.2,
+		volumeAlt: 1,
+		layers: {
+			accent: [
+				{
+					type: 'square',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 1.2, decay: 0.15, freq: 540, hpFreq: 400, lpFreq: 4000 },
+					mute: false,
+					solo: false,
+				},
+				{
+					type: 'square',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0.9, decay: 0.15, freq: 800, hpFreq: 400, lpFreq: 4000 },
+					mute: false,
+					solo: false,
+				},
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.1, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+					mute: false,
+					solo: false,
+				},
+			],
+			alt: [
+				{
+					type: 'square',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 1, decay: 0.1, freq: 540, hpFreq: 400, lpFreq: 4000 },
+					mute: false,
+					solo: false,
+				},
+				{
+					type: 'square',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0.7, decay: 0.1, freq: 800, hpFreq: 400, lpFreq: 4000 },
+					mute: false,
+					solo: false,
+				},
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.1, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+					mute: false,
+					solo: false,
+				},
+			],
+			passive: [
+				{
+					type: 'square',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0.8, decay: 0.08, freq: 540, hpFreq: 400, lpFreq: 4000 },
+					mute: false,
+				},
+				{
+					type: 'square',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0.6, decay: 0.08, freq: 800, hpFreq: 400, lpFreq: 4000 },
+					mute: false,
+				},
+				{
+					type: 'none',
+					sweep: false,
+					noiseFilterType: 'highpass',
+					params: { volume: 0, decay: 0.1, freq: 1000, hpFreq: 20, lpFreq: 20000 },
+					mute: false,
+					solo: false,
+				},
+			],
+		},
 	},
 	analog_synth: {
 		oscType: 'sawtooth',
@@ -1478,7 +1556,7 @@ const CLICK_SOUND_PRESET_META: ClickSoundUiPreset[] = [
 	{ id: 'preset-12', label: 'Plastic Knock', mappedSound: 'plastic_knock' },
 	{ id: 'preset-13', label: 'Metallic', mappedSound: 'metallic' },
 	{ id: 'preset-14', label: 'Clock Tick', mappedSound: 'clock_tick' },
-	{ id: 'preset-15', label: 'Cowbell', mappedSound: 'cowbell' },
+	{ id: 'preset-15', label: '808 Cowbell', mappedSound: 'cowbell' },
 	{ id: 'preset-16', label: 'Analog Synth', mappedSound: 'analog_synth' },
 	{ id: 'preset-17', label: 'Cajon', mappedSound: 'vinyl_crackle' },
 	{ id: 'preset-18', label: 'Dry Click', mappedSound: 'dry_click' },
@@ -8527,16 +8605,17 @@ export default function App() {
                 }
               });
             }}
-            className={`flex-1 rounded-xl flex justify-center items-center transition-all relative overflow-hidden bg-[#161f33] ${
+            /* Всегда border-2: иначе при входе в редактор (2px) соседний «Квадрат» в flex-ряду смещается. */
+            className={`flex-1 rounded-xl box-border flex justify-center items-center relative overflow-hidden bg-[#161f33] border-2 ${
               isDeadCellsEditorMode
-                ? 'border border-[#23314f] text-slate-600 opacity-45 cursor-not-allowed'
+                ? 'border-[#23314f] text-slate-600 opacity-45 cursor-not-allowed'
                 : isTaEditorMode
-                ? `border-2 border-white/90 text-white ${lowPerfMode ? '' : 'shadow-[0_0_18px_rgba(255,255,255,0.25)]'}`
+                ? `border-white/90 text-white ${lowPerfMode ? '' : 'shadow-[0_0_18px_rgba(255,255,255,0.25)]'}`
                 : isTaButtonPressed
-                ? `border border-[#23314f] text-white ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(255,255,255,0.2)]'}`
+                ? `border-[#23314f] text-white ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(255,255,255,0.2)]'}`
                 : (polyMode ? Boolean(firstBeatAccentByLane[activeClickVoiceTarget]) : firstBeatAccent)
-                  ? `border-2 border-white/90 text-white ${lowPerfMode ? '' : 'shadow-[0_0_15px_rgba(255,255,255,0.25)]'}`
-                  : 'border border-[#23314f] text-slate-400 hover:text-slate-200 hover:bg-[#1a253c] active:bg-[#131b2c]'
+                  ? `border-white/90 text-white ${lowPerfMode ? '' : 'shadow-[0_0_15px_rgba(255,255,255,0.25)]'}`
+                  : 'border-[#23314f] text-slate-400 hover:text-slate-200 hover:bg-[#1a253c] active:bg-[#131b2c]'
             }`}
           >
             {isTaButtonPressed && !isTaEditorMode && taHoldFill > 0 ? (
