@@ -6657,9 +6657,9 @@ export default function App() {
                     : 'gap-0 px-2.5 py-0'
                 }`}
               >
-                <div className={`flex flex-col px-1 pb-1 ${isClickSoundSelectorOpen ? 'gap-2' : 'gap-4'}`}>
+                <div className={`flex flex-col px-1 pb-1 ${isClickSoundSelectorOpen ? 'gap-2 flex-1 min-h-0' : 'gap-4'}`}>
                   {isClickSoundSelectorOpen ? (
-                    <div className="bg-[#0b101e] border border-[#2f4066]/50 rounded-xl p-3 flex flex-col gap-3 min-h-[400px] relative">
+                    <div className="bg-[#0b101e] border border-[#2f4066]/50 rounded-xl p-3 pt-10 flex flex-col gap-3 min-h-0 flex-1 max-h-[66dvh] relative overflow-hidden">
                       <div className="absolute left-3 right-3 top-3 flex items-center justify-between">
                         <button
                           type="button"
@@ -6742,7 +6742,7 @@ export default function App() {
                             'w-7 shrink-0 text-left text-[10px] font-bold text-slate-500 leading-none';
                           const volVoiceIdx = (polyMode ? activeClickVoiceTarget : 0) as 0 | 1 | 2;
                           return (
-                            <div className="flex flex-col justify-center gap-2.5 min-w-0 max-w-[10.5rem] w-full shrink py-0.5">
+                            <div className="flex flex-col justify-start gap-2.5 min-w-0 max-w-[10.5rem] w-full shrink -mt-6">
                               {busKeys.map(({ key, aria, swatchClass }) => (
                                 <label
                                   key={key}
@@ -6863,7 +6863,7 @@ export default function App() {
                           );
                         })()}
                       </div>
-                      <div className="grid grid-cols-4 gap-2.5 flex-1 content-start">
+                      <div className="grid grid-cols-4 gap-2.5 flex-1 min-h-0 content-start overflow-y-auto overflow-x-hidden pr-1.5 -mr-1.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[#2f4066] [&::-webkit-scrollbar-thumb]:rounded-full">
                         {CLICK_SOUND_PRESET_META.map((preset) => {
                           const selectedForTarget = polyMode
                             ? resolveClickSoundForPolyVoice(
@@ -7549,7 +7549,8 @@ export default function App() {
           </button>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-1">
+        <div className={`flex min-h-0 flex-1 flex-col gap-1 ${isClickSoundSelectorOpen ? 'justify-end' : ''}`}>
+        {!isClickSoundSelectorOpen ? (
         <SequencerGrid
           gridRef={gridRef}
           bars={bars}
@@ -7582,6 +7583,7 @@ export default function App() {
           sequencerGridRowActionsRef={sequencerGridRowActionsRef}
           setRowElStable={setRowElStable}
         />
+        ) : null}
 
         {/* Bottom Actions */}
         <div className="flex h-[60px] shrink-0 gap-3">
