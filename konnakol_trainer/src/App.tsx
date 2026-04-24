@@ -6772,7 +6772,6 @@ export default function App() {
   const canShowDefaultTaInNormal =
     accentMapVersion === 1 ||
     firstBeatDingSuppressedRows.size > 0 ||
-    hasAnyVisibleAccentOutsideFirstBeat ||
     hasAnyExplicitTaOutsideFirstBeat;
   sequencerGridRowActionsRef.current = {
     isHoldingRef,

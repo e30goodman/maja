@@ -59,9 +59,11 @@ export function deriveTaNormalVisibility(input: TaVisibilityInput): TaVisibility
 	const isTaGridAtDefault =
 		input.accentMapVersion === 0 &&
 		input.firstBeatDingSuppressedRows.size === 0 &&
-		!hasAnyVisibleAccentOutsideFirstBeat &&
 		!hasAnyExplicitTaOutsideFirstBeat;
-	const canShowDefaultTaInNormal = input.accentMapVersion === 1 || !isTaGridAtDefault;
+	const canShowDefaultTaInNormal =
+		input.accentMapVersion === 1 ||
+		input.firstBeatDingSuppressedRows.size > 0 ||
+		hasAnyExplicitTaOutsideFirstBeat;
 	return {
 		hasAnyVisibleAccentOutsideFirstBeat,
 		hasAnyExplicitTaOutsideFirstBeat,
