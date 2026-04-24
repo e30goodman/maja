@@ -143,6 +143,20 @@ function normalizeClickSoundByPolyVoice(raw: unknown): ClickSoundByPolyVoice {
 	return out;
 }
 
+function parsePolyVoiceGainsFromUnknown(raw: unknown): PolyVoiceGainMap | undefined {
+	if (!raw || typeof raw !== 'object') return undefined;
+	const parsed = raw as Partial<Record<number, unknown>>;
+	const next: PolyVoiceGainMap = { ...DEFAULT_POLY_VOICE_GAINS };
+	let hasAny = false;
+	for (const lane of [0, 1, 2] as const) {
+		const v = Number(parsed?.[lane]);
+		if (!Number.isFinite(v)) continue;
+		next[lane] = Math.max(0, Math.min(1.6, v));
+		hasAny = true;
+	}
+	return hasAny ? next : undefined;
+}
+
 function resolveClickSoundForPolyVoice(
 	voice: number,
 	isPoly: boolean,
@@ -2054,6 +2068,7 @@ function createEmptySnapshot() {
 		clickSound: 'classic' as ClickSoundPreset,
 		/** Poly: override пресета по голосу (0..3); отсутствие ключа = наследует `clickSound`. */
 		clickSoundByPolyVoice: {} as ClickSoundByPolyVoice,
+		polyVoiceGains: { ...DEFAULT_POLY_VOICE_GAINS },
 		/** Верхняя панель: темп + слайдеры (Chevron) развёрнута. */
 		panelExpanded: false,
 		/** Ряд r: длительность клетки от PULSE_METER_BASE_SYLLABLES, не от customSyllables[r]. */
@@ -2220,6 +2235,8 @@ function parseSnapshotRow(raw: unknown) {
 	else if (o.clickSound === 'old-school') d.clickSound = 'oldschool';
 	else d.clickSound = 'classic';
 	d.clickSoundByPolyVoice = normalizeClickSoundByPolyVoice(o.clickSoundByPolyVoice);
+	const parsedPolyVoiceGains = parsePolyVoiceGainsFromUnknown(o.polyVoiceGains);
+	if (parsedPolyVoiceGains) d.polyVoiceGains = parsedPolyVoiceGains;
 	const parsedBus = parseClickBusBalanceFromUnknown(o.clickBusBalance);
 	if (parsedBus) (d as AppSnapshot).clickBusBalance = parsedBus;
 	const parsedBusByPreset = parseClickBusBalanceByPresetFromUnknown(o.clickBusBalanceByPreset);
@@ -2408,6 +2425,9 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		chaosLevel: s.chaosLevel,
 		clickSound: s.clickSound,
 		clickSoundByPolyVoice: normalizeClickSoundByPolyVoice(s.clickSoundByPolyVoice),
+		polyVoiceGains: parsePolyVoiceGainsFromUnknown((s as { polyVoiceGains?: unknown }).polyVoiceGains) ?? {
+			...DEFAULT_POLY_VOICE_GAINS,
+		},
 		panelExpanded: s.panelExpanded,
 		pulseMeterUnlinked: Object.fromEntries(
 			Object.entries(s.pulseMeterUnlinked || {}).filter(([, v]) => v),
@@ -3198,6 +3218,9 @@ export default function App() {
     normalizeClickSoundByPolyVoice((seed as { clickSoundByPolyVoice?: unknown }).clickSoundByPolyVoice),
   );
   const [polyVoiceGains, setPolyVoiceGains] = useState<PolyVoiceGainMap>(() => {
+    const seedSnap = initialBoot.snapshots[initialBoot.activeSnapshot] as { polyVoiceGains?: unknown };
+    const fromSnapshot = parsePolyVoiceGainsFromUnknown(seedSnap.polyVoiceGains);
+    if (fromSnapshot) return fromSnapshot;
     try {
       const raw = localStorage.getItem(POLY_VOICE_GAINS_STORAGE_KEY);
       if (!raw) return { ...DEFAULT_POLY_VOICE_GAINS };
@@ -4324,6 +4347,7 @@ export default function App() {
     chaosLevel: chaosLevelRef.current,
     clickSound: clickSoundRef.current,
     clickSoundByPolyVoice: { ...clickSoundByPolyVoiceRef.current },
+    polyVoiceGains: { ...polyVoiceGainsRef.current },
     clickBusBalance: getClickPresetBusGainsForVoicePreset(
       clickPresetBusGainsByVoiceRef.current,
       clickPresetBusGainsRef.current,
@@ -5001,6 +5025,7 @@ export default function App() {
           chaosLevel: chaosLevelRef.current,
           clickSound,
           clickSoundByPolyVoice,
+          polyVoiceGains,
           clickBusBalance: getClickPresetBusGainsForVoicePreset(
             clickPresetBusGainsByVoice,
             clickPresetBusGains,
@@ -5057,6 +5082,7 @@ export default function App() {
     randomBarSpeed,
     clickSound,
     clickSoundByPolyVoice,
+    polyVoiceGains,
     clickPresetBusGains,
     clickPresetBusGainsByVoice,
     isPanelExpanded,
@@ -5175,6 +5201,11 @@ export default function App() {
     );
     clickSoundByPolyVoiceRef.current = { ...nextClickByVoice };
     setClickSoundByPolyVoice(nextClickByVoice);
+    const nextPolyVoiceGains = parsePolyVoiceGainsFromUnknown((snap as { polyVoiceGains?: unknown }).polyVoiceGains);
+    if (nextPolyVoiceGains) {
+      polyVoiceGainsRef.current = { ...nextPolyVoiceGains };
+      setPolyVoiceGains(nextPolyVoiceGains);
+    }
     const busByPresetFromSnap = parseClickBusBalanceByPresetFromUnknown(
       (snap as AppSnapshot).clickBusBalanceByPreset,
     );
@@ -5292,6 +5323,10 @@ export default function App() {
     customSubdivisions: { ...s.customSubdivisions },
     panelExpanded: s.panelExpanded === true,
     clickSoundByPolyVoice: normalizeClickSoundByPolyVoice(s.clickSoundByPolyVoice),
+    polyVoiceGains:
+      parsePolyVoiceGainsFromUnknown((s as { polyVoiceGains?: unknown }).polyVoiceGains) ?? {
+        ...DEFAULT_POLY_VOICE_GAINS,
+      },
     pulseMeterUnlinked: { ...(s.pulseMeterUnlinked || {}) },
     frozenScale: typeof s.frozenScale === 'number' && s.frozenScale >= 1 ? s.frozenScale : null,
     polyMode: s.polyMode === true,
