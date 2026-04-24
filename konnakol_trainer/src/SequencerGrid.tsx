@@ -485,6 +485,7 @@ const SequencerGridRow = React.memo(
 						const showLegacyDefaultInNormal =
 							cIdx === 0 &&
 							!isDead &&
+							accentMapVersion === 0 &&
 							forceFirstBeatEditorFrames &&
 							canShowDefaultTaInNormal &&
 							!firstBeatRowSuppressed.has(rIdx);

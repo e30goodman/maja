@@ -2,6 +2,9 @@
 
 Этот документ фиксирует текущую рабочую логику `Ta`/акцентов и все каверзные моменты, которые уже ломались.
 
+См. также практический playbook с отладочными методами:
+- `TA_DEBUG_METHODS.md`
+
 Цель: чтобы при следующих правках не запутаться и не получить регрессы вида:
 - "невидимые Ta" в полиритме,
 - расхождение UI vs audio,
@@ -371,3 +374,41 @@ Resize-контракт:
 4. Для регрессии обязательно гонять кейс:
    - `accentMapVersion=1`, `on0Ding=false`, `fa=true`, `supRow=false`,
    - ожидание: `c0` звучит по policy `legacy`/lane-rule, а не гасится как `explicit_ta_only`.
+
+---
+
+## 15) Инцидент: `alt` на `c0` включает белые Ta-рамки на всех тактах
+
+### 15.1 Симптом
+
+- В normal mode при постановке `alt` (purple accent) на первую клетку такта (`c0`) начинали гореть белые Ta-индикации (`c0`) на всех строках.
+- После снятия этого `alt` белые рамки визуально могли не исчезать (ложное "залипание" reveal).
+
+### 15.2 Root cause
+
+Рендер-ветка normal-mode в `SequencerGrid` позволяла legacy-показ `c0` без защиты по `accentMapVersion`:
+
+- `showLegacyDefaultInNormal` вычислялся при `canShowDefaultTaInNormal=true`,
+- при этом отсутствовал guard `accentMapVersion === 0`,
+- и в состоянии `accentMapVersion=1` (после touch на `c0`) это включало белую рамку `c0` для всех строк.
+
+Итог: purple-событие на `c0` ошибочно влияло на white-layer reveal в normal mode.
+
+### 15.3 Решение
+
+В `SequencerGrid` для `showLegacyDefaultInNormal` восстановлен guard:
+
+- `accentMapVersion === 0`
+
+То есть legacy default-рамка `c0` в normal mode не должна отображаться в состоянии "edited accent map", если для этого нет отдельного валидного Ta-основания.
+
+### 15.4 Как избегать
+
+1. Для normal `c0` проверять отдельно:
+   - purple accent intent (`isAccent`),
+   - white Ta intent (`isTaDing` / default first-beat policy).
+2. Не допускать, чтобы один `c0`-tap в accent-layer автоматически поднимал white reveal для всех строк.
+3. Держать `showLegacyDefaultInNormal` под явным контрактом (включая `accentMapVersion` gate) и покрывать регрессией:
+   - поставить `alt` на `c0`,
+   - снять `alt`,
+   - убедиться, что белые рамки `c0` не "залипают" глобально.
