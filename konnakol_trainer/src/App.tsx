@@ -343,10 +343,13 @@ const CLICK_ENV_ATTACK_SEC = 0.002;
 const CLICK_LAYER_VOLUME_GATE = 0.001;
 const CLICK_DECAY_MIN_SEC = 0.001;
 const CLICK_DECAY_MAX_SEC = 3;
-/** When true, each grid sub-hit reads gain refs just before sound time so slider / bus trims react immediately. */
-const AUDIO_SCHEDULER_DEFER_SUB_HIT = true;
-/** How far ahead of `subTime` we run the deferred emit (smaller = fresher refs, too small risks dropouts). */
-const AUDIO_DEFER_SUB_HIT_LEAD_SEC = 0.0008;
+const HYBRID_NEAR_HIT_MIN_MS = 8;
+const HYBRID_NEAR_HIT_MAX_MS = 35;
+const HYBRID_TAIL_MIN_MS = 120;
+const HYBRID_TAIL_MAX_MS = 220;
+const HYBRID_PENDING_DOIGR_LIMIT_MS = 10;
+const HYBRID_MODE_MIN_HOLD_FLOOR_MS = 20;
+const HYBRID_LIVE_WATCHDOG_MS = 800;
 const AUDIO_TIMING_METRICS_ENABLED = true;
 const AUDIO_TIMING_METRICS_LOG_EVERY_MS = 15000;
 const DEFAULT_SCHEDULER_PROFILE: MetraSchedulerProfile = 'safe';
@@ -366,6 +369,13 @@ type AudioTimingMetrics = {
 		mono: number[];
 		poly: number[];
 	};
+	totalSubHitCount: number;
+	deferSubHitCount: number;
+	liveWindowActiveMs: number;
+	modeSwitchCount: number;
+	flapCount: number;
+	deferCanceledCount: number;
+	deferRescheduledCount: number;
 	lastLogAtMs: number;
 };
 
@@ -380,6 +390,13 @@ function makeAudioTimingMetrics(): AudioTimingMetrics {
 		maxLatenessSec: 0,
 		maxLagSec: 0,
 		latenessSamples: { mono: [], poly: [] },
+		totalSubHitCount: 0,
+		deferSubHitCount: 0,
+		liveWindowActiveMs: 0,
+		modeSwitchCount: 0,
+		flapCount: 0,
+		deferCanceledCount: 0,
+		deferRescheduledCount: 0,
 		lastLogAtMs: 0,
 	};
 }
@@ -389,6 +406,12 @@ function percentile(sortedValues: number[], p: number): number {
 	const idx = Math.min(sortedValues.length - 1, Math.max(0, Math.floor((sortedValues.length - 1) * p)));
 	return sortedValues[idx]!;
 }
+
+type PendingGridDeferredEvent = {
+	id: number;
+	targetTime: number;
+	fire: () => void;
+};
 
 type ClickSoundPreset =
 	| 'classic'
@@ -3571,19 +3594,26 @@ export default function App() {
   const polyClickSlotsRef = useRef<Set<number>>(new Set());
   /** Poly: независимые sub_legacy-линии (см. `polySubLegacyScheduler.ts`). */
   const polySubLegacyRef = useRef<PolySubLegacyScheduler | null>(null);
-  /** Таймеры отложенных щелчков (см. GRID_CLICK_*): сброс при стопе / превью / старте. */
-  const pendingGridClickTimerIdsRef = useRef<number[]>([]);
+  /** Таймеры отложенных щелчков (hybrid live-touch defer): сброс при стопе / превью / старте. */
+  const pendingGridClickDeferredRef = useRef<PendingGridDeferredEvent[]>([]);
   /** playTwoBars preview: emit разрешён без isPlaying. */
   const gridPreviewAudioActiveRef = useRef(false);
   const schedulerProfileRef = useRef<MetraSchedulerProfile>(DEFAULT_SCHEDULER_PROFILE);
   const schedulerConfigRef = useRef(getMetraSchedulerConfig(DEFAULT_SCHEDULER_PROFILE));
   const schedulerSafeProfileEscalationsRef = useRef(0);
   const audioTimingMetricsRef = useRef<AudioTimingMetrics>(makeAudioTimingMetrics());
+  const liveControlActiveRef = useRef(false);
+  const liveControlUntilRef = useRef(0);
+  const liveControlWatchdogTimerRef = useRef<number | null>(null);
+  const hybridModeRef = useRef<'stable' | 'live'>('stable');
+  const hybridModeLockUntilRef = useRef(0);
+  const liveWindowStartedAtRef = useRef<number | null>(null);
+  const latestSubStepSecRef = useRef(60 / Math.max(1, tempo));
   const clearPendingGridClickTimers = () => {
-    for (const id of pendingGridClickTimerIdsRef.current) {
-      window.clearTimeout(id);
+    for (const pending of pendingGridClickDeferredRef.current) {
+      window.clearTimeout(pending.id);
     }
-    pendingGridClickTimerIdsRef.current = [];
+    pendingGridClickDeferredRef.current = [];
   };
   const sequencerGridRowActionsRef = useRef<SequencerGridRowActions | null>(null);
   const nextNoteTimeRef = useRef(0);
@@ -3670,6 +3700,91 @@ export default function App() {
     startY: number;
     rect: { left: number; right: number; top: number; bottom: number };
   } | null>(null);
+
+  const accumulateLiveWindowMetrics = useCallback((nowMs: number) => {
+    const startedAt = liveWindowStartedAtRef.current;
+    if (startedAt === null) return;
+    if (nowMs <= startedAt) return;
+    audioTimingMetricsRef.current.liveWindowActiveMs += nowMs - startedAt;
+    liveWindowStartedAtRef.current = nowMs;
+  }, []);
+
+  const endLiveControlWindow = useCallback(() => {
+    const nowMs = performance.now();
+    liveControlActiveRef.current = false;
+    const tailMs = Math.max(
+      HYBRID_TAIL_MIN_MS,
+      Math.min(HYBRID_TAIL_MAX_MS, 0.8 * latestSubStepSecRef.current * 1000),
+    );
+    liveControlUntilRef.current = nowMs + tailMs;
+    if (liveControlWatchdogTimerRef.current !== null) {
+      window.clearTimeout(liveControlWatchdogTimerRef.current);
+      liveControlWatchdogTimerRef.current = null;
+    }
+    accumulateLiveWindowMetrics(nowMs);
+  }, [accumulateLiveWindowMetrics]);
+
+  const beginLiveControlWindow = useCallback(() => {
+    const nowMs = performance.now();
+    liveControlActiveRef.current = true;
+    liveControlUntilRef.current = nowMs + HYBRID_TAIL_MAX_MS;
+    if (liveWindowStartedAtRef.current === null) {
+      liveWindowStartedAtRef.current = nowMs;
+    }
+    if (liveControlWatchdogTimerRef.current !== null) {
+      window.clearTimeout(liveControlWatchdogTimerRef.current);
+    }
+    liveControlWatchdogTimerRef.current = window.setTimeout(() => {
+      endLiveControlWindow();
+    }, HYBRID_LIVE_WATCHDOG_MS);
+  }, [endLiveControlWindow]);
+
+  useEffect(() => {
+    return () => {
+      if (liveControlWatchdogTimerRef.current !== null) {
+        window.clearTimeout(liveControlWatchdogTimerRef.current);
+        liveControlWatchdogTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const registerModeSwitch = useCallback((nextMode: 'stable' | 'live', nowMs: number) => {
+    if (hybridModeRef.current === nextMode) return;
+    hybridModeRef.current = nextMode;
+    hybridModeLockUntilRef.current =
+      nowMs + Math.max(HYBRID_MODE_MIN_HOLD_FLOOR_MS, schedulerConfigRef.current.lookaheadMs);
+    audioTimingMetricsRef.current.modeSwitchCount += 1;
+    if (nextMode === 'stable') {
+      accumulateLiveWindowMetrics(nowMs);
+      liveWindowStartedAtRef.current = null;
+    } else if (liveWindowStartedAtRef.current === null) {
+      liveWindowStartedAtRef.current = nowMs;
+    }
+  }, [accumulateLiveWindowMetrics]);
+
+  const settleDeferredQueueForStable = useCallback(() => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    const nowSec = ctx.currentTime;
+    const keep: PendingGridDeferredEvent[] = [];
+    const safetyLeadSec = schedulerConfigRef.current.safetyLeadSec;
+    for (const pending of pendingGridClickDeferredRef.current) {
+      const remainingMs = (pending.targetTime - nowSec) * 1000;
+      if (remainingMs <= HYBRID_PENDING_DOIGR_LIMIT_MS) {
+        keep.push(pending);
+        continue;
+      }
+      window.clearTimeout(pending.id);
+      audioTimingMetricsRef.current.deferCanceledCount += 1;
+      if (pending.targetTime > nowSec + safetyLeadSec) {
+        pending.fire();
+        audioTimingMetricsRef.current.deferRescheduledCount += 1;
+      } else {
+        recordAudioDroppedEvent();
+      }
+    }
+    pendingGridClickDeferredRef.current = keep;
+  }, []);
 
   useEffect(() => { barsRef.current = bars; }, [bars]);
   useEffect(() => { syllablesRef.current = syllables; }, [syllables]);
@@ -4545,11 +4660,30 @@ export default function App() {
     const onVis = () => {
       if (document.visibilityState === 'hidden') {
         onWindowPointerEndCaptureRef.current();
+        endLiveControlWindow();
       }
     };
     document.addEventListener('visibilitychange', onVis);
     return () => document.removeEventListener('visibilitychange', onVis);
-  }, []);
+  }, [endLiveControlWindow]);
+
+  useEffect(() => {
+    const onPointerEnd = () => endLiveControlWindow();
+    const onBlur = () => endLiveControlWindow();
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') endLiveControlWindow();
+    };
+    window.addEventListener('pointerup', onPointerEnd, true);
+    window.addEventListener('pointercancel', onPointerEnd, true);
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('keydown', onEsc, true);
+    return () => {
+      window.removeEventListener('pointerup', onPointerEnd, true);
+      window.removeEventListener('pointercancel', onPointerEnd, true);
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('keydown', onEsc, true);
+    };
+  }, [endLiveControlWindow]);
 
   const getSnapshotPayloadForSlotExport = (slot: number): ReturnType<typeof createEmptySnapshot> => {
     if (activeSnapshotRef.current === slot) {
@@ -5346,6 +5480,8 @@ export default function App() {
     };
     const mono = summarize(metrics.latenessSamples.mono);
     const poly = summarize(metrics.latenessSamples.poly);
+    const deferRatio =
+      metrics.totalSubHitCount > 0 ? metrics.deferSubHitCount / metrics.totalSubHitCount : 0;
     console.info('[audio-metrics]', {
       profile: schedulerProfileRef.current,
       scheduledEvents: metrics.scheduledEvents,
@@ -5356,6 +5492,14 @@ export default function App() {
       maxLagMs: metrics.maxLagSec * 1000,
       mono,
       poly,
+      deferSubHitCount: metrics.deferSubHitCount,
+      totalSubHitCount: metrics.totalSubHitCount,
+      deferRatio,
+      liveWindowActiveMs: metrics.liveWindowActiveMs,
+      modeSwitchCount: metrics.modeSwitchCount,
+      flapCount: metrics.flapCount,
+      deferCanceledCount: metrics.deferCanceledCount,
+      deferRescheduledCount: metrics.deferRescheduledCount,
     });
     metrics.lastLogAtMs = nowMs;
     metrics.latenessSamples.mono = [];
@@ -5932,21 +6076,62 @@ export default function App() {
         }
       };
 
+      const resolveHybridMode = (ctx: AudioContext, subTime: number): 'stable' | 'live' => {
+        const nowPerf = performance.now();
+        const deltaMs = (subTime - ctx.currentTime) * 1000;
+        if (!Number.isFinite(deltaMs) || !Number.isFinite(subDuration) || subDuration <= 0) {
+          registerModeSwitch('stable', nowPerf);
+          settleDeferredQueueForStable();
+          return 'stable';
+        }
+        const nearHitMs = Math.max(
+          HYBRID_NEAR_HIT_MIN_MS,
+          Math.min(HYBRID_NEAR_HIT_MAX_MS, 0.35 * subDuration * 1000),
+        );
+        const liveWindowActive = liveControlActiveRef.current || nowPerf < liveControlUntilRef.current;
+        const wantsLive = liveWindowActive && deltaMs > 0 && deltaMs <= nearHitMs;
+        const lockUntil = hybridModeLockUntilRef.current;
+        if (hybridModeRef.current === 'live' && !wantsLive && nowPerf < lockUntil) {
+          audioTimingMetricsRef.current.flapCount += 1;
+          return 'live';
+        }
+        if (hybridModeRef.current === 'stable' && wantsLive && nowPerf < lockUntil) {
+          audioTimingMetricsRef.current.flapCount += 1;
+          return 'stable';
+        }
+        if (wantsLive) {
+          registerModeSwitch('live', nowPerf);
+          return 'live';
+        }
+        registerModeSwitch('stable', nowPerf);
+        settleDeferredQueueForStable();
+        return 'stable';
+      };
+
       for (let sub = 0; sub < subdivs; sub++) {
+        audioTimingMetricsRef.current.totalSubHitCount += 1;
         const subTime = time + sub * subDuration;
-        if (AUDIO_SCHEDULER_DEFER_SUB_HIT) {
-          const ctx = audioCtxRef.current;
-          if (!ctx) continue;
-          const delayMs = Math.max(0, (subTime - ctx.currentTime - AUDIO_DEFER_SUB_HIT_LEAD_SEC) * 1000);
+        const ctx = audioCtxRef.current;
+        if (!ctx) continue;
+        latestSubStepSecRef.current = subDuration;
+        const mode = resolveHybridMode(ctx, subTime);
+        if (mode === 'live') {
+          audioTimingMetricsRef.current.deferSubHitCount += 1;
+          const delayMs = Math.max(0, (subTime - ctx.currentTime - schedulerConfigRef.current.safetyLeadSec) * 1000);
           const subI = sub;
           const subTimeI = subTime;
-          const id = window.setTimeout(() => {
+          const timer = window.setTimeout(() => {
+            pendingGridClickDeferredRef.current = pendingGridClickDeferredRef.current.filter((p) => p.id !== timer);
             emitGridSubAudio(subI, subTimeI);
           }, delayMs);
-          pendingGridClickTimerIdsRef.current.push(id);
-          continue;
+          pendingGridClickDeferredRef.current.push({
+            id: timer,
+            targetTime: subTimeI,
+            fire: () => emitGridSubAudio(subI, subTimeI),
+          });
+        } else {
+          emitGridSubAudio(sub, subTime);
         }
-        emitGridSubAudio(sub, subTime);
       }
       if (!dictantModeRef.current || cIdx === 0) {
         insertPlayheadSorted(playheadQueueRef.current, {
@@ -6196,6 +6381,7 @@ export default function App() {
       previewResetTimerRef.current = null;
     }
     if (isPlaying) {
+      endLiveControlWindow();
       setIsPlaying(false);
       isPlayingRef.current = false;
       logAudioTimingMetricsIfDue(Number.MAX_SAFE_INTEGER);
@@ -6270,6 +6456,7 @@ export default function App() {
         audioCtxRef.current = null;
       }
     } else {
+      endLiveControlWindow();
       if (isTaEditorModeRef.current || isDeadCellsEditorModeRef.current) return;
       if (!isClickSoundSelectorOpen) {
         if (!panelCollapseFrozenRef.current) {
@@ -6659,8 +6846,8 @@ export default function App() {
               >
                 <div className={`flex flex-col px-1 pb-1 ${isClickSoundSelectorOpen ? 'gap-2' : 'gap-4'}`}>
                   {isClickSoundSelectorOpen ? (
-                    <div className="bg-[#0b101e] border border-[#2f4066]/50 rounded-xl p-3 flex flex-col gap-3 min-h-[400px]">
-                      <div className="flex items-center justify-between">
+                    <div className="bg-[#0b101e] border border-[#2f4066]/50 rounded-xl p-3 flex flex-col gap-3 min-h-[400px] relative">
+                      <div className="absolute left-3 right-3 top-3 flex items-center justify-between">
                         <button
                           type="button"
                           onClick={() => setIsClickSoundSelectorOpen(false)}
@@ -6673,7 +6860,7 @@ export default function App() {
                       </div>
                       <div className="flex items-start gap-2 w-full min-w-0 shrink-0 justify-between">
                         {polyMode ? (
-                          <div className="flex items-center gap-1 shrink-0 pt-0.5">
+                          <div className="flex items-center gap-1 shrink-0 translate-y-12">
                             {([0, 1, 2] as const).filter((v) => v < (polyVoices === 3 ? 3 : 2)).map((voiceIdx) => {
                               const isActive = activeClickVoiceTarget === voiceIdx;
                               const label = `V${voiceIdx + 1}`;
@@ -6717,8 +6904,8 @@ export default function App() {
                             {
                               key: 'accent',
                               aria: 'Accent — accented syllable (white rim)',
-                              swatchClass: `inline-block h-4 min-w-[18px] shrink-0 rounded-md border-2 box-border bg-purple-900/40 border-purple-500/50 ring-2 ring-inset ring-white/90 ${
-                                lowPerfMode ? '' : 'shadow-[0_0_8px_rgba(255,255,255,0.18)]'
+                              swatchClass: `inline-block h-4 min-w-[18px] shrink-0 rounded-md border-2 box-border bg-[#4b5563] border-white/90 ${
+                                lowPerfMode ? '' : 'shadow-[0_1px_4px_rgba(255,255,255,0.18)]'
                               }`,
                             },
                             {
@@ -6759,6 +6946,7 @@ export default function App() {
                                     step={0.01}
                                     value={gRow[key]}
                                     onChange={(e) => {
+                                      beginLiveControlWindow();
                                       const raw = Number(e.target.value);
                                       const nextVal = Number.isFinite(raw)
                                         ? Math.max(0, Math.min(1.6, raw))
@@ -6774,6 +6962,7 @@ export default function App() {
                                     }}
                                     onDoubleClick={(e) => {
                                       e.preventDefault();
+                                      beginLiveControlWindow();
                                       setClickPresetBusGains((prev) => {
                                         const cur = getClickPresetBusGainsForPreset(prev, busPreset);
                                         const row: ClickPresetBusGains = { ...cur, [key]: 1 };
@@ -6783,6 +6972,10 @@ export default function App() {
                                       });
                                       scheduleClickPresetBusTwoBarsPreview();
                                     }}
+                                    onPointerDown={() => beginLiveControlWindow()}
+                                    onPointerUp={() => endLiveControlWindow()}
+                                    onPointerCancel={() => endLiveControlWindow()}
+                                    onPointerLeave={() => endLiveControlWindow()}
                                     className={busRowSliderClass}
                                   />
                                   <span className="w-7 shrink-0" aria-hidden />
@@ -6797,6 +6990,7 @@ export default function App() {
                                   step={0.01}
                                   value={polyVoiceGains[volVoiceIdx] ?? 1}
                                   onChange={(e) => {
+                                    beginLiveControlWindow();
                                     const raw = Number(e.target.value);
                                     const next = Number.isFinite(raw) ? Math.max(0, Math.min(1.6, raw)) : 1;
                                     setPolyVoiceGains((prev) => {
@@ -6809,6 +7003,7 @@ export default function App() {
                                     });
                                   }}
                                   onDoubleClick={() => {
+                                    beginLiveControlWindow();
                                     setPolyVoiceGains((prev) => {
                                       const updated: PolyVoiceGainMap = {
                                         ...prev,
@@ -6819,6 +7014,7 @@ export default function App() {
                                     });
                                   }}
                                   onPointerDown={() => {
+                                    beginLiveControlWindow();
                                     if (polyVoiceGainHoldTimerRef.current !== null) {
                                       window.clearTimeout(polyVoiceGainHoldTimerRef.current);
                                       polyVoiceGainHoldTimerRef.current = null;
@@ -6836,18 +7032,21 @@ export default function App() {
                                     }, 2000);
                                   }}
                                   onPointerUp={() => {
+                                    endLiveControlWindow();
                                     if (polyVoiceGainHoldTimerRef.current !== null) {
                                       window.clearTimeout(polyVoiceGainHoldTimerRef.current);
                                       polyVoiceGainHoldTimerRef.current = null;
                                     }
                                   }}
                                   onPointerLeave={() => {
+                                    endLiveControlWindow();
                                     if (polyVoiceGainHoldTimerRef.current !== null) {
                                       window.clearTimeout(polyVoiceGainHoldTimerRef.current);
                                       polyVoiceGainHoldTimerRef.current = null;
                                     }
                                   }}
                                   onPointerCancel={() => {
+                                    endLiveControlWindow();
                                     if (polyVoiceGainHoldTimerRef.current !== null) {
                                       window.clearTimeout(polyVoiceGainHoldTimerRef.current);
                                       polyVoiceGainHoldTimerRef.current = null;
@@ -7348,6 +7547,7 @@ export default function App() {
                 onBeginDrag={() => {
                   barsSliderDraggingRef.current = true;
                   attachSliderWindowListeners();
+                  beginLiveControlWindow();
                 }}
                 onLiveChange={(next) => {
                   applyBarsWithPotatoFreeze(next);
@@ -7392,6 +7592,7 @@ export default function App() {
                       onBeginDrag={() => {
                         syllablesSliderDraggingRef.current = true;
                         attachSliderWindowListeners();
+                        beginLiveControlWindow();
                       }}
                       onLiveChange={(next) => {
                         applyGlobalSyllablesFromSlider(String(next));

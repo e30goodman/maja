@@ -6659,8 +6659,8 @@ export default function App() {
               >
                 <div className={`flex flex-col px-1 pb-1 ${isClickSoundSelectorOpen ? 'gap-2' : 'gap-4'}`}>
                   {isClickSoundSelectorOpen ? (
-                    <div className="bg-[#0b101e] border border-[#2f4066]/50 rounded-xl p-3 flex flex-col gap-3 min-h-[400px]">
-                      <div className="flex items-center justify-between">
+                    <div className="bg-[#0b101e] border border-[#2f4066]/50 rounded-xl p-3 flex flex-col gap-3 min-h-[400px] relative">
+                      <div className="absolute left-3 right-3 top-3 flex items-center justify-between">
                         <button
                           type="button"
                           onClick={() => setIsClickSoundSelectorOpen(false)}
@@ -6673,7 +6673,7 @@ export default function App() {
                       </div>
                       <div className="flex items-start gap-2 w-full min-w-0 shrink-0 justify-between">
                         {polyMode ? (
-                          <div className="flex items-center gap-1 shrink-0 pt-0.5">
+                          <div className="flex items-center gap-1 shrink-0 translate-y-12">
                             {([0, 1, 2] as const).filter((v) => v < (polyVoices === 3 ? 3 : 2)).map((voiceIdx) => {
                               const isActive = activeClickVoiceTarget === voiceIdx;
                               const label = `V${voiceIdx + 1}`;
@@ -6717,8 +6717,8 @@ export default function App() {
                             {
                               key: 'accent',
                               aria: 'Accent — accented syllable (white rim)',
-                              swatchClass: `inline-block h-4 min-w-[18px] shrink-0 rounded-md border-2 box-border bg-purple-900/40 border-purple-500/50 ring-2 ring-inset ring-white/90 ${
-                                lowPerfMode ? '' : 'shadow-[0_0_8px_rgba(255,255,255,0.18)]'
+                              swatchClass: `inline-block h-4 min-w-[18px] shrink-0 rounded-md border-2 box-border bg-[#4b5563] border-white/90 ${
+                                lowPerfMode ? '' : 'shadow-[0_1px_4px_rgba(255,255,255,0.18)]'
                               }`,
                             },
                             {
