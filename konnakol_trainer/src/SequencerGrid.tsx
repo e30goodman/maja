@@ -276,6 +276,7 @@ const SequencerGridRow = React.memo(
 		);
 		const accentBits = accentSig;
 		const taDingBits = taDingSig;
+		// FRAGILE — Ta white rim / poly vs App.tsx taDingKeysUi + forceFirstBeatEditorFrames; easy visual/audio split.
 		/** Явный Ta не на первой доле — при legacy не рисуем «фантом» белой рамки на col 0 только из-за forceFirstBeatEditorFrames. */
 		const rowHasExplicitTaDingPastCol0 = useMemo(
 			() => taDingSig.length > 1 && taDingSig.slice(1).includes('1'),
@@ -469,6 +470,7 @@ const SequencerGridRow = React.memo(
 						const isDead = typeof deadStart === 'number' ? cIdx >= deadStart : cIdx >= rowSylls;
 						const isAccent = accentBits[cIdx] === '1';
 						const isTaDing = taDingBits[cIdx] === '1';
+						// FRAGILE — showEditorDing / showNonEditorDing gate all white-ring styling; must stay aligned with emitGridSubAudio Ta paths.
 						/** В Ta-редакторе белая рамка только по явному ключу taDing — без автоподсветки первой доли. */
 						const showEditorDing = isTaDing;
 						const showNonEditorDing =

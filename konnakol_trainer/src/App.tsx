@@ -298,6 +298,12 @@ const TEMPO_MANUAL_MAX_MOVE_PX = 14;
  * ЗАПРЕЩЕНО ТРОГАТЬ СУКА
  * (маркер, regex, поля, p1/p2/p3, 0xFE, V2, legacy — encodeSnapshotClipboard / tryDecodeSnapshotClipboard / packGridTokenPacked)
  */
+/**
+ * FRAGILE — compact clipboard snapshot format (high regression risk).
+ * Do not change marker string, SNAPSHOT_CLIPBOARD_MARKER_REGEX character class, dot-separated field
+ * order/count, p1/p2/p3 binary layout in pack/unpack, or flag bit meanings without a migration plan.
+ * Reference: konnakol_trainer/docs/reserve-hub/01-snapshot-clipboard-cipher.md
+ */
 /** Clipboard export: kawaii magic marker for compact preset payload. */
 const SNAPSHOT_CLIPBOARD_MARKER = '(⁠ʘ⁠ᴗ⁠ʘ⁠)⁠♪:';
 /** Accept marker with/without zero-width separators from messengers. */
@@ -1655,6 +1661,7 @@ function readU16(bytes: Uint8Array, offset: number): number | null {
 	return (bytes[offset]! << 8) | bytes[offset + 1]!;
 }
 
+/** FRAGILE — binary grid blob; any field order/length/version change breaks paste for old shares. */
 function packGridTokenPacked(
 	snapshot: ReturnType<typeof createEmptySnapshot>,
 	cells: Array<{ key: string }>,
@@ -1748,6 +1755,7 @@ function packGridTokenPacked(
 	return `${prefix}${toBase64Url(new Uint8Array(out))}`;
 }
 
+/** FRAGILE — must stay symmetric to packGridTokenPacked; invalid lengths silently corrupt grids. */
 function unpackGridTokenPacked(
 	token: string,
 	d: ReturnType<typeof createEmptySnapshot>,
@@ -1859,6 +1867,7 @@ function unpackGridTokenPacked(
 	return true;
 }
 
+/** FRAGILE — single integer in clipboard string; bit positions are part of the public wire format. */
 function buildSnapshotFlags(s: ReturnType<typeof createEmptySnapshot>): number {
 	let flags = 0;
 	if (s.randomModeEnabled) flags |= SNAPSHOT_FLAG_RANDOM_MODE_ENABLED;
@@ -1876,6 +1885,7 @@ function buildSnapshotFlags(s: ReturnType<typeof createEmptySnapshot>): number {
 	return flags;
 }
 
+/** FRAGILE — inverse of buildSnapshotFlags; bit drift breaks paste, poly voice count, and first-beat Ta. */
 function applySnapshotFlags(flags: number, d: ReturnType<typeof createEmptySnapshot>) {
 	d.randomModeEnabled = Boolean(flags & SNAPSHOT_FLAG_RANDOM_MODE_ENABLED);
 	d.randomPulsation = Boolean(flags & SNAPSHOT_FLAG_RANDOM_PULSATION);
@@ -2281,6 +2291,7 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 	};
 }
 
+/** FRAGILE — clipboard export; poly flatten + gridToken + deadCells + flags must match decode branches. */
 function encodeSnapshotClipboard(s: ReturnType<typeof createEmptySnapshot>): string {
 	const voices = parsePolyVoices(s.polyVoices);
 	const accIn = s.accents;
@@ -2315,6 +2326,7 @@ function encodeSnapshotClipboard(s: ReturnType<typeof createEmptySnapshot>): str
 	return SNAPSHOT_CLIPBOARD_MARKER + compact;
 }
 
+/** FRAGILE — paste/import; keep 7/8/11-part branches and legacy prefixes or users lose presets. */
 function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmptySnapshot> | null {
 	const t = text.trim();
 	const markerMatch = t.match(SNAPSHOT_CLIPBOARD_MARKER_REGEX);
@@ -2547,6 +2559,10 @@ const playSharpClick = (
   voiceRole: 'accent' | 'base' | 'alt' = isChecked ? 'accent' : 'base',
   voiceGainMul = 1,
 ) => {
+  // USER-SOURCE-OF-TRUTH: render only the role explicitly requested by scheduler from user grid state.
+  // #region agent log
+  fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'68dc12'},body:JSON.stringify({sessionId:'68dc12',runId:'pre-fix',hypothesisId:'H1',location:'src/App.tsx:playSharpClick',message:'playSharpClick entry',data:{isChecked,voiceRole,accentOnlyPlayback,soundType},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   const cfg = CLICK_SOUND_LIBRARY[soundType] ?? CLICK_SOUND_LIBRARY.classic;
   const t0 = Math.max(time, ctx.currentTime + AUDIO_START_GUARD_SEC);
   const voiceKey: MetroVoiceKey = voiceRole === 'accent' ? 'accent' : voiceRole === 'alt' ? 'alt' : 'passive';
@@ -2554,6 +2570,9 @@ const playSharpClick = (
   const libLayers = (cfg.layers ?? buildLegacyVoiceLayers(cfg))[voiceKey];
   const cachedForPreset = clickMixerLayerClonesByPresetRef.current[soundType];
   const layers = cachedForPreset?.[voiceKey] ?? libLayers;
+  // #region agent log
+  fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'68dc12'},body:JSON.stringify({sessionId:'68dc12',runId:'pre-fix',hypothesisId:'H2',location:'src/App.tsx:playSharpClick',message:'resolved voice layers',data:{voiceKey,layers:layers.map((l)=>({type:l.type,mute:l.mute===true,solo:l.solo===true,volume:l.params.volume}))},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   const activeLayers = layers.filter(
     (layer) => layer.mute !== true && layer.params.volume > CLICK_LAYER_VOLUME_GATE && layer.type !== 'none',
   );
@@ -3720,6 +3739,7 @@ export default function App() {
     setAccentsByLane(next);
     accentsByLaneRef.current = cloneLaneSetMap(next);
   }, [accents, bars, polyMode, polyVoices]);
+  // FRAGILE — poly Ta lane map: desync from flat taDingKeys breaks grid highlights and pack/paste.
   useEffect(() => {
     if (!polyMode) return;
     const next = distributeSetToLanes(taDingKeys, bars, polyVoices);
@@ -5409,6 +5429,7 @@ export default function App() {
   }
 
   const toggleAccent = useCallback((r: number, c: number) => {
+    // USER-SOURCE-OF-TRUTH: accent map is defined only by explicit user taps on grid cells.
     if (c === 0) setAccentMapVersion(1);
     const key = `${r}-${c}`;
     if (polyModeRef.current) {
@@ -5437,6 +5458,7 @@ export default function App() {
     });
   }, []);
 
+  // FRAGILE — Ta editor + poly lanes + firstBeatDingSuppressedRows; easy to break white rim vs audio.
   const toggleTaDing = useCallback((r: number, c: number) => {
     if (c < 0) return;
     const key = `${r}-${c}`;
@@ -5778,6 +5800,7 @@ export default function App() {
           );
         const deadCut = deadCellsRef.current[rIdx]?.deadStart;
         if (typeof deadCut === 'number' && cIdx >= deadCut) return;
+        // USER-SOURCE-OF-TRUTH: no auto-accent/auto-alt by beat index; only lane/user maps drive voice choice.
         const laneAccents = getLaneAccentsSetRef(rIdx);
         const laneTaDing = getLaneTaSetRef(rIdx);
         const laneFirstBeat = getLaneFirstBeatRef(rIdx);
@@ -5815,7 +5838,10 @@ export default function App() {
         const mainAccentClick = isAccent && (subdivs > 1 || sub === 0);
         const shouldPlayFirstBeatTa =
           isFirstBarCell && fa && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
-        if (shouldPlayFirstBeatTa) {
+        if (shouldPlayFirstBeatTa && !isAccent) {
+          // #region agent log
+          fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'68dc12'},body:JSON.stringify({sessionId:'68dc12',runId:'pre-fix',hypothesisId:'H3',location:'src/App.tsx:scheduleGridCellAtTime',message:'playBarFirstHighClick from first beat Ta',data:{rIdx,cIdx,isAccent,shouldPlayFirstBeatTa},timestamp:Date.now()})}).catch(()=>{});
+          // #endregion
           playBarFirstHighClick(ctx, subTime, soundPreset, gainMulForRole('accent'));
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
@@ -5844,7 +5870,10 @@ export default function App() {
           if (muteMode === 'no_accent_sharp' && mainAccentClick && !isTaFirstBeatArticulation) return false;
           return mainAccentClick;
         })();
-        if (shouldPlayTaDingSound) {
+        if (shouldPlayTaDingSound && !isAccent) {
+          // #region agent log
+          fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'68dc12'},body:JSON.stringify({sessionId:'68dc12',runId:'pre-fix',hypothesisId:'H4',location:'src/App.tsx:scheduleGridCellAtTime',message:'playBarFirstHighClick from Ta cell',data:{rIdx,cIdx,isAccent,shouldPlayTaDingSound,hasTaDingHere},timestamp:Date.now()})}).catch(()=>{});
+          // #endregion
           playBarFirstHighClick(ctx, subTime, soundPreset, gainMulForRole('accent'));
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
@@ -5862,14 +5891,21 @@ export default function App() {
           (playbackMode !== 'all_beats' || dictantActive) &&
           !(shouldPlayTaDingSound && isAccent) &&
           !(shouldPlayFirstBeatTa && isAccent);
-        const voiceRole: 'accent' | 'base' | 'alt' =
-          sharpAsChecked
-            ? 'accent'
-            : shouldPlayFirstBeatTa
-              ? 'base'
-              : shouldPlayTaDingSound
-                ? 'base'
-                : 'base';
+        // USER-SOURCE-OF-TRUTH:
+        // - white frame (Ta) drives ACCENT bus
+        // - purple fill (square accent) drives ALT bus
+        // - plain cell drives PASSIVE bus
+        const hasUserWhiteAccent =
+          shouldPlayFirstBeatTa || shouldPlayTaDingSound || hasTaDingHere;
+        const hasUserPurpleAltAccent = isAccent;
+        const voiceRole: 'accent' | 'base' | 'alt' = hasUserWhiteAccent
+          ? 'accent'
+          : hasUserPurpleAltAccent
+            ? 'alt'
+            : 'base';
+        // #region agent log
+        fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'68dc12'},body:JSON.stringify({sessionId:'68dc12',runId:'pre-fix',hypothesisId:'H5',location:'src/App.tsx:scheduleGridCellAtTime',message:'resolved voiceRole for cell',data:{rIdx,cIdx,isAccent,hasTaDingHere,shouldPlayFirstBeatTa,shouldPlayTaDingSound,voiceRole,sharpAsChecked,playbackMode},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         playSharpClick(
           ctx,
           subTime,
@@ -5879,9 +5915,8 @@ export default function App() {
           voiceRole,
           gainMulForRole(voiceRole),
         );
-        if (sharpAsChecked && playbackMode === 'all_beats' && !shouldPlayFirstBeatTa && !shouldPlayTaDingSound) {
-          playSharpClick(ctx, subTime, false, soundPreset, false, 'alt', gainMulForRole('alt'));
-        }
+        // USER-SOURCE-OF-TRUTH: removed implicit alt-shadow layering on accent hits.
+        // Alt bus can only sound when a caller explicitly requests voiceRole='alt'.
         if (polyModeRef.current) {
           polyClickSlotsRef.current.add(polySlotKey);
         }
@@ -6346,6 +6381,7 @@ export default function App() {
     return out;
   }, [deadCells]);
 
+  // FRAGILE — grid reads flattened lane sets in poly; must match SequencerGrid taDingSig / accents bits.
   const accentsUi = useMemo(
     () => (polyMode ? flattenLaneSetMap(accentsByLane, bars, polyVoices) : accents),
     [polyMode, accentsByLane, accents, bars, polyVoices],
@@ -6369,6 +6405,7 @@ export default function App() {
     }
     return false;
   }, [polyMode, firstBeatAccentByLane, firstBeatAccent, firstBeatEditorSuppressedRowsSorted, taDingKeysUi]);
+  // FRAGILE — legacy hides all Ta keys when global Ta off; poly always shows lane-flattened keys.
   const visibleTaDingKeys = useMemo(() => {
     if (polyMode) return taDingKeysUi;
     return firstBeatAccent ? taDingKeysUi : new Set<string>();
@@ -7641,6 +7678,7 @@ export default function App() {
           </button>
           
           {/* First Beat Accent ("Ta"): тап — глобальный Ta; удерживание — сетка правки Ta без автовключения Ta. */}
+          {/* FRAGILE — bottom Ta control: tap vs hold and poly flushSync lane sync; see docs reserve-hub 02. */}
           <button
             type="button"
             disabled={isDeadCellsEditorMode}
