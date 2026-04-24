@@ -6660,11 +6660,11 @@ export default function App() {
                 <div className={`flex flex-col px-1 pb-1 ${isClickSoundSelectorOpen ? 'gap-2 flex-1 min-h-0' : 'gap-4'}`}>
                   {isClickSoundSelectorOpen ? (
                     <div className="bg-[#0b101e] border border-[#2f4066]/50 rounded-xl p-3 pt-10 flex flex-col gap-3 min-h-0 flex-1 max-h-[66dvh] relative overflow-hidden">
-                      <div className="absolute left-3 right-3 top-3 flex items-center justify-between">
+                      <div className="absolute left-3 right-3 top-3 flex items-center justify-between pointer-events-none">
                         <button
                           type="button"
                           onClick={() => setIsClickSoundSelectorOpen(false)}
-                          className="w-8 h-8 rounded-lg bg-[#131722] border border-[#1f2438] flex items-center justify-center text-[#5b6385] hover:text-[#c0c5db] hover:bg-[#1a2030] transition-colors"
+                          className="w-8 h-8 rounded-lg bg-[#131722] border border-[#1f2438] flex items-center justify-center text-[#5b6385] hover:text-[#c0c5db] hover:bg-[#1a2030] transition-colors pointer-events-auto"
                         >
                           <ChevronLeft className="w-4 h-4" />
                         </button>
@@ -6758,6 +6758,20 @@ export default function App() {
                                     max={1.6}
                                     step={0.01}
                                     value={gRow[key]}
+                                    onInput={(e) => {
+                                      const raw = Number((e.target as HTMLInputElement).value);
+                                      const nextVal = Number.isFinite(raw)
+                                        ? Math.max(0, Math.min(1.6, raw))
+                                        : 1;
+                                      setClickPresetBusGains((prev) => {
+                                        const cur = getClickPresetBusGainsForPreset(prev, busPreset);
+                                        const row: ClickPresetBusGains = { ...cur, [key]: nextVal };
+                                        const updated = { ...prev, [busPreset]: row };
+                                        clickPresetBusGainsRef.current = updated;
+                                        return updated;
+                                      });
+                                      scheduleClickPresetBusTwoBarsPreview();
+                                    }}
                                     onChange={(e) => {
                                       const raw = Number(e.target.value);
                                       const nextVal = Number.isFinite(raw)

@@ -3203,6 +3203,7 @@ export default function App() {
     }
   }, [showRandomSettings, isPanelExpanded]);
 
+
   useEffect(() => {
     if (isClickSoundSelectorOpen) return;
     if (clickPresetBusTwoBarsPreviewRetryTimerRef.current !== null) {
@@ -3609,6 +3610,29 @@ export default function App() {
   const hybridModeLockUntilRef = useRef(0);
   const liveWindowStartedAtRef = useRef<number | null>(null);
   const latestSubStepSecRef = useRef(60 / Math.max(1, tempo));
+  const emitDebugLog = useCallback((payload: { runId: string; hypothesisId: string; location: string; message: string; data: Record<string, unknown> }) => {
+    const body = {
+      sessionId: '7360e8',
+      ...payload,
+      timestamp: Date.now(),
+    };
+    // #region agent log
+    fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'7360e8'},body:JSON.stringify(body)}).catch(()=>{});
+    // #endregion
+    try {
+      // #region agent log
+      navigator.sendBeacon(
+        'http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',
+        new Blob([JSON.stringify(body)], { type: 'application/json' }),
+      );
+      // #endregion
+    } catch {
+      /* noop */
+    }
+    // #region agent log
+    console.info('[dbg7360e8]', body);
+    // #endregion
+  }, []);
   const clearPendingGridClickTimers = () => {
     for (const pending of pendingGridClickDeferredRef.current) {
       window.clearTimeout(pending.id);
@@ -6847,18 +6871,36 @@ export default function App() {
                 <div className={`flex flex-col px-1 pb-1 ${isClickSoundSelectorOpen ? 'gap-2 flex-1 min-h-0' : 'gap-4'}`}>
                   {isClickSoundSelectorOpen ? (
                     <div className="bg-[#0b101e] border border-[#2f4066]/50 rounded-xl p-3 pt-10 flex flex-col gap-3 min-h-0 flex-1 max-h-[66dvh] relative overflow-hidden">
-                      <div className="absolute left-3 right-3 top-3 flex items-center justify-between">
+                      <div className="absolute left-3 right-3 top-3 flex items-center justify-between pointer-events-none">
                         <button
                           type="button"
                           onClick={() => setIsClickSoundSelectorOpen(false)}
-                          className="w-8 h-8 rounded-lg bg-[#131722] border border-[#1f2438] flex items-center justify-center text-[#5b6385] hover:text-[#c0c5db] hover:bg-[#1a2030] transition-colors"
+                          onPointerDown={() => {
+                            // #region agent log
+                            emitDebugLog({ runId: 'pre-fix-2', hypothesisId: 'H2', location: 'App.tsx:click-menu-back-button', message: 'back button pointerdown', data: { reason: 'control event baseline' } });
+                            // #endregion
+                          }}
+                          className="w-8 h-8 rounded-lg bg-[#131722] border border-[#1f2438] flex items-center justify-center text-[#5b6385] hover:text-[#c0c5db] hover:bg-[#1a2030] transition-colors pointer-events-auto"
                         >
                           <ChevronLeft className="w-4 h-4" />
                         </button>
                         <div className="h-8" />
                         <div className="w-8 h-8" />
                       </div>
-                      <div className="flex items-start gap-2 w-full min-w-0 shrink-0 justify-between">
+                      <div
+                        className="flex items-start gap-2 w-full min-w-0 shrink-0 justify-between"
+                        onPointerDownCapture={(e) => {
+                          // #region agent log
+                          emitDebugLog({
+                            runId: 'pre-fix-2',
+                            hypothesisId: 'H1',
+                            location: 'App.tsx:click-menu-row-capture',
+                            message: 'row capture pointerdown',
+                            data: { targetTag: (e.target as HTMLElement | null)?.tagName ?? null, currentTag: (e.currentTarget as HTMLElement | null)?.tagName ?? null },
+                          });
+                          // #endregion
+                        }}
+                      >
                         {polyMode ? (
                           <div className="flex items-center gap-1 shrink-0 translate-y-12">
                             {([0, 1, 2] as const).filter((v) => v < (polyVoices === 3 ? 3 : 2)).map((voiceIdx) => {
@@ -6929,7 +6971,7 @@ export default function App() {
                             'w-7 shrink-0 text-left text-[10px] font-bold text-slate-500 leading-none';
                           const volVoiceIdx = (polyMode ? activeClickVoiceTarget : 0) as 0 | 1 | 2;
                           return (
-                            <div className="flex flex-col justify-start gap-2.5 min-w-0 max-w-[10.5rem] w-full shrink -mt-6">
+                            <div className="relative z-10 flex flex-col justify-start gap-2.5 min-w-0 max-w-[10.5rem] w-full shrink -mt-6">
                               {busKeys.map(({ key, aria, swatchClass }) => (
                                 <label
                                   key={key}
@@ -6945,7 +6987,25 @@ export default function App() {
                                     max={1.6}
                                     step={0.01}
                                     value={gRow[key]}
+                                    onInput={(e) => {
+                                      beginLiveControlWindow();
+                                      const raw = Number((e.target as HTMLInputElement).value);
+                                      const nextVal = Number.isFinite(raw)
+                                        ? Math.max(0, Math.min(1.6, raw))
+                                        : 1;
+                                      setClickPresetBusGains((prev) => {
+                                        const cur = getClickPresetBusGainsForPreset(prev, busPreset);
+                                        const row: ClickPresetBusGains = { ...cur, [key]: nextVal };
+                                        const updated = { ...prev, [busPreset]: row };
+                                        clickPresetBusGainsRef.current = updated;
+                                        return updated;
+                                      });
+                                      scheduleClickPresetBusTwoBarsPreview();
+                                    }}
                                     onChange={(e) => {
+                                      // #region agent log
+                                      emitDebugLog({ runId: 'pre-fix-2', hypothesisId: 'H3', location: 'App.tsx:bus-slider-onChange', message: 'bus slider change', data: { key, rawValue: (e.target as HTMLInputElement).value } });
+                                      // #endregion
                                       beginLiveControlWindow();
                                       const raw = Number(e.target.value);
                                       const nextVal = Number.isFinite(raw)
@@ -6955,6 +7015,15 @@ export default function App() {
                                         const cur = getClickPresetBusGainsForPreset(prev, busPreset);
                                         const row: ClickPresetBusGains = { ...cur, [key]: nextVal };
                                         const updated = { ...prev, [busPreset]: row };
+                                        // #region agent log
+                                        emitDebugLog({
+                                          runId: 'pre-fix-2',
+                                          hypothesisId: 'H5',
+                                          location: 'App.tsx:bus-slider-setState',
+                                          message: 'setClickPresetBusGains mutation',
+                                          data: { key, busPreset, prevValue: cur[key], nextValue: nextVal },
+                                        });
+                                        // #endregion
                                         clickPresetBusGainsRef.current = updated;
                                         return updated;
                                       });
@@ -6972,7 +7041,33 @@ export default function App() {
                                       });
                                       scheduleClickPresetBusTwoBarsPreview();
                                     }}
-                                    onPointerDown={() => beginLiveControlWindow()}
+                                    onPointerDown={() => {
+                                      // #region agent log
+                                      emitDebugLog({
+                                        runId: 'pre-fix-2',
+                                        hypothesisId: 'H4',
+                                        location: 'App.tsx:bus-slider-onPointerDown',
+                                        message: 'bus slider pointerdown',
+                                        data: { key, value: gRow[key], inputDisabled: false },
+                                      });
+                                      // #endregion
+                                      beginLiveControlWindow();
+                                    }}
+                                    onPointerEnter={(e) => {
+                                      // #region agent log
+                                      emitDebugLog({
+                                        runId: 'pre-fix-2',
+                                        hypothesisId: 'H6',
+                                        location: 'App.tsx:bus-slider-onPointerEnter',
+                                        message: 'bus slider hover enter',
+                                        data: {
+                                          key,
+                                          pointerEvents: window.getComputedStyle(e.currentTarget).pointerEvents,
+                                          opacity: window.getComputedStyle(e.currentTarget).opacity,
+                                        },
+                                      });
+                                      // #endregion
+                                    }}
                                     onPointerUp={() => endLiveControlWindow()}
                                     onPointerCancel={() => endLiveControlWindow()}
                                     onPointerLeave={() => endLiveControlWindow()}
