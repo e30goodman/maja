@@ -485,7 +485,6 @@ const SequencerGridRow = React.memo(
 						const showLegacyDefaultInNormal =
 							cIdx === 0 &&
 							!isDead &&
-							accentMapVersion === 0 &&
 							forceFirstBeatEditorFrames &&
 							canShowDefaultTaInNormal &&
 							!firstBeatRowSuppressed.has(rIdx);
@@ -494,36 +493,33 @@ const SequencerGridRow = React.memo(
 						const isActive = highlightCol === cIdx;
 						const subdivs = isDead ? 1 : (rowSubdivs[cIdx] ?? 1);
 						const cellBorder2 = 'border-2 box-border border-[#2f4066]';
+						const taPressedOverlayClasses =
+							'relative overflow-hidden active:after:content-[\'\'] active:after:absolute active:after:inset-0 active:after:bg-white/30 active:after:pointer-events-none';
 						const purpleAccentCell =
 							`bg-purple-900/40 border-2 box-border border-purple-500/50 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_4px_rgba(168,85,247,0.2)]'} hover:bg-purple-900/50 text-purple-100`;
 						let cellClasses = `bg-[#1e2a45] ${cellBorder2} ${lowPerfMode ? '' : 'shadow-[0_2px_4px_rgba(0,0,0,0.2)]'} hover:bg-[#253353] text-slate-300`;
+						const taBaseCell = lowPerfMode
+							? `bg-[#1e2a45] border-2 box-border border-white text-white z-[1] ${taPressedOverlayClasses}`
+							: `bg-[#1e2a45] border-2 box-border border-white/95 text-white shadow-[0_0_14px_rgba(255,255,255,0.2)] z-[1] hover:bg-[#253353] ${taPressedOverlayClasses}`;
 						if (isDead) {
 							cellClasses = lowPerfMode
 								? 'bg-slate-800/60 border-2 box-border border-slate-700 text-slate-500'
 								: 'bg-slate-800/60 border-2 box-border border-slate-700 text-slate-500';
 						} else if (isTaEditorMode) {
 							if (isAccent && showEditorDing) {
-								cellClasses = lowPerfMode
-									? `${purpleAccentCell} z-[1] ring-2 ring-inset ring-white`
-									: `${purpleAccentCell} z-[1] ring-2 ring-inset ring-white/95 shadow-[0_0_12px_rgba(255,255,255,0.18)]`;
+								cellClasses = taBaseCell;
 							} else if (showEditorDing) {
-								cellClasses = lowPerfMode
-									? 'bg-[#1e2a45] border-2 box-border border-white text-white z-[1]'
-									: 'bg-[#1e2a45] border-2 box-border border-white/95 text-white shadow-[0_0_14px_rgba(255,255,255,0.2)] z-[1] hover:bg-[#253353]';
+								cellClasses = taBaseCell;
 							} else if (isAccent) {
 								cellClasses = purpleAccentCell;
 							}
 						} else if (isAccent && showNonEditorDingWithLegacy) {
-							cellClasses = lowPerfMode
-								? `${purpleAccentCell} z-[1] ring-2 ring-inset ring-white`
-								: `${purpleAccentCell} z-[1] ring-2 ring-inset ring-white/95 shadow-[0_0_12px_rgba(255,255,255,0.18)]`;
+							cellClasses = taBaseCell;
 						} else if (isAccent) {
 							cellClasses = purpleAccentCell;
 						} else if (showNonEditorDingWithLegacy) {
 							// In normal mode keep white frame visibility if user made a custom Ta-frame offset.
-							cellClasses = lowPerfMode
-								? 'bg-[#1e2a45] border-2 box-border border-white text-white z-[1]'
-								: 'bg-[#1e2a45] border-2 box-border border-white/95 text-white shadow-[0_0_14px_rgba(255,255,255,0.2)] z-[1] hover:bg-[#253353]';
+							cellClasses = taBaseCell;
 						}
 						const accentForGlyph =
 							isAccent ||

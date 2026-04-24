@@ -412,3 +412,51 @@ Resize-контракт:
    - поставить `alt` на `c0`,
    - снять `alt`,
    - убедиться, что белые рамки `c0` не "залипают" глобально.
+
+---
+
+## 16) Инцидент: `alt` на `c0` гасит видимость non-default Ta в normal mode
+
+### 16.1 Симптом
+
+- При постановке фиолетового `alt`-акцента на `c0` (normal mode) пропадала видимость non-default Ta-индикаций.
+- Аудио оставалось корректным: проблема была визуальная (UI-layer), не runtime audio policy.
+
+### 16.2 Root cause
+
+Конфликт условий reveal между derived-слоем (`App.tsx`) и фактическим рендером (`SequencerGrid.tsx`):
+
+1. `accentMapVersion` поднимался от `c0`-tap в accent-layer.
+2. В normal-рендере `showLegacyDefaultInNormal` имел жесткий guard по `accentMapVersion`.
+3. В результате purple-событие на `c0` влияло на white-layer visibility, что нарушает главный инвариант
+   независимости слоев.
+
+Итог: после harmless `alt` на `c0` UI принимал решение скрывать часть Ta-видимости, хотя данные Ta
+и звук были валидными.
+
+### 16.3 Фикс
+
+Зафиксированный подход:
+
+1. Убрать зависимость `canShowDefaultTaInNormal` от `accentMapVersion` и оставить только Ta-основания:
+   - `firstBeatDingSuppressedRows.size > 0`
+   - `hasAnyExplicitTaOutsideFirstBeat`
+2. В `SequencerGrid` убрать gate, который привязывает `showLegacyDefaultInNormal` к `accentMapVersion`.
+3. Сохранить инвариант: purple `accent` не должен напрямую менять white `Ta` visibility decision.
+
+### 16.4 Regression-check для этого кейса
+
+1. Normal mode, `firstBeat` active, без suppression, есть non-default Ta.
+2. Поставить `alt` на `c0`.
+3. Проверить:
+   - non-default Ta-видимость не исчезает;
+   - audio unchanged (баг только визуальный);
+   - при снятии `alt` нет дополнительного побочного эффекта на white-layer.
+
+### 16.5 Правило на будущее
+
+- Любой флаг, который приходит из accent-layer (`accentMapVersion` и аналоги), не должен быть
+  единственным или прямым gate для Ta-layer visibility.
+- При ревью проверять пару файлов одновременно:
+  - `src/App.tsx` (derived flags),
+  - `src/SequencerGrid.tsx` (финальный рендер условий `show*Ding`).

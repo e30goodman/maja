@@ -2,6 +2,47 @@ import React, { useMemo, useCallback, useRef } from 'react';
 import { buildRowCellSyllableLabels, getSyllableStyles, type KalamMap } from './sequencerLabels';
 import type { PlayheadPosition } from './playheadTypes';
 
+function postTaDebugLog(
+	runId: string,
+	hypothesisId: string,
+	location: string,
+	message: string,
+	data: Record<string, unknown>,
+): void {
+	// #region agent log
+	const payload = {
+		sessionId: 'e2d5fc',
+		runId,
+		hypothesisId,
+		location,
+		message,
+		data,
+		timestamp: Date.now(),
+	};
+	try {
+		if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+			navigator.sendBeacon(
+				'http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',
+				new Blob([JSON.stringify(payload)], { type: 'application/json' }),
+			);
+		}
+	} catch {
+		/* no-op */
+	}
+	fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805', {
+		method: 'POST',
+		mode: 'no-cors',
+		headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+		body: JSON.stringify(payload),
+	}).catch(() => {});
+	fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'e2d5fc' },
+		body: JSON.stringify(payload),
+	}).catch(() => {});
+	// #endregion
+}
+
 /** Keep long-press pulse switching consistent with collapsed behavior. */
 function allowedSubdivisions(_panelExpanded: boolean): number[] {
 	return [1, 2, 3, 4];
@@ -481,7 +522,6 @@ const SequencerGridRow = React.memo(
 							(cIdx === 0 &&
 								!isDead &&
 								!firstBeatRowSuppressed.has(rIdx) &&
-								accentMapVersion === 0 &&
 								forceFirstBeatEditorFrames);
 						const showLegacyDefaultInNormal =
 							cIdx === 0 &&
@@ -492,6 +532,27 @@ const SequencerGridRow = React.memo(
 							!firstBeatRowSuppressed.has(rIdx);
 						const showNonEditorDing = !isDead && isTaDing;
 						const showNonEditorDingWithLegacy = showNonEditorDing || showLegacyDefaultInNormal;
+						if (!isTaEditorMode && isTaDing && !showNonEditorDingWithLegacy) {
+							// #region agent log
+							postTaDebugLog(
+								'pre-fix',
+								'H4',
+								'SequencerGrid.tsx:cell-visibility',
+								'explicit Ta hidden in normal mode',
+								{
+									row: rIdx,
+									col: cIdx,
+									isDead,
+									accentMapVersion,
+									canShowDefaultTaInNormal,
+									showLegacyDefaultInNormal,
+									showNonEditorDing,
+									forceFirstBeatEditorFrames,
+									firstBeatSuppressed: firstBeatRowSuppressed.has(rIdx),
+								},
+							);
+							// #endregion
+						}
 						const isActive = highlightCol === cIdx;
 						const subdivs = isDead ? 1 : (rowSubdivs[cIdx] ?? 1);
 						const cellBorder2 = 'border-2 box-border border-[#2f4066]';

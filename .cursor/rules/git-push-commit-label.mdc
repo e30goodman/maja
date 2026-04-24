@@ -1,0 +1,14 @@
+---
+description: "Git push: версия в UI — только Vite, не уроборос в Git"
+alwaysApply: true
+priority: 100
+---
+
+# Git push — commit label
+
+- **Не** подгонять `return '…'` в `APP_COMMIT_VERSION` под `git rev-parse --short=7 HEAD` в том же коммите: хеш коммита зависит от дерева, строка в `App.tsx` меняет дерево → новый хеш → бесконечная гонка (уроборос).
+- Источник правды для **сборки**: `konnakol_trainer/vite.config.ts` → `__GIT_SHA7__` (`git rev-parse --short=7 HEAD` на момент **vite build**). В UI уходит он.
+- Fallback в `App.tsx` (`return 'dev'` или устаревший плейсхолдер) — только для dev без define; **не** пытаться совпасть с HEAD коммита вручную.
+- Перед push: при изменении кода тренера — `npm run build` в `konnakol_trainer` по необходимости → `git push`.
+
+Related: `core-workflow-high-priority.mdc`

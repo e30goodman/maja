@@ -1,0 +1,16 @@
+---
+description: "Core workflow rules for this project"
+alwaysApply: true
+priority: 90
+---
+
+# Core Workflow
+
+Important rules:
+- Follow project-specific audio behavior requirements first.
+- Keep backward compatibility for snapshots when changing playback modes.
+- Keep snapshot coding system untouchible, don't change the pricipe of  hashing. You can add but not re-build
+- Before push: см. `git-push-commit-label.mdc` (SHA в UI — из Vite при build, не хардкод под HEAD коммита).
+
+Related:
+- `git-push-commit-label.mdc`

@@ -1,0 +1,25 @@
+---
+description: "Global guardrails for Ta logic based on TA_LOGIC_GUIDE"
+alwaysApply: true
+priority: 95
+---
+
+# Ta Logic Global Rule
+
+Source of truth: `konnakol_trainer_stable/TA_LOGIC_GUIDE.md`.
+
+Apply these constraints whenever Ta/accent/audio/snapshot/bars logic is touched:
+
+- Keep white Ta layer independent from purple accent layer.
+- In poly mode, lane containers are source of truth (`accentsByLane`, `taDingKeysByLane`, `firstBeatAccentByLane`); flat sets are derived only.
+- For `c0` in Ta editor: when default first-beat is enabled, toggle suppression; do not convert to regular explicit key flow.
+- Runtime first-beat audio policy must be computed via `resolveRuntimeFirstBeatPolicy(...)` and `resolveFirstBeatHitRow(...)`; never bind policy directly to `accentMapVersion`.
+- `totalBars` is data-domain source of truth for Ta/snapshot/audio decisions. `visibleBars`/`virtualBars` must not affect Ta-derived truth.
+- In square playback gating (including `passive_only`), do not early-return away valid Ta/first-beat events.
+
+Before finalizing Ta-related changes, verify:
+
+- mono + poly parity (no lane bleed / no ghost Ta),
+- `bars = 1` stability for `c0`,
+- snapshot save/load preserves suppression and lane maps,
+- UI/audio parity for `c0` and explicit `c>0`.

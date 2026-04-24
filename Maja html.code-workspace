@@ -8,6 +8,9 @@
 		},
 		{
 			"path": "../controls/browser-use"
+		},
+		{
+			"path": "../engine example"
 		}
 	],
 	"settings": {}

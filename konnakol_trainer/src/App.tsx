@@ -3140,6 +3140,7 @@ export default function App() {
     (seed as { accentMapVersion?: number }).accentMapVersion === 1 ? 1 : 0,
   );
   const [isTaEditorMode, setIsTaEditorMode] = useState(false);
+  const [isTaButtonPressed, setIsTaButtonPressed] = useState(false);
   const [isDeadCellsEditorMode, setIsDeadCellsEditorMode] = useState(false);
   /** В режиме Ta-редактора: строки, где пользователь снял дефолтную белую метку на первой доле (без ключа taDing). */
   const [firstBeatDingSuppressedRows, setFirstBeatDingSuppressedRows] = useState<Set<number>>(() => new Set());
@@ -6332,6 +6333,7 @@ export default function App() {
         const hasUserWhiteAccent =
           shouldPlayFirstBeatTa || shouldPlayTaDingSound || hasTaDingHere;
         const hasUserPurpleAltAccent = isAccent;
+        const hasOverlapAccentAlt = hasUserWhiteAccent && hasUserPurpleAltAccent;
         const taNoiseRenderMode: MetroNoiseRenderMode = 'shared';
         const taDirectOut = debugTaEngineModeRef.current && hasUserWhiteAccent;
         const taStableSampleMode = debugTaEngineModeRef.current && hasUserWhiteAccent;
@@ -6347,19 +6349,44 @@ export default function App() {
           }
           return;
         }
-        playSharpClick(
-          ctx,
-          subTime,
-          sharpAsChecked,
-          soundPreset,
-          accentOnlyPlayback,
-          voiceRole,
-          gainMulForRole(voiceRole),
-          taNoiseRenderMode,
-          taDirectOut,
-        );
-        // USER-SOURCE-OF-TRUTH: removed implicit alt-shadow layering on accent hits.
-        // Alt bus can only sound when a caller explicitly requests voiceRole='alt'.
+        if (hasOverlapAccentAlt) {
+          playSharpClick(
+            ctx,
+            subTime,
+            sharpAsChecked,
+            soundPreset,
+            accentOnlyPlayback,
+            'accent',
+            gainMulForRole('accent'),
+            taNoiseRenderMode,
+            taDirectOut,
+          );
+          playSharpClick(
+            ctx,
+            subTime,
+            sharpAsChecked,
+            soundPreset,
+            accentOnlyPlayback,
+            'alt',
+            gainMulForRole('alt'),
+            taNoiseRenderMode,
+            false,
+          );
+        } else {
+          playSharpClick(
+            ctx,
+            subTime,
+            sharpAsChecked,
+            soundPreset,
+            accentOnlyPlayback,
+            voiceRole,
+            gainMulForRole(voiceRole),
+            taNoiseRenderMode,
+            taDirectOut,
+          );
+        }
+        // USER-SOURCE-OF-TRUTH:
+        // Alt bus sounds only on explicit alt request, plus explicit overlap dual-mix branch above.
         if (polyModeRef.current) {
           polyClickSlotsRef.current.add(polySlotKey);
         }
@@ -6915,7 +6942,6 @@ export default function App() {
     return false;
   }, [taDingKeysUi, bars, customSyllables, syllables, deadCells]);
   const canShowDefaultTaInNormal =
-    accentMapVersion === 1 ||
     firstBeatDingSuppressedRows.size > 0 ||
     hasAnyExplicitTaOutsideFirstBeat;
   sequencerGridRowActionsRef.current = {
@@ -8260,6 +8286,7 @@ export default function App() {
             disabled={isDeadCellsEditorMode}
             onPointerDown={() => {
               if (isDeadCellsEditorMode) return;
+              setIsTaButtonPressed(true);
               taHoldAteClickRef.current = false;
               if (taHoldTimerRef.current !== null) {
                 window.clearTimeout(taHoldTimerRef.current);
@@ -8268,6 +8295,7 @@ export default function App() {
               taHoldTimerRef.current = window.setTimeout(() => {
                 taHoldTimerRef.current = null;
                 taHoldAteClickRef.current = true;
+                setIsTaButtonPressed(false);
                 if (isTaEditorModeRef.current) {
                   setIsTaEditorMode(false);
                 } else {
@@ -8277,6 +8305,7 @@ export default function App() {
             }}
             onPointerUp={() => {
               if (isDeadCellsEditorMode) return;
+              setIsTaButtonPressed(false);
               if (taHoldTimerRef.current !== null) {
                 window.clearTimeout(taHoldTimerRef.current);
                 taHoldTimerRef.current = null;
@@ -8284,6 +8313,7 @@ export default function App() {
             }}
             onPointerLeave={() => {
               if (isDeadCellsEditorMode) return;
+              setIsTaButtonPressed(false);
               if (taHoldTimerRef.current !== null) {
                 window.clearTimeout(taHoldTimerRef.current);
                 taHoldTimerRef.current = null;
@@ -8291,6 +8321,7 @@ export default function App() {
             }}
             onPointerCancel={() => {
               if (isDeadCellsEditorMode) return;
+              setIsTaButtonPressed(false);
               if (taHoldTimerRef.current !== null) {
                 window.clearTimeout(taHoldTimerRef.current);
                 taHoldTimerRef.current = null;
@@ -8320,17 +8351,22 @@ export default function App() {
                 }
               });
             }}
-            className={`flex-1 rounded-xl flex justify-center items-center transition-all bg-[#161f33] ${
+            className={`flex-1 rounded-xl flex justify-center items-center transition-all relative overflow-hidden bg-[#161f33] ${
               isDeadCellsEditorMode
                 ? 'border border-[#23314f] text-slate-600 opacity-45 cursor-not-allowed'
+                : isTaButtonPressed
+                ? `border border-[#23314f] text-white ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(255,255,255,0.2)]'}`
                 : isTaEditorMode
                 ? `border-2 border-white/90 text-white ${lowPerfMode ? '' : 'shadow-[0_0_18px_rgba(255,255,255,0.25)]'}`
                 : (polyMode ? Boolean(firstBeatAccentByLane[activeClickVoiceTarget]) : firstBeatAccent)
-                  ? `border border-purple-400 ${lowPerfMode ? '' : 'shadow-[0_0_15px_rgba(192,132,252,0.4)]'} text-purple-200`
+                  ? `border-2 border-white/90 text-white ${lowPerfMode ? '' : 'shadow-[0_0_15px_rgba(255,255,255,0.25)]'}`
                   : 'border border-[#23314f] text-slate-400 hover:text-slate-200 hover:bg-[#1a253c] active:bg-[#131b2c]'
             }`}
           >
-            <span className="font-bold text-[22px] tracking-wide">Ta</span>
+            {isTaButtonPressed || isTaEditorMode ? (
+              <span aria-hidden className="pointer-events-none absolute inset-0 bg-white/30" />
+            ) : null}
+            <span className="relative z-10 font-bold text-[22px] tracking-wide">Ta</span>
           </button>
 
           {/* All beats vs accent-only vs Ta-only grid mute (square); долгое нажатие — диктант. */}

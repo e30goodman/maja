@@ -60,7 +60,16 @@ import {
 	PRESET_TARGET_BARS,
 } from './parentModeUi';
 import { generateMidiBlob } from './midiExport';
-import { pruneDeadCellsByBars, pruneLaneSetMapByBars, pruneSuppressedRowsByBars } from './barsDomain';
+import {
+	normalizeBarsAndLaneState,
+	pruneDeadCellsByBars,
+	pruneGridKeySetByBars,
+	pruneLaneSetMapByBars,
+	pruneNumericRecordByBars,
+	pruneStringKeyRecordByBars,
+	pruneSuppressedRowsByBars,
+	type BarsDomainState,
+} from './barsDomain';
 import { deriveTaNormalVisibility } from './taVisibility';
 
 function buildPolyChunks(barCount: number, voiceCount: number): number[][] {
@@ -131,6 +140,47 @@ type LaneId = 0 | 1 | 2;
 type LaneSetMap = Record<LaneId, Set<string>>;
 type LaneBoolMap = Record<LaneId, boolean>;
 type FirstBeatHitPolicy = 'legacy' | 'explicit_any' | 'explicit_ta_only';
+
+function postTaDebugLog(
+	runId: string,
+	hypothesisId: string,
+	location: string,
+	message: string,
+	data: Record<string, unknown>,
+): void {
+	// #region agent log
+	const payload = {
+		sessionId: 'e2d5fc',
+		runId,
+		hypothesisId,
+		location,
+		message,
+		data,
+		timestamp: Date.now(),
+	};
+	try {
+		if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+			navigator.sendBeacon(
+				'http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',
+				new Blob([JSON.stringify(payload)], { type: 'application/json' }),
+			);
+		}
+	} catch {
+		/* no-op */
+	}
+	fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805', {
+		method: 'POST',
+		mode: 'no-cors',
+		headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+		body: JSON.stringify(payload),
+	}).catch(() => {});
+	fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'e2d5fc' },
+		body: JSON.stringify(payload),
+	}).catch(() => {});
+	// #endregion
+}
 type ClickSoundByPolyVoice = Partial<Record<PolyVoiceTarget, ClickSoundPreset>>;
 type PolyVoiceGainMap = Record<0 | 1 | 2, number>;
 
@@ -246,9 +296,9 @@ function normalizeSuppressedRows(raw: unknown, bars: number): Set<number> {
 	const out = new Set<number>();
 	for (const x of source) {
 		const r = parseInt(String(x), 10);
-		if (Number.isFinite(r)) out.add(r);
+		if (Number.isFinite(r) && r >= 0 && r < bars) out.add(r);
 	}
-	return pruneSuppressedRowsByBars(out, bars);
+	return out;
 }
 
 /**
@@ -556,6 +606,12 @@ const CLICK_SOUND_PRESET_ORDER: ClickSoundPreset[] = [
 /** Per-preset gain for accent / alt / passive buses (multiplies layer output). */
 type ClickPresetBusGains = { accent: number; alt: number; passive: number };
 type ClickPresetBusGainsMap = Partial<Record<ClickSoundPreset, ClickPresetBusGains>>;
+type ClickPresetBusGainsByVoiceMap = Partial<Record<0 | 1 | 2, ClickPresetBusGainsMap>>;
+type ClickPresetBusGainsStorageV2 = {
+	v: 2;
+	byVoice?: ClickPresetBusGainsByVoiceMap;
+	byPreset?: ClickPresetBusGainsMap;
+};
 
 const DEFAULT_CLICK_PRESET_BUS_GAINS: ClickPresetBusGains = { accent: 1, alt: 1, passive: 1 };
 
@@ -573,25 +629,66 @@ function getClickPresetBusGainsForPreset(map: ClickPresetBusGainsMap, preset: Cl
 	};
 }
 
-function parseClickPresetBusGainsFromStorage(raw: string | null): ClickPresetBusGainsMap {
-	if (!raw) return {};
+function normalizeClickBusVoiceIndex(raw: unknown): 0 | 1 | 2 {
+	const n = Number(raw);
+	if (!Number.isFinite(n) || n < 0 || n > 2) return 0;
+	return Math.floor(n) as 0 | 1 | 2;
+}
+
+function parseClickPresetBusGainsMapFromUnknown(raw: unknown): ClickPresetBusGainsMap {
+	if (!raw || typeof raw !== 'object') return {};
+	const parsed = raw as Record<string, unknown>;
+	const out: ClickPresetBusGainsMap = {};
+	for (const preset of CLICK_SOUND_PRESET_ORDER) {
+		const row = parsed[preset];
+		if (!row || typeof row !== 'object') continue;
+		const o = row as Record<string, unknown>;
+		out[preset] = {
+			accent: clampClickPresetBusGain(Number(o.accent)),
+			alt: clampClickPresetBusGain(Number(o.alt)),
+			passive: clampClickPresetBusGain(Number(o.passive)),
+		};
+	}
+	return out;
+}
+
+function parseClickPresetBusGainsStorage(raw: string | null): {
+	byPreset: ClickPresetBusGainsMap;
+	byVoice: ClickPresetBusGainsByVoiceMap;
+} {
+	if (!raw) return { byPreset: {}, byVoice: {} };
 	try {
 		const parsed = JSON.parse(raw) as Record<string, unknown>;
-		const out: ClickPresetBusGainsMap = {};
-		for (const preset of CLICK_SOUND_PRESET_ORDER) {
-			const row = parsed[preset];
-			if (!row || typeof row !== 'object') continue;
-			const o = row as Record<string, unknown>;
-			out[preset] = {
-				accent: clampClickPresetBusGain(Number(o.accent)),
-				alt: clampClickPresetBusGain(Number(o.alt)),
-				passive: clampClickPresetBusGain(Number(o.passive)),
-			};
+		if (parsed && parsed.v === 2) {
+			const v2 = parsed as ClickPresetBusGainsStorageV2;
+			const byPreset = parseClickPresetBusGainsMapFromUnknown(v2.byPreset);
+			const byVoice: ClickPresetBusGainsByVoiceMap = {};
+			const rawByVoice = v2.byVoice;
+			if (rawByVoice && typeof rawByVoice === 'object') {
+				for (const [k, map] of Object.entries(rawByVoice as Record<string, unknown>)) {
+					const voice = normalizeClickBusVoiceIndex(k);
+					byVoice[voice] = parseClickPresetBusGainsMapFromUnknown(map);
+				}
+			}
+			return { byPreset, byVoice };
 		}
-		return out;
+		return { byPreset: parseClickPresetBusGainsMapFromUnknown(parsed), byVoice: {} };
 	} catch {
-		return {};
+		return { byPreset: {}, byVoice: {} };
 	}
+}
+
+function getClickPresetBusGainsForVoicePreset(
+	byVoice: ClickPresetBusGainsByVoiceMap,
+	byPreset: ClickPresetBusGainsMap,
+	voice: number,
+	preset: ClickSoundPreset,
+): ClickPresetBusGains {
+	const normVoice = normalizeClickBusVoiceIndex(voice);
+	const voiceMap = byVoice[normVoice];
+	if (voiceMap && voiceMap[preset]) return getClickPresetBusGainsForPreset(voiceMap, preset);
+	if (byPreset[preset]) return getClickPresetBusGainsForPreset(byPreset, preset);
+	return DEFAULT_CLICK_PRESET_BUS_GAINS;
 }
 
 const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
@@ -2048,6 +2145,7 @@ function createEmptySnapshot() {
 type AppSnapshot = ReturnType<typeof createEmptySnapshot> & {
 	clickBusBalance?: ClickPresetBusGains;
 	clickBusBalanceByPreset?: ClickPresetBusGainsMap;
+	clickBusBalanceByVoicePreset?: ClickPresetBusGainsByVoiceMap;
 };
 
 function parseClickBusBalanceFromUnknown(raw: unknown): ClickPresetBusGains | undefined {
@@ -2065,12 +2163,18 @@ function parseClickBusBalanceFromUnknown(raw: unknown): ClickPresetBusGains | un
 }
 
 function parseClickBusBalanceByPresetFromUnknown(raw: unknown): ClickPresetBusGainsMap | undefined {
+	const out = parseClickPresetBusGainsMapFromUnknown(raw);
+	return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function parseClickBusBalanceByVoicePresetFromUnknown(raw: unknown): ClickPresetBusGainsByVoiceMap | undefined {
 	if (!raw || typeof raw !== 'object') return undefined;
 	const parsed = raw as Record<string, unknown>;
-	const out: ClickPresetBusGainsMap = {};
-	for (const preset of CLICK_SOUND_PRESET_ORDER) {
-		const row = parseClickBusBalanceFromUnknown(parsed[preset]);
-		if (row) out[preset] = row;
+	const out: ClickPresetBusGainsByVoiceMap = {};
+	for (const [voiceRaw, mapRaw] of Object.entries(parsed)) {
+		const map = parseClickPresetBusGainsMapFromUnknown(mapRaw);
+		if (Object.keys(map).length === 0) continue;
+		out[normalizeClickBusVoiceIndex(voiceRaw)] = map;
 	}
 	return Object.keys(out).length > 0 ? out : undefined;
 }
@@ -2089,6 +2193,25 @@ function collectSnapshotClickBusBalanceByPreset(
 	}
 	const out: ClickPresetBusGainsMap = {};
 	for (const preset of presets) out[preset] = getClickPresetBusGainsForPreset(presetBusGains, preset);
+	return out;
+}
+
+function collectSnapshotClickBusBalanceByVoicePreset(
+	clickSound: ClickSoundPreset,
+	clickSoundByPolyVoice: ClickSoundByPolyVoice,
+	polyMode: boolean,
+	byVoice: ClickPresetBusGainsByVoiceMap,
+	legacyByPreset: ClickPresetBusGainsMap,
+): ClickPresetBusGainsByVoiceMap {
+	const voices: Array<0 | 1 | 2> = polyMode ? [0, 1, 2] : [0];
+	const out: ClickPresetBusGainsByVoiceMap = {};
+	for (const voice of voices) {
+		const preset = resolveClickSoundForPolyVoice(voice, polyMode, clickSoundByPolyVoice, clickSound);
+		const merged = getClickPresetBusGainsForVoicePreset(byVoice, legacyByPreset, voice, preset);
+		const voicePrev = byVoice[voice];
+		const nextMap: ClickPresetBusGainsMap = { ...(voicePrev ?? {}), [preset]: merged };
+		out[voice] = nextMap;
+	}
 	return out;
 }
 
@@ -2153,6 +2276,10 @@ function parseSnapshotRow(raw: unknown) {
 	if (parsedBus) (d as AppSnapshot).clickBusBalance = parsedBus;
 	const parsedBusByPreset = parseClickBusBalanceByPresetFromUnknown(o.clickBusBalanceByPreset);
 	if (parsedBusByPreset) (d as AppSnapshot).clickBusBalanceByPreset = parsedBusByPreset;
+	const parsedBusByVoicePreset = parseClickBusBalanceByVoicePresetFromUnknown(
+		o.clickBusBalanceByVoicePreset,
+	);
+	if (parsedBusByVoicePreset) (d as AppSnapshot).clickBusBalanceByVoicePreset = parsedBusByVoicePreset;
 	if (typeof o.panelExpanded === 'boolean') d.panelExpanded = o.panelExpanded;
 	if (o.sequencerCells && typeof o.sequencerCells === 'object') {
 		hydrateSequencerFromCells(o.sequencerCells, d);
@@ -2294,6 +2421,15 @@ function snapSlotLooksUsed(s: ReturnType<typeof createEmptySnapshot>) {
 
 function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 	const snap = s as AppSnapshot;
+	const clickBusByVoicePreset =
+		snap.clickBusBalanceByVoicePreset ??
+		collectSnapshotClickBusBalanceByVoicePreset(
+			s.clickSound,
+			normalizeClickSoundByPolyVoice(s.clickSoundByPolyVoice),
+			s.polyMode === true,
+			{},
+			{ ...(snap.clickBusBalance ? { [s.clickSound]: snap.clickBusBalance } : {}) },
+		);
 	const clickBusByPreset =
 		snap.clickBusBalanceByPreset ??
 		collectSnapshotClickBusBalanceByPreset(
@@ -2352,8 +2488,18 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		parentLength: s.parentLength,
 		enabledMutations: [...s.enabledMutations],
 		formPresetId: s.formPresetId,
-		...(snap.clickBusBalance ? { clickBusBalance: snap.clickBusBalance } : {}),
+		...(snap.clickBusBalance
+			? { clickBusBalance: snap.clickBusBalance }
+			: {
+					clickBusBalance: getClickPresetBusGainsForVoicePreset(
+						clickBusByVoicePreset,
+						clickBusByPreset,
+						0,
+						s.clickSound,
+					),
+				}),
 		...(clickBusByPreset ? { clickBusBalanceByPreset: clickBusByPreset } : {}),
+		...(clickBusByVoicePreset ? { clickBusBalanceByVoicePreset: clickBusByVoicePreset } : {}),
 	};
 }
 
@@ -3009,6 +3155,7 @@ export default function App() {
 
   // Metronome state
   const [isPlaying, setIsPlaying] = useState(false);
+  const [autoscrollVirtualRowsEnabled, setAutoscrollVirtualRowsEnabled] = useState(false);
   const [accents, setAccents] = useState<Set<string>>(() => new Set(seed.accents));
   const [accentsByLane, setAccentsByLane] = useState<LaneSetMap>(() =>
     cloneLaneSetMap((seed as { accentsByLane?: Partial<Record<number, Iterable<string>>> }).accentsByLane)
@@ -3117,20 +3264,29 @@ export default function App() {
     }
   });
   const [clickPresetBusGains, setClickPresetBusGains] = useState<ClickPresetBusGainsMap>(() => {
-    const fromStorage = parseClickPresetBusGainsFromStorage(
+    const fromStorage = parseClickPresetBusGainsStorage(
       typeof localStorage !== 'undefined' ? localStorage.getItem(CLICK_PRESET_BUS_GAINS_STORAGE_KEY) : null,
     );
     const seedSnap = initialBoot.snapshots[initialBoot.activeSnapshot] as AppSnapshot;
     const fromSnapshotMap = parseClickBusBalanceByPresetFromUnknown(seedSnap.clickBusBalanceByPreset);
     if (fromSnapshotMap) {
-      return { ...fromStorage, ...fromSnapshotMap };
+      return { ...fromStorage.byPreset, ...fromSnapshotMap };
     }
     const legacySingle = seedSnap.clickBusBalance;
     if (legacySingle) {
       const pk = isClickSoundPreset(seedSnap.clickSound) ? seedSnap.clickSound : 'classic';
-      return { ...fromStorage, [pk]: legacySingle };
+      return { ...fromStorage.byPreset, [pk]: legacySingle };
     }
-    return fromStorage;
+    return fromStorage.byPreset;
+  });
+  const [clickPresetBusGainsByVoice, setClickPresetBusGainsByVoice] = useState<ClickPresetBusGainsByVoiceMap>(() => {
+    const fromStorage = parseClickPresetBusGainsStorage(
+      typeof localStorage !== 'undefined' ? localStorage.getItem(CLICK_PRESET_BUS_GAINS_STORAGE_KEY) : null,
+    );
+    const seedSnap = initialBoot.snapshots[initialBoot.activeSnapshot] as AppSnapshot;
+    const fromSnapshot = parseClickBusBalanceByVoicePresetFromUnknown(seedSnap.clickBusBalanceByVoicePreset);
+    if (fromSnapshot) return { ...fromStorage.byVoice, ...fromSnapshot };
+    return fromStorage.byVoice;
   });
   const [activeClickVoiceTarget, setActiveClickVoiceTarget] = useState<0 | 1 | 2>(0);
   const activeClickVoiceTargetRef = useRef<0 | 1 | 2>(0);
@@ -3736,6 +3892,7 @@ export default function App() {
   const clickSoundByPolyVoiceRef = useRef<ClickSoundByPolyVoice>(clickSoundByPolyVoice);
   const polyVoiceGainsRef = useRef<PolyVoiceGainMap>(polyVoiceGains);
   const clickPresetBusGainsRef = useRef<ClickPresetBusGainsMap>(clickPresetBusGains);
+  const clickPresetBusGainsByVoiceRef = useRef<ClickPresetBusGainsByVoiceMap>(clickPresetBusGainsByVoice);
   /** Последний пресет, для которого вызван cloneClickMixerFromLibrary (см. блок синхронизации в render). */
   const clickSoundMixerClonedKeyRef = useRef<ClickSoundPreset | null>(null);
   const frozenScaleRef = useRef(frozenScale);
@@ -3856,6 +4013,9 @@ export default function App() {
     clickPresetBusGainsRef.current = { ...clickPresetBusGains };
   }, [clickPresetBusGains]);
   useEffect(() => {
+    clickPresetBusGainsByVoiceRef.current = { ...clickPresetBusGainsByVoice };
+  }, [clickPresetBusGainsByVoice]);
+  useEffect(() => {
     try {
       localStorage.setItem(POLY_VOICE_GAINS_STORAGE_KEY, JSON.stringify(polyVoiceGains));
     } catch {
@@ -3864,11 +4024,16 @@ export default function App() {
   }, [polyVoiceGains]);
   useEffect(() => {
     try {
-      localStorage.setItem(CLICK_PRESET_BUS_GAINS_STORAGE_KEY, JSON.stringify(clickPresetBusGains));
+      const payload: ClickPresetBusGainsStorageV2 = {
+        v: 2,
+        byPreset: clickPresetBusGains,
+        byVoice: clickPresetBusGainsByVoice,
+      };
+      localStorage.setItem(CLICK_PRESET_BUS_GAINS_STORAGE_KEY, JSON.stringify(payload));
     } catch {
       /* ignore storage errors */
     }
-  }, [clickPresetBusGains]);
+  }, [clickPresetBusGains, clickPresetBusGainsByVoice]);
   /* Прямые присваивания (без spread) для ref-first путей (poly randomizer и т.п.):
    * ref === state → мутации переживают перерендеры и долетают до setState({...ref}). */
   useEffect(() => { customMultipliersRef.current = customMultipliers; }, [customMultipliers]);
@@ -3881,12 +4046,16 @@ export default function App() {
   useEffect(() => {
     setDeadCells((prev) => {
       let changed = false;
-      const out: DeadCellsMap = { ...pruneDeadCellsByBars(prev, bars) };
-      if (Object.keys(out).length !== Object.keys(prev).length) changed = true;
-      for (const rk of Object.keys(out)) {
+      const out: DeadCellsMap = { ...prev };
+      for (const rk of Object.keys(prev)) {
         const r = parseInt(rk, 10);
+        if (!Number.isFinite(r) || r < 0 || r >= bars) {
+          delete out[r];
+          changed = true;
+          continue;
+        }
         const rowSyl = customSyllables[r] !== undefined ? customSyllables[r] : syllables;
-        const meta = out[r];
+        const meta = prev[r];
         if (!meta) continue;
         if (meta.deadStart >= rowSyl) {
           delete out[r];
@@ -3910,19 +4079,96 @@ export default function App() {
   useEffect(() => { firstBeatAccentByLaneRef.current = { ...firstBeatAccentByLane }; }, [firstBeatAccentByLane]);
   useEffect(() => {
     if (!polyMode) return;
-    const next = pruneLaneSetMapByBars(distributeSetToLanes(accents, bars, polyVoices), bars, polyVoices);
+    const next = distributeSetToLanes(accents, bars, polyVoices);
     setAccentsByLane(next);
     accentsByLaneRef.current = cloneLaneSetMap(next);
   }, [accents, bars, polyMode, polyVoices]);
   // FRAGILE — poly Ta lane map: desync from flat taDingKeys breaks grid highlights and pack/paste.
   useEffect(() => {
     if (!polyMode) return;
-    const next = pruneLaneSetMapByBars(distributeSetToLanes(taDingKeys, bars, polyVoices), bars, polyVoices);
+    const next = distributeSetToLanes(taDingKeys, bars, polyVoices);
     setTaDingKeysByLane(next);
     taDingKeysByLaneRef.current = cloneLaneSetMap(next);
   }, [taDingKeys, bars, polyMode, polyVoices]);
+  /**
+   * Централизованный deterministic resize-контракт (data-domain).
+   * См. TA_LOGIC_GUIDE.md §7.1 + план `bars_ta_logic_v2`.
+   *
+   * Контракт:
+   * - downsize (`bars` уменьшился): все row-based структуры прунятся по `r >= bars`,
+   *   включая flat + lane Ta/accent, suppression, deadCells, customSyllables,
+   *   customMultipliers, customSubdivisions, pulseMeterUnlinked.
+   * - upsize (`bars` вырос): новые строки НЕ получают stale UI-состояний —
+   *   прунинг идемпотентен, а помещение default-state происходит по месту чтения.
+   * - view/render домены (`visibleBars`, `virtualRowCount`) НЕ влияют на prune.
+   *
+   * Lane-maps (`accentsByLane`, `taDingKeysByLane`) защищены от lane-bleed:
+   * ключи, оказавшиеся не в своей lane, удаляются. В poly плоские set'ы
+   * пересчитываются из lane-контейнеров (lane = source of truth, §3 гайда).
+   */
   useEffect(() => {
-    setFirstBeatDingSuppressedRows((prev) => pruneSuppressedRowsByBars(prev, bars));
+    setFirstBeatDingSuppressedRows((prev) => {
+      const next = pruneSuppressedRowsByBars(prev, bars);
+      return next.size === prev.size ? prev : next;
+    });
+    setAccents((prev) => {
+      const next = pruneGridKeySetByBars(prev, bars);
+      if (next.size === prev.size) return prev;
+      accentsRef.current = next;
+      return next;
+    });
+    setTaDingKeys((prev) => {
+      const next = pruneGridKeySetByBars(prev, bars);
+      if (next.size === prev.size) return prev;
+      taDingKeysRef.current = next;
+      return next;
+    });
+    setAccentsByLane((prev) => {
+      const before = prev[0].size + prev[1].size + prev[2].size;
+      const next = pruneLaneSetMapByBars(
+        { 0: new Set(prev[0]), 1: new Set(prev[1]), 2: new Set(prev[2]) },
+        bars,
+        polyVoicesRef.current,
+      );
+      const after = next[0].size + next[1].size + next[2].size;
+      if (after === before) return prev;
+      accentsByLaneRef.current = { 0: new Set(next[0]), 1: new Set(next[1]), 2: new Set(next[2]) };
+      return next;
+    });
+    setTaDingKeysByLane((prev) => {
+      const before = prev[0].size + prev[1].size + prev[2].size;
+      const next = pruneLaneSetMapByBars(
+        { 0: new Set(prev[0]), 1: new Set(prev[1]), 2: new Set(prev[2]) },
+        bars,
+        polyVoicesRef.current,
+      );
+      const after = next[0].size + next[1].size + next[2].size;
+      if (after === before) return prev;
+      taDingKeysByLaneRef.current = { 0: new Set(next[0]), 1: new Set(next[1]), 2: new Set(next[2]) };
+      return next;
+    });
+    setCustomSyllables((prev) => {
+      const next = pruneNumericRecordByBars(prev, bars);
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
+    setCustomMultipliers((prev) => {
+      const next = pruneNumericRecordByBars(prev, bars);
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
+    setPulseMeterUnlinked((prev) => {
+      const next = pruneNumericRecordByBars(prev, bars);
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
+    setCustomSubdivisions((prev) => {
+      const next = pruneStringKeyRecordByBars(prev, bars);
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
+    setDeadCells((prev) => {
+      const next = pruneDeadCellsByBars(prev, bars);
+      if (Object.keys(next).length === Object.keys(prev).length) return prev;
+      deadCellsRef.current = next;
+      return next;
+    });
   }, [bars]);
 
   const getLaneAccentsSetRef = useCallback((r: number): Set<string> => {
@@ -4194,11 +4440,23 @@ export default function App() {
     chaosLevel: chaosLevelRef.current,
     clickSound: clickSoundRef.current,
     clickSoundByPolyVoice: { ...clickSoundByPolyVoiceRef.current },
-    clickBusBalance: getClickPresetBusGainsForPreset(clickPresetBusGainsRef.current, clickSoundRef.current),
+    clickBusBalance: getClickPresetBusGainsForVoicePreset(
+      clickPresetBusGainsByVoiceRef.current,
+      clickPresetBusGainsRef.current,
+      0,
+      clickSoundRef.current,
+    ),
     clickBusBalanceByPreset: collectSnapshotClickBusBalanceByPreset(
       clickSoundRef.current,
       clickSoundByPolyVoiceRef.current,
       polyModeRef.current,
+      clickPresetBusGainsRef.current,
+    ),
+    clickBusBalanceByVoicePreset: collectSnapshotClickBusBalanceByVoicePreset(
+      clickSoundRef.current,
+      clickSoundByPolyVoiceRef.current,
+      polyModeRef.current,
+      clickPresetBusGainsByVoiceRef.current,
       clickPresetBusGainsRef.current,
     ),
     panelExpanded: isPanelExpandedRef.current,
@@ -4773,6 +5031,7 @@ export default function App() {
       clickSoundByPolyVoice: (raw as { clickSoundByPolyVoice?: unknown }).clickSoundByPolyVoice,
       clickBusBalance: (raw as AppSnapshot).clickBusBalance,
       clickBusBalanceByPreset: (raw as AppSnapshot).clickBusBalanceByPreset,
+      clickBusBalanceByVoicePreset: (raw as AppSnapshot).clickBusBalanceByVoicePreset,
       panelExpanded: raw.panelExpanded,
       pulseMeterUnlinked: raw.pulseMeterUnlinked,
       frozenScale: raw.frozenScale,
@@ -4796,7 +5055,7 @@ export default function App() {
       const next = { ...prev };
       for (const k of Object.keys(next)) {
         const ri = Number(k);
-        if (!Number.isFinite(ri) || ri < 0 || ri >= bars) {
+        if (ri >= bars) {
           delete next[ri];
           changed = true;
         }
@@ -4858,11 +5117,23 @@ export default function App() {
           chaosLevel: chaosLevelRef.current,
           clickSound,
           clickSoundByPolyVoice,
-          clickBusBalance: getClickPresetBusGainsForPreset(clickPresetBusGains, clickSound),
+          clickBusBalance: getClickPresetBusGainsForVoicePreset(
+            clickPresetBusGainsByVoice,
+            clickPresetBusGains,
+            0,
+            clickSound,
+          ),
           clickBusBalanceByPreset: collectSnapshotClickBusBalanceByPreset(
             clickSound,
             clickSoundByPolyVoice,
             polyMode,
+            clickPresetBusGains,
+          ),
+          clickBusBalanceByVoicePreset: collectSnapshotClickBusBalanceByVoicePreset(
+            clickSound,
+            clickSoundByPolyVoice,
+            polyMode,
+            clickPresetBusGainsByVoice,
             clickPresetBusGains,
           ),
           panelExpanded: isPanelExpanded,
@@ -4903,6 +5174,7 @@ export default function App() {
     clickSound,
     clickSoundByPolyVoice,
     clickPresetBusGains,
+    clickPresetBusGainsByVoice,
     isPanelExpanded,
     frozenScale,
     polyMode,
@@ -4951,44 +5223,100 @@ export default function App() {
     options?: { preservePanel?: boolean },
   ) => {
       const snapVoices = parsePolyVoices(snap.polyVoices);
+      const snapPolyMode = snap.polyMode === true;
+      const nextBars = snapBarsToPolyGrid(snap.bars, snapPolyMode, snapVoices);
       setTempo(snap.tempo);
-      setBars(snapBarsToPolyGrid(snap.bars, snap.polyMode === true, snapVoices));
+      setBars(nextBars);
       setSyllables(snap.syllables);
-    const nextAccents = new Set(
+    const rawAccents = new Set(
       Array.isArray(snap.accents)
         ? snap.accents
         : snap.accents instanceof Set
           ? [...snap.accents]
           : [],
     );
-    setAccents(
-      new Set(
-        nextAccents,
-      ),
-    );
-    const nextTaDing = new Set(
+    const rawTaDing = new Set(
       Array.isArray(snap.taDingKeys)
         ? snap.taDingKeys
         : snap.taDingKeys instanceof Set
           ? [...snap.taDingKeys]
           : [],
     );
-    setTaDingKeys(
-      new Set(
-        nextTaDing,
-      ),
+    const rawAccByLane = cloneLaneSetMap((snap as { accentsByLane?: Partial<Record<number, Iterable<string>>> }).accentsByLane);
+    const rawTaByLane = cloneLaneSetMap((snap as { taDingKeysByLane?: Partial<Record<number, Iterable<string>>> }).taDingKeysByLane);
+    const rawSuppressed = normalizeSuppressedRows(
+      (snap as { firstBeatDingSuppressedRows?: unknown }).firstBeatDingSuppressedRows,
+      nextBars,
     );
-    const nextAccByLane = cloneLaneSetMap((snap as { accentsByLane?: Partial<Record<number, Iterable<string>>> }).accentsByLane);
-    const nextTaByLane = cloneLaneSetMap((snap as { taDingKeysByLane?: Partial<Record<number, Iterable<string>>> }).taDingKeysByLane);
-    setAccentsByLane(nextAccByLane);
-    accentsByLaneRef.current = cloneLaneSetMap(nextAccByLane);
-    setTaDingKeysByLane(nextTaByLane);
-    taDingKeysByLaneRef.current = cloneLaneSetMap(nextTaByLane);
-      setCustomSyllables({ ...snap.customSyllables });
-      setDeadCells({ ...((snap as { deadCells?: DeadCellsMap }).deadCells || {}) });
-      deadCellsRef.current = { ...((snap as { deadCells?: DeadCellsMap }).deadCells || {}) };
-      setCustomMultipliers({ ...(snap.customMultipliers || {}) });
-      setCustomSubdivisions({ ...(snap.customSubdivisions || {}) });
+    const rawFirstBeatByLane = cloneLaneBoolMap(
+      (snap as { firstBeatAccentByLane?: Partial<Record<number, boolean>> }).firstBeatAccentByLane,
+      snap.firstBeatAccent !== false,
+    );
+    const rawDeadCells = { ...((snap as { deadCells?: DeadCellsMap }).deadCells || {}) };
+    const rawCustomSyllables = { ...snap.customSyllables };
+    const rawCustomMultipliers = { ...(snap.customMultipliers || {}) };
+    const rawCustomSubdivisions = { ...(snap.customSubdivisions || {}) };
+    const rawPulseUnlinked = normalizePulseMeterUnlinked(snap.pulseMeterUnlinked);
+
+    /**
+     * Централизованный нормализатор snapshot-данных перед bulk apply.
+     * Гарантирует:
+     * - data-domain прунинг по `nextBars` (см. §7.1 гайда);
+     * - устранение lane-bleed (lane = source of truth в poly);
+     * - отсутствие ghost Ta/accent после load;
+     * - graceful fallback для частично поврежденного snapshot.
+     */
+    const snapshotRaw: BarsDomainState = {
+      accents: rawAccents,
+      taDingKeys: rawTaDing,
+      accentsByLane: {
+        0: new Set(rawAccByLane[0]),
+        1: new Set(rawAccByLane[1]),
+        2: new Set(rawAccByLane[2]),
+      },
+      taDingKeysByLane: {
+        0: new Set(rawTaByLane[0]),
+        1: new Set(rawTaByLane[1]),
+        2: new Set(rawTaByLane[2]),
+      },
+      firstBeatDingSuppressedRows: rawSuppressed,
+      firstBeatAccentByLane: rawFirstBeatByLane,
+      deadCells: rawDeadCells,
+      customSyllables: rawCustomSyllables,
+      customMultipliers: rawCustomMultipliers,
+      pulseMeterUnlinked: rawPulseUnlinked,
+      customSubdivisions: rawCustomSubdivisions,
+    };
+    const { state: snapshotNormalized } = normalizeBarsAndLaneState(
+      snapshotRaw,
+      nextBars,
+      snapVoices,
+      snapPolyMode,
+    );
+
+    setAccents(new Set(snapshotNormalized.accents));
+    accentsRef.current = new Set(snapshotNormalized.accents);
+    setTaDingKeys(new Set(snapshotNormalized.taDingKeys));
+    taDingKeysRef.current = new Set(snapshotNormalized.taDingKeys);
+    const normAccByLane = {
+      0: new Set(snapshotNormalized.accentsByLane[0]),
+      1: new Set(snapshotNormalized.accentsByLane[1]),
+      2: new Set(snapshotNormalized.accentsByLane[2]),
+    };
+    const normTaByLane = {
+      0: new Set(snapshotNormalized.taDingKeysByLane[0]),
+      1: new Set(snapshotNormalized.taDingKeysByLane[1]),
+      2: new Set(snapshotNormalized.taDingKeysByLane[2]),
+    };
+    setAccentsByLane(normAccByLane);
+    accentsByLaneRef.current = cloneLaneSetMap(normAccByLane);
+    setTaDingKeysByLane(normTaByLane);
+    taDingKeysByLaneRef.current = cloneLaneSetMap(normTaByLane);
+      setCustomSyllables({ ...snapshotNormalized.customSyllables });
+      setDeadCells({ ...snapshotNormalized.deadCells });
+      deadCellsRef.current = { ...snapshotNormalized.deadCells };
+      setCustomMultipliers({ ...snapshotNormalized.customMultipliers });
+      setCustomSubdivisions({ ...snapshotNormalized.customSubdivisions });
     {
       const nextRandomMode =
         snap.randomModeEnabled !== undefined ? Boolean(snap.randomModeEnabled) : false;
@@ -5022,7 +5350,17 @@ export default function App() {
     const busByPresetFromSnap = parseClickBusBalanceByPresetFromUnknown(
       (snap as AppSnapshot).clickBusBalanceByPreset,
     );
+    const busByVoicePresetFromSnap = parseClickBusBalanceByVoicePresetFromUnknown(
+      (snap as AppSnapshot).clickBusBalanceByVoicePreset,
+    );
     const busFromSnap = (snap as AppSnapshot).clickBusBalance;
+    if (busByVoicePresetFromSnap && Object.keys(busByVoicePresetFromSnap).length > 0) {
+      setClickPresetBusGainsByVoice((prev) => {
+        const updated = { ...prev, ...busByVoicePresetFromSnap };
+        clickPresetBusGainsByVoiceRef.current = updated;
+        return updated;
+      });
+    }
     if (busByPresetFromSnap && Object.keys(busByPresetFromSnap).length > 0) {
       setClickPresetBusGains((prev) => {
         const updated = { ...prev, ...busByPresetFromSnap };
@@ -5036,17 +5374,17 @@ export default function App() {
         return updated;
       });
     }
-    setPulseMeterUnlinked(normalizePulseMeterUnlinked(snap.pulseMeterUnlinked));
+    /** pulseMeterUnlinked уже нормализован через snapshotNormalized (data-domain). */
+    setPulseMeterUnlinked({ ...snapshotNormalized.pulseMeterUnlinked });
     const modeFromSnap = (snap as { squarePlaybackMode?: unknown }).squarePlaybackMode;
     if (modeFromSnap === 'all_beats' || modeFromSnap === 'accent_only' || modeFromSnap === 'passive_only') {
       setSquarePlaybackMode(modeFromSnap);
     } else {
       setSquarePlaybackMode(snap.onlyAccents === true ? 'accent_only' : 'all_beats');
     }
-    const nextFirstBeatByLane = cloneLaneBoolMap(
-      (snap as { firstBeatAccentByLane?: Partial<Record<number, boolean>> }).firstBeatAccentByLane,
-      snap.firstBeatAccent !== false,
-    );
+    /** firstBeatAccentByLane — не row-based, но проходит через нормализатор
+     * ради консистентности (boolean-копии, без мутации входа). */
+    const nextFirstBeatByLane = snapshotNormalized.firstBeatAccentByLane;
     setFirstBeatAccentByLane(nextFirstBeatByLane);
     firstBeatAccentByLaneRef.current = { ...nextFirstBeatByLane };
     setFirstBeatAccent(Boolean(nextFirstBeatByLane[0]));
@@ -5081,12 +5419,11 @@ export default function App() {
      * Agent note (snapshot contract):
      * `firstBeatDingSuppressedRows` can arrive as Set (runtime snapshot) or Array (JSON/clipboard).
      * Always normalize both shapes, otherwise suppressed rows are lost and default first-beat marks come back.
+     * Теперь проходит через централизованный нормализатор `snapshotNormalized` (bars-domain),
+     * который гарантирует `r < totalBars` и graceful fallback для повреждённых входов.
      */
     setFirstBeatDingSuppressedRows(
-      normalizeSuppressedRows(
-        (snap as { firstBeatDingSuppressedRows?: unknown }).firstBeatDingSuppressedRows,
-        snap.bars,
-      ),
+      new Set(snapshotNormalized.firstBeatDingSuppressedRows),
     );
     const nextMute = normalizeSyllableReadMuteModeFromSnapshot(
       snap.syllableReadMuteMode,
@@ -5346,7 +5683,9 @@ export default function App() {
       return cleanup;
     }
     wasPlayingAutoscrollRef.current = true;
-    if (autoscrollDisabledByUserRef.current) return cleanup;
+    if (autoscrollDisabledByUserRef.current) {
+      return cleanup;
+    }
 
     const frozenOneBarViewport =
       frozenScale !== null && Math.min(frozenScale, 10) === 1 && bars > 1;
@@ -5414,18 +5753,22 @@ export default function App() {
   useEffect(() => {
     const node = gridRef.current;
     if (!node) return;
-    const onWheel = () => {
+    const disableAutoscrollByUser = (reason: 'wheel' | 'touchmove' | 'scroll') => {
       if (!isPlayingRef.current) return;
+      if (autoscrollDisabledByUserRef.current) return;
       autoscrollDisabledByUserRef.current = true;
+      setAutoscrollVirtualRowsEnabled(false);
+    };
+    const onWheel = () => {
+      disableAutoscrollByUser('wheel');
     };
     const onTouchMove = () => {
-      if (!isPlayingRef.current) return;
-      autoscrollDisabledByUserRef.current = true;
+      disableAutoscrollByUser('touchmove');
     };
     const onScroll = () => {
       if (!isPlayingRef.current) return;
       if (programmaticAutoscrollRef.current) return;
-      autoscrollDisabledByUserRef.current = true;
+      disableAutoscrollByUser('scroll');
     };
     node.addEventListener('wheel', onWheel, { passive: true });
     node.addEventListener('touchmove', onTouchMove, { passive: true });
@@ -5644,7 +5987,20 @@ export default function App() {
 
   const toggleAccent = useCallback((r: number, c: number) => {
     // USER-SOURCE-OF-TRUTH: accent map is defined only by explicit user taps on grid cells.
-    if (c === 0) setAccentMapVersion(1);
+    // #region agent log
+    postTaDebugLog('pre-fix', 'H1', 'App.tsx:toggleAccent:entry', 'toggleAccent entry', {
+      row: r,
+      col: c,
+      polyMode: polyModeRef.current,
+      accentMapVersionBefore: accentMapVersionRef.current,
+      accentsSizeBefore: accentsRef.current.size,
+      taDingSizeBefore: taDingKeysRef.current.size,
+      suppressedRowsSizeBefore: firstBeatDingSuppressedRowsRef.current.size,
+    });
+    // #endregion
+    // Keep white-Ta visibility independent from purple c0 toggles.
+    // c0 accent must not flip reveal-state flags used by Ta layer.
+    if (c > 0) setAccentMapVersion(1);
     const key = `${r}-${c}`;
     if (polyModeRef.current) {
       const lane = laneForRow(r, polyVoicesRef.current);
@@ -5657,6 +6013,17 @@ export default function App() {
         accentsRef.current = flat;
         setAccents(flat);
         accentsByLaneRef.current = cloneLaneSetMap(next);
+        // #region agent log
+        postTaDebugLog('pre-fix', 'H1', 'App.tsx:toggleAccent:poly', 'toggleAccent poly mutation', {
+          row: r,
+          col: c,
+          lane,
+          key,
+          hasAfter: laneSet.has(key),
+          flatAccentsSizeAfter: flat.size,
+          taDingSizeAfter: taDingKeysRef.current.size,
+        });
+        // #endregion
         return next;
       });
       return;
@@ -5668,6 +6035,16 @@ export default function App() {
       } else {
         next.add(key);
       }
+      // #region agent log
+      postTaDebugLog('pre-fix', 'H1', 'App.tsx:toggleAccent:mono', 'toggleAccent mono mutation', {
+        row: r,
+        col: c,
+        key,
+        hasAfter: next.has(key),
+        accentsSizeAfter: next.size,
+        taDingSizeAfter: taDingKeysRef.current.size,
+      });
+      // #endregion
       return next;
     });
   }, []);
@@ -6066,7 +6443,12 @@ export default function App() {
         const polyVoiceGain = polyModeRef.current
           ? Math.max(0, Math.min(1.6, polyVoiceGainsRef.current[voice as 0 | 1 | 2] ?? 1))
           : Math.max(0, Math.min(1.6, polyVoiceGainsRef.current[0] ?? 1));
-        const busG = getClickPresetBusGainsForPreset(clickPresetBusGainsRef.current, soundPreset);
+        const busG = getClickPresetBusGainsForVoicePreset(
+          clickPresetBusGainsByVoiceRef.current,
+          clickPresetBusGainsRef.current,
+          voice,
+          soundPreset,
+        );
         const gainMulForRole = (role: 'accent' | 'base' | 'alt'): number => {
           const roleLinear = role === 'accent' ? busG.accent : role === 'alt' ? busG.alt : busG.passive;
           return polyVoiceGain * roleLinear;
@@ -6389,7 +6771,7 @@ export default function App() {
     }, resetDelayMs);
   }, [clearPlayheadScheduling, getLegacyNoteDurationSeconds, scheduleGridCellAtTime]);
 
-  /** After bus 1/2/3 moves: same two-bar grid preview as preset selection (debounced). Waits until any running grid preview finishes before starting, so the beat is audible. */
+  /** After bus 1/2/3 moves: same two-bar grid preview as preset selection (debounced). If preview is already running, restart immediately to reflect slider movement live. */
   const scheduleClickPresetBusTwoBarsPreview = useCallback(() => {
     if (isTaEditorModeRef.current || isDeadCellsEditorModeRef.current) return;
     if (clickPresetBusTwoBarsPreviewRetryTimerRef.current !== null) {
@@ -6410,17 +6792,7 @@ export default function App() {
             clickSoundRef.current,
           )
         : clickSoundRef.current;
-      const tryPlay = () => {
-        if (gridPreviewAudioActiveRef.current) {
-          clickPresetBusTwoBarsPreviewRetryTimerRef.current = window.setTimeout(() => {
-            clickPresetBusTwoBarsPreviewRetryTimerRef.current = null;
-            tryPlay();
-          }, 90);
-          return;
-        }
-        playTwoBarsPreviewFromGrid(preset);
-      };
-      tryPlay();
+      playTwoBarsPreviewFromGrid(preset);
     }, CLICK_PRESET_BUS_TWO_BARS_PREVIEW_DEBOUNCE_MS);
   }, [playTwoBarsPreviewFromGrid]);
 
@@ -6496,6 +6868,7 @@ export default function App() {
     if (isPlaying) {
       endLiveControlWindow();
       setIsPlaying(false);
+      setAutoscrollVirtualRowsEnabled(false);
       isPlayingRef.current = false;
       logAudioTimingMetricsIfDue(Number.MAX_SAFE_INTEGER);
       // Chaos auto-ramp: pause/stop всегда выключает автопилот.
@@ -6580,6 +6953,7 @@ export default function App() {
       setIsPlaying(true);
       isPlayingRef.current = true;
       autoscrollDisabledByUserRef.current = false;
+      setAutoscrollVirtualRowsEnabled(true);
       clearPlayheadScheduling();
       setActivePositions([]);
       coldStartRef.current = true; // Mark cold start
@@ -6714,11 +7088,19 @@ export default function App() {
   const visibleTaDingKeys = useMemo(() => {
     return taDingKeysUi;
   }, [taDingKeysUi]);
-  const totalBars = bars;
+  /**
+   * AGENT-3 (reveal): единый источник истины для normal-mode Ta visibility.
+   * Все reveal-ad-hoc условия должны идти через этот helper (см. taVisibility.ts).
+   *
+   * Контракт (TA_LOGIC_GUIDE.md §7 + §13):
+   * - bars-domain только (`bars` === `totalBars`), без view/render доменов;
+   * - учитывает `accentMapVersion` (UI/история правок), suppression, explicit Ta вне `c0`;
+   * - `isTaGridAtDefault` — derived flag «сетка вернулась к дефолту».
+   */
   const taNormalVisibility = useMemo(
     () =>
       deriveTaNormalVisibility({
-        totalBars,
+        totalBars: bars,
         accentMapVersion,
         firstBeatDingSuppressedRows,
         accentsUi,
@@ -6727,14 +7109,43 @@ export default function App() {
         syllables,
         deadCells,
       }),
-    [totalBars, accentMapVersion, firstBeatDingSuppressedRows, accentsUi, taDingKeysUi, customSyllables, syllables, deadCells],
+    [bars, accentMapVersion, firstBeatDingSuppressedRows, accentsUi, taDingKeysUi, customSyllables, syllables, deadCells],
   );
-  const {
-    hasAnyVisibleAccentOutsideFirstBeat,
-    hasAnyExplicitTaOutsideFirstBeat,
-    isTaGridAtDefault,
+  const hasAnyVisibleAccentOutsideFirstBeat = taNormalVisibility.hasAnyVisibleAccentOutsideFirstBeat;
+  const hasAnyExplicitTaOutsideFirstBeat = taNormalVisibility.hasAnyExplicitTaOutsideFirstBeat;
+  const canShowDefaultTaInNormal = taNormalVisibility.canShowDefaultTaInNormal;
+  useEffect(() => {
+    // #region agent log
+    postTaDebugLog('pre-fix', 'H2', 'App.tsx:taNormalVisibility', 'ta visibility derived', {
+      accentMapVersion,
+      canShowDefaultTaInNormal,
+      isTaGridAtDefault: taNormalVisibility.isTaGridAtDefault,
+      hasAnyExplicitTaOutsideFirstBeat,
+      hasAnyVisibleAccentOutsideFirstBeat,
+      taDingKeysUiSize: taDingKeysUi.size,
+      accentsUiSize: accentsUi.size,
+      suppressedRowsSize: firstBeatDingSuppressedRows.size,
+    });
+    // #endregion
+    if (taDingKeysUi.size > 0 && !canShowDefaultTaInNormal) {
+      // #region agent log
+      postTaDebugLog('pre-fix', 'H3', 'App.tsx:taNormalVisibility:hidden-state', 'explicit Ta exists while reveal disabled', {
+        taDingKeysUi: Array.from(taDingKeysUi).slice(0, 12),
+        accentMapVersion,
+        suppressedRowsSize: firstBeatDingSuppressedRows.size,
+      });
+      // #endregion
+    }
+  }, [
+    accentMapVersion,
     canShowDefaultTaInNormal,
-  } = taNormalVisibility;
+    taNormalVisibility.isTaGridAtDefault,
+    hasAnyExplicitTaOutsideFirstBeat,
+    hasAnyVisibleAccentOutsideFirstBeat,
+    taDingKeysUi,
+    accentsUi,
+    firstBeatDingSuppressedRows,
+  ]);
   sequencerGridRowActionsRef.current = {
     isHoldingRef,
     holdTimerRef,
@@ -7036,7 +7447,13 @@ export default function App() {
                                   clickSound,
                                 )
                               : clickSound;
-                          const gRow = getClickPresetBusGainsForPreset(clickPresetBusGains, busPreset);
+                          const busVoice = (polyMode ? activeClickVoiceTarget : 0) as 0 | 1 | 2;
+                          const gRow = getClickPresetBusGainsForVoicePreset(
+                            clickPresetBusGainsByVoice,
+                            clickPresetBusGains,
+                            busVoice,
+                            busPreset,
+                          );
                           const busKeys: { key: keyof ClickPresetBusGains; aria: string; swatchClass: string }[] = [
                             {
                               key: 'accent',
@@ -7088,11 +7505,18 @@ export default function App() {
                                       const nextVal = Number.isFinite(raw)
                                         ? Math.max(0, Math.min(1.6, raw))
                                         : 1;
-                                      setClickPresetBusGains((prev) => {
-                                        const cur = getClickPresetBusGainsForPreset(prev, busPreset);
+                                      setClickPresetBusGainsByVoice((prev) => {
+                                        const voiceMap = { ...(prev[busVoice] ?? {}) };
+                                        const cur = getClickPresetBusGainsForVoicePreset(
+                                          prev,
+                                          clickPresetBusGainsRef.current,
+                                          busVoice,
+                                          busPreset,
+                                        );
                                         const row: ClickPresetBusGains = { ...cur, [key]: nextVal };
-                                        const updated = { ...prev, [busPreset]: row };
-                                        clickPresetBusGainsRef.current = updated;
+                                        const updatedVoice = { ...voiceMap, [busPreset]: row };
+                                        const updated = { ...prev, [busVoice]: updatedVoice };
+                                        clickPresetBusGainsByVoiceRef.current = updated;
                                         return updated;
                                       });
                                       scheduleClickPresetBusTwoBarsPreview();
@@ -7103,11 +7527,18 @@ export default function App() {
                                       const nextVal = Number.isFinite(raw)
                                         ? Math.max(0, Math.min(1.6, raw))
                                         : 1;
-                                      setClickPresetBusGains((prev) => {
-                                        const cur = getClickPresetBusGainsForPreset(prev, busPreset);
+                                      setClickPresetBusGainsByVoice((prev) => {
+                                        const voiceMap = { ...(prev[busVoice] ?? {}) };
+                                        const cur = getClickPresetBusGainsForVoicePreset(
+                                          prev,
+                                          clickPresetBusGainsRef.current,
+                                          busVoice,
+                                          busPreset,
+                                        );
                                         const row: ClickPresetBusGains = { ...cur, [key]: nextVal };
-                                        const updated = { ...prev, [busPreset]: row };
-                                        clickPresetBusGainsRef.current = updated;
+                                        const updatedVoice = { ...voiceMap, [busPreset]: row };
+                                        const updated = { ...prev, [busVoice]: updatedVoice };
+                                        clickPresetBusGainsByVoiceRef.current = updated;
                                         return updated;
                                       });
                                       scheduleClickPresetBusTwoBarsPreview();
@@ -7115,11 +7546,18 @@ export default function App() {
                                     onDoubleClick={(e) => {
                                       e.preventDefault();
                                       beginLiveControlWindow();
-                                      setClickPresetBusGains((prev) => {
-                                        const cur = getClickPresetBusGainsForPreset(prev, busPreset);
+                                      setClickPresetBusGainsByVoice((prev) => {
+                                        const voiceMap = { ...(prev[busVoice] ?? {}) };
+                                        const cur = getClickPresetBusGainsForVoicePreset(
+                                          prev,
+                                          clickPresetBusGainsRef.current,
+                                          busVoice,
+                                          busPreset,
+                                        );
                                         const row: ClickPresetBusGains = { ...cur, [key]: 1 };
-                                        const updated = { ...prev, [busPreset]: row };
-                                        clickPresetBusGainsRef.current = updated;
+                                        const updatedVoice = { ...voiceMap, [busPreset]: row };
+                                        const updated = { ...prev, [busVoice]: updatedVoice };
+                                        clickPresetBusGainsByVoiceRef.current = updated;
                                         return updated;
                                       });
                                       scheduleClickPresetBusTwoBarsPreview();
@@ -7245,7 +7683,8 @@ export default function App() {
                                   } else {
                                     setClickSoundByPolyVoice((prev) => {
                                       const next = { ...prev };
-                                      next[activeClickVoiceTarget] = preset.mappedSound;
+                                      if (preset.mappedSound === clickSoundRef.current) delete next[activeClickVoiceTarget];
+                                      else next[activeClickVoiceTarget] = preset.mappedSound;
                                       clickSoundByPolyVoiceRef.current = { ...next };
                                       return next;
                                     });
@@ -7927,6 +8366,7 @@ export default function App() {
           taDingKeys={visibleTaDingKeys}
           pulseMeterUnlinked={pulseMeterUnlinked}
           isPlaying={isPlaying}
+          autoscrollVirtualRowsEnabled={autoscrollVirtualRowsEnabled}
           activePos={activePos}
           activePositions={activePositions}
           polyMode={polyMode}
@@ -8091,6 +8531,7 @@ export default function App() {
                 return;
               }
               if (isTaEditorModeRef.current) {
+                setIsTaEditorMode(false);
                 return;
               }
               flushSync(() => {
