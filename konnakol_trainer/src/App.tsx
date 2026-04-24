@@ -94,12 +94,27 @@ const PULSE_METER_BASE_SYLLABLES = 4;
 
 /** Long-press квадрата: off | только акцентные щелчки выкл (пассивы играют) | все щелчки по сетке выкл. */
 type SyllableReadMuteMode = 'off' | 'full' | 'no_accent_sharp';
-type SquarePlaybackMode = 'all_beats' | 'accent_only' | 'passive_only';
+/** Серая: пассив + Ta, без alt; фиолет: full mix; зелёный: Ta-контур, остальное в гейте. */
+type SquarePlaybackMode = 'passive_no_alt' | 'full_mix' | 'ta_only';
+/** Пустой снапшот и первый запуск (без сохранённых настроек): фиолет — full mix. */
+const DEFAULT_SQUARE_PLAYBACK_MODE: SquarePlaybackMode = 'full_mix';
 
 function nextSquarePlaybackMode(mode: SquarePlaybackMode): SquarePlaybackMode {
-	if (mode === 'all_beats') return 'accent_only';
-	if (mode === 'accent_only') return 'passive_only';
-	return 'all_beats';
+	if (mode === 'passive_no_alt') return 'full_mix';
+	if (mode === 'full_mix') return 'ta_only';
+	return 'passive_no_alt';
+}
+
+/** Снапшоты/JSON: новые значения + миграция `all_beats`/`accent_only`/`passive_only` и legacy `onlyAccents`. */
+function normalizeSquarePlaybackModeFromSnapshot(
+	raw: unknown,
+	legacyOnlyAccents?: boolean,
+): SquarePlaybackMode {
+	if (raw === 'passive_no_alt' || raw === 'full_mix' || raw === 'ta_only') return raw;
+	if (raw === 'all_beats' || raw === 'accent_only') return 'full_mix';
+	if (raw === 'passive_only') return 'ta_only';
+	if (legacyOnlyAccents === true) return 'full_mix';
+	return DEFAULT_SQUARE_PLAYBACK_MODE;
 }
 
 function normalizeSyllableReadMuteModeFromSnapshot(modeRaw: unknown, legacyLatched: unknown): SyllableReadMuteMode {
@@ -2078,7 +2093,9 @@ function createEmptySnapshot() {
 		polyMode: false,
 		polyVoices: 2 as 2 | 3 | 4,
 		onlyAccents: false,
-		squarePlaybackMode: 'all_beats' as SquarePlaybackMode,
+		squarePlaybackMode: DEFAULT_SQUARE_PLAYBACK_MODE,
+		/** Long-press на фиолетовом: выключить только пассивный bus (см. emitGridSubAudio). */
+		squarePassiveLayerMuted: false,
 		firstBeatAccent: true,
 		firstBeatAccentByLane: makeLaneBoolMap(true),
 		/** 0 = legacy: первая доля Ta без явных ключей `r-0` считается включённой; 1 = карта `accents` для первых долей. */
@@ -2259,12 +2276,12 @@ function parseSnapshotRow(raw: unknown) {
 		d.pulseMeterUnlinked = next;
 	}
 	if (typeof o.onlyAccents === 'boolean') d.onlyAccents = o.onlyAccents;
-	if (
-		o.squarePlaybackMode === 'all_beats' ||
-		o.squarePlaybackMode === 'accent_only' ||
-		o.squarePlaybackMode === 'passive_only'
-	) {
-		d.squarePlaybackMode = o.squarePlaybackMode;
+	d.squarePlaybackMode = normalizeSquarePlaybackModeFromSnapshot(
+		o.squarePlaybackMode,
+		typeof o.onlyAccents === 'boolean' ? o.onlyAccents : undefined,
+	);
+	if (typeof (o as { squarePassiveLayerMuted?: unknown }).squarePassiveLayerMuted === 'boolean') {
+		d.squarePassiveLayerMuted = (o as { squarePassiveLayerMuted: boolean }).squarePassiveLayerMuted;
 	}
 	if (typeof o.dictantMode === 'boolean') d.dictantMode = o.dictantMode;
 	if (typeof o.firstBeatAccent === 'boolean') d.firstBeatAccent = o.firstBeatAccent;
@@ -2367,8 +2384,12 @@ function snapSlotLooksUsed(s: ReturnType<typeof createEmptySnapshot>) {
 	if (s.panelExpanded === true) return true;
 	if (s.pulseMeterUnlinked && Object.values(s.pulseMeterUnlinked).some(Boolean)) return true;
 	if (s.onlyAccents) return true;
-	if ((s as { squarePlaybackMode?: SquarePlaybackMode }).squarePlaybackMode === 'accent_only') return true;
-	if ((s as { squarePlaybackMode?: SquarePlaybackMode }).squarePlaybackMode === 'passive_only') return true;
+	if ((s as { squarePassiveLayerMuted?: boolean }).squarePassiveLayerMuted) return true;
+	{
+		const m = (s as { squarePlaybackMode?: string }).squarePlaybackMode;
+		if (m === 'passive_no_alt' || m === 'ta_only') return true;
+		if (m === 'accent_only' || m === 'passive_only') return true;
+	}
 	if (s.firstBeatAccent === false) return true;
 	if (s.frozenScale != null) return true;
 	if (s.polyMode) return true;
@@ -2436,7 +2457,11 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		polyMode: s.polyMode === true,
 		polyVoices: parsePolyVoices(s.polyVoices),
 		onlyAccents: s.onlyAccents,
-		squarePlaybackMode: (s as { squarePlaybackMode?: SquarePlaybackMode }).squarePlaybackMode ?? (s.onlyAccents ? 'accent_only' : 'all_beats'),
+		squarePlaybackMode: normalizeSquarePlaybackModeFromSnapshot(
+			(s as { squarePlaybackMode?: unknown }).squarePlaybackMode,
+			s.onlyAccents ? true : undefined,
+		),
+		squarePassiveLayerMuted: (s as { squarePassiveLayerMuted?: boolean }).squarePassiveLayerMuted === true,
 		firstBeatAccent: s.firstBeatAccent,
 		firstBeatAccentByLane: { ...makeLaneBoolMap(s.firstBeatAccent !== false), ...(s.firstBeatAccentByLane ?? {}) },
 		accentMapVersion: (s as { accentMapVersion?: number }).accentMapVersion === 1 ? 1 : 0,
@@ -2682,7 +2707,10 @@ function loadSnapshotStorage(): {
 	try {
 		const raw = localStorage.getItem(SNAPSHOT_STORAGE_KEY);
 		if (!raw) {
-			for (let i = 1; i <= SNAPSHOT_SLOT_COUNT; i++) snapshots[i].randomModeEnabled = false;
+			for (let i = 1; i <= SNAPSHOT_SLOT_COUNT; i++) {
+				snapshots[i].randomModeEnabled = false;
+				snapshots[i].squarePlaybackMode = DEFAULT_SQUARE_PLAYBACK_MODE;
+			}
 			return { activeSnapshot, snapshots };
 		}
 		const data = JSON.parse(raw) as { activeSnapshot?: number; snapshots?: Record<string, unknown> };
@@ -3145,12 +3173,16 @@ export default function App() {
   );
 
   // Metronome Sound Toggles
-  const [squarePlaybackMode, setSquarePlaybackMode] = useState<SquarePlaybackMode>(() => {
-    const raw = (seed as { squarePlaybackMode?: unknown }).squarePlaybackMode;
-    if (raw === 'all_beats' || raw === 'accent_only' || raw === 'passive_only') return raw;
-    return seed.onlyAccents === true ? 'accent_only' : 'all_beats';
-  });
-  const onlyAccents = squarePlaybackMode === 'accent_only';
+  const [squarePlaybackMode, setSquarePlaybackMode] = useState<SquarePlaybackMode>(() =>
+    normalizeSquarePlaybackModeFromSnapshot(
+      (seed as { squarePlaybackMode?: unknown }).squarePlaybackMode,
+      (seed as { onlyAccents?: boolean }).onlyAccents === true ? true : undefined,
+    ),
+  );
+  const onlyAccents = false;
+  const [squarePassiveLayerMuted, setSquarePassiveLayerMuted] = useState(
+    () => (seed as { squarePassiveLayerMuted?: boolean }).squarePassiveLayerMuted === true,
+  );
   const [dictantMode, setDictantMode] = useState(() => (seed as { dictantMode?: boolean }).dictantMode === true);
   const [firstBeatAccent, setFirstBeatAccent] = useState(() => seed.firstBeatAccent !== false);
   const [firstBeatAccentByLane, setFirstBeatAccentByLane] = useState<LaneBoolMap>(() =>
@@ -3284,12 +3316,12 @@ export default function App() {
         frozenScale: typeof s.frozenScale === 'number' && s.frozenScale >= 1 ? s.frozenScale : null,
         polyMode: s.polyMode === true,
         polyVoices: parsePolyVoices(s.polyVoices),
-        squarePlaybackMode: (() => {
-          const raw = (s as { squarePlaybackMode?: unknown }).squarePlaybackMode;
-          if (raw === 'all_beats' || raw === 'accent_only' || raw === 'passive_only') return raw;
-          return s.onlyAccents === true ? 'accent_only' : 'all_beats';
-        })(),
-        onlyAccents: ((s as { squarePlaybackMode?: unknown }).squarePlaybackMode === 'accent_only') || s.onlyAccents === true,
+        squarePlaybackMode: normalizeSquarePlaybackModeFromSnapshot(
+          (s as { squarePlaybackMode?: unknown }).squarePlaybackMode,
+          s.onlyAccents === true ? true : undefined,
+        ),
+        onlyAccents: false,
+        squarePassiveLayerMuted: (s as { squarePassiveLayerMuted?: boolean }).squarePassiveLayerMuted === true,
         firstBeatAccent: s.firstBeatAccent !== false,
         accentMapVersion: (s as { accentMapVersion?: number }).accentMapVersion === 1 ? 1 : 0,
         syllableReadMuteMode: normalizeSyllableReadMuteModeFromSnapshot(
@@ -3599,7 +3631,8 @@ export default function App() {
     setTaDingKeysByLane(emptyTaByLane);
     taDingKeysByLaneRef.current = cloneLaneSetMap(emptyTaByLane);
     setAccentMapVersion(0);
-    setSquarePlaybackMode('all_beats');
+    setSquarePlaybackMode(DEFAULT_SQUARE_PLAYBACK_MODE);
+    setSquarePassiveLayerMuted(false);
     setDictantMode(false);
     setIsTaEditorMode(false);
     setIsDeadCellsEditorMode(false);
@@ -3820,6 +3853,7 @@ export default function App() {
   const pulseMeterUnlinkedRef = useRef(pulseMeterUnlinked);
   const onlyAccentsRef = useRef(onlyAccents);
   const squarePlaybackModeRef = useRef<SquarePlaybackMode>(squarePlaybackMode);
+  const squarePassiveLayerMutedRef = useRef(squarePassiveLayerMuted);
   const dictantModeRef = useRef(dictantMode);
   const firstBeatAccentRef = useRef(firstBeatAccent);
   const firstBeatAccentByLaneRef = useRef<LaneBoolMap>(firstBeatAccentByLane);
@@ -4044,8 +4078,18 @@ export default function App() {
   }, [customSyllables, syllables, bars]);
 
   useEffect(() => {
-    onlyAccentsRef.current = squarePlaybackMode === 'accent_only';
+    onlyAccentsRef.current = false;
     squarePlaybackModeRef.current = squarePlaybackMode;
+  }, [squarePlaybackMode]);
+
+  useEffect(() => {
+    squarePassiveLayerMutedRef.current = squarePassiveLayerMuted;
+  }, [squarePassiveLayerMuted]);
+
+  useEffect(() => {
+    if (squarePlaybackMode !== 'full_mix') {
+      setSquarePassiveLayerMuted(false);
+    }
   }, [squarePlaybackMode]);
   useEffect(() => { firstBeatAccentRef.current = firstBeatAccent; }, [firstBeatAccent]);
   useEffect(() => { firstBeatAccentByLaneRef.current = { ...firstBeatAccentByLane }; }, [firstBeatAccentByLane]);
@@ -4372,8 +4416,9 @@ export default function App() {
     frozenScale: frozenScaleRef.current,
     polyMode: polyModeRef.current,
     polyVoices: polyVoicesRef.current,
-    onlyAccents: squarePlaybackModeRef.current === 'accent_only',
+    onlyAccents: false,
     squarePlaybackMode: squarePlaybackModeRef.current,
+    squarePassiveLayerMuted: squarePassiveLayerMutedRef.current,
     firstBeatAccent: firstBeatAccentRef.current,
     firstBeatAccentByLane: { ...firstBeatAccentByLaneRef.current },
     accentMapVersion: accentMapVersionRef.current,
@@ -4947,6 +4992,7 @@ export default function App() {
       polyVoices: raw.polyVoices,
       onlyAccents: raw.onlyAccents,
       squarePlaybackMode: (raw as { squarePlaybackMode?: SquarePlaybackMode }).squarePlaybackMode,
+      squarePassiveLayerMuted: (raw as { squarePassiveLayerMuted?: boolean }).squarePassiveLayerMuted,
       firstBeatAccent: raw.firstBeatAccent,
       firstBeatAccentByLane: (raw as { firstBeatAccentByLane?: unknown }).firstBeatAccentByLane,
       accentMapVersion: (raw as { accentMapVersion?: number }).accentMapVersion,
@@ -5051,7 +5097,8 @@ export default function App() {
           polyMode,
           polyVoices,
           squarePlaybackMode,
-          onlyAccents: squarePlaybackMode === 'accent_only',
+          onlyAccents: false,
+          squarePassiveLayerMuted,
           firstBeatAccent,
           firstBeatAccentByLane,
           accentMapVersion,
@@ -5090,6 +5137,7 @@ export default function App() {
     polyMode,
     polyVoices,
     squarePlaybackMode,
+    squarePassiveLayerMuted,
     firstBeatAccent,
     firstBeatAccentByLane,
     accentMapVersion,
@@ -5234,12 +5282,13 @@ export default function App() {
       });
     }
     setPulseMeterUnlinked(normalizePulseMeterUnlinked(snap.pulseMeterUnlinked));
-    const modeFromSnap = (snap as { squarePlaybackMode?: unknown }).squarePlaybackMode;
-    if (modeFromSnap === 'all_beats' || modeFromSnap === 'accent_only' || modeFromSnap === 'passive_only') {
-      setSquarePlaybackMode(modeFromSnap);
-    } else {
-      setSquarePlaybackMode(snap.onlyAccents === true ? 'accent_only' : 'all_beats');
-    }
+    setSquarePlaybackMode(
+      normalizeSquarePlaybackModeFromSnapshot(
+        (snap as { squarePlaybackMode?: unknown }).squarePlaybackMode,
+        snap.onlyAccents === true ? true : undefined,
+      ),
+    );
+    setSquarePassiveLayerMuted((snap as { squarePassiveLayerMuted?: boolean }).squarePassiveLayerMuted === true);
     const nextFirstBeatByLane = cloneLaneBoolMap(
       (snap as { firstBeatAccentByLane?: Partial<Record<number, boolean>> }).firstBeatAccentByLane,
       snap.firstBeatAccent !== false,
@@ -5331,17 +5380,12 @@ export default function App() {
     frozenScale: typeof s.frozenScale === 'number' && s.frozenScale >= 1 ? s.frozenScale : null,
     polyMode: s.polyMode === true,
     polyVoices: parsePolyVoices(s.polyVoices),
-    squarePlaybackMode:
-      (s as { squarePlaybackMode?: SquarePlaybackMode }).squarePlaybackMode === 'accent_only' ||
-      (s as { squarePlaybackMode?: SquarePlaybackMode }).squarePlaybackMode === 'passive_only' ||
-      (s as { squarePlaybackMode?: SquarePlaybackMode }).squarePlaybackMode === 'all_beats'
-        ? (s as { squarePlaybackMode?: SquarePlaybackMode }).squarePlaybackMode!
-        : s.onlyAccents === true
-          ? 'accent_only'
-          : 'all_beats',
-    onlyAccents:
-      ((s as { squarePlaybackMode?: SquarePlaybackMode }).squarePlaybackMode === 'accent_only') ||
-      ((s as { squarePlaybackMode?: SquarePlaybackMode }).squarePlaybackMode === undefined && s.onlyAccents === true),
+    squarePlaybackMode: normalizeSquarePlaybackModeFromSnapshot(
+      (s as { squarePlaybackMode?: unknown }).squarePlaybackMode,
+      s.onlyAccents === true ? true : undefined,
+    ),
+    onlyAccents: false,
+    squarePassiveLayerMuted: (s as { squarePassiveLayerMuted?: boolean }).squarePassiveLayerMuted === true,
     firstBeatAccent: s.firstBeatAccent !== false,
     accentMapVersion: (s as { accentMapVersion?: number }).accentMapVersion === 1 ? 1 : 0,
     syllableReadMuteMode: normalizeSyllableReadMuteModeFromSnapshot(s.syllableReadMuteMode, undefined),
@@ -5385,6 +5429,7 @@ export default function App() {
         polyMode: polyModeRef.current,
         polyVoices: pv,
         squarePlaybackMode: squarePlaybackModeRef.current,
+        squarePassiveLayerMuted: squarePassiveLayerMutedRef.current,
         syllableReadMuteMode: syllableReadMuteModeRef.current,
         dictantMode: dictantModeRef.current,
       });
@@ -6300,16 +6345,12 @@ export default function App() {
         const mainAccentClick = isAccent && sub === 0;
         const shouldPlayFirstBeatTa =
           isFirstBarCell && fa && firstBeatCellHitRow && sub === 0;
-        const taDebugRenderMode: MetroNoiseRenderMode = 'shared';
-        const taDebugDirectOut = debugTaEngineModeRef.current;
         if (shouldPlayFirstBeatTa && !isAccent && !debugTaEngineModeRef.current) {
           playBarFirstHighClick(
             ctx,
             subTime,
             soundPreset,
             gainMulForRole('accent'),
-            taDebugRenderMode,
-            taDebugDirectOut,
           );
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
@@ -6318,19 +6359,19 @@ export default function App() {
         if (shouldDedupPolyClick) {
           return;
         }
-        const playbackMode: SquarePlaybackMode = isClickSelectorPreview ? 'all_beats' : squarePlaybackModeRef.current;
+        const playbackMode: SquarePlaybackMode = isClickSelectorPreview ? 'full_mix' : squarePlaybackModeRef.current;
+        const passiveLayerMuted = squarePassiveLayerMutedRef.current;
         const taEnabled = laneFirstBeat;
         const isTaDingCell = taEnabled && cIdx >= 1 && laneTaDing.has(`${rIdx}-${cIdx}`);
         /** Accent articulation should stay single-hit even on subdivided cells. */
         const shouldPlayTaDingSound = isTaDingCell && sub === 0;
         const hasTaDingHere = taEnabled && laneTaDing.has(`${rIdx}-${cIdx}`);
         const dictantActive = isClickSelectorPreview ? false : dictantModeRef.current;
+        const grayNoAlt = playbackMode === 'passive_no_alt';
         const shouldPlayBeat =
-          playbackMode === 'all_beats'
+          playbackMode === 'full_mix' || playbackMode === 'passive_no_alt'
             ? true
-            : playbackMode === 'accent_only'
-              ? isAccent || hasTaDingHere || shouldPlayFirstBeatTa
-              : hasTaDingHere || shouldPlayFirstBeatTa;
+            : hasTaDingHere || shouldPlayFirstBeatTa;
         const isTaFirstBeatArticulation =
           cIdx === 0 && fa && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
         const sharpAsChecked = (() => {
@@ -6344,8 +6385,6 @@ export default function App() {
             subTime,
             soundPreset,
             gainMulForRole('accent'),
-            taDebugRenderMode,
-            taDebugDirectOut,
           );
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
@@ -6353,34 +6392,34 @@ export default function App() {
         }
         if (muteMode === 'full') return;
         if (!shouldPlayBeat) return;
-        if (shouldPlayTaDingSound && !sharpAsChecked && playbackMode !== 'all_beats') {
+        if (shouldPlayTaDingSound && !sharpAsChecked && playbackMode !== 'full_mix') {
           return;
         }
-        if (shouldPlayFirstBeatTa && !sharpAsChecked && playbackMode !== 'all_beats') {
+        if (shouldPlayFirstBeatTa && !sharpAsChecked && playbackMode !== 'full_mix') {
           return;
         }
         const accentOnlyPlayback =
-          (playbackMode !== 'all_beats' || dictantActive) &&
+          (playbackMode !== 'full_mix' || dictantActive) &&
           !(shouldPlayTaDingSound && isAccent) &&
           !(shouldPlayFirstBeatTa && isAccent);
         // USER-SOURCE-OF-TRUTH:
         // - white frame (Ta) drives ACCENT bus
-        // - purple fill (square accent) drives ALT bus
+        // - purple fill (square accent) → ALT bus, кроме серого (passive_no_alt): пассив
         // - plain cell drives PASSIVE bus
         const hasUserWhiteAccent =
           shouldPlayFirstBeatTa || shouldPlayTaDingSound || hasTaDingHere;
         const hasUserPurpleAltAccent = isAccent;
         const hasOverlapAccentAlt = hasUserWhiteAccent && hasUserPurpleAltAccent;
-        const taNoiseRenderMode: MetroNoiseRenderMode = 'shared';
-        const taDirectOut = debugTaEngineModeRef.current && hasUserWhiteAccent;
         const taStableSampleMode = debugTaEngineModeRef.current && hasUserWhiteAccent;
         const voiceRole: 'accent' | 'base' | 'alt' = hasUserWhiteAccent
           ? 'accent'
           : hasUserPurpleAltAccent
-            ? 'alt'
+            ? grayNoAlt
+              ? 'base'
+              : 'alt'
             : 'base';
         if (taStableSampleMode) {
-          playTaStableSample(ctx, subTime, gainMulForRole('accent'));
+          playBarFirstHighClick(ctx, subTime, soundPreset, gainMulForRole('accent'));
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
           }
@@ -6396,22 +6435,30 @@ export default function App() {
               accentOnlyPlayback,
               'accent',
               gainMulForRole('accent'),
-              taNoiseRenderMode,
-              taDirectOut,
             );
           }
-          playSharpClick(
-            ctx,
-            subTime,
-            sharpAsChecked,
-            soundPreset,
-            accentOnlyPlayback,
-            'alt',
-            gainMulForRole('alt'),
-            taNoiseRenderMode,
-            false,
-          );
+          const overlapSecondRole: 'alt' | 'base' = grayNoAlt ? 'base' : 'alt';
+          if (
+            !(
+              playbackMode === 'full_mix' &&
+              passiveLayerMuted &&
+              overlapSecondRole === 'base'
+            )
+          ) {
+            playSharpClick(
+              ctx,
+              subTime,
+              sharpAsChecked,
+              soundPreset,
+              accentOnlyPlayback,
+              overlapSecondRole,
+              gainMulForRole(overlapSecondRole),
+            );
+          }
         } else {
+          if (playbackMode === 'full_mix' && passiveLayerMuted && voiceRole === 'base') {
+            return;
+          }
           playSharpClick(
             ctx,
             subTime,
@@ -6420,8 +6467,6 @@ export default function App() {
             accentOnlyPlayback,
             voiceRole,
             gainMulForRole(voiceRole),
-            taNoiseRenderMode,
-            taDirectOut,
           );
         }
         // USER-SOURCE-OF-TRUTH:
@@ -6793,6 +6838,8 @@ export default function App() {
       }
       syllableReadMuteModeRef.current = 'off';
       setSyllableReadMuteMode('off');
+      squarePassiveLayerMutedRef.current = false;
+      setSquarePassiveLayerMuted(false);
       squareHoldAteClickRef.current = false;
       randomDiceHoldAteClickRef.current = false;
       taHoldAteClickRef.current = false;
@@ -6820,8 +6867,59 @@ export default function App() {
       if (polyModeRef.current) {
         playAbsBarRef.current = 0;
       } else {
-        const startSeqItem = sequenceRef.current[currentStepRef.current];
-        playAbsBarRef.current = startSeqItem ? startSeqItem.r : 0;
+        // Legacy: start from the first pattern row that intersects the top of the visible grid
+        // (so scrolling to bar 20 before Play begins playback at that bar).
+        const seq = sequenceRef.current;
+        if (seq.length > 0) {
+          const grid = gridRef.current;
+          const b = barsRef.current;
+          let topAbs = 0;
+          if (grid) {
+            const gTop = grid.getBoundingClientRect().top;
+            for (let absR = 0; absR < b; absR++) {
+              const el = rowRefs.current[absR];
+              if (!el) continue;
+              if (el.getBoundingClientRect().bottom > gTop) {
+                topAbs = absR;
+                break;
+              }
+            }
+          }
+          const patternR = topAbs % Math.max(1, b);
+          let stepIdx = seq.findIndex((it) => it.r === patternR);
+          if (stepIdx === -1) {
+            stepIdx = seq.findIndex((it) => it.r > patternR);
+          }
+          if (stepIdx === -1) stepIdx = 0;
+          const item = seq[stepIdx];
+          const fs0 = frozenScaleRef.current;
+          const dsb0 = fs0 !== null ? Math.min(fs0, 10) : Math.min(b, 10);
+          const compact0 = b <= dsb0;
+          currentStepRef.current = stepIdx;
+          if (!item) {
+            playAbsBarRef.current = 0;
+          } else {
+            playAbsBarRef.current = compact0 ? item.r : topAbs;
+          }
+          if (b > dsb0 && item) {
+            const scrollStride0 = Math.max(1, dsb0 - 1);
+            const playAbs0 = playAbsBarRef.current;
+            const c0 = item.c;
+            let logicalPage = Math.floor(playAbs0 / scrollStride0);
+            if (playAbs0 > 0 && playAbs0 % scrollStride0 === 0) {
+              const rIdx0 = playAbs0 % b;
+              const rowSyl0 =
+                customSyllablesRef.current[rIdx0] !== undefined
+                  ? customSyllablesRef.current[rIdx0]!
+                  : syllablesRef.current;
+              if (c0 < Math.floor(rowSyl0 / 2)) logicalPage -= 1;
+            }
+            lastScrolledPageRef.current = logicalPage;
+          }
+        } else {
+          currentStepRef.current = 0;
+          playAbsBarRef.current = 0;
+        }
       }
       
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
@@ -6890,7 +6988,8 @@ export default function App() {
   firstBeatAccentRef.current = firstBeatAccent;
   firstBeatAccentByLaneRef.current = firstBeatAccentByLane;
   squarePlaybackModeRef.current = squarePlaybackMode;
-  onlyAccentsRef.current = squarePlaybackMode === 'accent_only';
+  onlyAccentsRef.current = false;
+  squarePassiveLayerMutedRef.current = squarePassiveLayerMuted;
   dictantModeRef.current = dictantMode;
   firstBeatDingSuppressedRowsRef.current = firstBeatDingSuppressedRows;
   clickSoundRef.current = clickSound;
@@ -7010,16 +7109,22 @@ export default function App() {
     subdivHoldSessionRef,
   };
 
-  /** Квадрат: заливка/бордер по циклу all / accent / Ta-only; при диктанте — +teal ring (не затирать режим). */
+  /** Квадрат: цикл пассив+Ta без alt / full mix / Ta-only; при диктанте — +teal ring. */
   const squarePlaybackButtonSurface =
     syllableReadMuteMode !== 'off'
       ? syllableReadMuteMode === 'full'
         ? `border border-amber-400/90 ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(251,191,36,0.28)]'} text-amber-100`
         : `border border-purple-400 ${lowPerfMode ? '' : 'shadow-[0_0_15px_rgba(192,132,252,0.4)]'} text-purple-200`
-      : squarePlaybackMode === 'accent_only'
-        ? `border border-purple-500/40 bg-purple-700/30 hover:bg-purple-700/40 active:bg-purple-700/20 text-purple-200`
-        : squarePlaybackMode === 'passive_only'
-          ? `border border-cyan-500/50 bg-cyan-700/25 hover:bg-cyan-700/35 active:bg-cyan-700/15 text-cyan-200`
+      : squarePlaybackMode === 'full_mix'
+        ? `border border-purple-500/40 bg-purple-700/30 hover:bg-purple-700/40 active:bg-purple-700/20 text-purple-200${
+            squarePassiveLayerMuted
+              ? ` ring-1 ring-inset ring-amber-300/50${lowPerfMode ? '' : ' shadow-[0_0_10px_rgba(253,230,138,0.2)]'}`
+              : ''
+          }`
+        : squarePlaybackMode === 'ta_only'
+          ? `bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-950${
+              lowPerfMode ? '' : ' shadow-[0_8px_20px_rgba(16,185,129,0.2)]'
+            }`
           : `border border-[#23314f] hover:bg-[#1a253c] active:bg-[#131b2c] text-slate-400 hover:text-slate-200`;
   const squareDictantChrome = dictantMode
     ? ` ring-2 ring-inset ring-teal-400/85${lowPerfMode ? '' : ' shadow-[0_0_14px_rgba(45,212,191,0.22)]'}`
@@ -7029,11 +7134,13 @@ export default function App() {
       ? 'grid muted (preset)'
       : syllableReadMuteMode === 'no_accent_sharp'
         ? 'accents with passive timbre (preset)'
-        : squarePlaybackMode === 'accent_only'
-          ? 'accented beats only'
-          : squarePlaybackMode === 'passive_only'
-            ? 'Ta sound only'
-            : 'all beats';
+        : squarePlaybackMode === 'ta_only'
+          ? 'Ta contour only (grid alt+passive off)'
+          : squarePlaybackMode === 'full_mix'
+            ? squarePassiveLayerMuted
+              ? 'full mix, passives off (hold state)'
+              : 'full mix (passive + alt)'
+            : 'passive + Ta, no alt on purple';
 
   return (
     <div className="min-h-screen bg-[#0b101e] sm:bg-black/95 text-slate-200 p-0 sm:p-6 font-sans flex flex-col items-center justify-center">
@@ -8408,7 +8515,7 @@ export default function App() {
             <span className="relative z-10 font-bold text-[22px] tracking-wide">Ta</span>
           </button>
 
-          {/* All beats vs accent-only vs Ta-only grid mute (square); долгое нажатие — диктант. */}
+          {/* Квадрат: тап — цикл серый/фиолет/зелёный; удержание — серый: full grid mute + диктант; фиолет: mute пассивов. */}
           <button
             type="button"
             disabled={isDeadCellsEditorMode}
@@ -8423,7 +8530,19 @@ export default function App() {
                 squareHoldTimerRef.current = null;
                 squareHoldAteClickRef.current = true;
                 flushSync(() => {
-                  setDictantMode((d) => !d);
+                  const mode = squarePlaybackModeRef.current;
+                  if (mode === 'passive_no_alt') {
+                    setSyllableReadMuteMode('full');
+                    syllableReadMuteModeRef.current = 'full';
+                    setDictantMode(true);
+                    dictantModeRef.current = true;
+                  } else if (mode === 'full_mix') {
+                    setSquarePassiveLayerMuted((m) => {
+                      const next = !m;
+                      squarePassiveLayerMutedRef.current = next;
+                      return next;
+                    });
+                  }
                 });
               }, 400);
             }}
@@ -8476,7 +8595,10 @@ export default function App() {
           >
             <span
               className={`block w-6 h-6 rounded-sm border-2 border-current ${lowPerfMode ? '' : 'transition-all duration-300'} ${
-                dictantMode || syllableReadMuteMode !== 'off' || squarePlaybackMode !== 'all_beats'
+                dictantMode ||
+                syllableReadMuteMode !== 'off' ||
+                squarePlaybackMode !== 'full_mix' ||
+                squarePassiveLayerMuted
                   ? 'opacity-100 scale-110 bg-current/25'
                   : 'opacity-55 scale-100 bg-transparent'
               }`}

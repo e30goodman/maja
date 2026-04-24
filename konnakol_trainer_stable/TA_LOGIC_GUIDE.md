@@ -460,3 +460,21 @@ Resize-контракт:
 - При ревью проверять пару файлов одновременно:
   - `src/App.tsx` (derived flags),
   - `src/SequencerGrid.tsx` (финальный рендер условий `show*Ding`).
+
+---
+
+## 17) Кнопка «квадрат» (grid mix) — три положения и long-press
+
+Реализация в `konnakol_trainer/src/App.tsx` (`SquarePlaybackMode`, `DEFAULT_SQUARE_PLAYBACK_MODE` = `full_mix`, `emitGridSubAudio`, снапшоты). При **пустом** `localStorage` слоты и активный state поднимаются в фиолетовом режиме.
+
+| Режим | Смысл |
+|--------|--------|
+| `passive_no_alt` (серый) | Пассив + Ta; фиолетовые клетки идут в пассивный bus, не в alt. |
+| `full_mix` (фиолет) | Пассив + alt (как прежний full mix). Опция `squarePassiveLayerMuted`: только пассив выключен, alt и Ta остаются. |
+| `ta_only` (зелёный) | Гейт сетки как Ta-контур: слышны Ta/first-beat по картам Ta, без пассива/alt с «пустых» клеток. |
+
+**Long-press (~400 ms):** в сером — `syllableReadMuteMode: 'full'` и диктант; в фиолетовом — переключение `squarePassiveLayerMuted`; в зелёном — без действия.
+
+**Ta** по-прежнему из кнопки Ta / `taDingKeys` / `firstBeat*`: квадрат не перекраивает lane first-beat policy. При STOP сбрасываются `syllableReadMute` и `squarePassiveLayerMuted` (как прочие hold-состояния плеера).
+
+**Снапшоты:** миграция `all_beats`/`accent_only` → `full_mix`, `passive_only` → `ta_only`; поле `squarePassiveLayerMuted` опционально. `midiExport` дублирует gating (`classifyGridCellHits`).

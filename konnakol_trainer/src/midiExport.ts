@@ -1,6 +1,6 @@
 /**
  * Export current grid to General MIDI drums (channel 10).
- * Semantics: all_beats, dictant off, syllableReadMuteMode off (matches App.tsx emit paths).
+ * Semantics: `full_mix` baseline; паритет с gating в App.tsx (emitGridSubAudio / classifyGridCellHits).
  */
 
 import MidiWriter from 'midi-writer-js';
@@ -9,6 +9,16 @@ import { advancePolyLaneAfterEmit, buildLaneBarIndices, type PolyVoicesCount } f
 import { buildRowCellSyllableLabels, type KalamMap } from './sequencerLabels';
 
 const PULSE_METER_BASE_SYLLABLES = 4;
+
+export type MidiSquarePlaybackMode = 'passive_no_alt' | 'full_mix' | 'ta_only';
+
+/** Паритет с `normalizeSquarePlaybackModeFromSnapshot` в App. */
+function normalizeSquarePlaybackModeForExport(raw: unknown): MidiSquarePlaybackMode {
+	if (raw === 'passive_no_alt' || raw === 'full_mix' || raw === 'ta_only') return raw;
+	if (raw === 'all_beats' || raw === 'accent_only') return 'full_mix';
+	if (raw === 'passive_only') return 'ta_only';
+	return 'full_mix';
+}
 
 /** Lane 1 (legacy + poly V1). */
 export const MIDI_V1_ACCENT_NOTE = 23; // B0
@@ -64,7 +74,15 @@ export interface MidiExportInput {
 	maxNoteEvents?: number;
 	maxWallSeconds?: number;
 	patternRevolutions?: number;
-	squarePlaybackMode?: 'all_beats' | 'accent_only' | 'passive_only';
+	squarePlaybackMode?:
+		| 'passive_no_alt'
+		| 'full_mix'
+		| 'ta_only'
+		| 'all_beats'
+		| 'accent_only'
+		| 'passive_only';
+	/** Long-press на фиолетовом: без пассивного слоя (как в App). */
+	squarePassiveLayerMuted?: boolean;
 	syllableReadMuteMode?: 'off' | 'full' | 'no_accent_sharp';
 	dictantMode?: boolean;
 }
@@ -249,9 +267,11 @@ export function classifyGridCellHits(args: {
 	polyMode: boolean;
 	polyDedupKey: string;
 	polyClickSlots: Set<string>;
-	playbackMode: 'all_beats' | 'accent_only' | 'passive_only';
+	playbackMode: MidiSquarePlaybackMode;
 	muteMode: 'off' | 'full' | 'no_accent_sharp';
 	dictantActive: boolean;
+	/** @see App.tsx squarePassiveLayerMutedRef */
+	squarePassiveLayerMuted?: boolean;
 	firstBeatRequiresExplicitMark?: boolean;
 	firstBeatHitPolicy?: FirstBeatHitPolicy;
 }): ClassifiedHits {
@@ -270,9 +290,11 @@ export function classifyGridCellHits(args: {
 		playbackMode,
 		muteMode,
 		dictantActive,
+		squarePassiveLayerMuted: passiveLayerMuted,
 		firstBeatRequiresExplicitMark,
 		firstBeatHitPolicy,
 	} = args;
+	const layerMuted = passiveLayerMuted === true;
 
 	const out: ClassifiedHits = { taHigh: false, accent: false, altShadow: false, passive: false };
 	const shouldDedupPolyClick = polyMode && polyClickSlots.has(polyDedupKey);
@@ -294,6 +316,7 @@ export function classifyGridCellHits(args: {
 		colIdx === 0 && firstBeatAccent && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
 	const isTaDingCell = firstBeatAccent && colIdx >= 1 && taDingKeys.has(`${rowIdx}-${colIdx}`);
 	const shouldPlayTaDingSound = isTaDingCell && (subdivs > 1 || sub === 0);
+	const hasTaDingHere = firstBeatAccent && taDingKeys.has(`${rowIdx}-${colIdx}`);
 
 	const isTaFirstBeatArticulation =
 		colIdx === 0 && firstBeatAccent && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
@@ -304,11 +327,9 @@ export function classifyGridCellHits(args: {
 	})();
 
 	const shouldPlayBeat =
-		playbackMode === 'all_beats'
+		playbackMode === 'full_mix' || playbackMode === 'passive_no_alt'
 			? true
-			: playbackMode === 'accent_only'
-				? isAccent || taDingKeys.has(`${rowIdx}-${colIdx}`)
-				: false;
+			: hasTaDingHere || shouldPlayFirstBeatTa;
 
 	if (shouldPlayFirstBeatTa) {
 		out.taHigh = true;
@@ -323,16 +344,25 @@ export function classifyGridCellHits(args: {
 	}
 	if (muteMode === 'full') return out;
 	if (!shouldPlayBeat) return out;
-	if (shouldPlayTaDingSound && !sharpAsChecked && playbackMode !== 'all_beats') return out;
-	if (shouldPlayFirstBeatTa && !sharpAsChecked && playbackMode !== 'all_beats') return out;
+	if (shouldPlayTaDingSound && !sharpAsChecked && playbackMode !== 'full_mix') return out;
+	if (shouldPlayFirstBeatTa && !sharpAsChecked && playbackMode !== 'full_mix') return out;
 
 	if (sharpAsChecked) {
 		out.accent = true;
 	} else {
-		out.passive = true;
+		if (!(layerMuted && playbackMode === 'full_mix')) {
+			out.passive = true;
+		}
 	}
-	if (sharpAsChecked && playbackMode === 'all_beats' && !shouldPlayFirstBeatTa && !shouldPlayTaDingSound) {
+	if (sharpAsChecked && playbackMode === 'full_mix' && !shouldPlayFirstBeatTa && !shouldPlayTaDingSound) {
 		out.altShadow = true;
+	} else if (
+		sharpAsChecked &&
+		playbackMode === 'passive_no_alt' &&
+		!shouldPlayFirstBeatTa &&
+		!shouldPlayTaDingSound
+	) {
+		out.passive = true;
 	}
 	if (polyMode) {
 		polyClickSlots.add(polyDedupKey);
@@ -423,7 +453,8 @@ export function generateMidi(input: MidiExportInput): Uint8Array {
 	const maxNotes = input.maxNoteEvents ?? 200_000;
 	const maxWall = input.maxWallSeconds ?? 48;
 	const revolutions = Math.max(1, Math.floor(input.patternRevolutions ?? 1));
-	const playbackMode = input.squarePlaybackMode ?? 'all_beats';
+	const playbackMode = normalizeSquarePlaybackModeForExport(input.squarePlaybackMode);
+	const passiveLayerMuted = input.squarePassiveLayerMuted === true;
 	const muteMode = input.syllableReadMuteMode ?? 'off';
 	const dictantActive = input.dictantMode === true;
 
@@ -513,6 +544,7 @@ export function generateMidi(input: MidiExportInput): Uint8Array {
 			playbackMode,
 			muteMode,
 			dictantActive,
+			squarePassiveLayerMuted: passiveLayerMuted,
 			firstBeatHitPolicy: firstBeatPolicy,
 		});
 
