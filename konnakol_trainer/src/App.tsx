@@ -7360,8 +7360,10 @@ export default function App() {
                         >
                           <ChevronLeft className="w-4 h-4" />
                         </button>
-                        <div className="h-8" />
-                        <div className="w-8 h-8" />
+                        <div className="h-8 min-w-0 flex-1" />
+                        <span className="text-[10px] font-medium tabular-nums text-slate-500 shrink-0 leading-none pr-0.5">
+                          {APP_COMMIT_VERSION}
+                        </span>
                       </div>
                       <div
                         className="flex items-start gap-2 w-full min-w-0 shrink-0 justify-between"
