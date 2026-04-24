@@ -5,6 +5,8 @@
  * Filter cutoff scheduling uses setValueAtTime at `scheduleTime` like the reference.
  */
 
+import { fillChannelDeterministicWhiteNoise } from './deterministicWhiteNoiseFill';
+
 export type MetroLayerGraphType = OscillatorType | 'noise' | 'none';
 
 export type MetroLayerGraphConfig = {
@@ -22,23 +24,7 @@ export type MetroLayerGraphConfig = {
 
 const METRO_LAYER_ATTACK_SEC = 0.002;
 const SHARED_NOISE_BUFFER_SEC = 2;
-/** Фиксированный сид: один и тот же «белый» буфер при новом `AudioContext`, без `Math.random`. */
-const SHARED_NOISE_SEED = 0x2f6b9a3e;
 const sharedNoiseBufferByContext = new WeakMap<AudioContext, AudioBuffer>();
-
-/**
- * White noise in [-1,1), bit-identical for same `ch.length` across sessions (unlike `Math.random` fill).
- * Mulberry32-style step (bryc); independent of `AudioContext` aside from buffer length.
- */
-function fillChannelDeterministicWhiteNoise(ch: Float32Array): void {
-	let a = SHARED_NOISE_SEED | 0;
-	for (let i = 0; i < ch.length; i++) {
-		a = (a + 0x6d2b79f5) | 0;
-		let t = Math.imul(a ^ (a >>> 15), 1 | a);
-		t = t + Math.imul(t ^ (t + 0x7), 61 | t) ^ t;
-		ch[i] = ((t ^ (t >>> 14)) >>> 0) / 4294967296 * 2 - 1;
-	}
-}
 
 /** Same floor as engine example (`max(1e-5, peak * 0.001)`). */
 export function metroEnvelopeEndFromPeak(peakLinear: number): number {
