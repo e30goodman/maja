@@ -145,6 +145,10 @@
   работает **только по `totalBars`**.
 - `visibleBars`/`virtualBars` не должны менять Ta-derived решения.
 
+Практически в коде:
+- derive helper `deriveTaNormalVisibility` принимает только `totalBars` (не render/view домены).
+- pruning row-based state при resize выполняется на data-domain (`barsDomain.ts`).
+
 Resize-контракт:
 
 - При уменьшении `totalBars`: удалить все row-based значения с `r >= totalBars` из
@@ -184,6 +188,8 @@ Resize-контракт:
    - включить изменения в других клетках,
    - выйти из Ta-редактора,
    - проверить, что `c0` в normal mode не пропадает до фактического revert в default.
+
+См. тесты: `src/taVisibility.test.ts`, `src/barsDomain.test.ts`.
 
 ---
 
@@ -264,3 +270,104 @@ Resize-контракт:
 ---
 
 Если меняете Ta-логику — сначала фиксируйте контракт здесь, потом код.
+
+---
+
+## 13) Инцидент-отчёт: исчезающий/невидимый `Ta` на `c0`
+
+### 13.1 Что ломалось (симптомы)
+
+1. **Normal mode (`bars=1`)**: белая рамка `Ta` на первой клетке (`c0`) визуально исчезала, но звук first-beat продолжал играть.
+2. **После выхода из Ta-editor**: при наличии других акцентов `c0` мог гаснуть визуально, хотя состояние не было "пустым".
+3. **Ta-editor**: после снятия `c0` suppression и повторной установки `Ta` маркер становился функциональным, но невидимым (UI/audio desync).
+
+### 13.2 Корневая причина (root cause)
+
+Проблема была не в аудио, а в **рассинхроне условий видимости** между `App.tsx` (derived-флаги) и `SequencerGrid.tsx` (фактический рендер):
+
+- использовались слишком узкие reveal-условия для legacy `c0` в normal mode;
+- при downsize `totalBars` часть row-state корректно прунилась, но это обнуляло "триггеры отображения", если они зависели только от текущего `suppressedRows.size`;
+- в editor-ветке видимость `c0` дополнительно ошибочно гейтилась через `accentMapVersion === 0`, из-за чего при `accentMapVersion=1` маркер становился невидим.
+
+Итог: **данные и звук корректные, а визуальный слой принимал неверное решение**.
+
+### 13.3 Принятое решение
+
+1. **Развели домены bars**:
+   - `totalBars` — data-domain (источник истины для state),
+   - `visibleBars` — только UI-domain,
+   - `virtual/renderable` — только рендер-оптимизация.
+2. **Добавили deterministic pruning** row-based состояний при resize (`barsDomain` утилиты), чтобы state после downsize/upsize был предсказуем.
+3. **Усилили derived-флаг normal-видимости `c0`**:
+   - учитывается не только suppression, но и факт реального ухода от default (`accentMapVersion`, explicit `Ta`/accent вне `c0`).
+4. **Исправили editor visibility contract**:
+   - убран ложный gate `accentMapVersion === 0` для `showEditorDing`,
+   - editor `c0` теперь определяется только релевантными Ta-условиями (explicit или default-first-beat без suppression).
+
+### 13.4 Финальная логика (коротко)
+
+- **Ta-editor**: белая рамка = `explicit Ta` ИЛИ `default c0` (если row не suppressed).
+- **Normal mode**: белая рамка = `explicit Ta` ИЛИ `legacy default c0`, но только когда пользователь уже вышел из "чистого default" состояния.
+- **Audio/MIDI**: first-beat policy едина и не зависит от viewport/virtualization.
+
+### 13.5 Как не попадать в это снова (anti-regression)
+
+1. **Никогда не смешивать**:
+   - purple accent visibility,
+   - white Ta visibility,
+   - runtime first-beat audio policy.
+2. Любое условие рендера `c0` менять только парно:
+   - в `App.tsx` (derived-флаги),
+   - в `SequencerGrid.tsx` (использование флагов).
+3. При изменении bars всегда проверять 3 сценария:
+   - downsize до `1`,
+   - upsize обратно,
+   - snapshot save/load между этими состояниями.
+4. Держать инвариант: **virtual/viewport не влияет на Ta truth** (только на то, какие строки отрисованы).
+5. Перед merge прогонять минимальный чек:
+   - mono + poly,
+   - editor + normal,
+   - UI/audio parity на `c0` и explicit `c>0`.
+
+---
+
+## 14) Инцидент: first-beat audio ошибочно привязан к `accentMapVersion`
+
+### 14.1 Что показали логи
+
+- `firstBeatHitPolicy: "explicit_ta_only"` при `accentMapVersion: 1`
+- `on0Ding: false`, `fa: true`, `supRow: false`
+- итог: `firstBeatCellHitRow: false` и `shouldPlayFirstBeatTa: false`
+
+Вывод: первый слог (`c0`) гасился не из-за suppression и не из-за mute, а из-за неверной first-beat policy, ошибочно завязанной на `accentMapVersion`.
+
+### 14.2 Оценка гипотез
+
+- `H1` (policy сломан через `accentMapVersion`) — **CONFIRMED**
+- `H2` (`suppressedRow` ломает first beat) — **REJECTED** (`supRow=false`)
+- `H3/H4/H5` (поздние гейты playback/mute) — **INCONCLUSIVE** для того прогона, но не root cause, так как сигнал обнулялся раньше
+
+### 14.3 Фикс
+
+Убран принудительный переход на `explicit_ta_only` при `accentMapVersionRef.current >= 1` в обеих ветках расчёта:
+
+- `konnakol_trainer/src/App.tsx`
+- `konnakol_trainer_stable/src/App.tsx`
+
+Теперь policy берется только из:
+
+- `resolveRuntimeFirstBeatPolicy(polyMode, laneId)`
+
+Это соответствует контракту из этого гайда и сохраняет корректную first-beat логику для `c0`.
+
+### 14.4 Как избегать этой ошибки
+
+1. **Никогда не связывать напрямую** `accentMapVersion` с runtime audio policy first-beat.
+2. `accentMapVersion` — это UI/история правок, а не источник истины для аудио-решения по `c0`.
+3. First-beat policy должна определяться только:
+   - режимом (`poly/mono`),
+   - lane-правилом,
+   - explicit/suppression сигналами (`on0Ding`, `on0Accent`, `suppressedRow`, `firstBeatEnabled`).
+4. Для регрессии обязательно гонять кейс:
+   - `accentMapVersion=1`, `on0Ding=false`, `fa=true`, `supRow=false`,
+   - ожидание: `c0` звучит по policy `legacy`/lane-rule, а не гасится как `explicit_ta_only`.

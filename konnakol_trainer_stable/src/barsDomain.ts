@@ -1,4 +1,4 @@
-import type { DeadCellsMap } from './metraTypes';
+import type { DeadCellsMap } from './randomLogic';
 
 type LaneId = 0 | 1 | 2;
 type LaneSetMap = Record<LaneId, Set<string>>;

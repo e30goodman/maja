@@ -293,10 +293,6 @@ const TEMPO_HOLD_REPEAT_STEP = 5;
 /** Long press on tempo slider track (without much move) → inline BPM on thumb. */
 const TEMPO_MANUAL_HOLD_MS = 2000;
 const TEMPO_MANUAL_MAX_MOVE_PX = 14;
-// #region agent log
-let __agentBarsTaDbgCountMain = 0;
-const __agentBarsTaDbgCapMain = 80;
-// #endregion
 /*
  * Кто потрогает этот код, дебаггер ты или хуй с горы — умрёшь насильственной смертью.
  * ЗАПРЕЩЕНО ТРОГАТЬ СУКА
@@ -3667,29 +3663,6 @@ export default function App() {
   const hybridModeLockUntilRef = useRef(0);
   const liveWindowStartedAtRef = useRef<number | null>(null);
   const latestSubStepSecRef = useRef(60 / Math.max(1, tempo));
-  const emitDebugLog = useCallback((payload: { runId: string; hypothesisId: string; location: string; message: string; data: Record<string, unknown> }) => {
-    const body = {
-      sessionId: '7360e8',
-      ...payload,
-      timestamp: Date.now(),
-    };
-    // #region agent log
-    fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'7360e8'},body:JSON.stringify(body)}).catch(()=>{});
-    // #endregion
-    try {
-      // #region agent log
-      navigator.sendBeacon(
-        'http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',
-        new Blob([JSON.stringify(body)], { type: 'application/json' }),
-      );
-      // #endregion
-    } catch {
-      /* noop */
-    }
-    // #region agent log
-    console.info('[dbg7360e8]', body);
-    // #endregion
-  }, []);
   const clearPendingGridClickTimers = () => {
     for (const pending of pendingGridClickDeferredRef.current) {
       window.clearTimeout(pending.id);
@@ -6057,7 +6030,7 @@ export default function App() {
       const on0AccentEarly = getLaneAccentsSetRef(rIdx).has(`${rIdx}-0`);
       const on0DingEarly = laneTaDingEarly.has(`${rIdx}-0`);
       const firstBeatHitRowEarly = resolveFirstBeatHitRow(
-        accentMapVersionRef.current >= 1 ? 'explicit_ta_only' : resolveRuntimeFirstBeatPolicy(polyModeRef.current, laneForRow(rIdx, polyVoicesRef.current)),
+        resolveRuntimeFirstBeatPolicy(polyModeRef.current, laneForRow(rIdx, polyVoicesRef.current)),
         on0AccentEarly,
         on0DingEarly,
         laneFirstBeatEarly,
@@ -6100,10 +6073,10 @@ export default function App() {
         const supRow = firstBeatDingSuppressedRowsRef.current.has(rIdx);
         const fa = laneFirstBeat;
         const laneId = laneForRow(rIdx, polyVoicesRef.current);
-        const firstBeatHitPolicy: FirstBeatHitPolicy =
-          accentMapVersionRef.current >= 1
-            ? 'explicit_ta_only'
-            : resolveRuntimeFirstBeatPolicy(polyModeRef.current, laneId);
+        const firstBeatHitPolicy: FirstBeatHitPolicy = resolveRuntimeFirstBeatPolicy(
+          polyModeRef.current,
+          laneId,
+        );
         const polyVoiceGain = polyModeRef.current
           ? Math.max(0, Math.min(1.6, polyVoiceGainsRef.current[voice as 0 | 1 | 2] ?? 1))
           : Math.max(0, Math.min(1.6, polyVoiceGainsRef.current[0] ?? 1));
@@ -6156,8 +6129,8 @@ export default function App() {
           playbackMode === 'all_beats'
             ? true
             : playbackMode === 'accent_only'
-              ? isAccent || hasTaDingHere
-              : false;
+              ? isAccent || hasTaDingHere || shouldPlayFirstBeatTa
+              : hasTaDingHere || shouldPlayFirstBeatTa;
         const isTaFirstBeatArticulation =
           cIdx === 0 && fa && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
         const sharpAsChecked = (() => {
@@ -6792,13 +6765,6 @@ export default function App() {
     firstBeatDingSuppressedRows.size > 0 ||
     hasAnyVisibleAccentOutsideFirstBeat ||
     hasAnyExplicitTaOutsideFirstBeat;
-  useEffect(() => {
-    if (__agentBarsTaDbgCountMain >= __agentBarsTaDbgCapMain) return;
-    __agentBarsTaDbgCountMain++;
-    // #region agent log
-    fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H1_H2_H3',location:'App.tsx:taDerivedMain',message:'main app derived ta/accent flags',data:{bars,isTaEditorMode,accentMapVersion,forceFirstBeatEditorFrames,suppressedRowsSize:firstBeatDingSuppressedRows.size,firstBeatEditorSuppressedSig,taKeysUiSize:taDingKeysUi.size,accentsUiSize:accentsUi.size,hasAnyVisibleAccentOutsideFirstBeat,hasAnyExplicitTaOutsideFirstBeat,canShowDefaultTaInNormal},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
-  }, [bars, isTaEditorMode, accentMapVersion, forceFirstBeatEditorFrames, firstBeatDingSuppressedRows.size, firstBeatEditorSuppressedSig, taDingKeysUi.size, accentsUi.size, hasAnyVisibleAccentOutsideFirstBeat, hasAnyExplicitTaOutsideFirstBeat, canShowDefaultTaInNormal]);
   sequencerGridRowActionsRef.current = {
     isHoldingRef,
     holdTimerRef,
@@ -7048,11 +7014,7 @@ export default function App() {
                         <button
                           type="button"
                           onClick={() => setIsClickSoundSelectorOpen(false)}
-                          onPointerDown={() => {
-                            // #region agent log
-                            emitDebugLog({ runId: 'pre-fix-2', hypothesisId: 'H2', location: 'App.tsx:click-menu-back-button', message: 'back button pointerdown', data: { reason: 'control event baseline' } });
-                            // #endregion
-                          }}
+                          onPointerDown={() => {}}
                           className="w-8 h-8 rounded-lg bg-[#131722] border border-[#1f2438] flex items-center justify-center text-[#5b6385] hover:text-[#c0c5db] hover:bg-[#1a2030] transition-colors pointer-events-auto"
                         >
                           <ChevronLeft className="w-4 h-4" />
@@ -7062,17 +7024,7 @@ export default function App() {
                       </div>
                       <div
                         className="flex items-start gap-2 w-full min-w-0 shrink-0 justify-between"
-                        onPointerDownCapture={(e) => {
-                          // #region agent log
-                          emitDebugLog({
-                            runId: 'pre-fix-2',
-                            hypothesisId: 'H1',
-                            location: 'App.tsx:click-menu-row-capture',
-                            message: 'row capture pointerdown',
-                            data: { targetTag: (e.target as HTMLElement | null)?.tagName ?? null, currentTag: (e.currentTarget as HTMLElement | null)?.tagName ?? null },
-                          });
-                          // #endregion
-                        }}
+                        onPointerDownCapture={() => {}}
                       >
                         {polyMode ? (
                           <div className="flex items-center gap-1 shrink-0 translate-y-12">
@@ -7176,9 +7128,6 @@ export default function App() {
                                       scheduleClickPresetBusTwoBarsPreview();
                                     }}
                                     onChange={(e) => {
-                                      // #region agent log
-                                      emitDebugLog({ runId: 'pre-fix-2', hypothesisId: 'H3', location: 'App.tsx:bus-slider-onChange', message: 'bus slider change', data: { key, rawValue: (e.target as HTMLInputElement).value } });
-                                      // #endregion
                                       beginLiveControlWindow();
                                       const raw = Number(e.target.value);
                                       const nextVal = Number.isFinite(raw)
@@ -7188,15 +7137,6 @@ export default function App() {
                                         const cur = getClickPresetBusGainsForPreset(prev, busPreset);
                                         const row: ClickPresetBusGains = { ...cur, [key]: nextVal };
                                         const updated = { ...prev, [busPreset]: row };
-                                        // #region agent log
-                                        emitDebugLog({
-                                          runId: 'pre-fix-2',
-                                          hypothesisId: 'H5',
-                                          location: 'App.tsx:bus-slider-setState',
-                                          message: 'setClickPresetBusGains mutation',
-                                          data: { key, busPreset, prevValue: cur[key], nextValue: nextVal },
-                                        });
-                                        // #endregion
                                         clickPresetBusGainsRef.current = updated;
                                         return updated;
                                       });
@@ -7215,32 +7155,9 @@ export default function App() {
                                       scheduleClickPresetBusTwoBarsPreview();
                                     }}
                                     onPointerDown={() => {
-                                      // #region agent log
-                                      emitDebugLog({
-                                        runId: 'pre-fix-2',
-                                        hypothesisId: 'H4',
-                                        location: 'App.tsx:bus-slider-onPointerDown',
-                                        message: 'bus slider pointerdown',
-                                        data: { key, value: gRow[key], inputDisabled: false },
-                                      });
-                                      // #endregion
                                       beginLiveControlWindow();
                                     }}
-                                    onPointerEnter={(e) => {
-                                      // #region agent log
-                                      emitDebugLog({
-                                        runId: 'pre-fix-2',
-                                        hypothesisId: 'H6',
-                                        location: 'App.tsx:bus-slider-onPointerEnter',
-                                        message: 'bus slider hover enter',
-                                        data: {
-                                          key,
-                                          pointerEvents: window.getComputedStyle(e.currentTarget).pointerEvents,
-                                          opacity: window.getComputedStyle(e.currentTarget).opacity,
-                                        },
-                                      });
-                                      // #endregion
-                                    }}
+                                    onPointerEnter={() => {}}
                                     onPointerUp={() => endLiveControlWindow()}
                                     onPointerCancel={() => endLiveControlWindow()}
                                     onPointerLeave={() => endLiveControlWindow()}

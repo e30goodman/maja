@@ -1,10 +1,6 @@
 import React, { useMemo, useCallback, useRef } from 'react';
 import { buildRowCellSyllableLabels, getSyllableStyles, type KalamMap } from './sequencerLabels';
 import type { PlayheadPosition } from './playheadTypes';
-// #region agent log
-let __agentGridTaDbgCountMain = 0;
-const __agentGridTaDbgCapMain = 120;
-// #endregion
 
 /** Keep long-press pulse switching consistent with collapsed behavior. */
 function allowedSubdivisions(_panelExpanded: boolean): number[] {
@@ -494,18 +490,6 @@ const SequencerGridRow = React.memo(
 							forceFirstBeatEditorFrames &&
 							canShowDefaultTaInNormal &&
 							!firstBeatRowSuppressed.has(rIdx);
-						if (
-							rIdx === 0 &&
-							cIdx === 0 &&
-							!isTaEditorMode &&
-							__agentGridTaDbgCountMain < __agentGridTaDbgCapMain
-						) {
-							__agentGridTaDbgCountMain++;
-							// #region agent log
-							fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H2_H4',location:'SequencerGrid.tsx:c0VisibilityMain',message:'main grid normal c0 visibility decision',data:{rIdx,cIdx,isTaEditorMode,isDead,isTaDing,accentMapVersion,forceFirstBeatEditorFrames,suppressedRowsSize:firstBeatRowSuppressed.size,rowSuppressed:firstBeatRowSuppressed.has(rIdx),showLegacyDefaultInNormal},timestamp:Date.now()})}).catch(()=>{});
-							fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f71cec'},body:JSON.stringify({sessionId:'f71cec',runId:'pre-fix',hypothesisId:'H2_H4',location:'SequencerGrid.tsx:c0VisibilityMain',message:'main grid normal c0 visibility decision',data:{rIdx,cIdx,isTaEditorMode,isDead,isTaDing,accentMapVersion,forceFirstBeatEditorFrames,canShowDefaultTaInNormal,suppressedRowsSize:firstBeatRowSuppressed.size,rowSuppressed:firstBeatRowSuppressed.has(rIdx),showLegacyDefaultInNormal},timestamp:Date.now()})}).catch(()=>{});
-							// #endregion
-						}
 						const showNonEditorDing = !isDead && isTaDing;
 						const showNonEditorDingWithLegacy = showNonEditorDing || showLegacyDefaultInNormal;
 						const isActive = highlightCol === cIdx;
