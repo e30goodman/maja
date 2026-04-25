@@ -167,9 +167,10 @@ function headSyllableForCell(
 	const labels = buildRowCellSyllableLabels(rowSyllCount, customSubdivs, rowIdx, {
 		bpm,
 		kalamMap,
+		isLessonLastRow: false,
 	});
 	const cell = labels[colIdx];
-	const first = cell?.[0]?.trim();
+	const first = cell?.[0]?.syl?.trim();
 	return first && first.length > 0 ? first : 'Ta';
 }
 

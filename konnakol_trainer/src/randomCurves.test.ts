@@ -23,6 +23,7 @@ const makeEmptyState = (): BarRandomizerMutable => ({
 	customSyllables: {},
 	accents: new Set<string>(),
 	customSubdivisions: {},
+	customCellSyllables: {},
 	customMultipliers: {},
 	deadCells: {},
 });
@@ -174,6 +175,7 @@ function testDeadCellsCapAt80Percent() {
 			customSyllables: { 0: 9 },
 			accents: new Set<string>(),
 			customSubdivisions: {},
+			customCellSyllables: {},
 			customMultipliers: {},
 			deadCells: {},
 		};
@@ -222,6 +224,7 @@ function testFirstBeatForcedWhenFlag() {
 			customSyllables: { 0: 8 },
 			accents: new Set<string>(),
 			customSubdivisions: {},
+			customCellSyllables: {},
 			customMultipliers: {},
 			deadCells: {},
 		};
@@ -250,6 +253,7 @@ function testFirstBeatNotForcedWithoutFlag() {
 			customSyllables: { 0: 9 },
 			accents: new Set<string>(),
 			customSubdivisions: {},
+			customCellSyllables: {},
 			customMultipliers: {},
 			deadCells: {},
 		};
@@ -299,6 +303,7 @@ function testDeadCellsIndependentOfAccents() {
 			customSyllables: { 0: 8 },
 			accents: new Set<string>(),
 			customSubdivisions: {},
+			customCellSyllables: {},
 			customMultipliers: {},
 			deadCells: {},
 		};
@@ -327,6 +332,7 @@ function testSpeedFillsAllCellsIndependentOfAccents() {
 			customSyllables: { 0: 8 },
 			accents: new Set<string>(),
 			customSubdivisions: {},
+			customCellSyllables: {},
 			customMultipliers: {},
 			deadCells: {},
 		};

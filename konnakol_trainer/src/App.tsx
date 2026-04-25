@@ -50,6 +50,7 @@ import {
 	type MutationType,
 	type ParentGenome,
 	type ParentLength,
+	type ProgressiveDensityMode,
 	type PhraseSchedule,
 	type RandomMode,
 } from './parentMode';
@@ -60,11 +61,11 @@ import {
 	PRESET_TARGET_BARS,
 } from './parentModeUi';
 import {
-	buildFreeBarRowSnapshot,
-	buildFreeRandomDicePayload,
-	buildParentModeSessionPayload,
-	postDiceRandomizerLog,
-} from './parentModeSessionLog';
+	buildBarLogForParentRow,
+	downloadAestheticScore,
+	formatParentGenomeHumanLine,
+	lessonLogger,
+} from './lessonLogger';
 import { generateMidiBlob } from './midiExport';
 
 function buildPolyChunks(barCount: number, voiceCount: number): number[][] {
@@ -2160,6 +2161,7 @@ function createEmptySnapshot() {
 		customSyllables: {} as Record<number, number>,
 		customMultipliers: {} as Record<number, number>,
 		customSubdivisions: {} as Record<string, number>,
+		customCellSyllables: {} as Record<string, string>,
 		/** Дефолт рандомайзера: режим вкл., pulsation выкл., cell speed + accents (pattern), chaos 15. */
 		randomModeEnabled: true,
 		randomPulsation: false,
@@ -2322,6 +2324,13 @@ function parseSnapshotRow(raw: unknown) {
 			if (typeof k === 'string' && Number.isFinite(vi) && vi >= 1 && vi <= 9) d.customSubdivisions[k] = vi;
 		}
 	}
+	const ccs = o.customCellSyllables;
+	if (ccs && typeof ccs === 'object') {
+		for (const [k, v] of Object.entries(ccs as Record<string, unknown>)) {
+			if (!/^\d+-\d+$/.test(k)) continue;
+			if (typeof v === 'string' && v.length > 0 && v.length <= 48) d.customCellSyllables[k] = v;
+		}
+	}
 	if (typeof o.randomModeEnabled === 'boolean') d.randomModeEnabled = o.randomModeEnabled;
 	if (typeof o.randomPulsation === 'boolean') d.randomPulsation = o.randomPulsation;
 	if (typeof o.randomPattern === 'boolean') d.randomPattern = o.randomPattern;
@@ -2465,6 +2474,8 @@ function snapSlotLooksUsed(s: ReturnType<typeof createEmptySnapshot>) {
 	if (Object.keys(s.customSyllables).length > 0) return true;
 	if (Object.keys(s.customMultipliers).length > 0) return true;
 	if (Object.keys(s.customSubdivisions).length > 0) return true;
+	if (Object.keys((s as { customCellSyllables?: Record<string, string> }).customCellSyllables || {}).length > 0)
+		return true;
 	if (s.randomModeEnabled || s.randomPulsation || !s.randomPattern || s.randomSpeed || s.randomBarSpeed) return true;
 	if (s.chaosLevel !== 0) return true;
 	if (s.clickSound !== 'classic') return true;
@@ -2526,6 +2537,7 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		customSyllables: s.customSyllables,
 		customMultipliers: s.customMultipliers,
 		customSubdivisions: s.customSubdivisions,
+		customCellSyllables: { ...((s as { customCellSyllables?: Record<string, string> }).customCellSyllables || {}) },
 		randomModeEnabled: s.randomModeEnabled,
 		randomPulsation: s.randomPulsation,
 		randomPattern: s.randomPattern,
@@ -3256,6 +3268,9 @@ export default function App() {
   const [deadCells, setDeadCells] = useState<DeadCellsMap>(() => ({ ...((seed as { deadCells?: DeadCellsMap }).deadCells || {}) }));
   const [customMultipliers, setCustomMultipliers] = useState<Record<number, number>>(() => ({ ...seed.customMultipliers }));
   const [customSubdivisions, setCustomSubdivisions] = useState<Record<string, number>>(() => ({ ...seed.customSubdivisions }));
+  const [customCellSyllables, setCustomCellSyllables] = useState<Record<string, string>>(() => ({
+    ...((seed as { customCellSyllables?: Record<string, string> }).customCellSyllables || {}),
+  }));
   const [pulseMeterUnlinked, setPulseMeterUnlinked] = useState<Record<number, boolean>>(() =>
     normalizePulseMeterUnlinked(seed.pulseMeterUnlinked),
   );
@@ -3300,6 +3315,10 @@ export default function App() {
   const [parentLength, setParentLength] = useState<ParentLength>(seed.parentLength);
   const [enabledMutations, setEnabledMutations] = useState<MutationType[]>(() => [...seed.enabledMutations]);
   const [formPresetId, setFormPresetId] = useState<FormPresetId>(seed.formPresetId);
+  const [progressiveDensityMode, setProgressiveDensityMode] = useState<ProgressiveDensityMode>('gati_mode');
+  const [deSyncJatiActive, setDeSyncJatiActive] = useState(false);
+  const [deSyncCycleLength, setDeSyncCycleLength] = useState<number | undefined>(undefined);
+  const [jatiPulseActiveByRow, setJatiPulseActiveByRow] = useState<Record<number, boolean>>({});
   const [chaosLevel, setChaosLevel] = useState(
     typeof seed.chaosLevel === 'number' && seed.chaosLevel >= 0 && seed.chaosLevel <= 100
       ? seed.chaosLevel
@@ -3401,6 +3420,7 @@ export default function App() {
         deadCells: { ...((s as { deadCells?: DeadCellsMap }).deadCells || {}) },
         customMultipliers: { ...s.customMultipliers },
         customSubdivisions: { ...s.customSubdivisions },
+        customCellSyllables: { ...((s as { customCellSyllables?: Record<string, string> }).customCellSyllables || {}) },
         panelExpanded: s.panelExpanded === true,
         pulseMeterUnlinked: { ...(s.pulseMeterUnlinked || {}) },
         frozenScale: typeof s.frozenScale === 'number' && s.frozenScale >= 1 ? s.frozenScale : null,
@@ -3750,9 +3770,19 @@ export default function App() {
     customMultipliersRef.current = {};
     setCustomSubdivisions({});
     customSubdivisionsRef.current = {};
+    setCustomCellSyllables({});
+    customCellSyllablesRef.current = {};
     // Keep per-voice click assignments on clear (eraser should reset pattern, not voice timbres).
     setPulseMeterUnlinked({});
     pulseMeterUnlinkedRef.current = {};
+    setJatiPulseActiveByRow({});
+    activeJatiPhraseIdRef.current = null;
+    progressiveDensityModeRef.current = 'gati_mode';
+    deSyncJatiActiveRef.current = false;
+    deSyncCycleLengthRef.current = undefined;
+    setProgressiveDensityMode('gati_mode');
+    setDeSyncJatiActive(false);
+    setDeSyncCycleLength(undefined);
     setFrozenScale(null);
     frozenScaleRef.current = null;
   };
@@ -3897,6 +3927,7 @@ export default function App() {
   const wasPlayingAutoscrollRef = useRef(false);
   const autoscrollDisabledByUserRef = useRef(false);
   const programmaticAutoscrollRef = useRef(false);
+  const programmaticAutoscrollSawScrollRef = useRef(false);
   /** Макс. время держать programmatic после scrollIntoView, если не пришли scroll-события (уже у цели). */
   const programmaticAutoscrollFallbackTimerRef = useRef<number | null>(null);
   /** Сброс programmatic после последнего scroll во время программной анимации (smooth дольше 180ms). */
@@ -3951,6 +3982,7 @@ export default function App() {
   const deadCellsRef = useRef<DeadCellsMap>(deadCells);
   const customMultipliersRef = useRef(customMultipliers);
   const customSubdivisionsRef = useRef(customSubdivisions);
+  const customCellSyllablesRef = useRef(customCellSyllables);
   const pulseMeterUnlinkedRef = useRef(pulseMeterUnlinked);
   const onlyAccentsRef = useRef(onlyAccents);
   const squarePlaybackModeRef = useRef<SquarePlaybackMode>(squarePlaybackMode);
@@ -3973,6 +4005,10 @@ export default function App() {
   const parentLengthRef = useRef<ParentLength>(parentLength);
   const enabledMutationsRef = useRef<MutationType[]>(enabledMutations);
   const formPresetIdRef = useRef<FormPresetId>(formPresetId);
+  const progressiveDensityModeRef = useRef<ProgressiveDensityMode>(progressiveDensityMode);
+  const deSyncJatiActiveRef = useRef(deSyncJatiActive);
+  const deSyncCycleLengthRef = useRef<number | undefined>(deSyncCycleLength);
+  const activeJatiPhraseIdRef = useRef<number | null>(null);
   /** Расписание фраз (per такт). Пересчитывается при смене mode/parent/bars/enabled/preset/re-roll. */
   const phraseScheduleRef = useRef<PhraseSchedule>([]);
   /** Per-bar seed последнего применённого рандома — для replay такта (mulberry32). */
@@ -4145,6 +4181,7 @@ export default function App() {
    * ref === state → мутации переживают перерендеры и долетают до setState({...ref}). */
   useEffect(() => { customMultipliersRef.current = customMultipliers; }, [customMultipliers]);
   useEffect(() => { customSubdivisionsRef.current = customSubdivisions; }, [customSubdivisions]);
+  useEffect(() => { customCellSyllablesRef.current = customCellSyllables; }, [customCellSyllables]);
   useEffect(() => { pulseMeterUnlinkedRef.current = pulseMeterUnlinked; }, [pulseMeterUnlinked]);
   useEffect(() => { customSyllablesRef.current = customSyllables; }, [customSyllables]);
   useEffect(() => { deadCellsRef.current = deadCells; }, [deadCells]);
@@ -4247,6 +4284,71 @@ export default function App() {
   useEffect(() => { parentLengthRef.current = parentLength; }, [parentLength]);
   useEffect(() => { enabledMutationsRef.current = enabledMutations; }, [enabledMutations]);
   useEffect(() => { formPresetIdRef.current = formPresetId; }, [formPresetId]);
+  useEffect(() => { progressiveDensityModeRef.current = progressiveDensityMode; }, [progressiveDensityMode]);
+  useEffect(() => { deSyncJatiActiveRef.current = deSyncJatiActive; }, [deSyncJatiActive]);
+  useEffect(() => { deSyncCycleLengthRef.current = deSyncCycleLength; }, [deSyncCycleLength]);
+
+  const normalizeJatiCycleLength = useCallback((cycle: number): 5 | 7 | 9 => {
+    const n = Math.max(3, Math.min(9, Math.round(cycle)));
+    if (n <= 5) return 5;
+    if (n <= 7) return 7;
+    return 9;
+  }, []);
+
+  const applyJatiMutation = useCallback((
+    barIndex: number,
+    newCycleLength: number,
+    options?: { targetCustomSyllables?: Record<number, number>; commitState?: boolean },
+  ): boolean => {
+    if (!Number.isInteger(barIndex) || barIndex < 0) return false;
+    const nextJati = normalizeJatiCycleLength(newCycleLength);
+    const commitState = options?.commitState !== false;
+    if (options?.targetCustomSyllables) {
+      options.targetCustomSyllables[barIndex] = nextJati;
+    } else {
+      const nextMap = { ...customSyllablesRef.current, [barIndex]: nextJati };
+      customSyllablesRef.current = nextMap;
+      setCustomSyllables(nextMap);
+    }
+    progressiveDensityModeRef.current = 'jati_mode';
+    deSyncJatiActiveRef.current = true;
+    deSyncCycleLengthRef.current = nextJati;
+    if (commitState) {
+      setProgressiveDensityMode('jati_mode');
+      setDeSyncJatiActive(true);
+      setDeSyncCycleLength(nextJati);
+      setJatiPulseActiveByRow((prev) => ({ ...prev, [barIndex]: true }));
+    }
+    return true;
+  }, [normalizeJatiCycleLength]);
+
+  const getRoleJatiTarget = useCallback((role: PhraseSchedule[number] | undefined): 5 | 7 | 9 | null => {
+    if (!role || role.type === 'parent' || role.type === 'free' || role.type === 'resync_bridge') return null;
+    const trigger = 'triggerJatiAction' in role ? role.triggerJatiAction : undefined;
+    if (trigger && (trigger.targetCurSyl === 5 || trigger.targetCurSyl === 7 || trigger.targetCurSyl === 9)) {
+      return trigger.targetCurSyl;
+    }
+    // Fallback: UI-индикация и auto-jati не должны зависеть только от trigger-поля.
+    // Если роль уже de-sync с валидным циклом 5/7/9, считаем это целевым jati.
+    if (
+      role.deSyncJati === true &&
+      (role.localCycleLength === 5 || role.localCycleLength === 7 || role.localCycleLength === 9)
+    ) {
+      return role.localCycleLength;
+    }
+    return null;
+  }, []);
+  const applyFormPresetSelection = useCallback((preset: FormPresetId) => {
+    // Важно для UX: при мгновенном клике "Preset -> Random" генератор читает ref.
+    // Обновляем ref синхронно, чтобы не схватить старый preset/пул мутаций.
+    formPresetIdRef.current = preset;
+    setFormPresetId(preset);
+    if (randomModeRef.current === 'parent') {
+      const next = [...PRESET_ENABLED_MUTATIONS[preset]];
+      enabledMutationsRef.current = next;
+      setEnabledMutations(next);
+    }
+  }, []);
   useEffect(() => { chaosLevelRef.current = chaosLevel; }, [chaosLevel]);
 
   useEffect(() => { frozenScaleRef.current = frozenScale; }, [frozenScale]);
@@ -4335,18 +4437,47 @@ export default function App() {
     }
   }, []);
 
+  const canResetDeSyncStateFromTempoHold = useCallback((): boolean => {
+    if (randomModeRef.current !== 'parent') return true;
+    if (formPresetIdRef.current !== 'progressive') return true;
+    const schedule = phraseScheduleRef.current;
+    if (!Array.isArray(schedule) || schedule.length === 0) return true;
+    let lastDeSync = -1;
+    let lastResync = -1;
+    for (let i = 0; i < schedule.length; i++) {
+      const role = schedule[i];
+      if (!role) continue;
+      if (role.type !== 'parent' && role.type !== 'free' && role.type !== 'resync_bridge' && role.deSyncJati === true) {
+        lastDeSync = i;
+      }
+      if (role.type === 'resync_bridge' && role.bridgeKind === 'resync') {
+        lastResync = i;
+      }
+    }
+    if (lastDeSync < 0) return true;
+    return lastResync > lastDeSync;
+  }, []);
+
   const beginTempoMinusHold = useCallback(() => {
     tempoMinusHoldAteClickRef.current = false;
     clearTempoHoldRepeat();
     tempoHoldTimeoutRef.current = window.setTimeout(() => {
       tempoHoldTimeoutRef.current = null;
       tempoMinusHoldAteClickRef.current = true;
+      if (canResetDeSyncStateFromTempoHold()) {
+        progressiveDensityModeRef.current = 'gati_mode';
+        deSyncJatiActiveRef.current = false;
+        deSyncCycleLengthRef.current = undefined;
+        setProgressiveDensityMode('gati_mode');
+        setDeSyncJatiActive(false);
+        setDeSyncCycleLength(undefined);
+      }
       applyTempoImmediate(tempoRef.current - TEMPO_HOLD_REPEAT_STEP);
       tempoHoldIntervalRef.current = window.setInterval(() => {
         applyTempoImmediate(tempoRef.current - TEMPO_HOLD_REPEAT_STEP);
       }, TEMPO_HOLD_REPEAT_MS);
     }, TEMPO_HOLD_REPEAT_MS);
-  }, [applyTempoImmediate, clearTempoHoldRepeat]);
+  }, [applyTempoImmediate, canResetDeSyncStateFromTempoHold, clearTempoHoldRepeat]);
 
   const beginTempoPlusHold = useCallback(() => {
     tempoPlusHoldAteClickRef.current = false;
@@ -4354,12 +4485,20 @@ export default function App() {
     tempoHoldTimeoutRef.current = window.setTimeout(() => {
       tempoHoldTimeoutRef.current = null;
       tempoPlusHoldAteClickRef.current = true;
+      if (canResetDeSyncStateFromTempoHold()) {
+        progressiveDensityModeRef.current = 'gati_mode';
+        deSyncJatiActiveRef.current = false;
+        deSyncCycleLengthRef.current = undefined;
+        setProgressiveDensityMode('gati_mode');
+        setDeSyncJatiActive(false);
+        setDeSyncCycleLength(undefined);
+      }
       applyTempoImmediate(tempoRef.current + TEMPO_HOLD_REPEAT_STEP);
       tempoHoldIntervalRef.current = window.setInterval(() => {
         applyTempoImmediate(tempoRef.current + TEMPO_HOLD_REPEAT_STEP);
       }, TEMPO_HOLD_REPEAT_MS);
     }, TEMPO_HOLD_REPEAT_MS);
-  }, [applyTempoImmediate, clearTempoHoldRepeat]);
+  }, [applyTempoImmediate, canResetDeSyncStateFromTempoHold, clearTempoHoldRepeat]);
 
   const endTempoHoldRepeat = useCallback(() => {
     clearTempoHoldRepeat();
@@ -4484,6 +4623,7 @@ export default function App() {
     customSyllables: { ...customSyllablesRef.current },
     customMultipliers: { ...customMultipliersRef.current },
     customSubdivisions: { ...customSubdivisionsRef.current },
+    customCellSyllables: { ...customCellSyllablesRef.current },
     randomModeEnabled: randomModeEnabledRef.current,
     randomPulsation: randomPulsationRef.current,
     randomPattern: randomPatternRef.current,
@@ -4572,6 +4712,7 @@ export default function App() {
 
     const cs = { ...customSyllablesRef.current };
     const cd = { ...customSubdivisionsRef.current };
+    const ccell = { ...customCellSyllablesRef.current };
     const cm = { ...customMultipliersRef.current };
     const dc = { ...deadCellsRef.current };
     const acc = new Set<string>(accentsRef.current);
@@ -4592,11 +4733,29 @@ export default function App() {
         preset: formPresetIdRef.current,
         parentLength: parentLengthRef.current,
         rng: compositionRng,
+        motifPulseLen: parentGenomeRef.current?.bars[0]?.curSyl ?? syllablesDefault,
+        progressiveDensityMode: progressiveDensityModeRef.current,
+        deSyncJati: deSyncJatiActiveRef.current,
+        deSyncCycleLength: deSyncCycleLengthRef.current,
+        chaosLevel: chaos,
       });
+      if (parentGenomeRef.current !== null) {
+        lessonLogger.reset({
+          seed: compositionSeed,
+          chaos,
+          parentThemeLine: formatParentGenomeHumanLine(parentGenomeRef.current, tempoRef.current),
+          formPresetLabel: FORM_PRESET_LABEL[formPresetIdRef.current],
+          barCount: nBars,
+        });
+      }
     }
     let any = false;
     const useParent =
       randomModeRef.current === 'parent' && parentGenomeRef.current !== null;
+    let sawAutoJati = false;
+    let lastAutoJatiCycle: 5 | 7 | 9 | null = null;
+    const nextJatiPulseActive: Record<number, boolean> = {};
+    activeJatiPhraseIdRef.current = null;
     for (let r = 0; r < nBars; r++) {
       const seed = parentActive
         ? ((compositionRng() * 0xffffffff) >>> 0)
@@ -4607,9 +4766,47 @@ export default function App() {
         customSyllables: cs,
         accents: acc,
         customSubdivisions: cd,
+        customCellSyllables: ccell,
         customMultipliers: cm,
         deadCells: dc,
       };
+      const scheduleRole = phraseScheduleRef.current[r];
+      const roleTarget = getRoleJatiTarget(scheduleRole);
+      const roleIsPhysicalJati =
+        scheduleRole !== undefined &&
+        scheduleRole.type !== 'parent' &&
+        scheduleRole.type !== 'free' &&
+        scheduleRole.type !== 'resync_bridge' &&
+        scheduleRole.deSyncJati === true &&
+        (scheduleRole.localCycleLength === 5 || scheduleRole.localCycleLength === 7 || scheduleRole.localCycleLength === 9);
+      if (parentActive && roleTarget !== null) {
+        // Визуал Jati должен гореть на каждом такте блока, а не только на старте фразы.
+        nextJatiPulseActive[r] = true;
+      }
+      if (parentActive && roleIsPhysicalJati) {
+        // Fallback-индикация по фактическому de-sync/jati, даже если trigger отсутствует.
+        nextJatiPulseActive[r] = true;
+      }
+      const phraseBoundary =
+        scheduleRole &&
+        scheduleRole.type !== 'parent' &&
+        scheduleRole.type !== 'free' &&
+        scheduleRole.type !== 'resync_bridge' &&
+        scheduleRole.phraseStep === 0;
+      if (
+        parentActive &&
+        roleTarget !== null &&
+        scheduleRole &&
+        phraseBoundary &&
+        activeJatiPhraseIdRef.current !== scheduleRole.phraseId
+      ) {
+        activeJatiPhraseIdRef.current = scheduleRole.phraseId;
+        if (applyJatiMutation(r, roleTarget, { targetCustomSyllables: cs, commitState: false })) {
+          sawAutoJati = true;
+          lastAutoJatiCycle = roleTarget;
+          nextJatiPulseActive[r] = true;
+        }
+      }
       const didChange = useParent
         ? applyParentModeBar({
             barIdx: r,
@@ -4634,58 +4831,38 @@ export default function App() {
             forceFirstBeat,
           );
       if (didChange) any = true;
+      if (parentActive && phraseScheduleRef.current[r] !== undefined) {
+        lessonLogger.addBar(
+          buildBarLogForParentRow(r, phraseScheduleRef.current[r]!, tempoRef.current, syllablesDefault, {
+            customSyllables: cs,
+            accents: acc,
+            customSubdivisions: cd,
+            customCellSyllables: ccell,
+            deadCells: dc,
+          }),
+        );
+      }
+    }
+    if (sawAutoJati && lastAutoJatiCycle !== null) {
+      progressiveDensityModeRef.current = 'jati_mode';
+      deSyncJatiActiveRef.current = true;
+      deSyncCycleLengthRef.current = lastAutoJatiCycle;
+      setProgressiveDensityMode('jati_mode');
+      setDeSyncJatiActive(true);
+      setDeSyncCycleLength(lastAutoJatiCycle);
     }
     lastBarSeedRef.current = { ...lastBarSeedRef.current, ...nextSeeds };
-    if (parentActive) {
-      postDiceRandomizerLog({
-        log: 'prefill',
-        mode: 'parent',
-        session: buildParentModeSessionPayload({
-          compositionSeed,
-          bpm: tempoRef.current,
-          chaos,
-          formPresetId: formPresetIdRef.current,
-          formPresetLabel: FORM_PRESET_LABEL[formPresetIdRef.current],
-          enabledMutations: enabledMutationsRef.current,
-          parentLength: parentLengthRef.current,
-          parent: parentGenomeRef.current!,
-          schedule: phraseScheduleRef.current,
-          barSeeds: nextSeeds,
-          syllablesDefault,
-          customSyllables: cs,
-          accents: acc,
-          customSubdivisions: cd,
-          deadCells: dc,
-        }),
+    if (!any) {
+      // Даже если визуальная сетка не изменилась, индикатор режима обязан синхронизироваться с новым schedule.
+      startTransition(() => {
+        setJatiPulseActiveByRow(nextJatiPulseActive);
       });
-    } else {
-      postDiceRandomizerLog({
-        log: 'prefill',
-        mode: 'free',
-        session: buildFreeRandomDicePayload({
-          compositionSeed,
-          bpm: tempoRef.current,
-          chaos,
-          barCount: nBars,
-          barSeeds: nextSeeds,
-          syllablesDefault,
-          customSyllables: cs,
-          accents: acc,
-          customSubdivisions: cd,
-          deadCells: dc,
-          axes: {
-            randomPulsation: rp,
-            randomPattern: rpat,
-            randomSpeed: rs,
-            randomBarSpeed: rbs,
-          },
-        }),
-      });
+      return;
     }
-    if (!any) return;
 
     customSyllablesRef.current = cs;
     customSubdivisionsRef.current = cd;
+    customCellSyllablesRef.current = ccell;
     customMultipliersRef.current = cm;
     deadCellsRef.current = dc;
     accentsRef.current = acc;
@@ -4694,8 +4871,10 @@ export default function App() {
       setCustomSyllables({ ...cs });
       setAccents(new Set(acc));
       setCustomSubdivisions({ ...cd });
+      setCustomCellSyllables({ ...ccell });
       setCustomMultipliers({ ...cm });
       setDeadCells({ ...dc });
+      setJatiPulseActiveByRow(nextJatiPulseActive);
     });
   }, [applyBarsWithPotatoFreeze]);
 
@@ -4725,6 +4904,7 @@ export default function App() {
 
     const cs = { ...customSyllablesRef.current };
     const cd = { ...customSubdivisionsRef.current };
+    const ccell = { ...customCellSyllablesRef.current };
     const cm = { ...customMultipliersRef.current };
     const dc = { ...deadCellsRef.current };
     const acc = new Set<string>(accentsRef.current);
@@ -4736,9 +4916,31 @@ export default function App() {
       customSyllables: cs,
       accents: acc,
       customSubdivisions: cd,
+      customCellSyllables: ccell,
       customMultipliers: cm,
       deadCells: dc,
     };
+    const role = phraseScheduleRef.current[barIndex];
+    const roleTarget = getRoleJatiTarget(role);
+    if (
+      parentActive &&
+      roleTarget !== null &&
+      role &&
+      role.type !== 'parent' &&
+      role.type !== 'free' &&
+      role.type !== 'resync_bridge' &&
+      role.phraseStep === 0 &&
+      activeJatiPhraseIdRef.current !== role.phraseId
+    ) {
+      activeJatiPhraseIdRef.current = role.phraseId;
+      applyJatiMutation(barIndex, roleTarget, { targetCustomSyllables: cs, commitState: false });
+      progressiveDensityModeRef.current = 'jati_mode';
+      deSyncJatiActiveRef.current = true;
+      deSyncCycleLengthRef.current = roleTarget;
+      setProgressiveDensityMode('jati_mode');
+      setDeSyncJatiActive(true);
+      setDeSyncCycleLength(roleTarget);
+    }
     const didChange = parentActive
       ? applyParentModeBar({
           barIdx: barIndex,
@@ -4770,6 +4972,7 @@ export default function App() {
 
     customSyllablesRef.current = cs;
     customSubdivisionsRef.current = cd;
+    customCellSyllablesRef.current = ccell;
     customMultipliersRef.current = cm;
     deadCellsRef.current = dc;
     accentsRef.current = acc;
@@ -4778,6 +4981,7 @@ export default function App() {
       setCustomSyllables({ ...cs });
       setAccents(new Set(acc));
       setCustomSubdivisions({ ...cd });
+      setCustomCellSyllables({ ...ccell });
       setCustomMultipliers({ ...cm });
       setDeadCells({ ...dc });
     });
@@ -4793,10 +4997,12 @@ export default function App() {
     const cs = customSyllablesRef.current;
     const acc = accentsRef.current;
     const cd = customSubdivisionsRef.current;
+    const ccell = customCellSyllablesRef.current;
     const dc = deadCellsRef.current;
     const bar0HasContent =
       (typeof cs[0] === 'number' && cs[0] !== base) ||
       Object.keys(cd).some((k) => k.startsWith('0-')) ||
+      Object.keys(ccell).some((k) => k.startsWith('0-')) ||
       [...acc].some((k) => k.startsWith('0-')) ||
       dc[0] !== undefined;
 
@@ -4808,6 +5014,7 @@ export default function App() {
             customSyllables: cs,
             accents: acc,
             customSubdivisions: cd,
+            customCellSyllables: ccell,
             deadCells: dc,
           }),
         ],
@@ -4817,6 +5024,7 @@ export default function App() {
         customSyllables: {},
         accents: new Set<string>(),
         customSubdivisions: {},
+        customCellSyllables: {},
         customMultipliers: {},
         deadCells: {},
       };
@@ -4837,6 +5045,7 @@ export default function App() {
             customSyllables: tmp.customSyllables,
             accents: tmp.accents,
             customSubdivisions: tmp.customSubdivisions,
+            customCellSyllables: tmp.customCellSyllables,
             deadCells: tmp.deadCells,
           }),
         ],
@@ -4862,6 +5071,11 @@ export default function App() {
       preset: formPresetIdRef.current,
       parentLength: parentLengthRef.current,
       rng,
+      motifPulseLen: parentGenomeRef.current?.bars[0]?.curSyl ?? syllablesRef.current,
+      progressiveDensityMode: progressiveDensityModeRef.current,
+      deSyncJati: deSyncJatiActiveRef.current,
+      deSyncCycleLength: deSyncCycleLengthRef.current,
+      chaosLevel: chaosLevelRef.current,
     });
     phraseScheduleRef.current = next;
   }, []);
@@ -4971,6 +5185,20 @@ export default function App() {
     }
     setCustomSubdivisions(nextSub);
     customSubdivisionsRef.current = { ...nextSub };
+
+    const prevCellSyl = customCellSyllablesRef.current;
+    const nextCellSyl: Record<string, string> = {};
+    for (const [k, v] of Object.entries(prevCellSyl)) {
+      const parts = k.split('-');
+      if (parts.length !== 2) continue;
+      const r = parseInt(parts[0]!, 10);
+      const c = parseInt(parts[1]!, 10);
+      if (Number.isFinite(r) && Number.isFinite(c) && r >= 0 && r < nBars && c >= 0 && c < next) {
+        nextCellSyl[k] = typeof v === 'string' ? v : String(v);
+      }
+    }
+    setCustomCellSyllables(nextCellSyl);
+    customCellSyllablesRef.current = { ...nextCellSyl };
 
     const nextMult = { ...customMultipliersRef.current };
     for (const rk of Object.keys(nextMult)) {
@@ -5121,6 +5349,7 @@ export default function App() {
       customSyllables: raw.customSyllables,
       customMultipliers: raw.customMultipliers,
       customSubdivisions: raw.customSubdivisions,
+      customCellSyllables: (raw as { customCellSyllables?: Record<string, string> }).customCellSyllables,
       randomModeEnabled: raw.randomModeEnabled,
       randomPulsation: raw.randomPulsation,
       randomPattern: raw.randomPattern,
@@ -5383,6 +5612,9 @@ export default function App() {
       deadCellsRef.current = { ...((snap as { deadCells?: DeadCellsMap }).deadCells || {}) };
       setCustomMultipliers({ ...(snap.customMultipliers || {}) });
       setCustomSubdivisions({ ...(snap.customSubdivisions || {}) });
+      const nextCellSyl = { ...((snap as { customCellSyllables?: Record<string, string> }).customCellSyllables || {}) };
+      setCustomCellSyllables(nextCellSyl);
+      customCellSyllablesRef.current = nextCellSyl;
     {
       const nextRandomMode =
         snap.randomModeEnabled !== undefined ? Boolean(snap.randomModeEnabled) : false;
@@ -5534,6 +5766,7 @@ export default function App() {
     deadCells: { ...((s as { deadCells?: DeadCellsMap }).deadCells || {}) },
     customMultipliers: { ...s.customMultipliers },
     customSubdivisions: { ...s.customSubdivisions },
+    customCellSyllables: { ...((s as { customCellSyllables?: Record<string, string> }).customCellSyllables || {}) },
     panelExpanded: s.panelExpanded === true,
     clickSoundByPolyVoice: normalizeClickSoundByPolyVoice(s.clickSoundByPolyVoice),
     polyVoiceGains:
@@ -5720,10 +5953,14 @@ export default function App() {
       programmaticAutoscrollSettleTimerRef.current = null;
     }
     programmaticAutoscrollRef.current = true;
+    programmaticAutoscrollSawScrollRef.current = false;
     rowEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
     const AUTOSCROLL_FALLBACK_MS = 1600;
     programmaticAutoscrollFallbackTimerRef.current = window.setTimeout(() => {
       programmaticAutoscrollFallbackTimerRef.current = null;
+      if (programmaticAutoscrollSawScrollRef.current) {
+        return;
+      }
       if (programmaticAutoscrollSettleTimerRef.current !== null) {
         window.clearTimeout(programmaticAutoscrollSettleTimerRef.current);
         programmaticAutoscrollSettleTimerRef.current = null;
@@ -5853,6 +6090,7 @@ export default function App() {
     const onScroll = () => {
       if (!isPlayingRef.current) return;
       if (programmaticAutoscrollRef.current) {
+        programmaticAutoscrollSawScrollRef.current = true;
         if (programmaticAutoscrollSettleTimerRef.current !== null) {
           window.clearTimeout(programmaticAutoscrollSettleTimerRef.current);
         }
@@ -6289,6 +6527,7 @@ export default function App() {
             customSyllables: customSyllablesRef.current,
             accents: accentsRef.current,
             customSubdivisions: customSubdivisionsRef.current,
+            customCellSyllables: customCellSyllablesRef.current,
             customMultipliers: customMultipliersRef.current,
             deadCells: deadCellsRef.current,
           };
@@ -6328,35 +6567,6 @@ export default function App() {
                 dictantModeRef.current || chaos < 80,
               );
 
-          if (didChange && !useParent) {
-            postDiceRandomizerLog({
-              log: 'playback_bar',
-              session: {
-                kind: 'bar_boundary_playback',
-                source: 'mono',
-                barIndex: prevBar,
-                barSeed,
-                bpm: tempoRef.current,
-                chaos,
-                axes: {
-                  randomPulsation: randomPulsationRef.current,
-                  randomPattern: randomPatternRef.current,
-                  randomSpeed: randomSpeedRef.current,
-                  randomBarSpeed: randomBarSpeedRef.current,
-                },
-                row: buildFreeBarRowSnapshot({
-                  barIndex: prevBar,
-                  barSeed,
-                  bpm: tempoRef.current,
-                  syllablesDefault: syllablesRef.current,
-                  customSyllables: customSyllablesRef.current,
-                  accents: accentsRef.current,
-                  customSubdivisions: customSubdivisionsRef.current,
-                  deadCells: deadCellsRef.current,
-                }),
-              },
-            });
-          }
           if (didChange) {
             sequenceRef.current = buildLegacyPlaybackSequence(
               barsRef.current,
@@ -6381,6 +6591,7 @@ export default function App() {
                   setCustomSyllables({ ...customSyllablesRef.current });
                   setAccents(new Set(accentsRef.current));
                   setCustomSubdivisions({ ...customSubdivisionsRef.current });
+                  setCustomCellSyllables({ ...customCellSyllablesRef.current });
                   setDeadCells({ ...deadCellsRef.current });
                 } else {
                   if (randomPulsationRef.current) setCustomSyllables({ ...customSyllablesRef.current });
@@ -6519,6 +6730,8 @@ export default function App() {
           );
         const deadCut = deadCellsRef.current[rIdx]?.deadStart;
         if (typeof deadCut === 'number' && cIdx >= deadCut) return;
+        const cellSylOv = customCellSyllablesRef.current[`${rIdx}-${cIdx}`];
+        if (cellSylOv === '-' || cellSylOv === '–') return;
         // USER-SOURCE-OF-TRUTH: no auto-accent/auto-alt by beat index; only lane/user maps drive voice choice.
         const laneAccents = getLaneAccentsSetRef(rIdx);
         const laneTaDing = getLaneTaSetRef(rIdx);
@@ -6782,6 +6995,7 @@ export default function App() {
       customSyllables: customSyllablesRef.current,
       accents: accentsRef.current,
       customSubdivisions: customSubdivisionsRef.current,
+      customCellSyllables: customCellSyllablesRef.current,
       customMultipliers: customMultipliersRef.current,
       deadCells: deadCellsRef.current,
     };
@@ -6800,35 +7014,6 @@ export default function App() {
       mulberry32(barSeed),
       dictantModeRef.current || chaos < 80,
     );
-    if (didChange) {
-      postDiceRandomizerLog({
-        log: 'playback_bar',
-        session: {
-          kind: 'bar_boundary_playback',
-          source: 'poly',
-          barIndex: prevBar,
-          barSeed,
-          bpm: tempoRef.current,
-          chaos,
-          axes: {
-            randomPulsation: randomPulsationRef.current,
-            randomPattern: randomPatternRef.current,
-            randomSpeed: randomSpeedRef.current,
-            randomBarSpeed: randomBarSpeedRef.current,
-          },
-          row: buildFreeBarRowSnapshot({
-            barIndex: prevBar,
-            barSeed,
-            bpm: tempoRef.current,
-            syllablesDefault: syllablesRef.current,
-            customSyllables: customSyllablesRef.current,
-            accents: accentsRef.current,
-            customSubdivisions: customSubdivisionsRef.current,
-            deadCells: deadCellsRef.current,
-          }),
-        },
-      });
-    }
     if (!didChange) return;
     setTimeout(() => {
       startTransition(() => {
@@ -7232,6 +7417,7 @@ export default function App() {
   deadCellsRef.current = deadCells;
   customMultipliersRef.current = customMultipliers;
   customSubdivisionsRef.current = customSubdivisions;
+  customCellSyllablesRef.current = customCellSyllables;
   pulseMeterUnlinkedRef.current = pulseMeterUnlinked;
   polyModeRef.current = polyMode;
   polyVoicesRef.current = polyVoices;
@@ -7360,6 +7546,36 @@ export default function App() {
     customMultipliersRef,
     pulseMeterUnlinkedRef,
     subdivHoldSessionRef,
+    onPulseLongPressModeSwitch: (rowIdx, rowSylls) => {
+      // Возвращаем управление gati/jati в random parent без изменения пульса такта.
+      if (randomModeRef.current !== 'parent') return;
+      if (formPresetIdRef.current !== 'progressive') return;
+
+      if (jatiPulseActiveByRow[rowIdx]) {
+        const nextRows = { ...jatiPulseActiveByRow };
+        delete nextRows[rowIdx];
+        setJatiPulseActiveByRow(nextRows);
+        if (Object.keys(nextRows).length === 0) {
+          progressiveDensityModeRef.current = 'gati_mode';
+          deSyncJatiActiveRef.current = false;
+          deSyncCycleLengthRef.current = undefined;
+          setProgressiveDensityMode('gati_mode');
+          setDeSyncJatiActive(false);
+          setDeSyncCycleLength(undefined);
+        }
+        return;
+      }
+
+      const base = Math.max(3, Math.min(9, Math.round(rowSylls)));
+      const nearestJati = normalizeJatiCycleLength(base);
+      progressiveDensityModeRef.current = 'jati_mode';
+      deSyncJatiActiveRef.current = true;
+      deSyncCycleLengthRef.current = nearestJati;
+      setProgressiveDensityMode('jati_mode');
+      setDeSyncJatiActive(true);
+      setDeSyncCycleLength(nearestJati);
+      setJatiPulseActiveByRow((prev) => ({ ...prev, [rowIdx]: true }));
+    },
   };
 
   /** Квадрат: цикл пассив+Ta без alt / full mix / Ta-only; при диктанте — +teal ring. */
@@ -7598,9 +7814,7 @@ export default function App() {
                           <ChevronLeft className="w-4 h-4" />
                         </button>
                         <div className="h-8 min-w-0 flex-1" />
-                        <span className="text-[10px] font-medium tabular-nums text-slate-500 shrink-0 leading-none pr-0.5">
-                          {APP_COMMIT_VERSION}
-                        </span>
+                        <div className="h-8 w-8 shrink-0" aria-hidden />
                       </div>
                       <div
                         className="flex items-start gap-2 w-full min-w-0 shrink-0 justify-between"
@@ -8004,7 +8218,7 @@ export default function App() {
                             <button
                               key={p}
                               type="button"
-                              onClick={() => setFormPresetId(p)}
+                              onClick={() => applyFormPresetSelection(p)}
                               className={`flex items-center justify-center py-2 rounded-lg text-xs font-bold transition-all duration-200 border ${
                                 on
                                   ? 'bg-purple-600/20 border-purple-500/50 text-purple-300'
@@ -8109,7 +8323,7 @@ export default function App() {
                           : 'bg-[#16332f]/35 border-emerald-700/50 text-emerald-300 hover:text-emerald-200 hover:bg-[#16332f]/60'
                       }`}
                     >
-                      <span>Potato Mode</span>
+                      <span className="whitespace-nowrap">Potato Mode</span>
                     </button>
                     <button
                       type="button"
@@ -8117,6 +8331,14 @@ export default function App() {
                       className="w-8 h-8 rounded-md border bg-[#1a253c]/60 border-[#2a385b] text-slate-300 hover:text-white hover:bg-[#1a243b] transition-colors flex items-center justify-center"
                     >
                       <span className="text-[7px] font-semibold tracking-wide">MIDI</span>
+                    </button>
+                    <button
+                      type="button"
+                      title="Скачать текстовый лог урока (Parent mode)"
+                      onClick={() => downloadAestheticScore()}
+                      className="w-8 h-8 rounded-md border bg-[#1a253c]/60 border-[#2a385b] text-slate-300 hover:text-white hover:bg-[#1a243b] transition-colors flex items-center justify-center"
+                    >
+                      <span className="text-[7px] font-semibold tracking-wide">LOG</span>
                     </button>
                   </div>
                   <div className="w-full h-px bg-[#1e2a45]/80 my-0.5"></div>
@@ -8559,11 +8781,13 @@ export default function App() {
           deadDisplayByRow={deadDisplayByRow}
           bpm={tempoUi}
           customSyllables={customSyllables}
+          customCellSyllables={customCellSyllables}
           customSubdivisions={customSubdivisions}
           customMultipliers={customMultipliers}
           accents={accentsUi}
           taDingKeys={visibleTaDingKeys}
           pulseMeterUnlinked={pulseMeterUnlinked}
+          jatiPulseActiveByRow={jatiPulseActiveByRow}
           isPlaying={isPlaying}
           autoscrollVirtualRowsEnabled={autoscrollVirtualRowsEnabled}
           activePos={activePos}
@@ -8848,7 +9072,7 @@ export default function App() {
               });
             }}
             onContextMenu={(e) => e.preventDefault()}
-            className={`flex-1 rounded-xl flex justify-center items-center transition-all touch-none select-none relative bg-[#161f33] ${
+            className={`flex-1 rounded-xl flex justify-center items-center transition-all touch-none select-none relative bg-[#161f33] active:scale-100 active:translate-y-0 ${
               isDeadCellsEditorMode
                 ? 'border border-[#23314f] text-slate-600 opacity-45 cursor-not-allowed'
                 : `${squarePlaybackButtonSurface}${squareDictantChrome}`

@@ -12,7 +12,11 @@ import {
 	pickKalam,
 	type Kalam,
 	type KalamMap,
+	type SyllableLabel,
 } from './sequencerLabels';
+
+const plain = (rows: string[][]): SyllableLabel[][] =>
+	rows.map((cell) => cell.map((s) => ({ syl: s, accent: false })));
 
 function testComputeNps() {
 	assert.equal(computeNps(60, 4), 4);
@@ -40,7 +44,7 @@ function testPickKalamHysteresisSlowMedium() {
 }
 
 function testPickKalamHysteresisMediumFast() {
-	assert.equal(pickKalam(KALAM_THRESHOLDS.mediumToFast, 'medium'), 'medium', 'edge 8.4 stays');
+	assert.equal(pickKalam(KALAM_THRESHOLDS.mediumToFast, 'medium'), 'fast', 'NPS>8 fast-switch override');
 	assert.equal(pickKalam(8.5, 'medium'), 'fast');
 	assert.equal(pickKalam(8.0, 'fast'), 'fast', 'above fastToMedium stays fast');
 	assert.equal(pickKalam(KALAM_THRESHOLDS.fastToMedium, 'fast'), 'fast', 'edge 7.6 stays fast');
@@ -73,31 +77,32 @@ function testComposeLongBar() {
 	assert.equal(composeLongBar(12, 'slow').length, 12);
 	assert.equal(composeLongBar(16, 'slow').length, 16);
 	assert.deepEqual(composeLongBar(9, 'slow'), getSyllablesForGati(9, 'slow'), 'segLen=9 is plain');
-	const ten = composeLongBar(10, 'slow');
-	assert.deepEqual(ten.slice(0, 9), getSyllablesForGati(9, 'slow'), 'greedy 9+1 first chunk');
-	assert.deepEqual(ten.slice(9), getSyllablesForGati(1, 'slow'), 'greedy 9+1 remainder');
+	const twelve = composeLongBar(12, 'slow');
+	assert.deepEqual(twelve.slice(0, 4), getSyllablesForGati(4, 'slow'), '12 uses equal factoring');
+	assert.deepEqual(twelve.slice(4, 8), getSyllablesForGati(4, 'slow'), '12 uses 4+4+4');
+	assert.deepEqual(twelve.slice(8, 12), getSyllablesForGati(4, 'slow'), '12 uses 4+4+4');
 }
 
 function testBuildRow4BpmSlow() {
 	const out = buildRowCellSyllableLabels(4, {}, 0, { bpm: 60 });
-	assert.deepEqual(out, [['Ta'], ['Ka'], ['Dhi'], ['Mi']]);
+	assert.deepEqual(out, plain([['Ta'], ['Ka'], ['Dhi'], ['Mi']]));
 }
 
 function testBuildRow4BpmFast() {
 	const out = buildRowCellSyllableLabels(4, {}, 0, { bpm: 150 });
-	assert.deepEqual(out, [['Ta'], ['Ka'], ['Ju'], ['Nu']]);
+	assert.deepEqual(out, plain([['Ta'], ['Ka'], ['Ju'], ['Nu']]));
 }
 
 function testBuildRow5Bpm60() {
 	const out = buildRowCellSyllableLabels(5, {}, 0, { bpm: 60 });
-	assert.deepEqual(out, [['Ta'], ['Ka'], ['Ta'], ['Ki'], ['Ta']]);
+	assert.deepEqual(out, plain([['Ta'], ['Ka'], ['Ta'], ['Ki'], ['Ta']]));
 }
 
 function testBuildRow4DeadStart3() {
 	const out = buildRowCellSyllableLabels(4, {}, 0, { bpm: 60, deadStart: 3 });
 	assert.deepEqual(
 		out,
-		[['Ta'], ['Ki'], ['Ta'], []],
+		plain([['Ta'], ['Ki'], ['Ta']]).concat([[]]),
 		'3 active + 1 dead tail, Gati=3 on active',
 	);
 }
@@ -106,7 +111,7 @@ function testBuildRow5DeadStart3() {
 	const out = buildRowCellSyllableLabels(5, {}, 0, { bpm: 60, deadStart: 3 });
 	assert.deepEqual(
 		out,
-		[['Ta'], ['Ki'], ['Ta'], [], []],
+		plain([['Ta'], ['Ki'], ['Ta']]).concat([[], []]),
 		'length invariant: labels.length === rowSyllCount even with dead tail',
 	);
 }
@@ -118,8 +123,8 @@ function testBuildRow5WithCellSubdivAndDead() {
 		0,
 		{ bpm: 60, deadStart: 4 },
 	);
-	assert.deepEqual(out[0], ['Ta', 'Ki', 'Ta'], 'cell 0 is Gati=3 phrase');
-	assert.deepEqual(out.slice(1, 4), [['Ta'], ['Ki'], ['Ta']], 'segment of 3 ones is Gati=3');
+	assert.deepEqual(out[0], plain([['Ta', 'Ki', 'Ta']])[0], 'cell 0 is Gati=3 phrase');
+	assert.deepEqual(out.slice(1, 4), plain([['Ta'], ['Ki'], ['Ta']]), 'segment of 3 ones is Gati=3');
 	assert.deepEqual(out[4], [], 'last cell is dead');
 }
 
@@ -130,8 +135,29 @@ function testBuildRowMixedCellThenOnes() {
 		0,
 		{ bpm: 60 },
 	);
-	assert.deepEqual(out[0], ['Ta', 'Ka', 'Dhi', 'Mi'], 'cell 0 Gati=4 slow at BPM=60 (NPS=4)');
-	assert.deepEqual(out.slice(1), [['Ta'], ['Ki'], ['Ta']], 'segment 1-3 is Gati=3');
+	assert.deepEqual(out[0], plain([['Ta', 'Ka', 'Dhi', 'Mi']])[0], 'cell 0 Gati=4 slow at BPM=60 (NPS=4)');
+	assert.deepEqual(out.slice(1), plain([['Ta'], ['Ki'], ['Ta']]), 'segment 1-3 is Gati=3');
+}
+
+function testSubdiv4AlwaysDictionaryPerKalamAndNonUniform() {
+	const cases: Array<{ bpm: number; kalam: Kalam }> = [
+		{ bpm: 60, kalam: 'slow' },
+		{ bpm: 120, kalam: 'medium' },
+		{ bpm: 150, kalam: 'fast' },
+	];
+	for (const { bpm, kalam } of cases) {
+		const out = buildRowCellSyllableLabels(1, { '0-0': 4 }, 0, { bpm });
+		assert.deepEqual(out[0].map((x) => x.syl), KONNAKOL_DICTIONARY[4][kalam], `subdivs=4 должен следовать словарю (${kalam})`);
+		assert.equal(new Set(out[0].map((x) => x.syl)).size, 4, `subdivs=4 (${kalam}) должен давать 4 разных слога`);
+	}
+}
+
+function testSubdiv4IgnoresUniformOverrideFiller() {
+	const out = buildRowCellSyllableLabels(1, { '0-0': 4 }, 0, {
+		bpm: 60,
+		cellSyllableOverrides: { '0-0': 'Thom' },
+	});
+	assert.deepEqual(out[0].map((x) => x.syl), KONNAKOL_DICTIONARY[4].slow, 'uniform override для subdiv>1 должен откатываться к словарю');
 }
 
 function testHysteresisStickyAroundBoundary() {
@@ -176,6 +202,32 @@ function testBuildRowDeadStartZero() {
 	assert.deepEqual(out, [[], [], []], 'deadStart=0 → whole row is silent');
 }
 
+function testAccentObjectsIntegrated() {
+	const out = buildRowCellSyllableLabels(4, {}, 0, {
+		bpm: 60,
+		accentCells: new Set([1, 3]),
+	});
+	assert.equal(out[1]?.[0]?.accent, true);
+	assert.equal(out[0]?.[0]?.accent, false);
+	assert.equal(out[3]?.[0]?.accent, true);
+}
+
+function testTerminalSyllableOnLessonEnd() {
+	const out = buildRowCellSyllableLabels(4, {}, 0, {
+		bpm: 60,
+		isLessonLastRow: true,
+	});
+	assert.equal(out[3]?.[0]?.syl, 'Ta');
+}
+
+function testInternalThomIsSanitized() {
+	const out = buildRowCellSyllableLabels(1, { '0-0': 4 }, 0, {
+		bpm: 60,
+		cellSyllableOverrides: { '0-0': 'Thom' },
+	});
+	assert.ok(out[0]?.every((it) => it.syl !== 'Thom'), 'Thom cannot appear in internal phrase positions');
+}
+
 function testRowSyllCountZero() {
 	assert.deepEqual(buildRowCellSyllableLabels(0, {}, 0, { bpm: 60 }), []);
 }
@@ -194,8 +246,13 @@ testBuildRow4DeadStart3();
 testBuildRow5DeadStart3();
 testBuildRow5WithCellSubdivAndDead();
 testBuildRowMixedCellThenOnes();
+testSubdiv4AlwaysDictionaryPerKalamAndNonUniform();
+testSubdiv4IgnoresUniformOverrideFiller();
 testHysteresisStickyAroundBoundary();
 testTouchedKeysAndGcContract();
 testBuildRowDeadStartZero();
 testRowSyllCountZero();
+testAccentObjectsIntegrated();
+testTerminalSyllableOnLessonEnd();
+testInternalThomIsSanitized();
 console.log('sequencerLabels.test.ts: ok');

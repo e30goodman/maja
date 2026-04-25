@@ -1,0 +1,120 @@
+# Принципы сборки силлабов в `konnakol_trainer_stable`
+
+Документ фиксирует, как именно в проекте формируются слоги (konnakol syllables) для каждой клетки сетки.
+
+## 1) Источник истины
+
+Основная логика находится в `src/sequencerLabels.ts`:
+
+- словарь слогов: `KONNAKOL_DICTIONARY`
+- вычисление плотности: `computeNps(bpm, phraseLen)`
+- выбор Kalam (slow/medium/fast): `pickKalam(...)`
+- сборка длинных сегментов: `composeLongBar(...)`
+- финальная раскладка по клеткам: `buildRowCellSyllableLabels(...)`
+
+`src/SequencerGrid.tsx` только потребляет готовый результат и рендерит `rowCellLabels[cIdx]?.[i]`.
+
+## 2) Базовый словарь (Gati x Kalam)
+
+Словарь задан для Gati `1..9`, отдельно для `slow | medium | fast`.
+
+- Gati=1: `Ta`
+- Gati=2: `Ta Ka`
+- Gati=3: `Ta Ki Ta`
+- Gati=4: slow/medium `Ta Ka Dhi Mi`, fast `Ta Ka Ju Nu`
+- Gati=5: `Ta Ka Ta Ki Ta`
+- Gati=6: slow/medium `Ta Ka Dhi Mi Ta Ka`, fast `Ta Ka Ju Nu Ta Ka`
+- Gati=7: slow/medium `Ta Ka Dhi Mi Ta Ki Ta`, fast `Ta Ka Ju Nu Ta Ki Ta`
+- Gati=8: slow `Ta Ka Dhi Mi Ta Ka Dhi Mi`, medium/fast `Ta Ka Dhi Mi Ta Ka Ju Nu`
+- Gati=9: slow/medium `Ta Ka Dhi Mi Ta Ka Ta Ki Ta`, fast `Ta Ka Ju Nu Ta Ka Ta Ki Ta`
+
+Важный принцип: в быстрых режимах для части паттернов используется переход `Dhi Mi -> Ju Nu`.
+
+## 3) Как выбирается Kalam
+
+Сначала считается `NPS = BPM * phraseLen / 60`, где:
+
+- `phraseLen = subdivs`, если клетка имеет локальные поддоли (`subdivs > 1`);
+- `phraseLen = segLen`, если это сегмент соседних клеток с `subdivs == 1`.
+
+Далее `pickKalam` выбирает `slow/medium/fast`:
+
+- стартово (без предыдущего состояния): `<=4.0 slow`, `<=8.0 medium`, иначе `fast`;
+- при последующих расчётах используется гистерезис:
+  - `slow -> medium` только выше `4.4`
+  - `medium -> slow` только ниже `3.6`
+  - `medium -> fast` только выше `8.4`
+  - `fast -> medium` только ниже `7.6`
+
+Это сделано, чтобы подписи не "дёргались" при мелких колебаниях BPM.
+
+## 4) Нормализация входа перед сборкой
+
+В `buildRowCellSyllableLabels(...)`:
+
+- каждое `subdivs` приводится в диапазон `1..9`;
+- если значение невалидно, берётся `1`;
+- `deadStart` ограничивается диапазоном `0..rowSyllCount`.
+
+Инвариант: результат всегда массив длины `rowSyllCount`.
+
+## 5) Алгоритм прохода по ряду
+
+Проход выполняется слева направо:
+
+1. Если клетка попадает в dead tail (`cIdx >= deadStart`) -> в результат пишется `[]`.
+2. Если `subdivs > 1` -> это отдельная локальная фраза:
+   - выбирается Kalam по `NPS(bpm, subdivs)`;
+   - в клетку пишется весь массив слогов длины `subdivs`.
+3. Если `subdivs == 1` -> собирается непрерывный сегмент соседних `1`:
+   - длина сегмента `segLen`;
+   - Kalam по `NPS(bpm, segLen)`;
+   - берётся фраза для `segLen`;
+   - каждый шаг сегмента получает по 1 слогу (`[phrase[i]]`).
+
+Если в фразе вдруг нет индекса (защитный случай), используется fallback `Ta`.
+
+## 6) Сегменты длиннее 9
+
+`composeLongBar(segLen, kalam)` работает жадно блоками до 9:
+
+- берётся `9`, затем остаток (`9 + 9 + ... + remainder`);
+- для каждого блока используется тот же `kalam`;
+- итоговая длина всегда равна `segLen`.
+
+Пример: `segLen=12` -> `Dict[9] + Dict[3]`.
+
+## 7) Память состояния Kalam (sticky behavior)
+
+Опциональная `kalamMap` хранит предыдущее состояние по ключам:
+
+- для локальных ячеек: `${rowIdx}-c${cellIdx}`
+- для сегментов `subdivs==1`: `${rowIdx}-seg${segStart}`
+
+За счёт этого гистерезис применяется стабильно между перерисовками.
+
+В `SequencerGrid.tsx` используется `useStableRowCellLabelsCache(...)`:
+
+- передаёт `kalamMap` в `buildRowCellSyllableLabels`;
+- собирает `touchedKeys`;
+- удаляет stale-ключи (GC), которые больше не существуют в текущей форме сетки.
+
+## 8) Практические следствия
+
+- Слоги зависят не только от выбранного Gati, но и от BPM через Kalam.
+- Две одинаковые по размеру клетки могут иметь разные слоги в разный момент при смене темпа.
+- Dead cells никогда не получают текста.
+- Сетка поддерживает как "локальные фразы в клетке", так и "протяжённый Sarva Laghu сегмент" по ряду.
+
+## 9) Чем подтверждено (тесты)
+
+Покрытие находится в `src/sequencerLabels.test.ts` и проверяет:
+
+- формулу NPS;
+- пороги и гистерезис Kalam;
+- корректность словаря для Gati `1..9`;
+- переход `Dhi Mi -> Ju Nu` в fast-паттернах;
+- сборку длинных сегментов (`composeLongBar`);
+- корректную работу dead хвоста;
+- смешанные сценарии (`subdivs>1` + сегменты из `1`);
+- sticky-поведение с `kalamMap` и контракт `touchedKeys`.

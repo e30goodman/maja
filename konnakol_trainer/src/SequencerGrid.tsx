@@ -1,5 +1,5 @@
 import React, { useMemo, useCallback, useRef } from 'react';
-import { buildRowCellSyllableLabels, getSyllableStyles, type KalamMap } from './sequencerLabels';
+import { buildRowCellSyllableLabels, getSyllableStyles, type KalamMap, type SyllableLabel } from './sequencerLabels';
 import type { PlayheadPosition } from './playheadTypes';
 
 /** Keep long-press pulse switching consistent with collapsed behavior. */
@@ -60,7 +60,7 @@ function playheadHighlightCellClasses(
 		: 'bg-amber-500/20 border-2 box-border border-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.26)] z-10 text-amber-100';
 }
 
-function rowCellLabelsEqual(a: string[][], b: string[][]): boolean {
+function rowCellLabelsEqual(a: SyllableLabel[][], b: SyllableLabel[][]): boolean {
 	if (a === b) return true;
 	if (a.length !== b.length) return false;
 	for (let i = 0; i < a.length; i++) {
@@ -69,7 +69,7 @@ function rowCellLabelsEqual(a: string[][], b: string[][]): boolean {
 		if (ra === rb) continue;
 		if (!ra || !rb || ra.length !== rb.length) return false;
 		for (let j = 0; j < ra.length; j++) {
-			if (ra[j] !== rb[j]) return false;
+			if (ra[j]?.syl !== rb[j]?.syl || Boolean(ra[j]?.accent) !== Boolean(rb[j]?.accent)) return false;
 		}
 	}
 	return true;
@@ -80,22 +80,33 @@ function useStableRowCellLabelsCache(
 	syllables: number,
 	customSyllables: Record<number, number>,
 	customSubdivisions: Record<string, number>,
+	customCellSyllables: Record<string, string>,
+	accents: Set<string>,
 	deadStartByRow: Record<number, number>,
 	bpm: number,
-): string[][][] {
-	const prevRef = useRef<string[][][]>([]);
+): SyllableLabel[][][] {
+	const prevRef = useRef<SyllableLabel[][][]>([]);
 	const kalamMapRef = useRef<KalamMap>(new Map());
 	return useMemo(() => {
 		const prev = prevRef.current;
-		const next: string[][][] = [];
+		const next: SyllableLabel[][][] = [];
 		const touched = new Set<string>();
 		for (let r = 0; r < bars; r++) {
 			const rowSylls = customSyllables[r] !== undefined ? customSyllables[r] : syllables;
+			const cellOv: Record<string, string> = {};
+			for (let c = 0; c < rowSylls; c++) {
+				const k = `${r}-${c}`;
+				const t = customCellSyllables[k];
+				if (typeof t === 'string' && t.length > 0) cellOv[k] = t;
+			}
 			const built = buildRowCellSyllableLabels(rowSylls, customSubdivisions, r, {
 				bpm,
 				deadStart: deadStartByRow[r],
 				kalamMap: kalamMapRef.current,
 				touchedKeys: touched,
+				cellSyllableOverrides: Object.keys(cellOv).length > 0 ? cellOv : undefined,
+				accentCells: new Set(Array.from({ length: rowSylls }, (_, c) => c).filter((c) => accents.has(`${r}-${c}`))),
+				isLessonLastRow: r === bars - 1,
 			});
 			const oldRow = prev[r];
 			if (oldRow !== undefined && rowCellLabelsEqual(oldRow, built)) {
@@ -113,7 +124,7 @@ function useStableRowCellLabelsCache(
 		for (const key of stale) km.delete(key);
 		prevRef.current = next;
 		return next;
-	}, [bars, syllables, customSyllables, customSubdivisions, deadStartByRow, bpm]);
+	}, [bars, syllables, customSyllables, customSubdivisions, customCellSyllables, accents, deadStartByRow, bpm]);
 }
 
 /** Ref-filled each App render — stable identity for memoized grid row. */
@@ -158,6 +169,8 @@ export type SequencerGridRowActions = {
 		lastDeltaSteps: number;
 		panelExpanded: boolean;
 	} | null>;
+	/** Long-press на Pulse: переключить progressive в jati/de-sync режим. */
+	onPulseLongPressModeSwitch?: (rowIdx: number, rowSylls: number) => void;
 };
 
 type SequencerGridRowProps = {
@@ -174,6 +187,7 @@ type SequencerGridRowProps = {
 	accentSig: string;
 	taDingSig: string;
 	pulseUnlinkedRow: boolean;
+	jatiPulseActiveRow: boolean;
 	activeEditRow: number | null;
 	activeEditCell: string | null;
 	highlightCol: number | null;
@@ -187,7 +201,7 @@ type SequencerGridRowProps = {
 	firstBeatEditorSuppressedSig: string;
 	deadStartByRow: Record<number, number>;
 	deadDisplayByRow: Record<number, number>;
-	rowCellLabels: string[][];
+	rowCellLabels: SyllableLabel[][];
 	effectiveUseFixedFlex: boolean;
 	displayScaleBars: number;
 	syllables: number;
@@ -213,6 +227,7 @@ function sequencerGridRowPropsEqual(a: SequencerGridRowProps, b: SequencerGridRo
 		a.accentSig === b.accentSig &&
 		a.taDingSig === b.taDingSig &&
 		a.pulseUnlinkedRow === b.pulseUnlinkedRow &&
+		a.jatiPulseActiveRow === b.jatiPulseActiveRow &&
 		a.activeEditRow === b.activeEditRow &&
 		a.activeEditCell === b.activeEditCell &&
 		a.highlightCol === b.highlightCol &&
@@ -252,6 +267,7 @@ const SequencerGridRow = React.memo(
 			accentSig,
 			taDingSig,
 			pulseUnlinkedRow,
+			jatiPulseActiveRow,
 			activeEditRow,
 			activeEditCell,
 			highlightCol,
@@ -373,6 +389,7 @@ const SequencerGridRow = React.memo(
 							a.pulseUnlinkHoldTimerRef.current = window.setTimeout(() => {
 								a.pulseUnlinkJustFiredRef.current = true;
 								a.isHoldingRef.current = true;
+								a.onPulseLongPressModeSwitch?.(rIdx, rowSylls);
 								a.setPulseMeterUnlinked((prev) => {
 									const nextVal = !prev[rIdx];
 									const next = { ...prev, [rIdx]: nextVal };
@@ -453,6 +470,8 @@ const SequencerGridRow = React.memo(
 						className={`flex-1 rounded-md border flex items-center justify-center text-[12px] font-extrabold leading-none ${lowPerfMode ? '' : 'shadow-[inset_0_1px_3px_rgba(0,0,0,0.1)]'} min-h-[50%] transition-colors select-none ${
 							activeEditRow === rIdx
 								? `ring-2 ring-purple-500 ${lowPerfMode ? '' : 'shadow-purple-500/30'} bg-[#1e2a45] border-[#2f4066] text-slate-400`
+								: jatiPulseActiveRow
+									? `bg-teal-500/25 border-teal-400/70 text-teal-50 ring-1 ring-teal-400/80 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_8px_rgba(20,184,166,0.25),0_0_12px_rgba(45,212,191,0.2)]'}`
 								: pulseUnlinkedRow
 									? `bg-teal-500/25 border-teal-400/70 text-teal-50 ring-1 ring-teal-400/80 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_8px_rgba(20,184,166,0.25),0_0_12px_rgba(45,212,191,0.2)]'}`
 									: 'bg-[#1e2a45] border-[#2f4066] text-slate-400 hover:bg-[#253353] active:bg-[#1e2a45]'
@@ -682,14 +701,14 @@ const SequencerGridRow = React.memo(
 														? lowPerfMode
 															? 'text-inherit'
 															: 'text-inherit drop-shadow-md'
-														: accentForGlyph
+														: (accentForGlyph || rowCellLabels[cIdx]?.[i]?.accent === true)
 															? (lowPerfMode ? 'text-white' : 'drop-shadow-md')
 															: 'text-slate-300'
 											} ${subdivs > 1 ? 'border-[0.5px] border-[#2f4066]/50' : ''}`}
 										>
 											{isDead
 												? ''
-												: (rowCellLabels[cIdx]?.[i] ?? 'Ta')}
+												: (rowCellLabels[cIdx]?.[i]?.syl ?? 'Ta')}
 										</span>
 									))}
 								</div>
@@ -708,11 +727,14 @@ export type SequencerGridProps = {
 	bars: number;
 	syllables: number;
 	customSyllables: Record<number, number>;
+	/** Parent / Karvai: слог по ключу `${row}-${cell}` поверх словаря gati. */
+	customCellSyllables: Record<string, string>;
 	customSubdivisions: Record<string, number>;
 	customMultipliers: Record<number, number>;
 	accents: Set<string>;
 	taDingKeys: Set<string>;
 	pulseMeterUnlinked: Record<number, boolean>;
+	jatiPulseActiveByRow: Record<number, boolean>;
 	isPlaying: boolean;
 	autoscrollVirtualRowsEnabled: boolean;
 	activePos: { r: number; c: number; absR: number };
@@ -744,11 +766,13 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	bars,
 	syllables,
 	customSyllables,
+	customCellSyllables,
 	customSubdivisions,
 	customMultipliers,
 	accents,
 	taDingKeys,
 	pulseMeterUnlinked,
+	jatiPulseActiveByRow,
 	isPlaying,
 	autoscrollVirtualRowsEnabled,
 	activePos,
@@ -778,6 +802,8 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 		syllables,
 		customSyllables,
 		customSubdivisions,
+		customCellSyllables,
+		accents,
 		deadStartByRow,
 		bpm,
 	);
@@ -820,6 +846,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 					taDingKeys.has(`${rIdx}-${c}`) ? '1' : '0',
 				).join('');
 				const pulseUnlinkedRow = Boolean(pulseMeterUnlinked[rIdx]);
+				const jatiPulseActiveRow = Boolean(jatiPulseActiveByRow[rIdx]);
 
 				let highlightCol: number | null;
 				let stepLabel: string | undefined;
@@ -864,6 +891,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 						accentSig={accentSig}
 						taDingSig={taDingSig}
 						pulseUnlinkedRow={pulseUnlinkedRow}
+						jatiPulseActiveRow={jatiPulseActiveRow}
 						activeEditRow={activeEditRow}
 						activeEditCell={activeEditCell}
 						highlightCol={highlightCol}

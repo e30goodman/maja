@@ -23,3 +23,16 @@ Before finalizing Ta-related changes, verify:
 - `bars = 1` stability for `c0`,
 - snapshot save/load preserves suppression and lane maps,
 - UI/audio parity for `c0` and explicit `c>0`.
+
+## Gati/Jati Definition Gate (strict)
+
+- Terminology lock:
+  - `Gati Mutation` = density change inside fixed cells (subdivisions only).
+  - `Jati Mutation` = cycle-size change (bar cell count / `curSyl` rewrite).
+- Forbidden mapping:
+  - Never tag `Jati Mode` when only subdivisions changed and cycle size stayed unchanged.
+- True Jati condition:
+  - Jati mode is valid only if the bar exits ADI-8 frame behavior and runs with its own local cell/pulse count (e.g. 5/7/9).
+- Logging gate:
+  - Before writing mode tags in lesson logs, check the above invariants.
+  - If violated, emit `CRITICAL: False Jati Mapping Detected`.

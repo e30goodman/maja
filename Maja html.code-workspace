@@ -11,6 +11,9 @@
 		},
 		{
 			"path": "../engine example"
+		},
+		{
+			"path": "../../Downloads"
 		}
 	],
 	"settings": {}

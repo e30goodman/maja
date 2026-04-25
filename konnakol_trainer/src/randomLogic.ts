@@ -179,6 +179,8 @@ export type BarRandomizerMutable = {
 	customSyllables: Record<number, number>;
 	accents: Set<string>;
 	customSubdivisions: Record<string, number>;
+	/** Переопределение отображаемого/логируемого слога по ключу `${row}-${cell}` (parent mode). */
+	customCellSyllables: Record<string, string>;
 	customMultipliers: Record<number, number>;
 	deadCells: DeadCellsMap;
 };
@@ -252,6 +254,7 @@ export function applyRandomizerEffectsToBar(
 			for (let i = newMeter; i < 9; i++) {
 				m.accents.delete(`${prevBar}-${i}`);
 				delete m.customSubdivisions[`${prevBar}-${i}`];
+				delete m.customCellSyllables[`${prevBar}-${i}`];
 			}
 			didChange = true;
 		}
@@ -311,6 +314,7 @@ export function applyRandomizerEffectsToBar(
 				for (let i = activeCount; i < curSyl; i++) {
 					m.accents.delete(`${prevBar}-${i}`);
 					delete m.customSubdivisions[`${prevBar}-${i}`];
+					delete m.customCellSyllables[`${prevBar}-${i}`];
 				}
 			}
 		}
