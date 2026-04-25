@@ -99,17 +99,25 @@ function insertPlayheadSorted(queue: PlayheadHighlightEvent[], ev: PlayheadHighl
 /** При «отвязке» пульса от числа долей такта длительность шага считается как при 4 долях (квартальная сетка). */
 const PULSE_METER_BASE_SYLLABLES = 4;
 
-/** Long-press квадрата: off | только акцентные щелчки выкл (пассивы играют) | все щелчки по сетке выкл. */
+/** Режим ручного mute по hold на кнопке «Режим». */
 type SyllableReadMuteMode = 'off' | 'full' | 'no_accent_sharp';
-/** Серая: пассив + Ta, без alt; фиолет: full mix; зелёный: Ta-контур, остальное в гейте. */
+/** Legacy wire-format (раньше этим управляла одна «кнопка-квадрат»). */
 type SquarePlaybackMode = 'passive_no_alt' | 'full_mix' | 'ta_only';
-/** Пустой снапшот и первый запуск (без сохранённых настроек): фиолет — full mix. */
+type MixerLayerMode = 'full_mix' | 'no_alt' | 'alt_only';
+type TrainerMode = 'normal' | 'ta_only' | 'dictation';
 const DEFAULT_SQUARE_PLAYBACK_MODE: SquarePlaybackMode = 'full_mix';
+const DEFAULT_MIXER_LAYER_MODE: MixerLayerMode = 'full_mix';
+const DEFAULT_TRAINER_MODE: TrainerMode = 'normal';
 
-function nextSquarePlaybackMode(mode: SquarePlaybackMode): SquarePlaybackMode {
-	if (mode === 'passive_no_alt') return 'full_mix';
-	if (mode === 'full_mix') return 'ta_only';
-	return 'passive_no_alt';
+function nextMixerLayerMode(mode: MixerLayerMode): MixerLayerMode {
+	if (mode === 'full_mix') return 'no_alt';
+	if (mode === 'no_alt') return 'alt_only';
+	return 'full_mix';
+}
+function nextTrainerMode(mode: TrainerMode): TrainerMode {
+	if (mode === 'normal') return 'ta_only';
+	if (mode === 'ta_only') return 'dictation';
+	return 'normal';
 }
 
 /** Снапшоты/JSON: новые значения + миграция `all_beats`/`accent_only`/`passive_only` и legacy `onlyAccents`. */
@@ -128,6 +136,77 @@ function normalizeSyllableReadMuteModeFromSnapshot(modeRaw: unknown, legacyLatch
 	if (modeRaw === 'full' || modeRaw === 'no_accent_sharp') return modeRaw;
 	if (legacyLatched === true) return 'no_accent_sharp';
 	return 'off';
+}
+
+function normalizeMixerLayerModeFromSnapshot(raw: unknown): MixerLayerMode {
+	if (raw === 'full_mix' || raw === 'no_alt' || raw === 'alt_only') return raw;
+	return DEFAULT_MIXER_LAYER_MODE;
+}
+function normalizeTrainerModeFromSnapshot(raw: unknown): TrainerMode {
+	if (raw === 'normal' || raw === 'ta_only' || raw === 'dictation') return raw;
+	return DEFAULT_TRAINER_MODE;
+}
+function deriveNewModesFromLegacySnapshot(
+	raw: { squarePlaybackMode?: unknown; squarePassiveLayerMuted?: unknown; dictantMode?: unknown; onlyAccents?: unknown },
+): { mixerLayerMode: MixerLayerMode; trainerMode: TrainerMode } {
+	const legacyPlayback = normalizeSquarePlaybackModeFromSnapshot(
+		raw.squarePlaybackMode,
+		raw.onlyAccents === true ? true : undefined,
+	);
+	const legacyPassiveMuted = raw.squarePassiveLayerMuted === true;
+	const legacyDictation = raw.dictantMode === true;
+	const mixerLayerMode: MixerLayerMode =
+		legacyPlayback === 'passive_no_alt'
+			? 'no_alt'
+			: legacyPlayback === 'ta_only'
+				? 'full_mix'
+				: legacyPassiveMuted
+					? 'alt_only'
+					: 'full_mix';
+	const trainerMode: TrainerMode = legacyDictation
+		? 'dictation'
+		: legacyPlayback === 'ta_only'
+			? 'ta_only'
+			: 'normal';
+	return { mixerLayerMode, trainerMode };
+}
+function mapNewModesToLegacySnapshot(
+	mixerLayerMode: MixerLayerMode,
+	trainerMode: TrainerMode,
+): { squarePlaybackMode: SquarePlaybackMode; squarePassiveLayerMuted: boolean; dictantMode: boolean } {
+	if (trainerMode === 'dictation') {
+		return {
+			squarePlaybackMode: 'passive_no_alt',
+			squarePassiveLayerMuted: false,
+			dictantMode: true,
+		};
+	}
+	if (trainerMode === 'ta_only') {
+		return {
+			squarePlaybackMode: 'ta_only',
+			squarePassiveLayerMuted: false,
+			dictantMode: false,
+		};
+	}
+	if (mixerLayerMode === 'no_alt') {
+		return {
+			squarePlaybackMode: 'passive_no_alt',
+			squarePassiveLayerMuted: false,
+			dictantMode: false,
+		};
+	}
+	if (mixerLayerMode === 'alt_only') {
+		return {
+			squarePlaybackMode: 'full_mix',
+			squarePassiveLayerMuted: true,
+			dictantMode: false,
+		};
+	}
+	return {
+		squarePlaybackMode: 'full_mix',
+		squarePassiveLayerMuted: false,
+		dictantMode: false,
+	};
 }
 
 function normalizePulseMeterUnlinked(raw: unknown): Record<number, boolean> {
@@ -2185,6 +2264,9 @@ function createEmptySnapshot() {
 		polyMode: false,
 		polyVoices: 2 as 2 | 3 | 4,
 		onlyAccents: false,
+		mixerLayerMode: DEFAULT_MIXER_LAYER_MODE,
+		trainerMode: DEFAULT_TRAINER_MODE,
+		trainerHoldMute: false,
 		squarePlaybackMode: DEFAULT_SQUARE_PLAYBACK_MODE,
 		/** Long-press на фиолетовом: выключить только пассивный bus (см. emitGridSubAudio). */
 		squarePassiveLayerMuted: false,
@@ -2375,6 +2457,20 @@ function parseSnapshotRow(raw: unknown) {
 		d.pulseMeterUnlinked = next;
 	}
 	if (typeof o.onlyAccents === 'boolean') d.onlyAccents = o.onlyAccents;
+	const parsedMixer = normalizeMixerLayerModeFromSnapshot((o as { mixerLayerMode?: unknown }).mixerLayerMode);
+	const parsedTrainer = normalizeTrainerModeFromSnapshot((o as { trainerMode?: unknown }).trainerMode);
+	const hasNewModeFields =
+		(o as { mixerLayerMode?: unknown }).mixerLayerMode !== undefined ||
+		(o as { trainerMode?: unknown }).trainerMode !== undefined;
+	const fallbackModes = deriveNewModesFromLegacySnapshot({
+		squarePlaybackMode: o.squarePlaybackMode,
+		squarePassiveLayerMuted: (o as { squarePassiveLayerMuted?: unknown }).squarePassiveLayerMuted,
+		dictantMode: o.dictantMode,
+		onlyAccents: o.onlyAccents,
+	});
+	d.mixerLayerMode = hasNewModeFields ? parsedMixer : fallbackModes.mixerLayerMode;
+	d.trainerMode = hasNewModeFields ? parsedTrainer : fallbackModes.trainerMode;
+	d.trainerHoldMute = (o as { trainerHoldMute?: unknown }).trainerHoldMute === true;
 	d.squarePlaybackMode = normalizeSquarePlaybackModeFromSnapshot(
 		o.squarePlaybackMode,
 		typeof o.onlyAccents === 'boolean' ? o.onlyAccents : undefined,
@@ -2485,6 +2581,9 @@ function snapSlotLooksUsed(s: ReturnType<typeof createEmptySnapshot>) {
 	if (s.panelExpanded === true) return true;
 	if (s.pulseMeterUnlinked && Object.values(s.pulseMeterUnlinked).some(Boolean)) return true;
 	if (s.onlyAccents) return true;
+	if ((s as { mixerLayerMode?: MixerLayerMode }).mixerLayerMode && (s as { mixerLayerMode?: MixerLayerMode }).mixerLayerMode !== DEFAULT_MIXER_LAYER_MODE) return true;
+	if ((s as { trainerMode?: TrainerMode }).trainerMode && (s as { trainerMode?: TrainerMode }).trainerMode !== DEFAULT_TRAINER_MODE) return true;
+	if ((s as { trainerHoldMute?: boolean }).trainerHoldMute === true) return true;
 	if ((s as { squarePassiveLayerMuted?: boolean }).squarePassiveLayerMuted) return true;
 	{
 		const m = (s as { squarePlaybackMode?: string }).squarePlaybackMode;
@@ -2525,6 +2624,8 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 			s.polyMode === true,
 			{ ...(snap.clickBusBalance ? { [s.clickSound]: snap.clickBusBalance } : {}) },
 		);
+	const mixerLayerMode = normalizeMixerLayerModeFromSnapshot((s as { mixerLayerMode?: unknown }).mixerLayerMode);
+	const trainerMode = normalizeTrainerModeFromSnapshot((s as { trainerMode?: unknown }).trainerMode);
 	return {
 		tempo: s.tempo,
 		bars: s.bars,
@@ -2559,17 +2660,16 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		polyMode: s.polyMode === true,
 		polyVoices: parsePolyVoices(s.polyVoices),
 		onlyAccents: s.onlyAccents,
-		squarePlaybackMode: normalizeSquarePlaybackModeFromSnapshot(
-			(s as { squarePlaybackMode?: unknown }).squarePlaybackMode,
-			s.onlyAccents ? true : undefined,
-		),
-		squarePassiveLayerMuted: (s as { squarePassiveLayerMuted?: boolean }).squarePassiveLayerMuted === true,
+		mixerLayerMode,
+		trainerMode,
+		trainerHoldMute: (s as { trainerHoldMute?: boolean }).trainerHoldMute === true,
+		...mapNewModesToLegacySnapshot(mixerLayerMode, trainerMode),
 		firstBeatAccent: s.firstBeatAccent,
 		firstBeatAccentByLane: { ...makeLaneBoolMap(s.firstBeatAccent !== false), ...(s.firstBeatAccentByLane ?? {}) },
 		accentMapVersion: (s as { accentMapVersion?: number }).accentMapVersion === 1 ? 1 : 0,
 		taEditorMode: false,
 		syllableReadMuteMode: s.syllableReadMuteMode,
-		dictantMode: s.dictantMode === true,
+		dictantMode: trainerMode === 'dictation',
 		deadCells: (s as { deadCells?: DeadCellsMap }).deadCells ?? {},
 		taDingKeys: [...s.taDingKeys],
 		firstBeatDingSuppressedRows: [...(s.firstBeatDingSuppressedRows ?? [])],
@@ -3297,17 +3397,25 @@ export default function App() {
   );
 
   // Metronome Sound Toggles
-  const [squarePlaybackMode, setSquarePlaybackMode] = useState<SquarePlaybackMode>(() =>
-    normalizeSquarePlaybackModeFromSnapshot(
-      (seed as { squarePlaybackMode?: unknown }).squarePlaybackMode,
-      (seed as { onlyAccents?: boolean }).onlyAccents === true ? true : undefined,
-    ),
+  const seedNewModes = deriveNewModesFromLegacySnapshot({
+    squarePlaybackMode: (seed as { squarePlaybackMode?: unknown }).squarePlaybackMode,
+    squarePassiveLayerMuted: (seed as { squarePassiveLayerMuted?: unknown }).squarePassiveLayerMuted,
+    dictantMode: (seed as { dictantMode?: unknown }).dictantMode,
+    onlyAccents: (seed as { onlyAccents?: unknown }).onlyAccents,
+  });
+  const [mixerLayerMode, setMixerLayerMode] = useState<MixerLayerMode>(() => {
+    const raw = (seed as { mixerLayerMode?: unknown }).mixerLayerMode;
+    return raw === undefined ? seedNewModes.mixerLayerMode : normalizeMixerLayerModeFromSnapshot(raw);
+  });
+  const [trainerMode, setTrainerMode] = useState<TrainerMode>(() => {
+    const raw = (seed as { trainerMode?: unknown }).trainerMode;
+    return raw === undefined ? seedNewModes.trainerMode : normalizeTrainerModeFromSnapshot(raw);
+  });
+  const [trainerHoldMute, setTrainerHoldMute] = useState(
+    () => (seed as { trainerHoldMute?: boolean }).trainerHoldMute === true,
   );
   const onlyAccents = false;
-  const [squarePassiveLayerMuted, setSquarePassiveLayerMuted] = useState(
-    () => (seed as { squarePassiveLayerMuted?: boolean }).squarePassiveLayerMuted === true,
-  );
-  const [dictantMode, setDictantMode] = useState(() => (seed as { dictantMode?: boolean }).dictantMode === true);
+  const dictantMode = trainerMode === 'dictation';
   const [firstBeatAccent, setFirstBeatAccent] = useState(() => seed.firstBeatAccent !== false);
   const [firstBeatAccentByLane, setFirstBeatAccentByLane] = useState<LaneBoolMap>(() =>
     cloneLaneBoolMap((seed as { firstBeatAccentByLane?: Partial<Record<number, boolean>> }).firstBeatAccentByLane, seed.firstBeatAccent !== false)
@@ -3447,12 +3555,14 @@ export default function App() {
         frozenScale: typeof s.frozenScale === 'number' && s.frozenScale >= 1 ? s.frozenScale : null,
         polyMode: s.polyMode === true,
         polyVoices: parsePolyVoices(s.polyVoices),
-        squarePlaybackMode: normalizeSquarePlaybackModeFromSnapshot(
-          (s as { squarePlaybackMode?: unknown }).squarePlaybackMode,
-          s.onlyAccents === true ? true : undefined,
+		mixerLayerMode: normalizeMixerLayerModeFromSnapshot((s as { mixerLayerMode?: unknown }).mixerLayerMode),
+		trainerMode: normalizeTrainerModeFromSnapshot((s as { trainerMode?: unknown }).trainerMode),
+		trainerHoldMute: (s as { trainerHoldMute?: boolean }).trainerHoldMute === true,
+        ...mapNewModesToLegacySnapshot(
+          normalizeMixerLayerModeFromSnapshot((s as { mixerLayerMode?: unknown }).mixerLayerMode),
+          normalizeTrainerModeFromSnapshot((s as { trainerMode?: unknown }).trainerMode),
         ),
         onlyAccents: false,
-        squarePassiveLayerMuted: (s as { squarePassiveLayerMuted?: boolean }).squarePassiveLayerMuted === true,
         firstBeatAccent: s.firstBeatAccent !== false,
         accentMapVersion: (s as { accentMapVersion?: number }).accentMapVersion === 1 ? 1 : 0,
         syllableReadMuteMode: normalizeSyllableReadMuteModeFromSnapshot(
@@ -3770,9 +3880,13 @@ export default function App() {
     setTaDingKeysByLane(emptyTaByLane);
     taDingKeysByLaneRef.current = cloneLaneSetMap(emptyTaByLane);
     setAccentMapVersion(0);
-    setSquarePlaybackMode(DEFAULT_SQUARE_PLAYBACK_MODE);
-    setSquarePassiveLayerMuted(false);
-    setDictantMode(false);
+    setMixerLayerMode(DEFAULT_MIXER_LAYER_MODE);
+    mixerLayerModeRef.current = DEFAULT_MIXER_LAYER_MODE;
+    setTrainerMode(DEFAULT_TRAINER_MODE);
+    trainerModeRef.current = DEFAULT_TRAINER_MODE;
+    dictantModeRef.current = false;
+    setTrainerHoldMute(false);
+    trainerHoldMuteRef.current = false;
     setIsTaEditorMode(false);
     setIsDeadCellsEditorMode(false);
     setFirstBeatDingSuppressedRows(new Set());
@@ -4006,8 +4120,9 @@ export default function App() {
   const customCellSyllablesRef = useRef(customCellSyllables);
   const pulseMeterUnlinkedRef = useRef(pulseMeterUnlinked);
   const onlyAccentsRef = useRef(onlyAccents);
-  const squarePlaybackModeRef = useRef<SquarePlaybackMode>(squarePlaybackMode);
-  const squarePassiveLayerMutedRef = useRef(squarePassiveLayerMuted);
+  const mixerLayerModeRef = useRef<MixerLayerMode>(mixerLayerMode);
+  const trainerModeRef = useRef<TrainerMode>(trainerMode);
+  const trainerHoldMuteRef = useRef(trainerHoldMute);
   const dictantModeRef = useRef(dictantMode);
   const firstBeatAccentRef = useRef(firstBeatAccent);
   const firstBeatAccentByLaneRef = useRef<LaneBoolMap>(firstBeatAccentByLane);
@@ -4238,18 +4353,15 @@ export default function App() {
 
   useEffect(() => {
     onlyAccentsRef.current = false;
-    squarePlaybackModeRef.current = squarePlaybackMode;
-  }, [squarePlaybackMode]);
-
+    mixerLayerModeRef.current = mixerLayerMode;
+  }, [mixerLayerMode]);
   useEffect(() => {
-    squarePassiveLayerMutedRef.current = squarePassiveLayerMuted;
-  }, [squarePassiveLayerMuted]);
-
+    trainerModeRef.current = trainerMode;
+    dictantModeRef.current = trainerMode === 'dictation';
+  }, [trainerMode]);
   useEffect(() => {
-    if (squarePlaybackMode !== 'full_mix') {
-      setSquarePassiveLayerMuted(false);
-    }
-  }, [squarePlaybackMode]);
+    trainerHoldMuteRef.current = trainerHoldMute;
+  }, [trainerHoldMute]);
   useEffect(() => { firstBeatAccentRef.current = firstBeatAccent; }, [firstBeatAccent]);
   useEffect(() => { firstBeatAccentByLaneRef.current = { ...firstBeatAccentByLane }; }, [firstBeatAccentByLane]);
   useEffect(() => {
@@ -4679,8 +4791,10 @@ export default function App() {
     polyMode: polyModeRef.current,
     polyVoices: polyVoicesRef.current,
     onlyAccents: false,
-    squarePlaybackMode: squarePlaybackModeRef.current,
-    squarePassiveLayerMuted: squarePassiveLayerMutedRef.current,
+    mixerLayerMode: mixerLayerModeRef.current,
+    trainerMode: trainerModeRef.current,
+    trainerHoldMute: trainerHoldMuteRef.current,
+    ...mapNewModesToLegacySnapshot(mixerLayerModeRef.current, trainerModeRef.current),
     firstBeatAccent: firstBeatAccentRef.current,
     firstBeatAccentByLane: { ...firstBeatAccentByLaneRef.current },
     accentMapVersion: accentMapVersionRef.current,
@@ -5388,6 +5502,9 @@ export default function App() {
       polyMode: raw.polyMode,
       polyVoices: raw.polyVoices,
       onlyAccents: raw.onlyAccents,
+      mixerLayerMode: (raw as { mixerLayerMode?: MixerLayerMode }).mixerLayerMode,
+      trainerMode: (raw as { trainerMode?: TrainerMode }).trainerMode,
+      trainerHoldMute: (raw as { trainerHoldMute?: boolean }).trainerHoldMute,
       squarePlaybackMode: (raw as { squarePlaybackMode?: SquarePlaybackMode }).squarePlaybackMode,
       squarePassiveLayerMuted: (raw as { squarePassiveLayerMuted?: boolean }).squarePassiveLayerMuted,
       firstBeatAccent: raw.firstBeatAccent,
@@ -5510,9 +5627,11 @@ export default function App() {
           frozenScale,
           polyMode,
           polyVoices,
-          squarePlaybackMode,
+          mixerLayerMode,
+          trainerMode,
+          trainerHoldMute,
           onlyAccents: false,
-          squarePassiveLayerMuted,
+          ...mapNewModesToLegacySnapshot(mixerLayerMode, trainerMode),
           firstBeatAccent,
           firstBeatAccentByLane,
           accentMapVersion,
@@ -5550,8 +5669,9 @@ export default function App() {
     frozenScale,
     polyMode,
     polyVoices,
-    squarePlaybackMode,
-    squarePassiveLayerMuted,
+    mixerLayerMode,
+    trainerMode,
+    trainerHoldMute,
     firstBeatAccent,
     firstBeatAccentByLane,
     accentMapVersion,
@@ -5699,13 +5819,31 @@ export default function App() {
       });
     }
     setPulseMeterUnlinked(normalizePulseMeterUnlinked(snap.pulseMeterUnlinked));
-    setSquarePlaybackMode(
-      normalizeSquarePlaybackModeFromSnapshot(
-        (snap as { squarePlaybackMode?: unknown }).squarePlaybackMode,
-        snap.onlyAccents === true ? true : undefined,
-      ),
-    );
-    setSquarePassiveLayerMuted((snap as { squarePassiveLayerMuted?: boolean }).squarePassiveLayerMuted === true);
+    {
+      const hasNewModes =
+        (snap as { mixerLayerMode?: unknown }).mixerLayerMode !== undefined ||
+        (snap as { trainerMode?: unknown }).trainerMode !== undefined;
+      const fallback = deriveNewModesFromLegacySnapshot({
+        squarePlaybackMode: (snap as { squarePlaybackMode?: unknown }).squarePlaybackMode,
+        squarePassiveLayerMuted: (snap as { squarePassiveLayerMuted?: unknown }).squarePassiveLayerMuted,
+        dictantMode: (snap as { dictantMode?: unknown }).dictantMode,
+        onlyAccents: (snap as { onlyAccents?: unknown }).onlyAccents,
+      });
+      const nextMixer = hasNewModes
+        ? normalizeMixerLayerModeFromSnapshot((snap as { mixerLayerMode?: unknown }).mixerLayerMode)
+        : fallback.mixerLayerMode;
+      const nextTrainer = hasNewModes
+        ? normalizeTrainerModeFromSnapshot((snap as { trainerMode?: unknown }).trainerMode)
+        : fallback.trainerMode;
+      const nextHoldMute = (snap as { trainerHoldMute?: boolean }).trainerHoldMute === true;
+      setMixerLayerMode(nextMixer);
+      mixerLayerModeRef.current = nextMixer;
+      setTrainerMode(nextTrainer);
+      trainerModeRef.current = nextTrainer;
+      setTrainerHoldMute(nextHoldMute);
+      trainerHoldMuteRef.current = nextHoldMute;
+      dictantModeRef.current = nextTrainer === 'dictation';
+    }
     const nextFirstBeatByLane = cloneLaneBoolMap(
       (snap as { firstBeatAccentByLane?: Partial<Record<number, boolean>> }).firstBeatAccentByLane,
       snap.firstBeatAccent !== false,
@@ -5714,7 +5852,6 @@ export default function App() {
     firstBeatAccentByLaneRef.current = { ...nextFirstBeatByLane };
     setFirstBeatAccent(Boolean(nextFirstBeatByLane[0]));
     setAccentMapVersion((snap as { accentMapVersion?: number }).accentMapVersion === 1 ? 1 : 0);
-    setDictantMode((snap as { dictantMode?: boolean }).dictantMode === true);
     {
       const nextMode: RandomMode = isRandomMode((snap as { randomMode?: unknown }).randomMode)
         ? ((snap as { randomMode: RandomMode }).randomMode)
@@ -5798,16 +5935,18 @@ export default function App() {
     frozenScale: typeof s.frozenScale === 'number' && s.frozenScale >= 1 ? s.frozenScale : null,
     polyMode: s.polyMode === true,
     polyVoices: parsePolyVoices(s.polyVoices),
-    squarePlaybackMode: normalizeSquarePlaybackModeFromSnapshot(
-      (s as { squarePlaybackMode?: unknown }).squarePlaybackMode,
-      s.onlyAccents === true ? true : undefined,
+    mixerLayerMode: normalizeMixerLayerModeFromSnapshot((s as { mixerLayerMode?: unknown }).mixerLayerMode),
+    trainerMode: normalizeTrainerModeFromSnapshot((s as { trainerMode?: unknown }).trainerMode),
+    trainerHoldMute: (s as { trainerHoldMute?: boolean }).trainerHoldMute === true,
+    ...mapNewModesToLegacySnapshot(
+      normalizeMixerLayerModeFromSnapshot((s as { mixerLayerMode?: unknown }).mixerLayerMode),
+      normalizeTrainerModeFromSnapshot((s as { trainerMode?: unknown }).trainerMode),
     ),
     onlyAccents: false,
-    squarePassiveLayerMuted: (s as { squarePassiveLayerMuted?: boolean }).squarePassiveLayerMuted === true,
     firstBeatAccent: s.firstBeatAccent !== false,
     accentMapVersion: (s as { accentMapVersion?: number }).accentMapVersion === 1 ? 1 : 0,
     syllableReadMuteMode: normalizeSyllableReadMuteModeFromSnapshot(s.syllableReadMuteMode, undefined),
-    dictantMode: (s as { dictantMode?: boolean }).dictantMode === true,
+    dictantMode: normalizeTrainerModeFromSnapshot((s as { trainerMode?: unknown }).trainerMode) === 'dictation',
   });
 
   const closeSnapshotClipMenu = () => setSnapshotClipMenu(null);
@@ -5846,8 +5985,10 @@ export default function App() {
         deadCells: { ...deadCellsRef.current },
         polyMode: polyModeRef.current,
         polyVoices: pv,
-        squarePlaybackMode: squarePlaybackModeRef.current,
-        squarePassiveLayerMuted: squarePassiveLayerMutedRef.current,
+        mixerLayerMode: mixerLayerModeRef.current,
+        trainerMode: trainerModeRef.current,
+        trainerHoldMute: trainerHoldMuteRef.current,
+        ...mapNewModesToLegacySnapshot(mixerLayerModeRef.current, trainerModeRef.current),
         syllableReadMuteMode: syllableReadMuteModeRef.current,
         dictantMode: dictantModeRef.current,
       });
@@ -6812,19 +6953,20 @@ export default function App() {
         if (shouldDedupPolyClick) {
           return;
         }
-        const playbackMode: SquarePlaybackMode = isClickSelectorPreview ? 'full_mix' : squarePlaybackModeRef.current;
-        const passiveLayerMuted = squarePassiveLayerMutedRef.current;
+        const mixerMode: MixerLayerMode = isClickSelectorPreview ? 'full_mix' : mixerLayerModeRef.current;
+        const trainerMode: TrainerMode = isClickSelectorPreview ? 'normal' : trainerModeRef.current;
+        const trainerMuted = isClickSelectorPreview ? false : trainerHoldMuteRef.current;
         const taEnabled = laneFirstBeat;
         const isTaDingCell = taEnabled && cIdx >= 1 && laneTaDing.has(`${rIdx}-${cIdx}`);
         /** Accent articulation should stay single-hit even on subdivided cells. */
         const shouldPlayTaDingSound = isTaDingCell && sub === 0;
         const hasTaDingHere = taEnabled && laneTaDing.has(`${rIdx}-${cIdx}`);
-        const dictantActive = isClickSelectorPreview ? false : dictantModeRef.current;
-        const grayNoAlt = playbackMode === 'passive_no_alt';
+        const dictantActive = trainerMode === 'dictation';
+        const trainerTaOnly = trainerMode === 'ta_only';
+        const noAltLayer = mixerMode === 'no_alt';
+        const altOnlyLayer = mixerMode === 'alt_only';
         const shouldPlayBeat =
-          playbackMode === 'full_mix' || playbackMode === 'passive_no_alt'
-            ? true
-            : hasTaDingHere || shouldPlayFirstBeatTa;
+          trainerTaOnly ? hasTaDingHere || shouldPlayFirstBeatTa : true;
         const isTaFirstBeatArticulation =
           cIdx === 0 && fa && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
         const sharpAsChecked = (() => {
@@ -6843,16 +6985,16 @@ export default function App() {
             polyClickSlotsRef.current.add(polySlotKey);
           }
         }
-        if (muteMode === 'full') return;
+        if (trainerMuted || muteMode === 'full') return;
         if (!shouldPlayBeat) return;
-        if (shouldPlayTaDingSound && !sharpAsChecked && playbackMode !== 'full_mix') {
+        if (shouldPlayTaDingSound && !sharpAsChecked && trainerTaOnly) {
           return;
         }
-        if (shouldPlayFirstBeatTa && !sharpAsChecked && playbackMode !== 'full_mix') {
+        if (shouldPlayFirstBeatTa && !sharpAsChecked && trainerTaOnly) {
           return;
         }
         const accentOnlyPlayback =
-          (playbackMode !== 'full_mix' || dictantActive) &&
+          (trainerTaOnly || dictantActive) &&
           !(shouldPlayTaDingSound && isAccent) &&
           !(shouldPlayFirstBeatTa && isAccent);
         // USER-SOURCE-OF-TRUTH:
@@ -6867,7 +7009,7 @@ export default function App() {
         const voiceRole: 'accent' | 'base' | 'alt' = hasUserWhiteAccent
           ? 'accent'
           : hasUserPurpleAltAccent
-            ? grayNoAlt
+            ? noAltLayer
               ? 'base'
               : 'alt'
             : 'base';
@@ -6890,11 +7032,10 @@ export default function App() {
               gainMulForRole('accent'),
             );
           }
-          const overlapSecondRole: 'alt' | 'base' = grayNoAlt ? 'base' : 'alt';
+          const overlapSecondRole: 'alt' | 'base' = noAltLayer ? 'base' : 'alt';
           if (
             !(
-              playbackMode === 'full_mix' &&
-              passiveLayerMuted &&
+              altOnlyLayer &&
               overlapSecondRole === 'base'
             )
           ) {
@@ -6909,7 +7050,7 @@ export default function App() {
             );
           }
         } else {
-          if (playbackMode === 'full_mix' && passiveLayerMuted && voiceRole === 'base') {
+          if (altOnlyLayer && voiceRole === 'base') {
             return;
           }
           playSharpClick(
@@ -7297,8 +7438,8 @@ export default function App() {
       }
       syllableReadMuteModeRef.current = 'off';
       setSyllableReadMuteMode('off');
-      squarePassiveLayerMutedRef.current = false;
-      setSquarePassiveLayerMuted(false);
+      trainerHoldMuteRef.current = false;
+      setTrainerHoldMute(false);
       squareHoldAteClickRef.current = false;
       randomDiceHoldAteClickRef.current = false;
       taHoldAteClickRef.current = false;
@@ -7447,9 +7588,10 @@ export default function App() {
   isDeadCellsEditorModeRef.current = isDeadCellsEditorMode;
   firstBeatAccentRef.current = firstBeatAccent;
   firstBeatAccentByLaneRef.current = firstBeatAccentByLane;
-  squarePlaybackModeRef.current = squarePlaybackMode;
+  mixerLayerModeRef.current = mixerLayerMode;
+  trainerModeRef.current = trainerMode;
   onlyAccentsRef.current = false;
-  squarePassiveLayerMutedRef.current = squarePassiveLayerMuted;
+  trainerHoldMuteRef.current = trainerHoldMute;
   dictantModeRef.current = dictantMode;
   firstBeatDingSuppressedRowsRef.current = firstBeatDingSuppressedRows;
   clickSoundRef.current = clickSound;
@@ -7599,38 +7741,36 @@ export default function App() {
     },
   };
 
-  /** Квадрат: цикл пассив+Ta без alt / full mix / Ta-only; при диктанте — +teal ring. */
-  const squarePlaybackButtonSurface =
-    syllableReadMuteMode !== 'off'
-      ? syllableReadMuteMode === 'full'
-        ? `border border-amber-400/90 ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(251,191,36,0.28)]'} text-amber-100`
-        : `border border-purple-400 ${lowPerfMode ? '' : 'shadow-[0_0_15px_rgba(192,132,252,0.4)]'} text-purple-200`
-      : squarePlaybackMode === 'full_mix'
-        ? `border border-purple-500/40 bg-purple-700/30 hover:bg-purple-700/40 active:bg-purple-700/20 text-purple-200${
-            squarePassiveLayerMuted
-              ? ` ring-1 ring-inset ring-amber-300/50${lowPerfMode ? '' : ' shadow-[0_0_10px_rgba(253,230,138,0.2)]'}`
-              : ''
-          }`
-        : squarePlaybackMode === 'ta_only'
+  const mixerButtonSurface =
+    mixerLayerMode === 'full_mix'
+      ? `border border-purple-500/40 bg-purple-700/30 hover:bg-purple-700/40 active:bg-purple-700/20 text-purple-200`
+      : mixerLayerMode === 'alt_only'
+        ? `border border-purple-500/60 bg-purple-900/35 hover:bg-purple-900/45 active:bg-purple-900/30 text-purple-100`
+        : `border border-[#23314f] hover:bg-[#1a253c] active:bg-[#131b2c] text-slate-300 hover:text-slate-200`;
+  const trainerButtonSurface =
+    trainerHoldMute
+      ? `border border-amber-400/90 ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(251,191,36,0.28)]'} text-amber-100`
+      : trainerMode === 'dictation'
+        ? `border border-teal-400/80 bg-teal-900/20 text-teal-100`
+        : trainerMode === 'ta_only'
           ? `bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-950${
               lowPerfMode ? '' : ' shadow-[0_8px_20px_rgba(16,185,129,0.2)]'
             }`
-          : `border border-[#23314f] hover:bg-[#1a253c] active:bg-[#131b2c] text-slate-400 hover:text-slate-200`;
-  const squareDictantChrome = dictantMode
-    ? ` ring-2 ring-inset ring-teal-400/85${lowPerfMode ? '' : ' shadow-[0_0_14px_rgba(45,212,191,0.22)]'}`
-    : '';
-  const squarePlaybackModeLabel =
-    syllableReadMuteMode === 'full'
-      ? 'grid muted (preset)'
-      : syllableReadMuteMode === 'no_accent_sharp'
-        ? 'accents with passive timbre (preset)'
-        : squarePlaybackMode === 'ta_only'
-          ? 'Ta contour only (grid alt+passive off)'
-          : squarePlaybackMode === 'full_mix'
-            ? squarePassiveLayerMuted
-              ? 'full mix, passives off (hold state)'
-              : 'full mix (passive + alt)'
-            : 'passive + Ta, no alt on purple';
+          : `border border-[#23314f] hover:bg-[#1a253c] active:bg-[#131b2c] text-slate-300 hover:text-slate-200`;
+  const mixerModeLabel =
+    mixerLayerMode === 'full_mix'
+      ? 'Mixer: base + alt'
+      : mixerLayerMode === 'no_alt'
+        ? 'Mixer: base only (no alt)'
+        : 'Mixer: alt only';
+  const trainerModeLabel =
+    trainerHoldMute
+      ? 'Mode: silent hold (grid muted)'
+      : trainerMode === 'dictation'
+        ? 'Mode: dictation'
+        : trainerMode === 'ta_only'
+          ? 'Mode: Ta-only'
+          : 'Mode: normal';
 
   return (
     <div className="min-h-screen bg-[#0b101e] sm:bg-black/95 text-slate-200 p-0 sm:p-6 font-sans flex flex-col items-center justify-center">
@@ -9030,7 +9170,44 @@ export default function App() {
             <span className="relative z-10 font-bold text-[22px] tracking-wide">Ta</span>
           </button>
 
-          {/* Квадрат: тап — цикл серый/фиолет/зелёный; удержание — серый: full grid mute + диктант; фиолет: mute пассивов. */}
+          <button
+            type="button"
+            disabled={isDeadCellsEditorMode}
+            onClick={() => {
+              if (isDeadCellsEditorMode) return;
+              setMixerLayerMode((prev) => {
+                const next = nextMixerLayerMode(prev);
+                mixerLayerModeRef.current = next;
+                return next;
+              });
+            }}
+            className={`flex-1 rounded-xl flex justify-center items-center transition-all touch-none select-none relative bg-[#161f33] active:scale-100 active:translate-y-0 ${
+              isDeadCellsEditorMode
+                ? 'border border-[#23314f] text-slate-600 opacity-45 cursor-not-allowed'
+                : mixerButtonSurface
+            }`}
+            aria-label={mixerModeLabel}
+          >
+            <span className="flex items-center gap-1">
+              {(mixerLayerMode === 'full_mix' || mixerLayerMode === 'no_alt') ? (
+                <span
+                  aria-hidden
+                  className={`inline-block h-4 min-w-[12px] shrink-0 rounded-[4px] border-2 box-border bg-[#4b5563] border-white/90 ${
+                    lowPerfMode ? '' : 'shadow-[0_1px_4px_rgba(255,255,255,0.18)]'
+                  }`}
+                />
+              ) : null}
+              {(mixerLayerMode === 'full_mix' || mixerLayerMode === 'alt_only') ? (
+                <span
+                  aria-hidden
+                  className={`inline-block h-4 min-w-[12px] shrink-0 rounded-[4px] border-2 box-border bg-purple-900/40 border-purple-500/50 ${
+                    lowPerfMode ? '' : 'shadow-[inset_0_1px_3px_rgba(168,85,247,0.22)]'
+                  }`}
+                />
+              ) : null}
+            </span>
+          </button>
+
           <button
             type="button"
             disabled={isDeadCellsEditorMode}
@@ -9044,27 +9221,12 @@ export default function App() {
               squareHoldTimerRef.current = window.setTimeout(() => {
                 squareHoldTimerRef.current = null;
                 squareHoldAteClickRef.current = true;
-                flushSync(() => {
-                  if (dictantModeRef.current) {
-                    setDictantMode(false);
-                    dictantModeRef.current = false;
-                    setSyllableReadMuteMode('off');
-                    syllableReadMuteModeRef.current = 'off';
-                    return;
-                  }
-                  const mode = squarePlaybackModeRef.current;
-                  if (mode === 'passive_no_alt') {
-                    setSyllableReadMuteMode('full');
-                    syllableReadMuteModeRef.current = 'full';
-                    setDictantMode(true);
-                    dictantModeRef.current = true;
-                  } else if (mode === 'full_mix') {
-                    setSquarePassiveLayerMuted((m) => {
-                      const next = !m;
-                      squarePassiveLayerMutedRef.current = next;
-                      return next;
-                    });
-                  }
+                setTrainerHoldMute((prev) => {
+                  const next = !prev;
+                  trainerHoldMuteRef.current = next;
+                  syllableReadMuteModeRef.current = next ? 'full' : 'off';
+                  setSyllableReadMuteMode(next ? 'full' : 'off');
+                  return next;
                 });
               }, 400);
             }}
@@ -9096,31 +9258,29 @@ export default function App() {
                 return;
               }
               flushSync(() => {
-                setSquarePlaybackMode((prev) => nextSquarePlaybackMode(prev));
+                setTrainerMode((prev) => {
+                  const next = nextTrainerMode(prev);
+                  trainerModeRef.current = next;
+                  dictantModeRef.current = next === 'dictation';
+                  return next;
+                });
+                setTrainerHoldMute(false);
+                trainerHoldMuteRef.current = false;
+                syllableReadMuteModeRef.current = 'off';
+                setSyllableReadMuteMode('off');
               });
             }}
             onContextMenu={(e) => e.preventDefault()}
             className={`flex-1 rounded-xl flex justify-center items-center transition-all touch-none select-none relative bg-[#161f33] active:scale-100 active:translate-y-0 ${
               isDeadCellsEditorMode
                 ? 'border border-[#23314f] text-slate-600 opacity-45 cursor-not-allowed'
-                : `${squarePlaybackButtonSurface}${squareDictantChrome}`
+                : trainerButtonSurface
             }`}
-            aria-label={
-              dictantMode
-                ? `Dictation mode. Current: ${squarePlaybackModeLabel}`
-                : syllableReadMuteMode === 'full'
-                  ? `Grid muted. Current: ${squarePlaybackModeLabel}`
-                  : syllableReadMuteMode === 'no_accent_sharp'
-                    ? `Accents with passive timbre. Current: ${squarePlaybackModeLabel}`
-                    : `Grid mode: ${squarePlaybackModeLabel}`
-            }
+            aria-label={trainerModeLabel}
           >
             <span
               className={`block w-6 h-6 rounded-sm border-2 border-current ${lowPerfMode ? '' : 'transition-all duration-300'} ${
-                dictantMode ||
-                syllableReadMuteMode !== 'off' ||
-                squarePlaybackMode !== 'full_mix' ||
-                squarePassiveLayerMuted
+                trainerMode !== 'normal' || trainerHoldMute
                   ? 'opacity-100 scale-110 bg-current/25'
                   : 'opacity-55 scale-100 bg-transparent'
               }`}

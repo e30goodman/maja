@@ -11,6 +11,8 @@ import { buildRowCellSyllableLabels, type KalamMap } from './sequencerLabels';
 const PULSE_METER_BASE_SYLLABLES = 4;
 
 export type MidiSquarePlaybackMode = 'passive_no_alt' | 'full_mix' | 'ta_only';
+export type MidiMixerLayerMode = 'full_mix' | 'no_alt' | 'alt_only';
+export type MidiTrainerMode = 'normal' | 'ta_only' | 'dictation';
 
 /** Паритет с `normalizeSquarePlaybackModeFromSnapshot` в App. */
 function normalizeSquarePlaybackModeForExport(raw: unknown): MidiSquarePlaybackMode {
@@ -18,6 +20,30 @@ function normalizeSquarePlaybackModeForExport(raw: unknown): MidiSquarePlaybackM
 	if (raw === 'all_beats' || raw === 'accent_only') return 'full_mix';
 	if (raw === 'passive_only') return 'ta_only';
 	return 'full_mix';
+}
+function normalizeMixerLayerModeForExport(raw: unknown): MidiMixerLayerMode {
+	if (raw === 'full_mix' || raw === 'no_alt' || raw === 'alt_only') return raw;
+	return 'full_mix';
+}
+function normalizeTrainerModeForExport(raw: unknown): MidiTrainerMode {
+	if (raw === 'normal' || raw === 'ta_only' || raw === 'dictation') return raw;
+	return 'normal';
+}
+function deriveModesFromLegacyExport(
+	playbackMode: MidiSquarePlaybackMode,
+	passiveLayerMuted: boolean,
+	dictantMode: boolean,
+): { mixerLayerMode: MidiMixerLayerMode; trainerMode: MidiTrainerMode } {
+	const mixerLayerMode: MidiMixerLayerMode =
+		playbackMode === 'passive_no_alt'
+			? 'no_alt'
+			: playbackMode === 'ta_only'
+				? 'full_mix'
+				: passiveLayerMuted
+					? 'alt_only'
+					: 'full_mix';
+	const trainerMode: MidiTrainerMode = dictantMode ? 'dictation' : playbackMode === 'ta_only' ? 'ta_only' : 'normal';
+	return { mixerLayerMode, trainerMode };
 }
 
 /** Lane 1 (legacy + poly V1). */
@@ -83,6 +109,9 @@ export interface MidiExportInput {
 		| 'passive_only';
 	/** Long-press на фиолетовом: без пассивного слоя (как в App). */
 	squarePassiveLayerMuted?: boolean;
+	mixerLayerMode?: MidiMixerLayerMode;
+	trainerMode?: MidiTrainerMode;
+	trainerHoldMute?: boolean;
 	syllableReadMuteMode?: 'off' | 'full' | 'no_accent_sharp';
 	dictantMode?: boolean;
 }
@@ -268,11 +297,11 @@ export function classifyGridCellHits(args: {
 	polyMode: boolean;
 	polyDedupKey: string;
 	polyClickSlots: Set<string>;
-	playbackMode: MidiSquarePlaybackMode;
+	mixerLayerMode: MidiMixerLayerMode;
+	trainerMode: MidiTrainerMode;
 	muteMode: 'off' | 'full' | 'no_accent_sharp';
 	dictantActive: boolean;
-	/** @see App.tsx squarePassiveLayerMutedRef */
-	squarePassiveLayerMuted?: boolean;
+	trainerHoldMute?: boolean;
 	firstBeatRequiresExplicitMark?: boolean;
 	firstBeatHitPolicy?: FirstBeatHitPolicy;
 }): ClassifiedHits {
@@ -288,14 +317,15 @@ export function classifyGridCellHits(args: {
 		polyMode,
 		polyDedupKey,
 		polyClickSlots,
-		playbackMode,
+		mixerLayerMode,
+		trainerMode,
 		muteMode,
 		dictantActive,
-		squarePassiveLayerMuted: passiveLayerMuted,
+		trainerHoldMute,
 		firstBeatRequiresExplicitMark,
 		firstBeatHitPolicy,
 	} = args;
-	const layerMuted = passiveLayerMuted === true;
+	const layerMuted = trainerHoldMute === true;
 
 	const out: ClassifiedHits = { taHigh: false, accent: false, altShadow: false, passive: false };
 	const shouldDedupPolyClick = polyMode && polyClickSlots.has(polyDedupKey);
@@ -327,10 +357,8 @@ export function classifyGridCellHits(args: {
 		return mainAccentClick;
 	})();
 
-	const shouldPlayBeat =
-		playbackMode === 'full_mix' || playbackMode === 'passive_no_alt'
-			? true
-			: hasTaDingHere || shouldPlayFirstBeatTa;
+	const trainerTaOnly = trainerMode === 'ta_only';
+	const shouldPlayBeat = trainerTaOnly ? hasTaDingHere || shouldPlayFirstBeatTa : true;
 
 	if (shouldPlayFirstBeatTa) {
 		out.taHigh = true;
@@ -343,23 +371,23 @@ export function classifyGridCellHits(args: {
 		out.taHigh = true;
 		if (polyMode) polyClickSlots.add(polyDedupKey);
 	}
-	if (muteMode === 'full') return out;
+	if (layerMuted || muteMode === 'full') return out;
 	if (!shouldPlayBeat) return out;
-	if (shouldPlayTaDingSound && !sharpAsChecked && playbackMode !== 'full_mix') return out;
-	if (shouldPlayFirstBeatTa && !sharpAsChecked && playbackMode !== 'full_mix') return out;
+	if (shouldPlayTaDingSound && !sharpAsChecked && trainerTaOnly) return out;
+	if (shouldPlayFirstBeatTa && !sharpAsChecked && trainerTaOnly) return out;
 
 	if (sharpAsChecked) {
 		out.accent = true;
 	} else {
-		if (!(layerMuted && playbackMode === 'full_mix')) {
+		if (mixerLayerMode !== 'alt_only') {
 			out.passive = true;
 		}
 	}
-	if (sharpAsChecked && playbackMode === 'full_mix' && !shouldPlayFirstBeatTa && !shouldPlayTaDingSound) {
+	if (sharpAsChecked && mixerLayerMode === 'full_mix' && !shouldPlayFirstBeatTa && !shouldPlayTaDingSound) {
 		out.altShadow = true;
 	} else if (
 		sharpAsChecked &&
-		playbackMode === 'passive_no_alt' &&
+		mixerLayerMode === 'no_alt' &&
 		!shouldPlayFirstBeatTa &&
 		!shouldPlayTaDingSound
 	) {
@@ -456,8 +484,15 @@ export function generateMidi(input: MidiExportInput): Uint8Array {
 	const revolutions = Math.max(1, Math.floor(input.patternRevolutions ?? 1));
 	const playbackMode = normalizeSquarePlaybackModeForExport(input.squarePlaybackMode);
 	const passiveLayerMuted = input.squarePassiveLayerMuted === true;
+	const parsedMixer = normalizeMixerLayerModeForExport(input.mixerLayerMode);
+	const parsedTrainer = normalizeTrainerModeForExport(input.trainerMode);
+	const hasNewModes = input.mixerLayerMode !== undefined || input.trainerMode !== undefined;
+	const bridgedModes = deriveModesFromLegacyExport(playbackMode, passiveLayerMuted, input.dictantMode === true);
+	const mixerLayerMode = hasNewModes ? parsedMixer : bridgedModes.mixerLayerMode;
+	const trainerMode = hasNewModes ? parsedTrainer : bridgedModes.trainerMode;
+	const trainerHoldMute = input.trainerHoldMute === true;
 	const muteMode = input.syllableReadMuteMode ?? 'off';
-	const dictantActive = input.dictantMode === true;
+	const dictantActive = trainerMode === 'dictation';
 
 	const accents = toStringSet(input.accents);
 	const taDingKeys = toStringSet(input.taDingKeys);
@@ -542,10 +577,11 @@ export function generateMidi(input: MidiExportInput): Uint8Array {
 			polyMode,
 			polyDedupKey,
 			polyClickSlots,
-			playbackMode,
+			mixerLayerMode,
+			trainerMode,
 			muteMode,
 			dictantActive,
-			squarePassiveLayerMuted: passiveLayerMuted,
+			trainerHoldMute,
 			firstBeatHitPolicy: firstBeatPolicy,
 		});
 
