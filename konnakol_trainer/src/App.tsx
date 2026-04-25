@@ -4843,6 +4843,12 @@ export default function App() {
         applyBarsWithPotatoFreeze(requiredBars);
         nBars = barsRef.current;
       }
+      // Parent generation UX lock: for tihai/progressive keep viewport frozen at 8 bars,
+      // while composition itself can still expand to full target length.
+      if (formPresetIdRef.current === 'tihai_heavy' || formPresetIdRef.current === 'progressive') {
+        setFrozenScale(8);
+        frozenScaleRef.current = 8;
+      }
     }
 
     const cs = { ...customSyllablesRef.current };
