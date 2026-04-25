@@ -378,6 +378,8 @@ const SNAPSHOT_FLAG_PARENT_MODE = 1 << 11;
 const SNAPSHOT_SOUND_ID_CLASSIC = 0;
 const SNAPSHOT_SOUND_ID_OLDSCHOOL = 1;
 const AUDIO_START_GUARD_SEC = 0.004;
+const AUDIO_BURST_MIN_SPACING_SEC = 0.0012;
+const AUDIO_BURST_PASSIVE_MIN_SPACING_SEC = 0.0032;
 /** Percussion AD envelope: linear attack (s), exponential decay floor vs peak (-60 dB rel.). */
 const CLICK_ENV_ATTACK_SEC = 0.002;
 const CLICK_LAYER_VOLUME_GATE = 0.001;
@@ -2835,6 +2837,11 @@ type ClickMixerGroup = { groupHpHz: number; groupLpHz: number; groupMasterLinear
 type ClickMixerLayerBag = { accent: ClickLayerConfig[]; alt: ClickLayerConfig[]; passive: ClickLayerConfig[] };
 type ClickMixerPerPresetCache = Partial<Record<ClickSoundPreset, ClickMixerLayerBag>>;
 const clickMixerLayerClonesByPresetRef: { current: ClickMixerPerPresetCache } = { current: {} };
+const lastScheduledVoiceTimeByContext = new WeakMap<AudioContext, Record<MetroVoiceKey, number>>();
+const IS_CHROME_DESKTOP =
+  typeof navigator !== 'undefined' &&
+  /Chrome\//.test(navigator.userAgent) &&
+  !/(Android|iPhone|iPad|iPod)/i.test(navigator.userAgent);
 
 const clickMixerGroupRef: { current: Record<MetroVoiceKey, ClickMixerGroup> | null } = { current: null };
 
@@ -2869,8 +2876,22 @@ const playSharpClick = (
 ) => {
   // USER-SOURCE-OF-TRUTH: render only the role explicitly requested by scheduler from user grid state.
   const cfg = CLICK_SOUND_LIBRARY[soundType] ?? CLICK_SOUND_LIBRARY.classic;
-  const t0 = Math.max(time, ctx.currentTime + AUDIO_START_GUARD_SEC);
+  const nowGuarded = ctx.currentTime + AUDIO_START_GUARD_SEC;
+  const baseT0 = Math.max(time, nowGuarded);
   const voiceKey: MetroVoiceKey = voiceRole === 'accent' ? 'accent' : voiceRole === 'alt' ? 'alt' : 'passive';
+  let lastByVoice = lastScheduledVoiceTimeByContext.get(ctx);
+  if (!lastByVoice) {
+    lastByVoice = { accent: -Infinity, alt: -Infinity, passive: -Infinity };
+    lastScheduledVoiceTimeByContext.set(ctx, lastByVoice);
+  }
+  const minSpacingSec =
+    voiceKey === 'passive'
+      ? (IS_CHROME_DESKTOP ? AUDIO_BURST_PASSIVE_MIN_SPACING_SEC : AUDIO_BURST_MIN_SPACING_SEC)
+      : AUDIO_BURST_MIN_SPACING_SEC;
+  // Anti-burst guard: when scheduler catches up late events, do not collapse same-voice hits
+  // into the exact same timestamp (audible as random digital clipping on dense passive patterns).
+  const t0 = Math.max(baseT0, lastByVoice[voiceKey] + minSpacingSec);
+  lastByVoice[voiceKey] = t0;
   const busIn = getVoiceLayerSumInput(ctx, voiceKey);
   const libLayers = (cfg.layers ?? buildLegacyVoiceLayers(cfg))[voiceKey];
   const cachedForPreset = clickMixerLayerClonesByPresetRef.current[soundType];
