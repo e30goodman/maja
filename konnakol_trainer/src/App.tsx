@@ -8966,7 +8966,7 @@ export default function App() {
         ) : null}
 
         {/* Bottom Actions */}
-        <div className="flex h-[60px] shrink-0 gap-3">
+        <div className="flex h-[60px] shrink-0 gap-1">
           {/* Randomizer: короткий тап — префилл всех тактов. В parent-режиме long-press отключён. */}
                 <button 
             type="button"
