@@ -3016,6 +3016,7 @@ const playBarFirstHighClick = (
   soundType: ClickSoundPreset = 'classic',
   voiceGainMul = 1,
 ) => {
+  if (voiceGainMul <= 0) return;
   const t0 = Math.max(time, ctx.currentTime + AUDIO_START_GUARD_SEC);
   const masterIn = getMetronomeSummingInput(ctx);
   if (soundType === 'classic') {
@@ -5377,7 +5378,7 @@ export default function App() {
       return prev;
     });
 
-    const newSeq = buildLegacyPlaybackSequence(nBars, {}, next, nextDc);
+    const newSeq = buildLegacyPlaybackSequence(nBars, {}, next, nextDc, nextCellSyl);
 
     if (sequenceRef.current.length > 0 && newSeq.length > 0) {
       const oldItem = sequenceRef.current[currentStepRef.current];
@@ -5562,8 +5563,8 @@ export default function App() {
   const disableMenuSmoothing = lowPerfMode || bars > 8 || syllables >= 9;
 
   const sequence = React.useMemo(
-    () => buildLegacyPlaybackSequence(bars, customSyllables, syllables, deadCells),
-    [bars, syllables, customSyllables, deadCells],
+    () => buildLegacyPlaybackSequence(bars, customSyllables, syllables, deadCells, customCellSyllables),
+    [bars, syllables, customSyllables, deadCells, customCellSyllables],
   );
 
   const sequenceRef = useRef(sequence);
@@ -6741,6 +6742,7 @@ export default function App() {
               customSyllablesRef.current,
               syllablesRef.current,
               deadCellsRef.current,
+              customCellSyllablesRef.current,
             );
             
             const targetStepIndex = sequenceRef.current.findIndex(item => item.r === targetR && item.c === 0);
@@ -6877,6 +6879,11 @@ export default function App() {
         (laneFirstBeatEarly && cIdx >= 1 && laneTaDingEarly.has(`${rIdx}-${cIdx}`));
       const forceStableForTaCell = taStableRoutingActive && taCellScheduled;
 
+      const isPauseSyllableToken = (raw: unknown): boolean => {
+        if (typeof raw !== 'string') return false;
+        const s = raw.trim().toLowerCase();
+        return s === '-' || s === '–' || s === '—' || s === '.';
+      };
       const emitGridSubAudio = (sub: number, subTime: number) => {
         const ctx = audioCtxRef.current;
         if (!ctx) return;
@@ -6896,10 +6903,14 @@ export default function App() {
             clickSoundByPolyVoiceRef.current,
             clickSoundRef.current,
           );
-        const deadCut = deadCellsRef.current[rIdx]?.deadStart;
-        if (typeof deadCut === 'number' && cIdx >= deadCut) return;
         const cellSylOv = customCellSyllablesRef.current[`${rIdx}-${cIdx}`];
-        if (cellSylOv === '-' || cellSylOv === '–') return;
+        const cellHasExplicitPlayableToken =
+          typeof cellSylOv === 'string' &&
+          cellSylOv.trim().length > 0 &&
+          !isPauseSyllableToken(cellSylOv);
+        const deadCut = deadCellsRef.current[rIdx]?.deadStart;
+        if (typeof deadCut === 'number' && cIdx >= deadCut && !cellHasExplicitPlayableToken) return;
+        if (isPauseSyllableToken(cellSylOv)) return;
         // USER-SOURCE-OF-TRUTH: no auto-accent/auto-alt by beat index; only lane/user maps drive voice choice.
         const laneAccents = getLaneAccentsSetRef(rIdx);
         const laneTaDing = getLaneTaSetRef(rIdx);
@@ -6928,6 +6939,7 @@ export default function App() {
           const roleLinear = role === 'accent' ? busG.accent : role === 'alt' ? busG.alt : busG.passive;
           return polyVoiceGain * roleLinear;
         };
+        const accentGain = gainMulForRole('accent');
         const firstBeatCellHitRow = resolveFirstBeatHitRow(
           firstBeatHitPolicy,
           on0Accent,
@@ -6945,12 +6957,12 @@ export default function App() {
         const mainAccentClick = isAccent && sub === 0;
         const shouldPlayFirstBeatTa =
           isFirstBarCell && fa && firstBeatCellHitRow && sub === 0;
-        if (shouldPlayFirstBeatTa && !debugTaEngineModeRef.current) {
+        if (shouldPlayFirstBeatTa && !debugTaEngineModeRef.current && accentGain > 0) {
           playBarFirstHighClick(
             ctx,
             subTime,
             soundPreset,
-            gainMulForRole('accent'),
+            accentGain,
           );
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
@@ -6980,12 +6992,12 @@ export default function App() {
           if (muteMode === 'no_accent_sharp' && mainAccentClick && !isTaFirstBeatArticulation) return false;
           return mainAccentClick;
         })();
-        if (shouldPlayTaDingSound && !debugTaEngineModeRef.current) {
+        if (shouldPlayTaDingSound && !debugTaEngineModeRef.current && accentGain > 0) {
           playBarFirstHighClick(
             ctx,
             subTime,
             soundPreset,
-            gainMulForRole('accent'),
+            accentGain,
           );
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
@@ -7020,14 +7032,15 @@ export default function App() {
               : 'alt'
             : 'base';
         if (taStableSampleMode) {
-          playBarFirstHighClick(ctx, subTime, soundPreset, gainMulForRole('accent'));
+          if (accentGain <= 0) return;
+          playBarFirstHighClick(ctx, subTime, soundPreset, accentGain);
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
           }
           return;
         }
         if (hasOverlapAccentAlt) {
-          if (mainAccentClick) {
+          if (mainAccentClick && accentGain > 0) {
             playSharpClick(
               ctx,
               subTime,
@@ -7035,15 +7048,17 @@ export default function App() {
               soundPreset,
               accentOnlyPlayback,
               'accent',
-              gainMulForRole('accent'),
+              accentGain,
             );
           }
           const overlapSecondRole: 'alt' | 'base' = noAltLayer ? 'base' : 'alt';
+          const overlapSecondGain = gainMulForRole(overlapSecondRole);
           if (
             !(
               altOnlyLayer &&
               overlapSecondRole === 'base'
             )
+            && overlapSecondGain > 0
           ) {
             playSharpClick(
               ctx,
@@ -7052,13 +7067,15 @@ export default function App() {
               soundPreset,
               accentOnlyPlayback,
               overlapSecondRole,
-              gainMulForRole(overlapSecondRole),
+              overlapSecondGain,
             );
           }
         } else {
           if (altOnlyLayer && voiceRole === 'base') {
             return;
           }
+          const voiceRoleGain = gainMulForRole(voiceRole);
+          if (voiceRoleGain <= 0) return;
           playSharpClick(
             ctx,
             subTime,
@@ -7066,7 +7083,7 @@ export default function App() {
             soundPreset,
             accentOnlyPlayback,
             voiceRole,
-            gainMulForRole(voiceRole),
+            voiceRoleGain,
           );
         }
         // USER-SOURCE-OF-TRUTH:

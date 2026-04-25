@@ -201,6 +201,10 @@ export function buildRowCellSyllableLabels(
 		}
 		return true;
 	};
+	const isPauseOverrideToken = (raw: string): boolean => {
+		const s = raw.trim().toLowerCase();
+		return s === '-' || s === '–' || s === '—' || s === '.';
+	};
 	const sanitizeCellPhrase = (phrase: string[], gati: number, kalam: Kalam): string[] => {
 		const dict = getSyllablesForGati(gati, kalam).slice();
 		// Защита от филлеров: одинаковые слоги допустимы только для Gati=1.
@@ -238,9 +242,12 @@ export function buildRowCellSyllableLabels(
 		if (typeof ov === 'string' && ov.length > 0) {
 			const subdivsOv = normalizedSubdivs[cIdx] ?? 1;
 			if (subdivsOv > 1) {
-				const key = `${rowIdx}-c${cIdx}`;
-				const kalam = pickAndRemember(key, computeNps(bpm, subdivsOv));
-				out.push(withAccent(cIdx, sanitizeCellPhrase(getSyllablesForGati(subdivsOv, kalam), subdivsOv, kalam)));
+				// Явный override клетки должен иметь приоритет над словарем subdiv:
+				// иначе UI показывает "обычные" слоги там, где runtime уже читает паузу.
+				const phrase = Array.from({ length: subdivsOv }, () =>
+					isPauseOverrideToken(ov) ? '-' : ov,
+				);
+				out.push(withAccent(cIdx, phrase));
 			} else {
 				out.push(withAccent(cIdx, [ov]));
 			}

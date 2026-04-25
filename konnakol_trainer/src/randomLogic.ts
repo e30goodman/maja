@@ -187,23 +187,41 @@ export type BarRandomizerMutable = {
 
 export type SequencerSeqItem = { r: number; c: number; activeSyllables: number };
 
+function isPauseSyllableToken(raw: unknown): boolean {
+	if (typeof raw !== 'string') return false;
+	const s = raw.trim().toLowerCase();
+	return s === '-' || s === '–' || s === '—' || s === '.';
+}
+
 /**
- * Порядок долей в legacy (не poly): только живые клетки `c < deadStart`.
- * Иначе мёртвые слоги занимают время в `nextNote`, хотя клик уже глушится в `emitGridSubAudio`.
+ * Порядок долей в legacy (не poly): по умолчанию только живые клетки `c < deadStart`.
+ * Исключение: если у клетки есть явный override-слог и это НЕ пауза (`-`, `–`, `—`, `.`),
+ * то шаг сохраняется в sequence даже за deadStart. Это защищает от stale deadStart, когда
+ * пользователь возвращает звучащие клетки после паузы.
  */
 export function buildLegacyPlaybackSequence(
 	barCount: number,
 	customSyllables: Record<number, number>,
 	baseSyllables: number,
 	deadCells: DeadCellsMap,
+	customCellSyllables?: Record<string, string>,
 ): SequencerSeqItem[] {
 	const seq: SequencerSeqItem[] = [];
 	for (let r = 0; r < barCount; r++) {
 		const syls = customSyllables[r] !== undefined ? customSyllables[r] : baseSyllables;
 		const ds = deadCells[r]?.deadStart;
-		const lastLiveExclusive =
+		const liveExclusive =
 			typeof ds === 'number' ? Math.min(Math.max(0, Math.floor(ds)), syls) : syls;
-		for (let c = 0; c < lastLiveExclusive; c++) {
+		for (let c = 0; c < syls; c++) {
+			const withinLive = c < liveExclusive;
+			if (!withinLive) {
+				const ov = customCellSyllables?.[`${r}-${c}`];
+				const hasExplicitPlayableToken =
+					typeof ov === 'string' &&
+					ov.trim().length > 0 &&
+					!isPauseSyllableToken(ov);
+				if (!hasExplicitPlayableToken) continue;
+			}
 			seq.push({ r, c, activeSyllables: syls });
 		}
 	}
