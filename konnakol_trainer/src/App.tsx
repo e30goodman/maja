@@ -6939,7 +6939,7 @@ export default function App() {
         const mainAccentClick = isAccent && sub === 0;
         const shouldPlayFirstBeatTa =
           isFirstBarCell && fa && firstBeatCellHitRow && sub === 0;
-        if (shouldPlayFirstBeatTa && !isAccent && !debugTaEngineModeRef.current) {
+        if (shouldPlayFirstBeatTa && !debugTaEngineModeRef.current) {
           playBarFirstHighClick(
             ctx,
             subTime,
@@ -6974,7 +6974,7 @@ export default function App() {
           if (muteMode === 'no_accent_sharp' && mainAccentClick && !isTaFirstBeatArticulation) return false;
           return mainAccentClick;
         })();
-        if (shouldPlayTaDingSound && !isAccent && !debugTaEngineModeRef.current) {
+        if (shouldPlayTaDingSound && !debugTaEngineModeRef.current) {
           playBarFirstHighClick(
             ctx,
             subTime,
