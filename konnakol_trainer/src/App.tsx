@@ -9045,6 +9045,13 @@ export default function App() {
                 squareHoldTimerRef.current = null;
                 squareHoldAteClickRef.current = true;
                 flushSync(() => {
+                  if (dictantModeRef.current) {
+                    setDictantMode(false);
+                    dictantModeRef.current = false;
+                    setSyllableReadMuteMode('off');
+                    syllableReadMuteModeRef.current = 'off';
+                    return;
+                  }
                   const mode = squarePlaybackModeRef.current;
                   if (mode === 'passive_no_alt') {
                     setSyllableReadMuteMode('full');
