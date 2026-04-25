@@ -520,20 +520,23 @@ const SequencerGridRow = React.memo(
 						const taBaseCell = lowPerfMode
 							? `bg-[#1e2a45] border-2 box-border border-white text-white z-[1] ${taPressedOverlayClasses}`
 							: `bg-[#1e2a45] border-2 box-border border-white/95 text-white shadow-[0_0_14px_rgba(255,255,255,0.2)] z-[1] hover:bg-[#253353] ${taPressedOverlayClasses}`;
+						const taAccentOverlapCell = lowPerfMode
+							? `bg-purple-900/40 border-2 box-border border-white text-white z-[1] ${taPressedOverlayClasses}`
+							: `bg-purple-900/45 border-2 box-border border-white/95 text-white shadow-[0_0_14px_rgba(255,255,255,0.2),inset_0_1px_4px_rgba(168,85,247,0.2)] z-[1] hover:bg-purple-900/50 ${taPressedOverlayClasses}`;
 						if (isDead) {
 							cellClasses = lowPerfMode
 								? 'bg-slate-800/60 border-2 box-border border-slate-700 text-slate-500'
 								: 'bg-slate-800/60 border-2 box-border border-slate-700 text-slate-500';
 						} else if (isTaEditorMode) {
 							if (isAccent && showEditorDing) {
-								cellClasses = taBaseCell;
+								cellClasses = taAccentOverlapCell;
 							} else if (showEditorDing) {
 								cellClasses = taBaseCell;
 							} else if (isAccent) {
 								cellClasses = purpleAccentCell;
 							}
 						} else if (isAccent && showNonEditorDingWithLegacy) {
-							cellClasses = taBaseCell;
+							cellClasses = taAccentOverlapCell;
 						} else if (isAccent) {
 							cellClasses = purpleAccentCell;
 						} else if (showNonEditorDingWithLegacy) {
