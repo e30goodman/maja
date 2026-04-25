@@ -110,8 +110,8 @@ const DEFAULT_MIXER_LAYER_MODE: MixerLayerMode = 'full_mix';
 const DEFAULT_TRAINER_MODE: TrainerMode = 'normal';
 
 function nextMixerLayerMode(mode: MixerLayerMode): MixerLayerMode {
-	if (mode === 'full_mix') return 'no_alt';
-	if (mode === 'no_alt') return 'alt_only';
+	if (mode === 'full_mix') return 'alt_only';
+	if (mode === 'alt_only') return 'no_alt';
 	return 'full_mix';
 }
 function nextTrainerMode(mode: TrainerMode): TrainerMode {
