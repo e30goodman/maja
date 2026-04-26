@@ -9399,7 +9399,7 @@ export default function App() {
               {(mixerLayerMode === 'full_mix' || mixerLayerMode === 'no_alt') ? (
                 <span
                   aria-hidden
-                  className={`inline-block h-4 min-w-[12px] shrink-0 rounded-[4px] border-2 box-border bg-[#4b5563] border-white/90 ${
+                  className={`inline-block h-4 min-w-[12px] shrink-0 rounded-[4px] border-2 box-border bg-[#4b5563] border-[#6b7280] ${
                     lowPerfMode ? '' : 'shadow-[0_1px_4px_rgba(255,255,255,0.18)]'
                   }`}
                 />
