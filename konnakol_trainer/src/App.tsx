@@ -11,8 +11,6 @@ import {
 	ChevronDown,
 	ChevronLeft,
 	Eraser,
-	Copy,
-	ClipboardPaste,
 } from 'lucide-react';
 import { SequencerGrid, type SequencerGridRowActions } from './SequencerGrid';
 import {
@@ -67,6 +65,7 @@ import {
 	lessonLogger,
 } from './lessonLogger';
 import { generateMidiBlob } from './midiExport';
+import type { RowRuntimeContext } from './sequencerLabels';
 
 function buildPolyChunks(barCount: number, voiceCount: number): number[][] {
 	const safeBars = Math.max(0, Math.floor(barCount));
@@ -96,12 +95,12 @@ function insertPlayheadSorted(queue: PlayheadHighlightEvent[], ev: PlayheadHighl
 	queue.splice(lo, 0, ev);
 }
 
-/** При «отвязке» пульса от числа долей такта длительность шага считается как при 4 долях (квартальная сетка). */
+/** When pulse is unlinked from beats-per-bar, step duration uses a 4-beat (quarter-note) grid. */
 const PULSE_METER_BASE_SYLLABLES = 4;
 
-/** Режим ручного mute по hold на кнопке «Режим». */
+/** Manual mute mode toggled by holding the "Mode" button. */
 type SyllableReadMuteMode = 'off' | 'full' | 'no_accent_sharp';
-/** Legacy wire-format (раньше этим управляла одна «кнопка-квадрат»). */
+/** Legacy wire format (previously controlled by a single square button). */
 type SquarePlaybackMode = 'passive_no_alt' | 'full_mix' | 'ta_only';
 type MixerLayerMode = 'full_mix' | 'no_alt' | 'alt_only';
 type TrainerMode = 'normal' | 'ta_only' | 'dictation';
@@ -120,7 +119,7 @@ function nextTrainerMode(mode: TrainerMode): TrainerMode {
 	return 'normal';
 }
 
-/** Снапшоты/JSON: новые значения + миграция `all_beats`/`accent_only`/`passive_only` и legacy `onlyAccents`. */
+/** Snapshots/JSON: new values + migration from `all_beats`/`accent_only`/`passive_only` and legacy `onlyAccents`. */
 function normalizeSquarePlaybackModeFromSnapshot(
 	raw: unknown,
 	legacyOnlyAccents?: boolean,
@@ -365,8 +364,8 @@ function normalizeSuppressedRows(raw: unknown, bars: number): Set<number> {
 }
 
 /**
- * При включённом poly: число тактов кратно числу голосов (3 → 3,6,9,…; иначе 2 → 2,4,…).
- * Без poly — только clamp 1..100.
+ * With poly enabled: bar count must be a multiple of voice count (3 -> 3,6,9,...; otherwise 2 -> 2,4,...).
+ * Without poly: only clamp to 1..100.
  */
 function snapBarsToPolyGrid(raw: number, polyActive: boolean, voices: 2 | 3 | 4): number {
 	const rounded = Math.round(raw);
@@ -402,16 +401,16 @@ const APP_COMMIT_VERSION = (() => {
 	return 'dev';
 })();
 const TEMPO_THROTTLE_MS = 56;
-/** Удержание −/+ темпа: после задержки шаг ±5 каждые 0,1 с. */
+/** Hold tempo +/-: after delay, apply step +/-5 every 0.1s. */
 const TEMPO_HOLD_REPEAT_MS = 100;
 const TEMPO_HOLD_REPEAT_STEP = 5;
 /** Long press on tempo slider track (without much move) → inline BPM on thumb. */
 const TEMPO_MANUAL_HOLD_MS = 2000;
 const TEMPO_MANUAL_MAX_MOVE_PX = 14;
 /*
- * Кто потрогает этот код, дебаггер ты или хуй с горы — умрёшь насильственной смертью.
- * ЗАПРЕЩЕНО ТРОГАТЬ СУКА
- * (маркер, regex, поля, p1/p2/p3, 0xFE, V2, legacy — encodeSnapshotClipboard / tryDecodeSnapshotClipboard / packGridTokenPacked)
+ * Do not modify this block without a migration plan.
+ * The marker, regex, field order, p1/p2/p3 layout, 0xFE handling, V2 and legacy compatibility
+ * are tightly coupled: encodeSnapshotClipboard / tryDecodeSnapshotClipboard / packGridTokenPacked.
  */
 /**
  * FRAGILE — compact clipboard snapshot format (high regression risk).
@@ -430,15 +429,15 @@ const SNAPSHOT_CLIPBOARD_PREFIX_LEGACY_COMPACT = 'METRONOME_CONFIG:';
 const SNAPSHOT_CLIPBOARD_PREFIX_LEGACY = 'konnakolTrainerSnapshotV1:';
 /** JSON clipboard with lane-separated accent/Ta maps. */
 const SNAPSHOT_CLIPBOARD_PREFIX_V2 = 'konnakolTrainerSnapshotV2:';
-/** Hold snapshot slot to open Copy / Paste menu. */
+/** Hold snapshot slot to copy preset to clipboard. */
 const SNAPSHOT_SLOT_HOLD_MS = 300;
-/** Long-press Ta / ластик dead-editor / прочие UI-таймеры (~0,5 с). */
+/** Long-press for Ta / dead-editor eraser / other UI timers (~0.5s). */
 const SNAPSHOT_MENU_HOLD_MS = 520;
-/** Только кнопка «Ta» внизу: вход/выход в режим правки рамок (короче `SNAPSHOT_MENU_HOLD_MS`, без ложных long-press на тапе). */
+/** Bottom "Ta" button only: enter/exit frame-edit mode (shorter than `SNAPSHOT_MENU_HOLD_MS`, avoids false long-press on tap). */
 const TA_EDITOR_HOLD_MS = 150;
-/** Холостой ход перед мгновенной полной заливкой на кнопке (мс); таймер long-press не сдвигается. */
+/** Dead time before instant full fill on the button (ms); long-press timer is not shifted. */
 const TA_EDITOR_HOLD_FILL_DEAD_MS = 100;
-/** Удерживание кнопки «кости»: переключение режима Randomizer (вкл/выкл рандом на границах тактов). */
+/** Hold the dice button: toggle Randomizer mode (enable/disable randomization at bar boundaries). */
 const RANDOM_DICE_PREFILL_HOLD_MS = SNAPSHOT_MENU_HOLD_MS;
 
 const SNAPSHOT_FLAG_RANDOM_MODE_ENABLED = 1 << 0;
@@ -452,13 +451,17 @@ const SNAPSHOT_FLAG_FIRST_BEAT_ACCENT = 1 << 7;
 const SNAPSHOT_FLAG_POLY_MODE = 1 << 8;
 const SNAPSHOT_FLAG_POLY_VOICES_3 = 1 << 9;
 const SNAPSHOT_FLAG_POLY_VOICES_4 = 1 << 10;
-/** Parent-mode активен: randomMode='parent'. Старые снэпшоты без флага трактуются как 'free'. */
+/** Parent mode active: randomMode='parent'. Old snapshots without this flag are treated as 'free'. */
 const SNAPSHOT_FLAG_PARENT_MODE = 1 << 11;
 const SNAPSHOT_SOUND_ID_CLASSIC = 0;
 const SNAPSHOT_SOUND_ID_OLDSCHOOL = 1;
 const AUDIO_START_GUARD_SEC = 0.004;
 const AUDIO_BURST_MIN_SPACING_SEC = 0.0012;
 const AUDIO_BURST_PASSIVE_MIN_SPACING_SEC = 0.0032;
+const AUDIO_PASSIVE_STALL_COOLDOWN_SPACING_MULT = 1.8;
+const AUDIO_SCHEDULER_LONG_STALL_MIN_MS = 220;
+const AUDIO_SCHEDULER_LONG_STALL_LOOKAHEAD_MULT = 6;
+const AUDIO_SCHEDULER_POST_STALL_COOLDOWN_MS = 1500;
 /** Percussion AD envelope: linear attack (s), exponential decay floor vs peak (-60 dB rel.). */
 const CLICK_ENV_ATTACK_SEC = 0.002;
 const CLICK_LAYER_VOLUME_GATE = 0.001;
@@ -2013,7 +2016,7 @@ function packGridTokenPacked(
 	out.push(Math.min(255, pulseRows.length));
 	for (let i = 0; i < Math.min(255, pulseRows.length); i++) out.push(pulseRows[i]! & 0xff);
 
-	// p3: всегда пишем байт версии карты (0/1), чтобы при приёме не оставался legacy=0 и сетка не дорисовывала Ta на 0-й доле.
+	// p3: always write map-version byte (0/1), so decode never falls back to legacy=0 and does not auto-draw Ta on beat 0.
 	if (gridVersion >= 0x03) {
 		out.push(((snapshot.accentMapVersion ?? 0) >= 1 ? 1 : 0) & 0xff);
 	} else if (useV2) {
@@ -2125,7 +2128,7 @@ function unpackGridTokenPacked(
 			d.accentMapVersion = 1;
 		}
 	} else if (version === 0x03) {
-		// В p3 битовая карта Ta явная; без хвоста старые блобы трактуем как явную карту (не legacy).
+		// In p3, Ta bit-map is explicit; without trailing byte, old blobs are still treated as explicit map (not legacy).
 		if (off < bytes.length) {
 			const v = bytes[off++]!;
 			d.accentMapVersion = v >= 1 ? 1 : 0;
@@ -2209,7 +2212,7 @@ function buildSequencerCellsForSnapshot(s: ReturnType<typeof createEmptySnapshot
 	return out;
 }
 
-/** Восстановление акцентов и поддолей из плотной сетки (имеет приоритет над legacy-полями). */
+/** Restore accents and subdivisions from dense grid payload (has priority over legacy fields). */
 function hydrateSequencerFromCells(cellsRaw: unknown, d: ReturnType<typeof createEmptySnapshot>) {
 	if (!cellsRaw || typeof cellsRaw !== 'object') return;
 	const cells = cellsRaw as Record<string, unknown>;
@@ -2243,23 +2246,23 @@ function createEmptySnapshot() {
 		customMultipliers: {} as Record<number, number>,
 		customSubdivisions: {} as Record<string, number>,
 		customCellSyllables: {} as Record<string, string>,
-		/** Дефолт рандомайзера: режим вкл., pulsation выкл., cell speed + accents (pattern), chaos 15. */
+		/** Randomizer defaults: mode on, pulsation off, cell speed + accents (pattern), chaos 15. */
 		randomModeEnabled: true,
 		randomPulsation: false,
 		randomPattern: true,
 		randomSpeed: true,
 		randomBarSpeed: false,
 		chaosLevel: 15,
-		/** Classic = legacy maja без `konnakol_metronome`: акцент / пассив + Ta на первой доле. */
+		/** Classic = legacy maja without `konnakol_metronome`: accent / passive + Ta on first beat. */
 		clickSound: 'classic' as ClickSoundPreset,
-		/** Poly: override пресета по голосу (0..3); отсутствие ключа = наследует `clickSound`. */
+		/** Poly: per-voice preset override (0..3); missing key inherits from `clickSound`. */
 		clickSoundByPolyVoice: {} as ClickSoundByPolyVoice,
 		polyVoiceGains: { ...DEFAULT_POLY_VOICE_GAINS },
-		/** Верхняя панель: темп + слайдеры (Chevron) развёрнута. */
+		/** Top panel: tempo + slider (Chevron) section expanded. */
 		panelExpanded: false,
-		/** Ряд r: длительность клетки от PULSE_METER_BASE_SYLLABLES, не от customSyllables[r]. */
+		/** Row r: cell duration follows PULSE_METER_BASE_SYLLABLES, not customSyllables[r]. */
 		pulseMeterUnlinked: {} as Record<number, boolean>,
-		/** Заморозка высоты ряда (число видимых тактов) или null. */
+		/** Frozen row height (number of visible bars) or null. */
 		frozenScale: null as number | null,
 		polyMode: false,
 		polyVoices: 2 as 2 | 3 | 4,
@@ -2268,30 +2271,30 @@ function createEmptySnapshot() {
 		trainerMode: DEFAULT_TRAINER_MODE,
 		trainerHoldMute: false,
 		squarePlaybackMode: DEFAULT_SQUARE_PLAYBACK_MODE,
-		/** Long-press на фиолетовом: выключить только пассивный bus (см. emitGridSubAudio). */
+		/** Long-press on purple: mute passive bus only (see emitGridSubAudio). */
 		squarePassiveLayerMuted: false,
 		firstBeatAccent: true,
 		firstBeatAccentByLane: makeLaneBoolMap(true),
-		/** 0 = legacy: первая доля Ta без явных ключей `r-0` считается включённой; 1 = карта `accents` для первых долей. */
+		/** 0 = legacy: first-beat Ta without explicit `r-0` keys is treated as enabled; 1 = `accents` map controls first beats. */
 		accentMapVersion: 0,
 		syllableReadMuteMode: 'off' as SyllableReadMuteMode,
-		/** Диктант: только первый слог такта с зелёным бегунком; пассивные щелчки выключены. */
+		/** Dictation: only first syllable of bar with green runner; passive clicks are disabled. */
 		dictantMode: false,
 		deadCells: {} as DeadCellsMap,
-		/** Звук 1 (Ta-динг): любые `r-c`, включая `r-0` (белая рамка в редакторе Ta без записи в `accents`). */
+		/** Sound 1 (Ta-ding): any `r-c`, including `r-0` (white frame in Ta editor without writing to `accents`). */
 		taDingKeys: new Set<string>(),
-		/** Строки, где снят дефолтный first-beat Ta в Ta-редакторе. */
+		/** Rows where default first-beat Ta is suppressed in Ta editor. */
 		firstBeatDingSuppressedRows: new Set<number>(),
 		taDingKeysByLane: makeEmptyLaneSetMap(),
-		/** Режим рандома: free = оси (текущая логика); parent = наследственные мутации мотива. */
+		/** Random mode: free = axes (current logic); parent = inherited motif mutations. */
 		randomMode: 'free' as RandomMode,
-		/** ParentGenome (1 или 2 такта) — ядро для parent-режима. null если не задан. */
+		/** ParentGenome (1 or 2 bars) - source core for parent mode. Null if not set. */
 		parentGenome: null as ParentGenome | null,
-		/** Длина parent (1 или 2 такта). */
+		/** Parent length (1 or 2 bars). */
 		parentLength: 1 as ParentLength,
-		/** Включённые типы мутаций. Дефолт = полный пул пресета Random (см. parentModeUi). */
+		/** Enabled mutation types. Default = full Random preset pool (see parentModeUi). */
 		enabledMutations: [...PRESET_ENABLED_MUTATIONS.random],
-		/** Пресет формы для scheduler. */
+		/** Form preset for scheduler. */
 		formPresetId: 'random' as FormPresetId,
 	};
 }
@@ -2938,12 +2941,23 @@ type ClickMixerLayerBag = { accent: ClickLayerConfig[]; alt: ClickLayerConfig[];
 type ClickMixerPerPresetCache = Partial<Record<ClickSoundPreset, ClickMixerLayerBag>>;
 const clickMixerLayerClonesByPresetRef: { current: ClickMixerPerPresetCache } = { current: {} };
 const lastScheduledVoiceTimeByContext = new WeakMap<AudioContext, Record<MetroVoiceKey, number>>();
+const passiveBurstCooldownUntilByContext = new WeakMap<AudioContext, number>();
 const IS_CHROME_DESKTOP =
   typeof navigator !== 'undefined' &&
   /Chrome\//.test(navigator.userAgent) &&
   !/(Android|iPhone|iPad|iPod)/i.test(navigator.userAgent);
 
 const clickMixerGroupRef: { current: Record<MetroVoiceKey, ClickMixerGroup> | null } = { current: null };
+
+function armPassiveBurstCooldown(ctx: AudioContext, durationMs: number): void {
+  if (!IS_CHROME_DESKTOP || durationMs <= 0) return;
+  passiveBurstCooldownUntilByContext.set(ctx, ctx.currentTime + durationMs / 1000);
+}
+
+function isPassiveBurstCooldownActive(ctx: AudioContext): boolean {
+  const until = passiveBurstCooldownUntilByContext.get(ctx);
+  return typeof until === 'number' && ctx.currentTime < until;
+}
 
 function cloneClickMixerFromLibrary(soundType: ClickSoundPreset): void {
 	const cfg = CLICK_SOUND_LIBRARY[soundType] ?? CLICK_SOUND_LIBRARY.classic;
@@ -2986,7 +3000,10 @@ const playSharpClick = (
   }
   const minSpacingSec =
     voiceKey === 'passive'
-      ? (IS_CHROME_DESKTOP ? AUDIO_BURST_PASSIVE_MIN_SPACING_SEC : AUDIO_BURST_MIN_SPACING_SEC)
+      ? (
+          (IS_CHROME_DESKTOP ? AUDIO_BURST_PASSIVE_MIN_SPACING_SEC : AUDIO_BURST_MIN_SPACING_SEC) *
+          (isPassiveBurstCooldownActive(ctx) ? AUDIO_PASSIVE_STALL_COOLDOWN_SPACING_MULT : 1)
+        )
       : AUDIO_BURST_MIN_SPACING_SEC;
   // Anti-burst guard: when scheduler catches up late events, do not collapse same-voice hits
   // into the exact same timestamp (audible as random digital clipping on dense passive patterns).
@@ -3592,12 +3609,6 @@ export default function App() {
   const snapshotHoldTimerRef = useRef<number | null>(null);
   const snapshotHoldSlotRef = useRef<number | null>(null);
   const snapshotHoldAteClickRef = useRef(false);
-  const snapshotSlotButtonRefs = useRef<Record<number, HTMLButtonElement | null>>({});
-  const [snapshotClipMenu, setSnapshotClipMenu] = useState<{
-    slot: number;
-    x: number;
-    y: number;
-  } | null>(null);
 
   const persistSnapshotsTimerRef = useRef<number | null>(null);
   const tempoThrottleTimerRef = useRef<number | null>(null);
@@ -3606,18 +3617,8 @@ export default function App() {
   const tempoHoldIntervalRef = useRef<number | null>(null);
   const tempoMinusHoldAteClickRef = useRef(false);
   const tempoPlusHoldAteClickRef = useRef(false);
-  const clipboardToastTimerRef = useRef<number | null>(null);
-  const [clipboardToast, setClipboardToast] = useState<string | null>(null);
-
   const showClipboardToast = (message: string) => {
-    setClipboardToast(message);
-    if (clipboardToastTimerRef.current !== null) {
-      window.clearTimeout(clipboardToastTimerRef.current);
-    }
-    clipboardToastTimerRef.current = window.setTimeout(() => {
-      clipboardToastTimerRef.current = null;
-      setClipboardToast(null);
-    }, 2600);
+    console.info('[konnakol_trainer] clipboard', message);
   };
 
   const [activeEditCell, setActiveEditCell] = useState<string | null>(null);
@@ -4086,6 +4087,8 @@ export default function App() {
   const schedulerProfileRef = useRef<MetraSchedulerProfile>(DEFAULT_SCHEDULER_PROFILE);
   const schedulerConfigRef = useRef(getMetraSchedulerConfig(DEFAULT_SCHEDULER_PROFILE));
   const schedulerSafeProfileEscalationsRef = useRef(0);
+  const schedulerLastTickPerfRef = useRef<number | null>(null);
+  const schedulerPostStallCooldownUntilPerfRef = useRef(0);
   const audioTimingMetricsRef = useRef<AudioTimingMetrics>(makeAudioTimingMetrics());
   const liveControlActiveRef = useRef(false);
   const liveControlUntilRef = useRef(0);
@@ -4809,7 +4812,7 @@ export default function App() {
     formPresetId: formPresetIdRef.current,
   });
 
-  const prefillAllTactsRandomizer = useCallback(() => {
+  const prefillAllTactsRandomizer = useCallback((compositionSeedOverride?: number) => {
     const chaos = chaosLevelRef.current;
     let nBars = barsRef.current;
     const syllablesDefault = syllablesRef.current;
@@ -4866,7 +4869,10 @@ export default function App() {
     const nextSeeds: Record<number, number> = {};
     // Parent-mode: композиция целиком просчитывается заранее по единому master-seed.
     // Никакой live-домутации в playback не требуется.
-    const compositionSeed = (Math.random() * 0xffffffff) >>> 0;
+    const compositionSeed =
+      typeof compositionSeedOverride === 'number'
+        ? compositionSeedOverride >>> 0
+        : (Math.random() * 0xffffffff) >>> 0;
     const compositionRng = mulberry32(compositionSeed);
     if (parentActive) {
       phraseScheduleRef.current = buildPhraseSchedule({
@@ -4887,6 +4893,8 @@ export default function App() {
           chaos,
           parentThemeLine: formatParentGenomeHumanLine(parentGenomeRef.current, tempoRef.current),
           formPresetLabel: FORM_PRESET_LABEL[formPresetIdRef.current],
+          formPresetId: formPresetIdRef.current,
+          randomMode: randomModeRef.current,
           barCount: nBars,
         });
       }
@@ -5238,19 +5246,132 @@ export default function App() {
 
   /** Debug-handle для воспроизведения такта по записанному seed через консоль. */
   useEffect(() => {
+    type MacroLogResult = {
+      seed: number;
+      fileName: string;
+      text: string;
+      debugJson: string;
+    };
     type KonnakolDebug = {
       rerollBar: (barIndex: number, seed?: number) => boolean;
       getLastBarSeeds: () => Record<number, number>;
+      getLessonLogText: () => string;
+      getLessonDebugJson: () => string;
+      runParentProgressiveMacroBatch: (count?: number, preset?: FormPresetId) => Promise<MacroLogResult[]>;
+      runParentProgressiveMacroSeedBatch: (seeds: number[], preset?: FormPresetId) => Promise<MacroLogResult[]>;
     };
     const w = window as unknown as { __konnakolDebug?: KonnakolDebug };
+    const waitFrame = async (times: number = 1): Promise<void> => {
+      const fastMacro = (window as unknown as { __konnakolMacroFast?: boolean }).__konnakolMacroFast === true;
+      if (fastMacro) return;
+      for (let i = 0; i < times; i++) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      }
+    };
+    const runParentProgressiveMacroBatch = async (
+      count: number = 5,
+      preset: FormPresetId = 'tihai_heavy',
+    ): Promise<MacroLogResult[]> => {
+      const safeCount = Math.max(1, Math.min(50, Math.floor(count)));
+      const safePreset: FormPresetId = PRESET_ENABLED_MUTATIONS[preset] ? preset : 'tihai_heavy';
+      const out: MacroLogResult[] = [];
+      for (let i = 0; i < safeCount; i++) {
+        // 1) "Ластик"
+        clearSequencer();
+        await waitFrame(2);
+        // 2) Parent + selected preset
+        randomModeRef.current = 'parent';
+        setRandomMode('parent');
+        formPresetIdRef.current = safePreset;
+        setFormPresetId(safePreset);
+        const presetMut = [...PRESET_ENABLED_MUTATIONS[safePreset]];
+        enabledMutationsRef.current = presetMut;
+        setEnabledMutations(presetMut);
+        await waitFrame(2);
+        // 3) "Random"
+        prefillAllTactsRandomizer();
+        await waitFrame(2);
+        const seed = lessonLogger.getMeta()?.seed ?? 0;
+        const hex = (seed >>> 0).toString(16).padStart(8, '0');
+        const modeTag = `parent-${safePreset}`;
+        out.push({
+          seed: seed >>> 0,
+          fileName: `lesson-log-${hex}__${modeTag}.txt`,
+          text: lessonLogger.formatLessonLogText(),
+          debugJson: lessonLogger.formatLessonDebugJson(),
+        });
+      }
+      return out;
+    };
+    const runParentProgressiveMacroSeedBatch = async (
+      seeds: number[],
+      preset: FormPresetId = 'tihai_heavy',
+    ): Promise<MacroLogResult[]> => {
+      const safePreset: FormPresetId = PRESET_ENABLED_MUTATIONS[preset] ? preset : 'tihai_heavy';
+      const safeSeeds = Array.isArray(seeds)
+        ? seeds
+            .map((s) => Number.isFinite(s) ? (Math.floor(s) >>> 0) : NaN)
+            .filter((s) => Number.isFinite(s))
+            .slice(0, 50)
+        : [];
+      const out: MacroLogResult[] = [];
+      for (const seed of safeSeeds) {
+        clearSequencer();
+        await waitFrame(2);
+        randomModeRef.current = 'parent';
+        setRandomMode('parent');
+        formPresetIdRef.current = safePreset;
+        setFormPresetId(safePreset);
+        const presetMut = [...PRESET_ENABLED_MUTATIONS[safePreset]];
+        enabledMutationsRef.current = presetMut;
+        setEnabledMutations(presetMut);
+        await waitFrame(2);
+        prefillAllTactsRandomizer(seed);
+        await waitFrame(2);
+        const actualSeed = lessonLogger.getMeta()?.seed ?? seed;
+        const hex = (actualSeed >>> 0).toString(16).padStart(8, '0');
+        const modeTag = `parent-${safePreset}`;
+        out.push({
+          seed: actualSeed >>> 0,
+          fileName: `lesson-log-${hex}__${modeTag}.txt`,
+          text: lessonLogger.formatLessonLogText(),
+          debugJson: lessonLogger.formatLessonDebugJson(),
+        });
+      }
+      return out;
+    };
     w.__konnakolDebug = {
       rerollBar: (barIndex: number, seed?: number) => replayBarRandomizer(barIndex, seed),
       getLastBarSeeds: () => ({ ...lastBarSeedRef.current }),
+      getLessonLogText: () => lessonLogger.formatLessonLogText(),
+      getLessonDebugJson: () => lessonLogger.formatLessonDebugJson(),
+      runParentProgressiveMacroBatch,
+      runParentProgressiveMacroSeedBatch,
     };
     return () => {
       if (w.__konnakolDebug) delete w.__konnakolDebug;
     };
-  }, [replayBarRandomizer]);
+  }, [replayBarRandomizer, prefillAllTactsRandomizer]);
+
+  // Autotune bootstrap: load golden DNA snapshot when available.
+  useEffect(() => {
+    let cancelled = false;
+    const loadGoldenDna = async (): Promise<void> => {
+      try {
+        const res = await fetch('/logs/golden-dna.json', { cache: 'no-store' });
+        if (!res.ok) return;
+        const json = (await res.json()) as unknown;
+        if (cancelled || !json || typeof json !== 'object') return;
+        (window as unknown as { __goldenDna?: unknown }).__goldenDna = json;
+      } catch {
+        // optional source, no-op when unavailable
+      }
+    };
+    void loadGoldenDna();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const stableWindowPointerEnd = useCallback(() => {
     onWindowPointerEndCaptureRef.current();
@@ -5825,7 +5946,8 @@ export default function App() {
         return updated;
       });
     }
-    setPulseMeterUnlinked(normalizePulseMeterUnlinked(snap.pulseMeterUnlinked));
+    const nextPulseUnlinked = normalizePulseMeterUnlinked(snap.pulseMeterUnlinked);
+    setPulseMeterUnlinked(nextPulseUnlinked);
     {
       const hasNewModes =
         (snap as { mixerLayerMode?: unknown }).mixerLayerMode !== undefined ||
@@ -5859,10 +5981,13 @@ export default function App() {
     firstBeatAccentByLaneRef.current = { ...nextFirstBeatByLane };
     setFirstBeatAccent(Boolean(nextFirstBeatByLane[0]));
     setAccentMapVersion((snap as { accentMapVersion?: number }).accentMapVersion === 1 ? 1 : 0);
+    let nextRandomMode: RandomMode = 'free';
+    let nextFormPresetId: FormPresetId = 'random';
     {
       const nextMode: RandomMode = isRandomMode((snap as { randomMode?: unknown }).randomMode)
         ? ((snap as { randomMode: RandomMode }).randomMode)
         : 'free';
+      nextRandomMode = nextMode;
       randomModeRef.current = nextMode;
       setRandomMode(nextMode);
       const pg = parentGenomeFromJSON((snap as { parentGenome?: unknown }).parentGenome);
@@ -5880,8 +6005,30 @@ export default function App() {
       setEnabledMutations(em);
       const fpIn = (snap as { formPresetId?: unknown }).formPresetId;
       const fp: FormPresetId = isFormPresetId(fpIn) ? fpIn : 'random';
+      nextFormPresetId = fp;
       formPresetIdRef.current = fp;
       setFormPresetId(fp);
+    }
+    {
+      // Snapshot may restore pulse-unlink rows, but jatiPulseActiveByRow is runtime-only.
+      // Rebuild it deterministically to avoid stale "stuck pulse menu" rows from previous session.
+      const allowPulseJati = nextRandomMode === 'parent' && nextFormPresetId === 'progressive';
+      if (!allowPulseJati) {
+        setJatiPulseActiveByRow({});
+        progressiveDensityModeRef.current = 'gati_mode';
+        deSyncJatiActiveRef.current = false;
+        deSyncCycleLengthRef.current = undefined;
+        setProgressiveDensityMode('gati_mode');
+        setDeSyncJatiActive(false);
+        setDeSyncCycleLength(undefined);
+      } else {
+        const nextJatiRows: Record<number, boolean> = {};
+        for (const [k, v] of Object.entries(nextPulseUnlinked)) {
+          const ri = parseInt(k, 10);
+          if (Number.isFinite(ri) && ri >= 0 && v) nextJatiRows[ri] = true;
+        }
+        setJatiPulseActiveByRow(nextJatiRows);
+      }
     }
     setIsTaEditorMode(false);
     /**
@@ -5956,18 +6103,14 @@ export default function App() {
     dictantMode: normalizeTrainerModeFromSnapshot((s as { trainerMode?: unknown }).trainerMode) === 'dictation',
   });
 
-  const closeSnapshotClipMenu = () => setSnapshotClipMenu(null);
-
   const copySnapshotSlotToClipboard = async (slot: number) => {
     try {
       const payload = getSnapshotPayloadForSlotExport(slot);
       await navigator.clipboard.writeText(encodeSnapshotClipboard(payload));
       showClipboardToast('Settings copied to clipboard!');
-      closeSnapshotClipMenu();
     } catch (e) {
       console.warn('[konnakol_trainer] clipboard write failed', e);
       showClipboardToast('Could not write to clipboard');
-      closeSnapshotClipMenu();
     }
   };
 
@@ -5982,6 +6125,7 @@ export default function App() {
         customSubdivisions: { ...customSubdivisionsRef.current },
         pulseMeterUnlinked: { ...pulseMeterUnlinkedRef.current },
         customMultipliers: { ...customMultipliersRef.current },
+        rowRuntimeContexts,
         accents: new Set(accentsRef.current),
         accentsByLane: cloneLaneSetMap(accentsByLaneRef.current),
         taDingKeys: new Set(taDingKeysRef.current),
@@ -6036,13 +6180,11 @@ export default function App() {
     } catch (e) {
       console.warn('[konnakol_trainer] clipboard read failed', e);
       showClipboardToast('Clipboard access denied');
-      closeSnapshotClipMenu();
       return;
     }
     const parsed = tryDecodeSnapshotClipboard(text);
     if (!parsed) {
       showClipboardToast('No snapshot marker found in clipboard');
-      closeSnapshotClipMenu();
       return;
     }
     try {
@@ -6056,31 +6198,7 @@ export default function App() {
       console.warn('[konnakol_trainer] apply preset failed', e);
       showClipboardToast('Could not apply preset');
     }
-    closeSnapshotClipMenu();
   };
-
-  const openSnapshotClipMenu = (slot: number) => {
-    const el = snapshotSlotButtonRefs.current[slot];
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    const cx = r.left + r.width / 2;
-    const margin = 52;
-    const x = Math.min(window.innerWidth - margin, Math.max(margin, cx));
-    setSnapshotClipMenu({
-      slot,
-      x,
-      y: r.bottom + 8,
-    });
-  };
-
-  useEffect(() => {
-    if (!snapshotClipMenu) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setSnapshotClipMenu(null);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [snapshotClipMenu]);
 
   // Ensure currentStepRef bounds are respected if grid shrinks
   useEffect(() => {
@@ -6307,10 +6425,6 @@ export default function App() {
       if (snapshotHoldTimerRef.current !== null) {
         window.clearTimeout(snapshotHoldTimerRef.current);
         snapshotHoldTimerRef.current = null;
-      }
-      if (clipboardToastTimerRef.current !== null) {
-        window.clearTimeout(clipboardToastTimerRef.current);
-        clipboardToastTimerRef.current = null;
       }
       if (squareHoldTimerRef.current !== null) {
         window.clearTimeout(squareHoldTimerRef.current);
@@ -6910,7 +7024,6 @@ export default function App() {
           !isPauseSyllableToken(cellSylOv);
         const deadCut = deadCellsRef.current[rIdx]?.deadStart;
         if (typeof deadCut === 'number' && cIdx >= deadCut && !cellHasExplicitPlayableToken) return;
-        if (isPauseSyllableToken(cellSylOv)) return;
         // USER-SOURCE-OF-TRUTH: no auto-accent/auto-alt by beat index; only lane/user maps drive voice choice.
         const laneAccents = getLaneAccentsSetRef(rIdx);
         const laneTaDing = getLaneTaSetRef(rIdx);
@@ -6968,6 +7081,8 @@ export default function App() {
             polyClickSlotsRef.current.add(polySlotKey);
           }
         }
+        // Vocal karvai is silence in syllable layer, but physical Sam click must survive on c=0.
+        if (isPauseSyllableToken(cellSylOv) && !shouldPlayFirstBeatTa) return;
         if (shouldDedupPolyClick) {
           return;
         }
@@ -7333,8 +7448,38 @@ export default function App() {
     if (!isPlayingRef.current || !audioCtxRef.current) return;
     const ctx = audioCtxRef.current;
     const cfg = schedulerConfigRef.current;
+    const nowPerf = performance.now();
+    const prevTickPerf = schedulerLastTickPerfRef.current;
+    schedulerLastTickPerfRef.current = nowPerf;
+    const observedTickGapMs =
+      prevTickPerf === null ? 0 : Math.max(0, nowPerf - prevTickPerf);
+    const longStallThresholdMs = Math.max(
+      AUDIO_SCHEDULER_LONG_STALL_MIN_MS,
+      cfg.lookaheadMs * AUDIO_SCHEDULER_LONG_STALL_LOOKAHEAD_MULT,
+    );
+    const longStallDetected =
+      prevTickPerf !== null && observedTickGapMs > longStallThresholdMs;
     const horizon = ctx.currentTime + cfg.scheduleAheadSec;
     let recoveredThisTick = false;
+    if (longStallDetected) {
+      const stallLagSec = observedTickGapMs / 1000;
+      recordSchedulerRecovery(stallLagSec);
+      recoveredThisTick = true;
+      schedulerPostStallCooldownUntilPerfRef.current =
+        nowPerf + AUDIO_SCHEDULER_POST_STALL_COOLDOWN_MS;
+      armPassiveBurstCooldown(ctx, AUDIO_SCHEDULER_POST_STALL_COOLDOWN_MS);
+      const hardResyncTime = ctx.currentTime + Math.max(0.01, cfg.scheduleAheadSec);
+      if (polyModeRef.current) {
+        const poly = getPolySubLegacyScheduler();
+        for (const L of poly.lanes) {
+          if (L.barIndices.length > 0) {
+            L.nextTime = Math.max(L.nextTime, hardResyncTime);
+          }
+        }
+      } else {
+        nextNoteTimeRef.current = Math.max(nextNoteTimeRef.current, hardResyncTime);
+      }
+    }
     if (polyModeRef.current) {
       const poly = getPolySubLegacyScheduler();
       const minT = poly.getMinNextTime();
@@ -7376,10 +7521,13 @@ export default function App() {
         schedulerProfileRef.current = 'safe';
         schedulerConfigRef.current = getMetraSchedulerConfig('safe');
       }
+    } else if (nowPerf < schedulerPostStallCooldownUntilPerfRef.current) {
+      schedulerProfileRef.current = 'safe';
+      schedulerConfigRef.current = getMetraSchedulerConfig('safe');
     } else {
       schedulerSafeProfileEscalationsRef.current = 0;
     }
-    logAudioTimingMetricsIfDue(performance.now());
+    logAudioTimingMetricsIfDue(nowPerf);
     timerIDRef.current = window.setTimeout(scheduler, cfg.lookaheadMs);
   };
 
@@ -7410,6 +7558,8 @@ export default function App() {
       gridPreviewAudioActiveRef.current = false;
       polyClickSlotsRef.current.clear();
       polySubLegacyRef.current = null;
+      schedulerLastTickPerfRef.current = null;
+      schedulerPostStallCooldownUntilPerfRef.current = 0;
       currentStepRef.current = 0; // Reset pattern position to start
       if (timerIDRef.current) clearTimeout(timerIDRef.current);
       if (programmaticAutoscrollFallbackTimerRef.current !== null) {
@@ -7576,6 +7726,8 @@ export default function App() {
       schedulerProfileRef.current = DEFAULT_SCHEDULER_PROFILE;
       schedulerConfigRef.current = getMetraSchedulerConfig(DEFAULT_SCHEDULER_PROFILE);
       schedulerSafeProfileEscalationsRef.current = 0;
+      schedulerLastTickPerfRef.current = null;
+      schedulerPostStallCooldownUntilPerfRef.current = 0;
       resetAudioTimingMetrics();
       nextNoteTimeRef.current =
         audioCtxRef.current.currentTime + schedulerConfigRef.current.scheduleAheadSec;
@@ -7648,6 +7800,24 @@ export default function App() {
     }
     return out;
   }, [deadCells]);
+  const rowRuntimeContexts = useMemo((): Record<number, RowRuntimeContext> => {
+    const out: Record<number, RowRuntimeContext> = {};
+    const schedule = phraseScheduleRef.current;
+    for (let r = 0; r < bars; r++) {
+      const role = schedule[r];
+      const rowSylls = customSyllables[r] !== undefined ? customSyllables[r]! : syllables;
+      const pulseSyllables = pulseMeterUnlinked[r] ? PULSE_METER_BASE_SYLLABLES : rowSylls;
+      const mult = customMultipliers[r] ?? 1;
+      const effectiveBpm = tempoUi * (pulseSyllables / 4) * mult;
+      out[r] = {
+        localJati: role?.deSyncJati ? role.localCycleLength : undefined,
+        gatiTargetSub: role?.gatiTargetSub,
+        roleType: role?.type,
+        effectiveBpm,
+      };
+    }
+    return out;
+  }, [bars, customSyllables, syllables, pulseMeterUnlinked, customMultipliers, tempoUi, randomMode]);
 
   // FRAGILE — grid reads flattened lane sets in poly; must match SequencerGrid taDingSig / accents bits.
   const accentsUi = useMemo(
@@ -7732,15 +7902,38 @@ export default function App() {
     customMultipliersRef,
     pulseMeterUnlinkedRef,
     subdivHoldSessionRef,
-    onPulseLongPressModeSwitch: (rowIdx, rowSylls) => {
+    onPulseLongPressModeSwitch: (rowIdx, rowSylls, nextPulseUnlinked) => {
       // Возвращаем управление gati/jati в random parent без изменения пульса такта.
       if (randomModeRef.current !== 'parent') return;
       if (formPresetIdRef.current !== 'progressive') return;
 
-      if (jatiPulseActiveByRow[rowIdx]) {
-        const nextRows = { ...jatiPulseActiveByRow };
+      if (nextPulseUnlinked) {
+        const base = Math.max(3, Math.min(9, Math.round(rowSylls)));
+        const nearestJati = normalizeJatiCycleLength(base);
+        progressiveDensityModeRef.current = 'jati_mode';
+        deSyncJatiActiveRef.current = true;
+        deSyncCycleLengthRef.current = nearestJati;
+        setProgressiveDensityMode('jati_mode');
+        setDeSyncJatiActive(true);
+        setDeSyncCycleLength(nearestJati);
+        setJatiPulseActiveByRow((prev) => ({ ...prev, [rowIdx]: true }));
+        return;
+      }
+
+      setJatiPulseActiveByRow((prev) => {
+        if (!prev[rowIdx]) {
+          if (Object.keys(prev).length === 0) {
+            progressiveDensityModeRef.current = 'gati_mode';
+            deSyncJatiActiveRef.current = false;
+            deSyncCycleLengthRef.current = undefined;
+            setProgressiveDensityMode('gati_mode');
+            setDeSyncJatiActive(false);
+            setDeSyncCycleLength(undefined);
+          }
+          return prev;
+        }
+        const nextRows = { ...prev };
         delete nextRows[rowIdx];
-        setJatiPulseActiveByRow(nextRows);
         if (Object.keys(nextRows).length === 0) {
           progressiveDensityModeRef.current = 'gati_mode';
           deSyncJatiActiveRef.current = false;
@@ -7749,18 +7942,8 @@ export default function App() {
           setDeSyncJatiActive(false);
           setDeSyncCycleLength(undefined);
         }
-        return;
-      }
-
-      const base = Math.max(3, Math.min(9, Math.round(rowSylls)));
-      const nearestJati = normalizeJatiCycleLength(base);
-      progressiveDensityModeRef.current = 'jati_mode';
-      deSyncJatiActiveRef.current = true;
-      deSyncCycleLengthRef.current = nearestJati;
-      setProgressiveDensityMode('jati_mode');
-      setDeSyncJatiActive(true);
-      setDeSyncCycleLength(nearestJati);
-      setJatiPulseActiveByRow((prev) => ({ ...prev, [rowIdx]: true }));
+        return nextRows;
+      });
     },
   };
 
@@ -7772,14 +7955,14 @@ export default function App() {
         : `border border-[#23314f] hover:bg-[#1a253c] active:bg-[#131b2c] text-slate-300 hover:text-slate-200`;
   const trainerButtonSurface =
     trainerHoldMute
-      ? `border border-amber-400/90 ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(251,191,36,0.28)]'} text-amber-100`
+      ? `border-amber-400/90 ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(251,191,36,0.28)]'} text-amber-100`
       : trainerMode === 'dictation'
-        ? `border border-teal-400/80 bg-teal-900/20 text-teal-100`
+        ? `border-teal-400/80 bg-teal-900/20 text-teal-100`
         : trainerMode === 'ta_only'
-          ? `bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-950${
+          ? `border-transparent bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-950${
               lowPerfMode ? '' : ' shadow-[0_8px_20px_rgba(16,185,129,0.2)]'
             }`
-          : `border border-[#23314f] hover:bg-[#1a253c] active:bg-[#131b2c] text-slate-300 hover:text-slate-200`;
+          : `border-[#23314f] hover:bg-[#1a253c] active:bg-[#131b2c] text-slate-300 hover:text-slate-200`;
   const mixerModeLabel =
     mixerLayerMode === 'full_mix'
       ? 'Mixer: base + alt'
@@ -8649,9 +8832,6 @@ export default function App() {
                           <button 
                             key={num} 
                             type="button"
-                            ref={(el) => {
-                              snapshotSlotButtonRefs.current[num] = el;
-                            }}
                             className={`w-8 h-8 flex items-center justify-center rounded-full text-[13px] font-bold transition-all touch-none select-none ${
                               isActive
                                 ? 'bg-[#1e2a45] text-white shadow-sm ring-1 ring-[#3a5080] scale-110' 
@@ -8672,7 +8852,7 @@ export default function App() {
                                 snapshotHoldSlotRef.current = null;
                                 if (s == null) return;
                                 snapshotHoldAteClickRef.current = true;
-                                openSnapshotClipMenu(s);
+                                void copySnapshotSlotToClipboard(s);
                               }, SNAPSHOT_SLOT_HOLD_MS);
                             }}
                             onPointerUp={() => {
@@ -8694,7 +8874,10 @@ export default function App() {
                               }
                               loadSnapshot(num);
                             }}
-                            onContextMenu={(e) => e.preventDefault()}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              void pasteSnapshotFromClipboard(num);
+                            }}
                           >
                             {num}
                           </button>
@@ -8968,6 +9151,7 @@ export default function App() {
           customCellSyllables={customCellSyllables}
           customSubdivisions={customSubdivisions}
           customMultipliers={customMultipliers}
+          rowRuntimeContexts={rowRuntimeContexts}
           accents={accentsUi}
           taDingKeys={visibleTaDingKeys}
           pulseMeterUnlinked={pulseMeterUnlinked}
@@ -9173,7 +9357,7 @@ export default function App() {
               });
             }}
             /* Всегда border-2: иначе при входе в редактор (2px) соседний «Квадрат» в flex-ряду смещается. */
-            className={`flex-1 rounded-xl box-border flex justify-center items-center relative overflow-hidden bg-[#161f33] border-2 ${
+            className={`flex-1 basis-0 min-h-[48px] rounded-xl box-border flex justify-center items-center relative overflow-hidden bg-[#161f33] border-2 ${
               isDeadCellsEditorMode
                 ? 'border-[#23314f] text-slate-600 opacity-45 cursor-not-allowed'
                 : isTaEditorMode
@@ -9204,7 +9388,7 @@ export default function App() {
                 return next;
               });
             }}
-            className={`flex-1 rounded-xl flex justify-center items-center transition-all touch-none select-none relative bg-[#161f33] active:scale-100 active:translate-y-0 ${
+            className={`flex-1 basis-0 min-h-[48px] rounded-xl flex justify-center items-center transition-colors touch-none select-none relative bg-[#161f33] active:scale-100 active:translate-y-0 ${
               isDeadCellsEditorMode
                 ? 'border border-[#23314f] text-slate-600 opacity-45 cursor-not-allowed'
                 : mixerButtonSurface
@@ -9294,9 +9478,9 @@ export default function App() {
               });
             }}
             onContextMenu={(e) => e.preventDefault()}
-            className={`flex-1 rounded-xl flex justify-center items-center transition-all touch-none select-none relative bg-[#161f33] active:scale-100 active:translate-y-0 ${
+            className={`flex-1 basis-0 min-h-[48px] rounded-xl box-border border-2 flex justify-center items-center transition-colors touch-none select-none relative bg-[#161f33] active:scale-100 active:translate-y-0 ${
               isDeadCellsEditorMode
-                ? 'border border-[#23314f] text-slate-600 opacity-45 cursor-not-allowed'
+                ? 'border-[#23314f] text-slate-600 opacity-45 cursor-not-allowed'
                 : trainerButtonSurface
             }`}
             aria-label={trainerModeLabel}
@@ -9304,8 +9488,8 @@ export default function App() {
             <span
               className={`block w-6 h-6 rounded-sm border-2 border-current ${lowPerfMode ? '' : 'transition-all duration-300'} ${
                 trainerMode !== 'normal' || trainerHoldMute
-                  ? 'opacity-100 scale-110 bg-current/25'
-                  : 'opacity-55 scale-100 bg-transparent'
+                  ? 'opacity-100 bg-current/25'
+                  : 'opacity-55 bg-transparent'
               }`}
             />
           </button>
@@ -9337,46 +9521,6 @@ export default function App() {
         </div>
 
       </div>
-
-      {snapshotClipMenu ? (
-        <>
-          <div
-            className="fixed inset-0 z-[200] bg-black/50"
-            aria-hidden
-            onPointerDown={closeSnapshotClipMenu}
-          />
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Preset: copy or paste"
-            className="fixed z-[201] flex items-center gap-1 rounded-xl border border-[#2f4066] bg-[#161f33] p-1.5 shadow-2xl ring-1 ring-black/30"
-            style={{
-              left: snapshotClipMenu.x,
-              top: snapshotClipMenu.y,
-              transform: 'translate(-50%, 0)',
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#23314f] text-slate-200 transition-colors hover:bg-[#2c3d63] active:bg-[#1b253b] ring-1 ring-[#2f4066]/40"
-              aria-label="Copy slot preset to clipboard"
-              onClick={() => void copySnapshotSlotToClipboard(snapshotClipMenu.slot)}
-            >
-              <Copy size={20} strokeWidth={2.25} />
-            </button>
-            <div className="h-8 w-px shrink-0 bg-[#2f4066]/70" aria-hidden />
-            <button
-              type="button"
-              className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#23314f] text-slate-200 transition-colors hover:bg-[#2c3d63] active:bg-[#1b253b] ring-1 ring-[#2f4066]/40"
-              aria-label="Paste preset from clipboard into slot"
-              onClick={() => void pasteSnapshotFromClipboard(snapshotClipMenu.slot)}
-            >
-              <ClipboardPaste size={20} strokeWidth={2.25} />
-            </button>
-          </div>
-        </>
-      ) : null}
     </div>
   );
 }

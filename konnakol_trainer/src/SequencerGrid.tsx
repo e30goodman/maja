@@ -1,5 +1,11 @@
 import React, { useMemo, useCallback, useRef } from 'react';
-import { buildRowCellSyllableLabels, getSyllableStyles, type KalamMap, type SyllableLabel } from './sequencerLabels';
+import {
+	buildRowCellSyllableLabels,
+	getSyllableStyles,
+	type KalamMap,
+	type RowRuntimeContext,
+	type SyllableLabel,
+} from './sequencerLabels';
 import type { PlayheadPosition } from './playheadTypes';
 
 /** Keep long-press pulse switching consistent with collapsed behavior. */
@@ -75,12 +81,31 @@ function rowCellLabelsEqual(a: SyllableLabel[][], b: SyllableLabel[][]): boolean
 	return true;
 }
 
+const PULSE_METER_BASE_SYLLABLES = 4;
+
+function effectiveBpmForGridRow(
+	bpm: number,
+	rowIdx: number,
+	baseSyllables: number,
+	customSyllables: Record<number, number>,
+	pulseMeterUnlinked: Record<number, boolean>,
+	customMultipliers: Record<number, number>,
+): number {
+	const rowSyllables = customSyllables[rowIdx] !== undefined ? customSyllables[rowIdx]! : baseSyllables;
+	const pulseSyllables = pulseMeterUnlinked[rowIdx] ? PULSE_METER_BASE_SYLLABLES : rowSyllables;
+	const mult = customMultipliers[rowIdx] ?? 1;
+	return bpm * (pulseSyllables / 4) * mult;
+}
+
 function useStableRowCellLabelsCache(
 	bars: number,
 	syllables: number,
 	customSyllables: Record<number, number>,
 	customSubdivisions: Record<string, number>,
 	customCellSyllables: Record<string, string>,
+	pulseMeterUnlinked: Record<number, boolean>,
+	customMultipliers: Record<number, number>,
+	rowRuntimeContexts: Record<number, RowRuntimeContext>,
 	accents: Set<string>,
 	deadStartByRow: Record<number, number>,
 	bpm: number,
@@ -104,6 +129,17 @@ function useStableRowCellLabelsCache(
 				deadStart: deadStartByRow[r],
 				kalamMap: kalamMapRef.current,
 				touchedKeys: touched,
+				rowRuntimeContext: {
+					...(rowRuntimeContexts[r] ?? {}),
+					effectiveBpm: effectiveBpmForGridRow(
+						bpm,
+						r,
+						syllables,
+						customSyllables,
+						pulseMeterUnlinked,
+						customMultipliers,
+					),
+				},
 				cellSyllableOverrides: Object.keys(cellOv).length > 0 ? cellOv : undefined,
 				accentCells: new Set(Array.from({ length: rowSylls }, (_, c) => c).filter((c) => accents.has(`${r}-${c}`))),
 				isLessonLastRow: r === bars - 1,
@@ -124,7 +160,19 @@ function useStableRowCellLabelsCache(
 		for (const key of stale) km.delete(key);
 		prevRef.current = next;
 		return next;
-	}, [bars, syllables, customSyllables, customSubdivisions, customCellSyllables, accents, deadStartByRow, bpm]);
+	}, [
+		bars,
+		syllables,
+		customSyllables,
+		customSubdivisions,
+		customCellSyllables,
+		pulseMeterUnlinked,
+		customMultipliers,
+		rowRuntimeContexts,
+		accents,
+		deadStartByRow,
+		bpm,
+	]);
 }
 
 /** Ref-filled each App render — stable identity for memoized grid row. */
@@ -169,8 +217,8 @@ export type SequencerGridRowActions = {
 		lastDeltaSteps: number;
 		panelExpanded: boolean;
 	} | null>;
-	/** Long-press на Pulse: переключить progressive в jati/de-sync режим. */
-	onPulseLongPressModeSwitch?: (rowIdx: number, rowSylls: number) => void;
+	/** Long-press on Pulse: switch progressive mode to jati/de-sync mode. */
+	onPulseLongPressModeSwitch?: (rowIdx: number, rowSylls: number, nextPulseUnlinked: boolean) => void;
 };
 
 type SequencerGridRowProps = {
@@ -389,9 +437,9 @@ const SequencerGridRow = React.memo(
 							a.pulseUnlinkHoldTimerRef.current = window.setTimeout(() => {
 								a.pulseUnlinkJustFiredRef.current = true;
 								a.isHoldingRef.current = true;
-								a.onPulseLongPressModeSwitch?.(rIdx, rowSylls);
 								a.setPulseMeterUnlinked((prev) => {
 									const nextVal = !prev[rIdx];
+									a.onPulseLongPressModeSwitch?.(rIdx, rowSylls, nextVal);
 									const next = { ...prev, [rIdx]: nextVal };
 									a.pulseMeterUnlinkedRef.current = { ...next };
 									/* Enable pulse unlink from bar syllable count -> reset bar speed multiplier (x2..x4), otherwise it remains in poly visually and in audio. */
@@ -494,7 +542,7 @@ const SequencerGridRow = React.memo(
 						//   only after default pattern was changed (there is at least one suppressed row).
 						// - Never derive white-frame visibility from purple accent map.
 						// - White Ta and purple accent are independent layers and must not be merged.
-						/** В Ta-редакторе legacy должен показывать дефолт Ta на 1-й доле (если не подавлено явно). */
+						/** In Ta editor, legacy mode must show default Ta on beat 1 (unless explicitly suppressed). */
 						const showEditorDing =
 							isTaDing ||
 							(cIdx === 0 &&
@@ -711,7 +759,7 @@ const SequencerGridRow = React.memo(
 										>
 											{isDead
 												? ''
-												: (rowCellLabels[cIdx]?.[i]?.syl ?? 'Ta')}
+												: (rowCellLabels[cIdx]?.[i]?.syl ?? '')}
 										</span>
 									))}
 								</div>
@@ -730,13 +778,14 @@ export type SequencerGridProps = {
 	bars: number;
 	syllables: number;
 	customSyllables: Record<number, number>;
-	/** Parent / Karvai: слог по ключу `${row}-${cell}` поверх словаря gati. */
+	/** Parent / Karvai: syllable override by `${row}-${cell}` key on top of gati dictionary. */
 	customCellSyllables: Record<string, string>;
 	customSubdivisions: Record<string, number>;
 	customMultipliers: Record<number, number>;
 	accents: Set<string>;
 	taDingKeys: Set<string>;
 	pulseMeterUnlinked: Record<number, boolean>;
+	rowRuntimeContexts: Record<number, RowRuntimeContext>;
 	jatiPulseActiveByRow: Record<number, boolean>;
 	isPlaying: boolean;
 	autoscrollVirtualRowsEnabled: boolean;
@@ -775,6 +824,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	accents,
 	taDingKeys,
 	pulseMeterUnlinked,
+	rowRuntimeContexts,
 	jatiPulseActiveByRow,
 	isPlaying,
 	autoscrollVirtualRowsEnabled,
@@ -806,6 +856,9 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 		customSyllables,
 		customSubdivisions,
 		customCellSyllables,
+		pulseMeterUnlinked,
+		customMultipliers,
+		rowRuntimeContexts,
 		accents,
 		deadStartByRow,
 		bpm,
