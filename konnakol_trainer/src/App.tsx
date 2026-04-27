@@ -5845,6 +5845,8 @@ export default function App() {
     sliderWindowListenersAttachedRef.current = true;
     window.addEventListener('pointerup', stableWindowPointerEnd, true);
     window.addEventListener('pointercancel', stableWindowPointerEnd, true);
+    /* Touch: после drag range часто нет надёжного pointerup на window — touchend в capture ловит отпускание пальца. */
+    window.addEventListener('touchend', stableWindowPointerEnd, true);
   }, [stableWindowPointerEnd]);
 
   /** Глобальный Syllbs: общее число слогов + перестройка sequenceRef; акценты / поддоли / множители ряда сохраняются для оставшихся ячеек. */
@@ -6001,10 +6003,12 @@ export default function App() {
       sliderWindowListenersAttachedRef.current = false;
       window.removeEventListener('pointerup', stableWindowPointerEnd, true);
       window.removeEventListener('pointercancel', stableWindowPointerEnd, true);
+      window.removeEventListener('touchend', stableWindowPointerEnd, true);
     }
     flushLiveSnapshotToActiveSlotRef.current();
-    /* Только реальный pointerup (не cancel) — выход из Press при arm с «slider»; input иногда не получает up после drag. */
-    if (e?.type === 'pointerup' && wasBarsDrag) {
+    /* Desktop: pointerup; mobile: часто touchend без pointerup на window. Не pointercancel — не снимать режим при жесте/скролле. */
+    const releaseLike = e?.type === 'pointerup' || e?.type === 'touchend';
+    if (releaseLike && wasBarsDrag) {
       barsSliderPressSessionEndRef.current?.();
     }
   };
@@ -6015,6 +6019,7 @@ export default function App() {
         sliderWindowListenersAttachedRef.current = false;
         window.removeEventListener('pointerup', stableWindowPointerEnd, true);
         window.removeEventListener('pointercancel', stableWindowPointerEnd, true);
+        window.removeEventListener('touchend', stableWindowPointerEnd, true);
       }
     };
   }, [stableWindowPointerEnd]);
