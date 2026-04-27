@@ -4409,7 +4409,9 @@ export default function App() {
   const barsSliderDraggingRef = useRef(false);
   const syllablesSliderDraggingRef = useRef(false);
   const sliderWindowListenersAttachedRef = useRef(false);
-  const onWindowPointerEndCaptureRef = useRef<() => void>(() => {});
+  /** `pointerup` после drag Bars (window capture); disarm Press slider-сессии. */
+  const barsSliderPressSessionEndRef = useRef<(() => void) | null>(null);
+  const onWindowPointerEndCaptureRef = useRef<(e?: Event) => void>(() => {});
   const flushLiveSnapshotToActiveSlotRef = useRef<() => void>(() => {});
   const deadSwipeSessionRef = useRef<{
     row: number;
@@ -4768,6 +4770,7 @@ export default function App() {
   const handleBarsSliderThumbSessionEnd = useCallback(() => {
     if (isPressPrimed() && getPressArmSource() === 'slider') disarmPressMatrixMode();
   }, [disarmPressMatrixMode]);
+  barsSliderPressSessionEndRef.current = handleBarsSliderThumbSessionEnd;
 
   const clearPressStarLongPressTimer = useCallback(() => {
     if (pressStarLongPressTimerRef.current !== null) {
@@ -5831,8 +5834,8 @@ export default function App() {
     };
   }, []);
 
-  const stableWindowPointerEnd = useCallback(() => {
-    onWindowPointerEndCaptureRef.current();
+  const stableWindowPointerEnd = useCallback((e: Event) => {
+    onWindowPointerEndCaptureRef.current(e);
   }, []);
 
   const attachSliderWindowListeners = useCallback(() => {
@@ -5987,8 +5990,9 @@ export default function App() {
     });
   };
 
-  onWindowPointerEndCaptureRef.current = () => {
-    if (!barsSliderDraggingRef.current && !syllablesSliderDraggingRef.current) return;
+  onWindowPointerEndCaptureRef.current = (e?: Event) => {
+    const wasBarsDrag = barsSliderDraggingRef.current;
+    if (!wasBarsDrag && !syllablesSliderDraggingRef.current) return;
     barsSliderDraggingRef.current = false;
     syllablesSliderDraggingRef.current = false;
     if (sliderWindowListenersAttachedRef.current) {
@@ -5997,6 +6001,10 @@ export default function App() {
       window.removeEventListener('pointercancel', stableWindowPointerEnd, true);
     }
     flushLiveSnapshotToActiveSlotRef.current();
+    /* Только реальный pointerup (не cancel) — выход из Press при arm с «slider»; input иногда не получает up после drag. */
+    if (e?.type === 'pointerup' && wasBarsDrag) {
+      barsSliderPressSessionEndRef.current?.();
+    }
   };
 
   useEffect(() => {
