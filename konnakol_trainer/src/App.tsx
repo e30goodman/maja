@@ -4507,12 +4507,11 @@ export default function App() {
     }
   }, [polyMode, polyVoices, bars, applyBarsWithPotatoFreeze]);
   useEffect(() => {
-    // Заглушка: parent-mode в polyrhythm пока отключён.
-    if (!polyMode) return;
+    // Randomizer закреплён в ветке free.
     if (randomMode !== 'parent') return;
     randomModeRef.current = 'free';
     setRandomMode('free');
-  }, [polyMode, randomMode]);
+  }, [randomMode]);
 
   const clampTempo = useCallback((n: number) => Math.min(400, Math.max(20, Math.round(n))), []);
 
@@ -5137,6 +5136,15 @@ export default function App() {
     });
     return true;
   }, []);
+
+  const applyImmediateRandomOnEnable = useCallback(() => {
+    const nBars = barsRef.current;
+    if (nBars <= 0) return;
+    const currentSeqItem = sequenceRef.current[currentStepRef.current];
+    const candidateBar = isPlayingRef.current ? (currentSeqItem?.r ?? 0) : 0;
+    const safeBar = Math.max(0, Math.min(nBars - 1, candidateBar));
+    replayBarRandomizer(safeBar);
+  }, [replayBarRandomizer]);
 
   /**
    * Parent-source по умолчанию: первый такт текущей сетки.
@@ -8497,40 +8505,6 @@ export default function App() {
                     </span>
                   </div>
 
-                  {/* Free / Parent segmented toggle */}
-                  <div className="flex rounded-xl border border-[#23314f] bg-[#131d30]/80 p-1">
-                    <button
-                      type="button"
-                      onClick={() => setRandomMode('free')}
-                      className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${
-                        randomMode === 'free'
-                          ? `bg-blue-600/25 text-blue-200 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(59,130,246,0.15)]'}`
-                          : 'text-slate-500 hover:text-slate-400'
-                      }`}
-                    >
-                      Free
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (polyMode) return;
-                        setRandomMode('parent');
-                      }}
-                      disabled={polyMode}
-                      className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${
-                        polyMode
-                          ? 'text-slate-600 cursor-not-allowed'
-                          :
-                        randomMode === 'parent'
-                          ? `bg-blue-600/25 text-blue-200 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(59,130,246,0.15)]'}`
-                          : 'text-slate-500 hover:text-slate-400'
-                      }`}
-                    >
-                      Parent
-                    </button>
-                  </div>
-
-                  {randomMode === 'free' ? (
                   <div className="grid grid-cols-2 gap-2">
                      <button 
                        onClick={() => toggleRandomFeature('pulsation')}
@@ -8560,7 +8534,7 @@ export default function App() {
                             : 'bg-[#1a253c]/40 border-[#23314f] text-slate-500 hover:text-slate-400 hover:bg-[#1a253c]/80'
                         }`}
                      >
-                        Speed
+                       Divs
                      </button>
                      <button 
                         onClick={() => toggleRandomFeature('barSpeed')}
@@ -8570,37 +8544,9 @@ export default function App() {
                             : 'bg-[#1a253c]/40 border-[#23314f] text-slate-500 hover:text-slate-400 hover:bg-[#1a253c]/80'
                         }`}
                      >
-                        Dead
+                       Length
                      </button>
                   </div>
-                  ) : (
-                  /* Parent-mode panel */
-                  <div className="flex flex-col gap-2">
-                    {/* Сценарий урока: пресет задаёт пул мутаций автоматически (см. parentModeUi). */}
-                    <div className="flex flex-col gap-1.5 pt-1">
-                      <div className="grid grid-cols-2 gap-2">
-                        {ALL_FORM_PRESETS.map((p) => {
-                          const on = formPresetId === p;
-                          return (
-                            <button
-                              key={p}
-                              type="button"
-                              onClick={() => applyFormPresetSelection(p)}
-                              className={`flex items-center justify-center py-2 rounded-lg text-xs font-bold transition-all duration-200 border ${
-                                on
-                                  ? 'bg-purple-600/20 border-purple-500/50 text-purple-300'
-                                  : 'bg-[#1a253c]/40 border-[#23314f] text-slate-500 hover:text-slate-400 hover:bg-[#1a253c]/80'
-                              }`}
-                            >
-                              {FORM_PRESET_LABEL[p]}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                  </div>
-                  )}
 
                   <div className="flex flex-col gap-2 px-1">
                     <div className="flex items-center justify-between">
@@ -8699,6 +8645,7 @@ export default function App() {
                     >
                       <span className="text-[7px] font-semibold tracking-wide">MIDI</span>
                     </button>
+                    {/*
                     <button
                       type="button"
                       title="Скачать текстовый лог урока (Parent mode)"
@@ -8707,6 +8654,7 @@ export default function App() {
                     >
                       <span className="text-[7px] font-semibold tracking-wide">LOG</span>
                     </button>
+                    */}
                   </div>
                   <div className="w-full h-px bg-[#1e2a45]/80 my-0.5"></div>
                   <div className="flex flex-col gap-2">
@@ -9198,11 +9146,10 @@ export default function App() {
               }
               randomDiceHoldTimerRef.current = window.setTimeout(() => {
                 randomDiceHoldTimerRef.current = null;
-                setRandomModeEnabled((prev) => {
-                  const next = !prev;
-                  randomModeEnabledRef.current = next;
-                  return next;
-                });
+                const next = !randomModeEnabledRef.current;
+                randomModeEnabledRef.current = next;
+                setRandomModeEnabled(next);
+                if (next) applyImmediateRandomOnEnable();
                 randomDiceHoldAteClickRef.current = true;
               }, RANDOM_DICE_PREFILL_HOLD_MS);
                   }}
@@ -9220,11 +9167,10 @@ export default function App() {
                 startedAt !== null &&
                 Date.now() - startedAt >= RANDOM_DICE_PREFILL_HOLD_MS
               ) {
-                setRandomModeEnabled((prev) => {
-                  const next = !prev;
-                  randomModeEnabledRef.current = next;
-                  return next;
-                });
+                const next = !randomModeEnabledRef.current;
+                randomModeEnabledRef.current = next;
+                setRandomModeEnabled(next);
+                if (next) applyImmediateRandomOnEnable();
                 randomDiceHoldAteClickRef.current = true;
                 return;
               }
