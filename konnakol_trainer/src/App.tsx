@@ -80,6 +80,7 @@ import {
 	getPressBaseline,
 	isPressPrimed,
 	notifyPressErased,
+	type PressArmSource,
 } from './pressMatrixCoordinator';
 
 function buildPolyChunks(barCount: number, voiceCount: number): number[][] {
@@ -4145,7 +4146,7 @@ export default function App() {
     frozenScaleRef.current = null;
     /* Press Matrix: full eraser disarms baseline (single source of "primed" reset). */
     notifyPressErased();
-    setIsPressMatrixPrimedUi(false);
+    setPressMatrixArmSourceUi(null);
   };
 
   /**
@@ -4741,7 +4742,8 @@ export default function App() {
   const PRESS_LONG_PRESS_MS = 600;
   /** Снежинка: slop отмены long-press при съезде пальца до истечения hold. */
   const PRESS_STAR_ARM_SLOP_PX = 8;
-  const [isPressMatrixPrimedUi, setIsPressMatrixPrimedUi] = useState(false);
+  /** UI: визуал matrix на снежинке только при arm через звезду; фиолет thumb Bars — только при arm через слайдер. */
+  const [pressMatrixArmSourceUi, setPressMatrixArmSourceUi] = useState<PressArmSource | null>(null);
   const pressStarLongPressTimerRef = useRef<number | null>(null);
   const pressStarLongPressFiredRef = useRef(false);
   const pressStarArmStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -4749,17 +4751,17 @@ export default function App() {
 
   const armPressMatrixFromStar = useCallback(() => {
     armPressFromState(getPressState(), 'star');
-    setIsPressMatrixPrimedUi(true);
+    setPressMatrixArmSourceUi('star');
   }, [getPressState]);
 
   const armPressMatrixFromSlider = useCallback(() => {
     armPressFromState(getPressState(), 'slider');
-    setIsPressMatrixPrimedUi(true);
+    setPressMatrixArmSourceUi('slider');
   }, [getPressState]);
 
   const disarmPressMatrixMode = useCallback(() => {
     notifyPressErased();
-    setIsPressMatrixPrimedUi(false);
+    setPressMatrixArmSourceUi(null);
   }, []);
 
   const handleBarsSliderThumbIdleArm = useCallback(() => {
@@ -6558,10 +6560,10 @@ export default function App() {
       };
       if (isPressStateEmpty(snapPressState)) {
         notifyPressErased();
-        setIsPressMatrixPrimedUi(false);
+        setPressMatrixArmSourceUi(null);
       } else {
         armPressFromState(snapPressState, 'star');
-        setIsPressMatrixPrimedUi(true);
+        setPressMatrixArmSourceUi('star');
       }
     }
   };
@@ -9578,9 +9580,9 @@ export default function App() {
                   className={`flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-all duration-300 ${
                     isPressStarLongPressing
                       ? `bg-violet-500/25 text-violet-300 ring-1 ring-violet-500/60 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(167,139,250,0.35)]'}`
-                      : isPressMatrixPrimedUi && frozenScale !== null
+                      : pressMatrixArmSourceUi === 'star' && frozenScale !== null
                         ? `bg-violet-500/25 text-violet-300 ring-1 ring-violet-500/60 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(167,139,250,0.35)]'}`
-                        : isPressMatrixPrimedUi
+                        : pressMatrixArmSourceUi === 'star'
                           ? `bg-violet-500/25 text-violet-300 ring-1 ring-violet-500/60 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(167,139,250,0.35)]'}`
                           : frozenScale !== null 
                             ? `bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/50 ${lowPerfMode ? '' : 'shadow-[0_0_8px_rgba(59,130,246,0.3)]'}` 
@@ -9598,7 +9600,7 @@ export default function App() {
                 step={barsStructuralRange.step}
                 value={bars}
                 colorClass={
-                  isPressMatrixPrimedUi
+                  pressMatrixArmSourceUi === 'slider'
                     ? '[&::-webkit-slider-thumb]:bg-violet-500 [&::-moz-range-thumb]:bg-violet-500'
                     : '[&::-webkit-slider-thumb]:bg-blue-400 [&::-moz-range-thumb]:bg-blue-400'
                 }
