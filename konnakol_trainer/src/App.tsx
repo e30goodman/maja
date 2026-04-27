@@ -6200,9 +6200,11 @@ export default function App() {
       const payload = getSnapshotPayloadForSlotExport(slot);
       await navigator.clipboard.writeText(encodeSnapshotClipboard(payload));
       showClipboardToast('Settings copied to clipboard!');
+      closeSnapshotClipMenu();
     } catch (e) {
       console.warn('[konnakol_trainer] clipboard write failed', e);
       showClipboardToast('Could not write to clipboard');
+      closeSnapshotClipMenu();
     }
   };
 
@@ -8937,7 +8939,6 @@ export default function App() {
                             }}
                             onContextMenu={(e) => {
                               e.preventDefault();
-                              void pasteSnapshotFromClipboard(num);
                             }}
                           >
                             {num}
