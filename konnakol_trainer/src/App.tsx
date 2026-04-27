@@ -11,6 +11,8 @@ import {
 	ChevronDown,
 	ChevronLeft,
 	Eraser,
+	Copy,
+	ClipboardPaste,
 } from 'lucide-react';
 import { SequencerGrid, type SequencerGridRowActions } from './SequencerGrid';
 import {
@@ -59,6 +61,7 @@ import {
 	PRESET_TARGET_BARS,
 } from './parentModeUi';
 import {
+	buildGridLessonLogMarkdown,
 	buildBarLogForParentRow,
 	downloadAestheticScore,
 	formatParentGenomeHumanLine,
@@ -3609,6 +3612,12 @@ export default function App() {
   const snapshotHoldTimerRef = useRef<number | null>(null);
   const snapshotHoldSlotRef = useRef<number | null>(null);
   const snapshotHoldAteClickRef = useRef(false);
+  const snapshotSlotButtonRefs = useRef<Record<number, HTMLButtonElement | null>>({});
+  const [snapshotClipMenu, setSnapshotClipMenu] = useState<{
+    slot: number;
+    x: number;
+    y: number;
+  } | null>(null);
 
   const persistSnapshotsTimerRef = useRef<number | null>(null);
   const tempoThrottleTimerRef = useRef<number | null>(null);
@@ -4890,6 +4899,9 @@ export default function App() {
         lessonLogger.reset({
           seed: compositionSeed,
           chaos,
+          tempoBpm: tempoRef.current,
+          polyMode: polyModeRef.current,
+          polyVoices: polyVoicesRef.current,
           parentThemeLine: formatParentGenomeHumanLine(parentGenomeRef.current, tempoRef.current),
           formPresetLabel: FORM_PRESET_LABEL[formPresetIdRef.current],
           formPresetId: formPresetIdRef.current,
@@ -4985,8 +4997,13 @@ export default function App() {
           buildBarLogForParentRow(r, phraseScheduleRef.current[r]!, tempoRef.current, syllablesDefault, {
             customSyllables: cs,
             accents: acc,
+            accentsByLane: accentsByLaneRef.current,
+            taDingKeysByLane: taDingKeysByLaneRef.current,
             customSubdivisions: cd,
             customCellSyllables: ccell,
+            customMultipliers: cm,
+            polyMode: polyModeRef.current,
+            polyVoices: polyVoicesRef.current,
             deadCells: dc,
           }),
         );
@@ -6206,7 +6223,33 @@ export default function App() {
       console.warn('[konnakol_trainer] apply preset failed', e);
       showClipboardToast('Could not apply preset');
     }
+    closeSnapshotClipMenu();
   };
+
+  const openSnapshotClipMenu = (slot: number) => {
+    const el = snapshotSlotButtonRefs.current[slot];
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const margin = 52;
+    const x = Math.min(window.innerWidth - margin, Math.max(margin, cx));
+    setSnapshotClipMenu({
+      slot,
+      x,
+      y: r.bottom + 8,
+    });
+  };
+
+  const closeSnapshotClipMenu = () => setSnapshotClipMenu(null);
+
+  useEffect(() => {
+    if (!snapshotClipMenu) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSnapshotClipMenu(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [snapshotClipMenu]);
 
   // Ensure currentStepRef bounds are respected if grid shrinks
   useEffect(() => {
@@ -8645,16 +8688,37 @@ export default function App() {
                     >
                       <span className="text-[7px] font-semibold tracking-wide">MIDI</span>
                     </button>
-                    {/*
                     <button
                       type="button"
-                      title="Скачать текстовый лог урока (Parent mode)"
-                      onClick={() => downloadAestheticScore()}
+                      title="Скачать markdown-лог урока (Parent mode)"
+                      onClick={() => {
+                        const hasParentLog = lessonLogger.getMeta() !== null && lessonLogger.getBars().length > 0;
+                        if (hasParentLog) {
+                          downloadAestheticScore();
+                          return;
+                        }
+                        const fallbackMd = buildGridLessonLogMarkdown({
+                          tempoBpm: tempoRef.current,
+                          bars: barsRef.current,
+                          syllablesDefault: syllablesRef.current,
+                          customSyllables: customSyllablesRef.current,
+                          accentsByLane: accentsByLaneRef.current,
+                          taDingKeysByLane: taDingKeysByLaneRef.current,
+                          customSubdivisions: customSubdivisionsRef.current,
+                          customMultipliers: customMultipliersRef.current,
+                          deadCells: deadCellsRef.current,
+                          polyMode: polyModeRef.current,
+                          polyVoices: polyVoicesRef.current,
+                          progressiveDensityMode: progressiveDensityModeRef.current,
+                          deSyncJatiActive: deSyncJatiActiveRef.current,
+                          deSyncCycleLength: deSyncCycleLengthRef.current,
+                        });
+                        downloadAestheticScore({ text: fallbackMd, seed: 0 });
+                      }}
                       className="w-8 h-8 rounded-md border bg-[#1a253c]/60 border-[#2a385b] text-slate-300 hover:text-white hover:bg-[#1a243b] transition-colors flex items-center justify-center"
                     >
                       <span className="text-[7px] font-semibold tracking-wide">LOG</span>
                     </button>
-                    */}
                   </div>
                   <div className="w-full h-px bg-[#1e2a45]/80 my-0.5"></div>
                   <div className="flex flex-col gap-2">
@@ -8780,6 +8844,9 @@ export default function App() {
                           <button 
                             key={num} 
                             type="button"
+                            ref={(el) => {
+                              snapshotSlotButtonRefs.current[num] = el;
+                            }}
                             className={`w-8 h-8 flex items-center justify-center rounded-full text-[13px] font-bold transition-all touch-none select-none ${
                               isActive
                                 ? 'bg-[#1e2a45] text-white shadow-sm ring-1 ring-[#3a5080] scale-110' 
@@ -8800,7 +8867,7 @@ export default function App() {
                                 snapshotHoldSlotRef.current = null;
                                 if (s == null) return;
                                 snapshotHoldAteClickRef.current = true;
-                                void copySnapshotSlotToClipboard(s);
+                                openSnapshotClipMenu(s);
                               }, SNAPSHOT_SLOT_HOLD_MS);
                             }}
                             onPointerUp={() => {
@@ -9467,6 +9534,46 @@ export default function App() {
         </div>
 
       </div>
+
+      {snapshotClipMenu ? (
+        <>
+          <div
+            className="fixed inset-0 z-[200] bg-black/50"
+            aria-hidden
+            onPointerDown={closeSnapshotClipMenu}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Preset: copy or paste"
+            className="fixed z-[201] flex items-center gap-1 rounded-xl border border-[#2f4066] bg-[#161f33] p-1.5 shadow-2xl ring-1 ring-black/30"
+            style={{
+              left: snapshotClipMenu.x,
+              top: snapshotClipMenu.y,
+              transform: 'translate(-50%, 0)',
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#23314f] text-slate-200 transition-colors hover:bg-[#2c3d63] active:bg-[#1b253b] ring-1 ring-[#2f4066]/40"
+              aria-label="Copy slot preset to clipboard"
+              onClick={() => void copySnapshotSlotToClipboard(snapshotClipMenu.slot)}
+            >
+              <Copy size={20} strokeWidth={2.25} />
+            </button>
+            <div className="h-8 w-px shrink-0 bg-[#2f4066]/70" aria-hidden />
+            <button
+              type="button"
+              className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#23314f] text-slate-200 transition-colors hover:bg-[#2c3d63] active:bg-[#1b253b] ring-1 ring-[#2f4066]/40"
+              aria-label="Paste preset from clipboard into slot"
+              onClick={() => void pasteSnapshotFromClipboard(snapshotClipMenu.slot)}
+            >
+              <ClipboardPaste size={20} strokeWidth={2.25} />
+            </button>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
