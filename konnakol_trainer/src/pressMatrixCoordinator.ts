@@ -7,8 +7,9 @@
  *  - `baselineBars` — bar count at arm time. Tile uses this as the cylinder size.
  *
  * Activation contract: arming is explicit in `App.tsx` — long-press on the Bars
- * slider thumb (tiling until finger release) or long-press on the snowflake
- * (toggle arm / repeat long-press to disarm; slop before hold completes). After arming,
+ * slider thumb (time-based only; dragging does not cancel) or long-press on the
+ * snowflake (toggle: repeat long-press disarms). Disarm: snowflake repeat, Eraser,
+ * or empty snapshot path — not by touching the Bars slider. After arming,
  * edits to the live state DO NOT mutate the
  * baseline — only a re-arm replaces it.
  *
