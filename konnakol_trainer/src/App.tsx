@@ -61,6 +61,7 @@ import {
 	PRESET_TARGET_BARS,
 } from './parentModeUi';
 import {
+	buildGridLessonLogMarkdown,
 	buildBarLogForParentRow,
 	downloadAestheticScore,
 	formatParentGenomeHumanLine,
@@ -8759,14 +8760,62 @@ export default function App() {
                     >
                       <span className="text-[7px] font-semibold tracking-wide">MIDI</span>
                     </button>
+                    {/*
                     <button
                       type="button"
-                      title="Скачать текстовый лог урока (Parent mode)"
-                      onClick={() => downloadAestheticScore()}
+                      title="Скачать markdown-лог урока"
+                      onClick={() => {
+                        try {
+                          const hasParentLog = lessonLogger.getMeta() !== null && lessonLogger.getBars().length > 0;
+                          if (hasParentLog) {
+                            downloadAestheticScore();
+                            return;
+                          }
+                          const fallbackMd = buildGridLessonLogMarkdown({
+                            tempoBpm: tempoRef.current,
+                            bars: barsRef.current,
+                            syllablesDefault: syllablesRef.current,
+                            customSyllables: customSyllablesRef.current,
+                            accentsByLane: accentsByLaneRef.current,
+                            taDingKeysByLane: taDingKeysByLaneRef.current,
+                            customSubdivisions: customSubdivisionsRef.current,
+                            customMultipliers: customMultipliersRef.current,
+                            deadCells: deadCellsRef.current,
+                            polyMode: polyModeRef.current,
+                            polyVoices: polyVoicesRef.current,
+                            progressiveDensityMode: progressiveDensityModeRef.current,
+                            deSyncJatiActive: deSyncJatiActiveRef.current,
+                            deSyncCycleLength: deSyncCycleLengthRef.current,
+                            firstBeatAccent: firstBeatAccentRef.current,
+                            firstBeatAccentByLane: firstBeatAccentByLaneRef.current,
+                            firstBeatDingSuppressedRows: firstBeatDingSuppressedRowsRef.current,
+                            mixerLayerMode: mixerLayerModeRef.current,
+                            trainerMode: trainerModeRef.current,
+                            trainerHoldMute: trainerHoldMuteRef.current,
+                            syllableReadMuteMode: syllableReadMuteModeRef.current,
+                            dictantMode: dictantModeRef.current,
+                          });
+                          downloadAestheticScore({ text: fallbackMd, seed: 0 });
+                        } catch (err) {
+                          console.error('[LOG export] failed', err);
+                          const safeError = err instanceof Error ? err.message : String(err);
+                          const emergencyMd = [
+                            '# Lesson Log',
+                            '',
+                            '## Export Error',
+                            `- message: ${safeError}`,
+                            `- tempo: ${tempoRef.current}`,
+                            `- bars: ${barsRef.current}`,
+                            `- poly: ${polyModeRef.current ? `on (${polyVoicesRef.current} voices)` : 'off'}`,
+                          ].join('\n');
+                          downloadAestheticScore({ text: `${emergencyMd}\n`, seed: 0 });
+                        }
+                      }}
                       className="w-8 h-8 rounded-md border bg-[#1a253c]/60 border-[#2a385b] text-slate-300 hover:text-white hover:bg-[#1a243b] transition-colors flex items-center justify-center"
                     >
                       <span className="text-[7px] font-semibold tracking-wide">LOG</span>
                     </button>
+                    */}
                   </div>
                   <div className="w-full h-px bg-[#1e2a45]/80 my-0.5"></div>
                   <div className="flex flex-col gap-2">

@@ -1,5 +1,5 @@
 /**
- * Запуск: `npx tsx src/midiExport.test.ts` из каталога konnakol_trainer.
+ * Run: `npx tsx src/midiExport.test.ts` from the `konnakol_trainer` directory.
  */
 import assert from 'node:assert/strict';
 import {
@@ -33,7 +33,7 @@ function testComputeVelocity() {
 	const v0 = computeVelocity('accent', 0, true, true, 'Ta', false, mulberry32(2));
 	assert.equal(v0, 127);
 	const vPass = computeVelocity('passive', 2, false, false, 'Ka', false, mulberry32(3));
-	assert.equal(vPass, 80);
+	assert.equal(vPass, 75);
 }
 
 function testTicksPerCell() {
@@ -238,11 +238,12 @@ function testGenerateMidiSmoke() {
 }
 
 function testLaneRoleMidiNotes() {
-	assert.equal(resolveMidiNoteForLaneRole(0, 'passive'), 50); // V1/legacy D3
-	assert.equal(resolveMidiNoteForLaneRole(0, 'accent'), 23); // V1/legacy B0
-	assert.equal(resolveMidiNoteForLaneRole(1, 'accent'), 34); // V2 A#1
-	assert.equal(resolveMidiNoteForLaneRole(1, 'alt'), 21); // V2 A0
-	assert.equal(resolveMidiNoteForLaneRole(1, 'passive'), 51); // V2 D#3
+	assert.equal(resolveMidiNoteForLaneRole(0, 'accent'), 38); // V1 D1 acoustic snare (GM)
+	assert.equal(resolveMidiNoteForLaneRole(0, 'alt'), 36); // V1 C1 bass drum (GM)
+	assert.equal(resolveMidiNoteForLaneRole(0, 'passive'), 42); // V1 F#1 closed HH (GM)
+	assert.equal(resolveMidiNoteForLaneRole(1, 'accent'), 38); // V2 D1 acoustic snare (GM)
+	assert.equal(resolveMidiNoteForLaneRole(1, 'alt'), 36); // V2 C1 bass drum (GM)
+	assert.equal(resolveMidiNoteForLaneRole(1, 'passive'), 42); // V2 F#1 closed HH (GM)
 	assert.equal(resolveMidiNoteForLaneRole(1, 'taHigh'), 29); // V2 F1
 }
 
