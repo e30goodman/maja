@@ -366,12 +366,15 @@ const SequencerGridRow = React.memo(
 		return (
 			<div
 				ref={(el) => setRowEl(absR, el)}
-				className={`flex items-stretch bg-[#161f33] border border-[#23314f] min-h-0 relative ${
-					displayScaleBars > 7 ? 'gap-1 p-1 rounded-lg' : 'gap-2 p-1.5 rounded-xl'
+				className={`z-[12] flex items-stretch bg-[#161f33] border border-[#23314f] min-h-0 relative ${
+					displayScaleBars > 7 ? 'gap-1 p-1 rounded-lg' : 'gap-1.5 p-1 rounded-xl'
 				} ${isPolyRow ? 'border-l-4 border-l-blue-500/45' : ''} ${
 					polyStepTopRule ? 'mt-1.5 border-t border-[#2a3d66]/90 pt-1.5' : ''
 				} ${!effectiveUseFixedFlex ? 'flex-1' : ''}`}
 				style={{
+					// Stretch outer bar frame toward scrollbar without changing inner syllable grid geometry.
+					width: 'calc(100% + 8px)',
+					marginRight: '-8px',
 					flex: effectiveUseFixedFlex
 						? `0 0 ${(useFrozenRowHeight && Math.max(1, (frozenRowHeightsByRIdx[rIdx] ?? frozenRowHeightPx ?? 0)) > 1)
 							? `${Math.max(1, (frozenRowHeightsByRIdx[rIdx] ?? frozenRowHeightPx ?? 0))}px`
@@ -896,9 +899,9 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 				}`}
 				style={{
 					scrollbarGutter: 'stable',
-					width: 'calc(100% + 2px)',
-					paddingRight: '2px',
-					marginRight: '-2px',
+					width: 'calc(100% + 10px)',
+					paddingRight: '10px',
+					marginRight: '-10px',
 				}}
 			>
 				{Array.from({ length: virtualRowCount }).map((_, absR) => {
