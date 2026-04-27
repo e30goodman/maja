@@ -4742,7 +4742,7 @@ export default function App() {
   const PRESS_LONG_PRESS_MS = 600;
   /** Снежинка: slop отмены long-press при съезде пальца до истечения hold. */
   const PRESS_STAR_ARM_SLOP_PX = 8;
-  /** UI: визуал matrix на снежинке только при arm через звезду; фиолет thumb Bars — только при arm через слайдер. */
+  /** UI: источник arm (star|slider) — фиолет thumb Bars только со слайдера; снежинка «matrix glow» при любом primed (и со слайдера тоже). */
   const [pressMatrixArmSourceUi, setPressMatrixArmSourceUi] = useState<PressArmSource | null>(null);
   const pressStarLongPressTimerRef = useRef<number | null>(null);
   const pressStarLongPressFiredRef = useRef(false);
@@ -9585,9 +9585,9 @@ export default function App() {
                   className={`flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-all duration-300 ${
                     isPressStarLongPressing
                       ? `bg-violet-500/25 text-violet-300 ring-1 ring-violet-500/60 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(167,139,250,0.35)]'}`
-                      : pressMatrixArmSourceUi === 'star' && frozenScale !== null
+                      : pressMatrixArmSourceUi !== null && frozenScale !== null
                         ? `bg-violet-500/25 text-violet-300 ring-1 ring-violet-500/60 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(167,139,250,0.35)]'}`
-                        : pressMatrixArmSourceUi === 'star'
+                        : pressMatrixArmSourceUi !== null
                           ? `bg-violet-500/25 text-violet-300 ring-1 ring-violet-500/60 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(167,139,250,0.35)]'}`
                           : frozenScale !== null 
                             ? `bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/50 ${lowPerfMode ? '' : 'shadow-[0_0_8px_rgba(59,130,246,0.3)]'}` 
