@@ -4017,6 +4017,7 @@ export default function App() {
     frozenScaleRef.current = null;
     /* Press Matrix: full eraser disarms baseline (single source of "primed" reset). */
     notifyPressErased();
+    setIsPressMatrixPrimedUi(false);
   };
 
   /**
@@ -4608,27 +4609,35 @@ export default function App() {
    * primed = true. Существующий onClick проверяет `pressLongPressFiredRef`
    * и swallows event если long-press уже сработал.
    */
-  const PRESS_LONG_PRESS_MS = 450;
+  const PRESS_LONG_PRESS_MS = 600;
   const pressLongPressTimerRef = useRef<number | null>(null);
   const pressLongPressFiredRef = useRef(false);
   const [isPressLongPressing, setIsPressLongPressing] = useState(false);
+  const [isPressMatrixPrimedUi, setIsPressMatrixPrimedUi] = useState(false);
 
   const armPressFromCurrentMatrix = useCallback(() => {
     armPressFromState(getPressState());
+    setIsPressMatrixPrimedUi(true);
   }, [getPressState]);
+
+  const disarmPressMatrixMode = useCallback(() => {
+    notifyPressErased();
+    setIsPressMatrixPrimedUi(false);
+  }, []);
 
   const handlePressTriggerPointerDown = useCallback(() => {
     pressLongPressFiredRef.current = false;
-    setIsPressLongPressing(true);
     if (pressLongPressTimerRef.current !== null) {
       window.clearTimeout(pressLongPressTimerRef.current);
     }
     pressLongPressTimerRef.current = window.setTimeout(() => {
       pressLongPressFiredRef.current = true;
       pressLongPressTimerRef.current = null;
-      armPressFromCurrentMatrix();
+      setIsPressLongPressing(true);
+      if (isPressPrimed()) disarmPressMatrixMode();
+      else armPressFromCurrentMatrix();
     }, PRESS_LONG_PRESS_MS);
-  }, [armPressFromCurrentMatrix]);
+  }, [armPressFromCurrentMatrix, disarmPressMatrixMode]);
 
   const cancelPressTriggerLongPress = useCallback(() => {
     setIsPressLongPressing(false);
@@ -6356,8 +6365,13 @@ export default function App() {
         pulseMeterUnlinked: { ...nextPulseUnlinked },
         deadCells: { ...((snap as { deadCells?: DeadCellsMap }).deadCells || {}) },
       };
-      if (isPressStateEmpty(snapPressState)) notifyPressErased();
-      else armPressFromState(snapPressState);
+      if (isPressStateEmpty(snapPressState)) {
+        notifyPressErased();
+        setIsPressMatrixPrimedUi(false);
+      } else {
+        armPressFromState(snapPressState);
+        setIsPressMatrixPrimedUi(true);
+      }
     }
   };
 
@@ -9311,6 +9325,11 @@ export default function App() {
                   onClick={() => {
                     /* Press Matrix: swallow click if long-press already fired (arm-only). */
                     if (consumePressTriggerLongPress()) return;
+                    if (isPressMatrixPrimedUi && frozenScale === null) {
+                      // Single click exits matrix mode only when regular freeze is not active.
+                      notifyPressErased();
+                      setIsPressMatrixPrimedUi(false);
+                    }
                     setFrozenScale((prev) => {
                       const next = prev !== null ? null : bars;
                       const firstRowHeight = rowRefs.current[0]?.getBoundingClientRect().height ?? null;
@@ -9335,10 +9354,14 @@ export default function App() {
                   }}
                   className={`flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-all duration-300 ${
                     isPressLongPressing
-                      ? `bg-red-500/25 text-red-300 ring-1 ring-red-500/60 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(239,68,68,0.35)]'}`
+                      ? `bg-violet-500/25 text-violet-300 ring-1 ring-violet-500/60 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(167,139,250,0.35)]'}`
+                      : isPressMatrixPrimedUi && frozenScale !== null
+                        ? `bg-violet-500/25 text-violet-300 ring-1 ring-violet-500/60 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(167,139,250,0.35)]'}`
+                      : isPressMatrixPrimedUi
+                        ? `bg-violet-500/25 text-violet-300 ring-1 ring-violet-500/60 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(167,139,250,0.35)]'}`
                       : frozenScale !== null 
-                      ? `bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/50 ${lowPerfMode ? '' : 'shadow-[0_0_8px_rgba(59,130,246,0.3)]'}` 
-                      : 'bg-[#1e2a45]/40 text-slate-400 hover:text-slate-200 hover:bg-[#1e2a45] ring-1 ring-[#2f4066]/30'
+                        ? `bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/50 ${lowPerfMode ? '' : 'shadow-[0_0_8px_rgba(59,130,246,0.3)]'}` 
+                        : 'bg-[#1e2a45]/40 text-slate-400 hover:text-slate-200 hover:bg-[#1e2a45] ring-1 ring-[#2f4066]/30'
                   }`}
                   aria-label={frozenScale !== null ? 'Unfreeze row height' : 'Freeze row scale'}
                 >
