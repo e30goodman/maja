@@ -47,24 +47,36 @@ function deriveModesFromLegacyExport(
 }
 
 /** Lane 1 (legacy + poly V1). */
-export const MIDI_V1_ACCENT_NOTE = 38; // D1 (Acoustic Snare, GM)
+export const MIDI_V1_ACCENT_NOTE = 36; // C1 (Bass Drum 1, GM)
 export const MIDI_V1_PASSIVE_NOTE = 42; // F#1 (Closed Hi-Hat, GM)
-export const MIDI_V1_ALT_NOTE = 36; // C1 (Bass Drum 1, GM)
-export const MIDI_V1_TA_HIGH_NOTE = 56; // G#2 (legacy default, unchanged)
+export const MIDI_V1_ALT_NOTE = 38; // D1 (Acoustic Snare, GM)
+export const MIDI_V1_TA_HIGH_NOTE = 36; // C1 (merged with accent per Cubase mapping)
 
 /** Lane 2 (poly V2). */
-export const MIDI_V2_ACCENT_NOTE = 38; // D1 (Acoustic Snare, GM)
-export const MIDI_V2_ALT_NOTE = 36; // C1 (Bass Drum 1, GM)
-export const MIDI_V2_PASSIVE_NOTE = 42; // F#1 (Closed Hi-Hat, GM)
+export const MIDI_V2_ACCENT_NOTE = 47; // B1 (Low-Mid Tom, GM)
+export const MIDI_V2_ALT_NOTE = 39; // D#1 (Hand Clap, GM)
+export const MIDI_V2_PASSIVE_NOTE = 37; // C#1 (Side Stick / Rimshot, GM)
 export const MIDI_V2_TA_HIGH_NOTE = 29; // F1
+
+/** Lane 3 (poly V3). */
+export const MIDI_V3_ACCENT_NOTE = 56; // G#2 (Cowbell, GM)
+export const MIDI_V3_ALT_NOTE = 53; // F3 (Ride Bell, GM)
+export const MIDI_V3_PASSIVE_NOTE = 76; // E5 (Hi Wood Block, GM)
+export const MIDI_V3_TA_HIGH_NOTE = 57; // A2 (Crash Cymbal 2)
 
 const DRUM_CHANNEL = 10;
 
 export type MidiExportRole = 'accent' | 'alt' | 'passive' | 'taHigh';
+type MidiLaneProfile = 'base' | 'contrast' | 'ring';
 
-export function resolveMidiNoteForLaneRole(lane: number, role: MidiExportRole): number {
-	// Legacy mode always emits lane 0, so it follows V1 mapping.
-	if (lane === 1) {
+function resolveMidiNoteForProfileRole(profile: MidiLaneProfile, role: MidiExportRole): number {
+	if (profile === 'ring') {
+		if (role === 'accent') return MIDI_V3_ACCENT_NOTE;
+		if (role === 'alt') return MIDI_V3_ALT_NOTE;
+		if (role === 'passive') return MIDI_V3_PASSIVE_NOTE;
+		return MIDI_V3_TA_HIGH_NOTE;
+	}
+	if (profile === 'contrast') {
 		if (role === 'accent') return MIDI_V2_ACCENT_NOTE;
 		if (role === 'alt') return MIDI_V2_ALT_NOTE;
 		if (role === 'passive') return MIDI_V2_PASSIVE_NOTE;
@@ -74,6 +86,12 @@ export function resolveMidiNoteForLaneRole(lane: number, role: MidiExportRole): 
 	if (role === 'alt') return MIDI_V1_ALT_NOTE;
 	if (role === 'passive') return MIDI_V1_PASSIVE_NOTE;
 	return MIDI_V1_TA_HIGH_NOTE;
+}
+
+export function resolveMidiNoteForLaneRole(lane: number, role: MidiExportRole): number {
+	if (lane === 2) return resolveMidiNoteForProfileRole('ring', role);
+	if (lane === 1) return resolveMidiNoteForProfileRole('contrast', role);
+	return resolveMidiNoteForProfileRole('base', role);
 }
 
 export interface MidiExportInput {
@@ -116,6 +134,14 @@ export interface MidiExportInput {
 	dictantMode?: boolean;
 	/** Optional row-level runtime context (parent mode intent). */
 	rowRuntimeContexts?: Record<number, RowRuntimeContext>;
+	progressiveDensityMode?: 'gati_mode' | 'jati_mode';
+	deSyncJatiActive?: boolean;
+	deSyncCycleLength?: number;
+	/** Click preset identity for lane-profile collapsing logic in poly exports. */
+	clickSound?: string;
+	clickSoundByPolyVoice?: Partial<Record<0 | 1 | 2, string>>;
+	/** Optional lane-role gain multipliers from metronome sliders (voice gain * bus gain). */
+	laneRoleGains?: Partial<Record<0 | 1 | 2, { accent: number; alt: number; passive: number }>>;
 }
 
 export type ClassifiedHits = {
@@ -217,10 +243,26 @@ export function effectiveBpmForRow(
 	customSyllables: Record<number, number>,
 	pulseMeterUnlinked: Record<number, boolean> | undefined,
 	customMultipliers: Record<number, number> | undefined,
+	progressiveDensityMode?: 'gati_mode' | 'jati_mode',
+	deSyncJatiActive?: boolean,
+	deSyncCycleLength?: number,
 ): number {
 	const rowSyllables =
 		customSyllables[rowIdx] !== undefined ? customSyllables[rowIdx]! : baseSyllables;
-	const pulseSyllables = pulseMeterUnlinked?.[rowIdx] ? PULSE_METER_BASE_SYLLABLES : rowSyllables;
+	const jatiCycle =
+		progressiveDensityMode === 'jati_mode' &&
+		deSyncJatiActive === true &&
+		typeof deSyncCycleLength === 'number' &&
+		Number.isFinite(deSyncCycleLength) &&
+		deSyncCycleLength >= 1
+			? Math.max(1, Math.floor(deSyncCycleLength))
+			: null;
+	const pulseSyllables =
+		jatiCycle !== null
+			? jatiCycle
+			: pulseMeterUnlinked?.[rowIdx]
+				? PULSE_METER_BASE_SYLLABLES
+				: rowSyllables;
 	const mult = customMultipliers?.[rowIdx] ?? 1;
 	return bpm * (pulseSyllables / 4) * mult;
 }
@@ -233,8 +275,21 @@ export function ticksPerCellFromRow(
 	pulseMeterUnlinked: Record<number, boolean> | undefined,
 	customMultipliers: Record<number, number> | undefined,
 	ppq: number,
+	progressiveDensityMode?: 'gati_mode' | 'jati_mode',
+	deSyncJatiActive?: boolean,
+	deSyncCycleLength?: number,
 ): number {
-	const eff = effectiveBpmForRow(bpm, rowIdx, baseSyllables, customSyllables, pulseMeterUnlinked, customMultipliers);
+	const eff = effectiveBpmForRow(
+		bpm,
+		rowIdx,
+		baseSyllables,
+		customSyllables,
+		pulseMeterUnlinked,
+		customMultipliers,
+		progressiveDensityMode,
+		deSyncJatiActive,
+		deSyncCycleLength,
+	);
 	if (!Number.isFinite(eff) || eff <= 0) return ppq;
 	return (ppq * bpm) / eff;
 }
@@ -252,6 +307,9 @@ function resolveAdaptivePpq(input: MidiExportInput, requestedPpq: number): numbe
 			input.pulseMeterUnlinked,
 			input.customMultipliers,
 			requestedPpq,
+			input.progressiveDensityMode,
+			input.deSyncJatiActive,
+			input.deSyncCycleLength,
 		);
 		if (Number.isFinite(t) && t > 0) minCellTicks = Math.min(minCellTicks, t);
 	}
@@ -276,25 +334,16 @@ export function computeVelocity(
 	humanize: boolean,
 	rng: () => number,
 ): number {
-	let baseMidi =
-		role === 'accent' ? 115 : role === 'alt' ? 105 : role === 'taHigh' ? 108 : 85;
-	const low = headSyllable.trim().toLowerCase();
-	if (low === 'thom' || low === 'num' || low === 'dhi') baseMidi += 5;
-	if (low === 'ka' || low === 'ki') baseMidi -= 5;
-	if (colIdx === 0 && (mainAccent || shouldPlayFirstBeatTa)) baseMidi = 127;
-	if (humanize) {
-		baseMidi += Math.floor(rng() * 11) - 5;
-	}
-	if (role === 'accent') {
-		return Math.max(110, Math.min(127, baseMidi));
-	}
-	if (role === 'alt') {
-		return Math.max(90, Math.min(100, baseMidi));
-	}
-	if (role === 'passive') {
-		return Math.max(60, Math.min(75, baseMidi));
-	}
-	return Math.max(1, Math.min(127, baseMidi));
+	if (role === 'accent') return 120;
+	if (role === 'alt') return 95;
+	if (role === 'passive') return 70;
+	return 108;
+}
+
+function lanePanCc10(profile: MidiLaneProfile): number {
+	if (profile === 'contrast') return 40;
+	if (profile === 'ring') return 88;
+	return 64;
 }
 
 /**
@@ -360,13 +409,13 @@ export function classifyGridCellHits(args: {
 	const sub = 0;
 	const mainAccentClick = isAccent && (subdivs > 1 || sub === 0);
 	const shouldPlayFirstBeatTa =
-		colIdx === 0 && firstBeatAccent && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
-	const isTaDingCell = firstBeatAccent && colIdx >= 1 && taDingKeys.has(`${rowIdx}-${colIdx}`);
+		colIdx === 0 && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
+	const isTaDingCell = colIdx >= 1 && taDingKeys.has(`${rowIdx}-${colIdx}`);
 	const shouldPlayTaDingSound = isTaDingCell && (subdivs > 1 || sub === 0);
-	const hasTaDingHere = firstBeatAccent && taDingKeys.has(`${rowIdx}-${colIdx}`);
+	const hasTaDingHere = taDingKeys.has(`${rowIdx}-${colIdx}`);
 
 	const isTaFirstBeatArticulation =
-		colIdx === 0 && firstBeatAccent && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
+		colIdx === 0 && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
 	const sharpAsChecked = (() => {
 		if (dictantActive) return mainAccentClick;
 		if (muteMode === 'no_accent_sharp' && mainAccentClick && !isTaFirstBeatArticulation) return false;
@@ -391,15 +440,19 @@ export function classifyGridCellHits(args: {
 	if (!shouldPlayBeat) return out;
 	if (shouldPlayTaDingSound && !sharpAsChecked && trainerTaOnly) return out;
 	if (shouldPlayFirstBeatTa && !sharpAsChecked && trainerTaOnly) return out;
+	// Additive base layer: passive is always present on playable cells.
+	out.passive = true;
 
 	if (sharpAsChecked) {
 		out.accent = true;
-	} else {
-		if (mixerLayerMode !== 'alt_only') {
-			out.passive = true;
-		}
 	}
-	if (sharpAsChecked && mixerLayerMode === 'full_mix' && !shouldPlayFirstBeatTa && !shouldPlayTaDingSound) {
+	if (
+		sharpAsChecked
+		&& mixerLayerMode === 'full_mix'
+		&& colIdx > 0
+		&& !shouldPlayFirstBeatTa
+		&& !shouldPlayTaDingSound
+	) {
 		out.altShadow = true;
 	} else if (
 		sharpAsChecked &&
@@ -407,7 +460,7 @@ export function classifyGridCellHits(args: {
 		!shouldPlayFirstBeatTa &&
 		!shouldPlayTaDingSound
 	) {
-		out.passive = true;
+		// no-op: passive already on by additive base policy
 	}
 	if (polyMode) {
 		polyClickSlots.add(polyDedupKey);
@@ -433,13 +486,26 @@ function getBarTimeWindowSeconds(
 	customSyllables: Record<number, number>,
 	pulseMeterUnlinked: Record<number, boolean> | undefined,
 	customMultipliers: Record<number, number> | undefined,
+	progressiveDensityMode: 'gati_mode' | 'jati_mode' | undefined,
+	deSyncJatiActive: boolean | undefined,
+	deSyncCycleLength: number | undefined,
 	bpm: number,
 ): number {
 	const noteDur =
 		60 /
 		Math.max(
 			1e-6,
-			effectiveBpmForRow(bpm, rowIdx, baseSyllables, customSyllables, pulseMeterUnlinked, customMultipliers),
+			effectiveBpmForRow(
+				bpm,
+				rowIdx,
+				baseSyllables,
+				customSyllables,
+				pulseMeterUnlinked,
+				customMultipliers,
+				progressiveDensityMode,
+				deSyncJatiActive,
+				deSyncCycleLength,
+			),
 		);
 	const rowSyl = getRowSyl(rowIdx, baseSyllables, customSyllables);
 	return noteDur * Math.max(1, rowSyl);
@@ -508,6 +574,7 @@ function buildPendingNotes(input: MidiExportInput): {
 	bpm: number;
 	ppq: number;
 	laneCount: number;
+	laneProfiles: MidiLaneProfile[];
 } {
 	const bpm = input.bpm;
 	const requestedPpq = input.ppq ?? 960;
@@ -555,6 +622,24 @@ function buildPendingNotes(input: MidiExportInput): {
 	const V: PolyVoicesCount = input.polyVoices === 3 ? 3 : 2;
 	const laneCount = input.polyMode ? (V === 3 ? 3 : 2) : 1;
 	const drumDurTicks = Math.max(1, Math.round(ppq / 4)); // 1/16 note
+	const masterPreset = typeof input.clickSound === 'string' && input.clickSound.length > 0 ? input.clickSound : 'classic';
+	const resolvePreset = (lane: number): string =>
+		typeof input.clickSoundByPolyVoice?.[lane as 0 | 1 | 2] === 'string'
+			? (input.clickSoundByPolyVoice?.[lane as 0 | 1 | 2] as string)
+			: masterPreset;
+	const laneProfiles: MidiLaneProfile[] = Array.from({ length: laneCount }, () => 'base');
+	if (laneCount > 1) {
+		const p2 = resolvePreset(1);
+		const p3 = laneCount > 2 ? resolvePreset(2) : masterPreset;
+		const v2Alt = p2 !== masterPreset;
+		const v3Alt = p3 !== masterPreset;
+		laneProfiles[1] = v2Alt ? 'contrast' : 'base';
+		if (laneCount > 2) {
+			if (!v3Alt) laneProfiles[2] = 'base';
+			else if (v2Alt && p2 === p3) laneProfiles[2] = 'contrast';
+			else laneProfiles[2] = 'ring';
+		}
+	}
 	const kalamMap: KalamMap = new Map();
 	const pending: PendingNote[] = [];
 	let noteCount = 0;
@@ -572,8 +657,10 @@ function buildPendingNotes(input: MidiExportInput): {
 		shouldPlayFirstBeatTa: boolean,
 	) => {
 		if (noteCount >= maxNotes) return;
-		const pitch = resolveMidiNoteForLaneRole(lane, role);
-		const vel = computeVelocity(role, colIdx, mainAccent, shouldPlayFirstBeatTa, headSyl, humanize, rng);
+		const pitch = resolveMidiNoteForProfileRole(laneProfiles[lane] ?? 'base', role);
+		const velBase = computeVelocity(role, colIdx, mainAccent, shouldPlayFirstBeatTa, headSyl, humanize, rng);
+		// TEMP: keep export velocity independent from runtime metronome faders.
+		const vel = velBase;
 		pushNote(
 			pending,
 			trackIndexFor(lane, role),
@@ -612,9 +699,9 @@ function buildPendingNotes(input: MidiExportInput): {
 		const rowTaDing = input.polyMode ? taDingByLane[laneSetIdx] : taDingKeys;
 		const rowFirstBeat = input.polyMode ? firstBeatByLane[laneSetIdx] : input.firstBeatAccent;
 		const isAccent = rowAccents.has(`${rowIdx}-${colIdx}`);
-		const firstBeatPolicy: FirstBeatHitPolicy = input.polyMode
-			? (laneSetIdx === 0 ? 'legacy' : 'explicit_ta_only')
-			: 'legacy';
+		// Poly export sync policy: both lanes receive first-beat Ta at timeline start
+		// when firstBeat is enabled for the lane (legacy parity requested by user).
+		const firstBeatPolicy: FirstBeatHitPolicy = 'legacy';
 		const hits = classifyGridCellHits({
 			rowIdx,
 			colIdx,
@@ -643,7 +730,7 @@ function buildPendingNotes(input: MidiExportInput): {
 			rowFirstBeat,
 			suppressed.has(rowIdx),
 		);
-		const shouldPlayFirstBeatTa = colIdx === 0 && rowFirstBeat && firstBeatCellHitRow && (subdivs > 1 || 0 === 0);
+		const shouldPlayFirstBeatTa = colIdx === 0 && firstBeatCellHitRow && (subdivs > 1 || 0 === 0);
 		const mainAccent = isAccent;
 		const cellTicks = ticksPerCellFromRow(
 			bpm,
@@ -653,6 +740,9 @@ function buildPendingNotes(input: MidiExportInput): {
 			pulseU,
 			mult,
 			ppq,
+			input.progressiveDensityMode,
+			input.deSyncJatiActive,
+			input.deSyncCycleLength,
 		);
 		const rowEffBpm = effectiveBpmForRow(
 			bpm,
@@ -661,6 +751,9 @@ function buildPendingNotes(input: MidiExportInput): {
 			input.customSyllables,
 			pulseU,
 			mult,
+			input.progressiveDensityMode,
+			input.deSyncJatiActive,
+			input.deSyncCycleLength,
 		);
 		const headSyl = headSyllableForCell(
 			rowSyl,
@@ -677,13 +770,42 @@ function buildPendingNotes(input: MidiExportInput): {
 		const subCellTicks = cellTicks / subCount;
 		if (hits.taHigh) tryPush(lane, 'taHigh', baseTick, subCellTicks, rowIdx, colIdx, subdivs, headSyl, mainAccent, shouldPlayFirstBeatTa);
 		if (hits.accent) tryPush(lane, 'accent', baseTick, subCellTicks, rowIdx, colIdx, subdivs, headSyl, mainAccent, shouldPlayFirstBeatTa);
-		if (hits.altShadow) tryPush(lane, 'alt', baseTick, subCellTicks, rowIdx, colIdx, subdivs, headSyl, mainAccent, shouldPlayFirstBeatTa);
-		// Kick follows Ta-grid semantics (explicit/default Ta hits with suppression respected).
-		if (hits.taHigh && !hits.altShadow) {
-			tryPush(lane, 'alt', baseTick, subCellTicks, rowIdx, colIdx, subdivs, headSyl, mainAccent, shouldPlayFirstBeatTa);
+		if (hits.altShadow) {
+			for (let subIdx = 0; subIdx < subCount; subIdx++) {
+				const subTick = baseTick + subIdx * subCellTicks;
+				tryPush(
+					lane,
+					'alt',
+					subTick,
+					subCellTicks,
+					rowIdx,
+					colIdx,
+					subdivs,
+					headSyl,
+					mainAccent,
+					shouldPlayFirstBeatTa,
+				);
+			}
 		}
 		if (hits.passive) {
 			for (let subIdx = 0; subIdx < subCount; subIdx++) {
+				const subTick = baseTick + subIdx * subCellTicks;
+				tryPush(
+					lane,
+					'passive',
+					subTick,
+					subCellTicks,
+					rowIdx,
+					colIdx,
+					subdivs,
+					headSyl,
+					mainAccent,
+					shouldPlayFirstBeatTa,
+				);
+			}
+		} else if (subCount > 1 && (hits.taHigh || hits.accent || hits.altShadow)) {
+			// Keep DIVS audible on accented/alt cells: inner subdivisions are emitted as passive tails.
+			for (let subIdx = 1; subIdx < subCount; subIdx++) {
 				const subTick = baseTick + subIdx * subCellTicks;
 				tryPush(
 					lane,
@@ -709,7 +831,22 @@ function buildPendingNotes(input: MidiExportInput): {
 			for (const step of seq) {
 				if (wall > maxWall) break;
 				emitCell(step.r, step.c, 0, wall, false, 0, polyClickSlots);
-				wall += 60 / Math.max(1e-6, effectiveBpmForRow(bpm, step.r, input.baseSyllables, input.customSyllables, pulseU, mult));
+				wall +=
+					60 /
+					Math.max(
+						1e-6,
+						effectiveBpmForRow(
+							bpm,
+							step.r,
+							input.baseSyllables,
+							input.customSyllables,
+							pulseU,
+							mult,
+							input.progressiveDensityMode,
+							input.deSyncJatiActive,
+							input.deSyncCycleLength,
+						),
+					);
 			}
 			if (wall > maxWall) break;
 		}
@@ -734,7 +871,17 @@ function buildPendingNotes(input: MidiExportInput): {
 			if (L.barIndices.length === 0) return 0;
 			let s = 0;
 			for (const b of L.barIndices) {
-				s += getBarTimeWindowSeconds(b, input.baseSyllables, input.customSyllables, pulseU, mult, bpm);
+				s += getBarTimeWindowSeconds(
+					b,
+					input.baseSyllables,
+					input.customSyllables,
+					pulseU,
+					mult,
+					input.progressiveDensityMode,
+					input.deSyncJatiActive,
+					input.deSyncCycleLength,
+					bpm,
+				);
 			}
 			return s;
 		});
@@ -756,7 +903,18 @@ function buildPendingNotes(input: MidiExportInput): {
 			if (best === null || bestT > horizon) break;
 			const bar = best.barIndices[best.barCursor]!;
 			const rowSyl = getRowSyl(bar, input.baseSyllables, input.customSyllables);
-			const dBar = getBarTimeWindowSeconds(bar, input.baseSyllables, input.customSyllables, pulseU, mult, bpm) / Math.max(1, rowSyl);
+			const dBar =
+				getBarTimeWindowSeconds(
+					bar,
+					input.baseSyllables,
+					input.customSyllables,
+					pulseU,
+					mult,
+					input.progressiveDensityMode,
+					input.deSyncJatiActive,
+					input.deSyncCycleLength,
+					bpm,
+				) / Math.max(1, rowSyl);
 			const deadStart = deadMap[bar]?.deadStart;
 			emitCell(bar, best.cellCursor, best.laneId, bestT, true, best.laneId, polyClickSlots);
 			const { nextC, advanceBar } = advancePolyLaneAfterEmit(best.cellCursor, rowSyl, deadStart);
@@ -772,7 +930,7 @@ function buildPendingNotes(input: MidiExportInput): {
 		}
 	}
 	pending.sort((a, b) => a.tick - b.tick || a.trackIndex - b.trackIndex);
-	return { pending, bpm, ppq, laneCount };
+	return { pending, bpm, ppq, laneCount, laneProfiles };
 }
 
 export type MidiParityEvent = {
@@ -822,29 +980,159 @@ export function buildMidiParityEvents(input: MidiExportInput): {
 }
 
 export function generateMidi(input: MidiExportInput): Uint8Array {
-	const { pending, bpm, ppq, laneCount } = buildPendingNotes(input);
-
-	const conductor = new MidiWriter.Track();
-	conductor.setTempo(bpm, 0);
-	conductor.addTrackName('Tempo');
-
-	const drumTracks: InstanceType<typeof MidiWriter.Track>[] = [];
-	for (let lane = 0; lane < laneCount; lane++) {
-		const labels = ['Accent', 'Alt', 'Passive', 'TaHigh'] as const;
-		for (let k = 0; k < 4; k++) {
-			const t = new MidiWriter.Track();
-			const prefix = laneCount > 1 ? `V${lane + 1}-` : '';
-			t.addTrackName(`${prefix}${labels[k]}`);
-			drumTracks.push(t);
+	const { pending, bpm, ppq, laneCount, laneProfiles } = buildPendingNotes(input);
+	if (laneCount === 1) {
+		// Legacy compatibility mode (reference-aligned):
+		// - single track (type-0 writer output)
+		// - 480 TPB timeline with 1-bar lead-in offset
+		// - 3 instrument voices only: Accent/Alt/Passive (TaHigh merged into Accent)
+		const LEGACY_TPB = 480;
+		const LEGACY_TICK_OFFSET = 3840;
+		const roleOrder = (r: MidiExportRole): number =>
+			r === 'accent' ? 0 : r === 'passive' ? 1 : r === 'alt' ? 2 : 3;
+		const laneProfile = laneProfiles[0] ?? 'base';
+		const tr = new MidiWriter.Track();
+		tr.addTrackName('Tempo');
+		tr.setTempo(bpm, LEGACY_TICK_OFFSET);
+		// Keep role-channel CC pan events (historical compatibility: 3 identical CC10 at start tick).
+		for (let i = 0; i < 3; i++) {
+			tr.addEvent(
+				new MidiWriter.ControllerChangeEvent({
+					controllerNumber: 10,
+					controllerValue: lanePanCc10(laneProfile),
+					channel: DRUM_CHANNEL,
+					tick: LEGACY_TICK_OFFSET,
+				}),
+			);
 		}
+		const norm = pending
+			.map((n) => ({
+				...n,
+				role: n.role === 'taHigh' ? 'accent' : n.role,
+				pitch: n.role === 'taHigh' ? MIDI_V1_ACCENT_NOTE : n.pitch,
+				tick: LEGACY_TICK_OFFSET + Math.max(0, Math.floor(n.tick / 2)),
+				durationTicks: Math.max(1, Math.floor(n.durationTicks / 2)),
+			}))
+			.filter((n) => n.role === 'accent' || n.role === 'alt' || n.role === 'passive')
+			.sort((a, b) => (a.tick - b.tick) || (roleOrder(a.role) - roleOrder(b.role)));
+		const seen = new Set<string>();
+		for (const n of norm) {
+			const dedupeKey = `${n.tick}:${n.pitch}:${n.durationTicks}:${n.role}`;
+			if (seen.has(dedupeKey)) continue;
+			seen.add(dedupeKey);
+			tr.addEvent(
+				new MidiWriter.NoteEvent({
+					pitch: n.pitch,
+					startTick: n.tick,
+					duration: `T${n.durationTicks}`,
+					velocity: n.velocity,
+					channel: DRUM_CHANNEL,
+				}),
+			);
+		}
+		const writer = new MidiWriter.Writer([tr], { ticksPerBeat: LEGACY_TPB });
+		return writer.buildFile();
+	}
+
+	const labels = ['Accent', 'Alt', 'Passive', 'TaHigh'] as const;
+	const polyGroupByLane: number[] = [];
+	const polyGroupRepLane: number[] = [];
+	if (laneCount > 1) {
+		const masterPreset =
+			typeof input.clickSound === 'string' && input.clickSound.length > 0
+				? input.clickSound
+				: 'classic';
+		const resolvePresetName = (lane: number): string =>
+			typeof input.clickSoundByPolyVoice?.[lane as 0 | 1 | 2] === 'string'
+				? (input.clickSoundByPolyVoice?.[lane as 0 | 1 | 2] as string)
+				: masterPreset;
+		const byPresetName = new Map<string, number>();
+		for (let lane = 0; lane < laneCount; lane++) {
+			const presetName = resolvePresetName(lane);
+			let g = byPresetName.get(presetName);
+			if (g === undefined) {
+				g = byPresetName.size;
+				byPresetName.set(presetName, g);
+				polyGroupRepLane[g] = lane;
+			}
+			polyGroupByLane[lane] = g;
+		}
+	}
+	const normalizeTrackIndex = (trackIndex: number): number => {
+		// Legacy export keeps only 3 tracks: Accent/Alt/Passive.
+		// TaHigh events are merged into Accent track.
+		if (laneCount === 1 && trackIndex === 3) return 0;
+		// Poly export: one instrument track per preset-name group.
+		if (laneCount > 1) {
+			const lane = Math.floor(trackIndex / 4);
+			const g = polyGroupByLane[lane] ?? lane;
+			return g;
+		}
+		return trackIndex;
+	};
+	const usedTrackIndices = Array.from(new Set(pending.map((n) => normalizeTrackIndex(n.trackIndex)))).sort((a, b) => a - b);
+	const trackIndexToDense = new Map<number, number>();
+	const denseToLane: number[] = [];
+	const drumTracks: InstanceType<typeof MidiWriter.Track>[] = [];
+	for (let dense = 0; dense < usedTrackIndices.length; dense++) {
+		const rawTrackIdx = usedTrackIndices[dense];
+		trackIndexToDense.set(rawTrackIdx, dense);
+		const laneRaw = rawTrackIdx;
+		const lane = laneCount > 1 ? (polyGroupRepLane[laneRaw] ?? laneRaw) : laneRaw;
+		const t = new MidiWriter.Track();
+		const prefix = laneCount > 1 ? `V${lane + 1}` : 'Tempo';
+		t.addTrackName(prefix);
+		denseToLane[dense] = lane;
+		const laneProfile = laneProfiles[lane] ?? 'base';
+		t.addEvent(
+			new MidiWriter.ControllerChangeEvent({
+				controllerNumber: 10,
+				controllerValue: lanePanCc10(laneProfile),
+				channel: DRUM_CHANNEL,
+				tick: 0,
+			}),
+		);
+		drumTracks.push(t);
+	}
+	if (laneCount > 1) {
+		for (let dense = 0; dense < drumTracks.length; dense++) {
+			const lane = denseToLane[dense] ?? dense;
+			const hasTaAtStart = pending.some((n) => n.lane === lane && n.role === 'taHigh' && n.tick === 0);
+			if (!hasTaAtStart) continue;
+			const laneProfile = laneProfiles[lane] ?? 'base';
+			drumTracks[dense]!.addEvent(
+				new MidiWriter.NoteEvent({
+					pitch: resolveMidiNoteForProfileRole(laneProfile, 'accent'),
+					startTick: 0,
+					duration: `T${Math.max(1, Math.round(ppq / 4))}`,
+					velocity: toWriterVelocity(108),
+					channel: DRUM_CHANNEL,
+				}),
+			);
+		}
+	}
+	if (drumTracks.length > 0) {
+		drumTracks[0].setTempo(bpm, 0);
+	} else {
+		const t = new MidiWriter.Track();
+		t.addTrackName('Tempo');
+		t.setTempo(bpm, 0);
+		drumTracks.push(t);
 	}
 
 	for (const n of pending) {
-		const tr = drumTracks[n.trackIndex];
+		const denseIdx = trackIndexToDense.get(normalizeTrackIndex(n.trackIndex));
+		if (denseIdx === undefined) continue;
+		const tr = drumTracks[denseIdx];
 		if (!tr) continue;
+		const laneProfile = laneProfiles[n.lane] ?? 'base';
+		const outPitch =
+			laneCount > 1 && n.role === 'taHigh'
+				? resolveMidiNoteForProfileRole(laneProfile, 'accent')
+				: n.pitch;
 		tr.addEvent(
 			new MidiWriter.NoteEvent({
-				pitch: n.pitch,
+				pitch: outPitch,
 				startTick: n.tick,
 				duration: `T${n.durationTicks}`,
 				velocity: n.velocity,
@@ -853,7 +1141,7 @@ export function generateMidi(input: MidiExportInput): Uint8Array {
 		);
 	}
 
-	const writer = new MidiWriter.Writer([conductor, ...drumTracks], { ticksPerBeat: ppq });
+	const writer = new MidiWriter.Writer(drumTracks, { ticksPerBeat: ppq });
 	return writer.buildFile();
 }
 
