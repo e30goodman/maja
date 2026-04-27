@@ -6314,7 +6314,7 @@ export default function App() {
       });
       const exportBpm = Math.max(1, Math.round(src ? src.tempo : tempoRef.current));
       const exportVoices = exportPolyMode ? pv : 1;
-      const name = `konnakol_${exportBpm}bpm_${exportVoices}v_${APP_COMMIT_VERSION}.mid`;
+      const name = `midi_${exportBpm}bpm_${exportVoices}v.mid`;
       const file = new File([blob], name, { type: 'audio/midi' });
       if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
         const can = navigator.canShare?.({ files: [file] });

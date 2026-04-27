@@ -453,16 +453,8 @@ const SequencerGridRow = React.memo(
 									a.onPulseLongPressModeSwitch?.(rIdx, rowSylls, nextVal);
 									const next = { ...prev, [rIdx]: nextVal };
 									a.pulseMeterUnlinkedRef.current = { ...next };
-									/* Enable pulse unlink from bar syllable count -> reset bar speed multiplier (x2..x4), otherwise it remains in poly visually and in audio. */
-									if (nextVal) {
-										a.setCustomMultipliers((pm) => {
-											if (pm[rIdx] === undefined) return pm;
-											const copy = { ...pm };
-											delete copy[rIdx];
-											a.customMultipliersRef.current = { ...copy };
-											return copy;
-										});
-									}
+									// Keep row multiplier active in pulse-unlinked mode:
+									// runtime speed remains tempo * (pulse/4) * multiplier.
 									return next;
 								});
 								a.pulseUnlinkHoldTimerRef.current = null;
