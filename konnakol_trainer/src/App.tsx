@@ -400,7 +400,7 @@ const DEFAULT_POLY_VOICE_GAINS: PolyVoiceGainMap = { 0: 1, 1: 1, 2: 1 };
 /** Debounce `playTwoBarsPreviewFromGrid` after bus 1/2/3 slider moves. */
 const CLICK_PRESET_BUS_TWO_BARS_PREVIEW_DEBOUNCE_MS = 120;
 const APP_COMMIT_VERSION = (() => {
-	if (typeof __GIT_SHA7__ === 'string' && __GIT_SHA7__.length >= 7) return __GIT_SHA7__.slice(0, 7);
+	if (typeof __APP_BUILD_COMMIT__ === 'string' && __APP_BUILD_COMMIT__.length >= 7) return __APP_BUILD_COMMIT__.slice(0, 7);
 	return 'dev';
 })();
 const TEMPO_THROTTLE_MS = 56;
@@ -2745,10 +2745,16 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 	const markerMatch = t.match(SNAPSHOT_CLIPBOARD_MARKER_REGEX);
 	const hasNewMarker = markerMatch !== null;
 	const hasLegacyCompactMarker = t.startsWith(SNAPSHOT_CLIPBOARD_PREFIX_LEGACY_COMPACT);
-	if (hasNewMarker || hasLegacyCompactMarker) {
+	const hasBareCompact =
+		!hasNewMarker &&
+		!hasLegacyCompactMarker &&
+		/^\d+\.\d+\.\d+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.\d+\.\d+\.\d+$/.test(t);
+	if (hasNewMarker || hasLegacyCompactMarker || hasBareCompact) {
 		const markerLength = hasNewMarker
 			? markerMatch![0].length
-			: SNAPSHOT_CLIPBOARD_PREFIX_LEGACY_COMPACT.length;
+			: hasLegacyCompactMarker
+				? SNAPSHOT_CLIPBOARD_PREFIX_LEGACY_COMPACT.length
+				: 0;
 		const body = t.slice(markerLength).replace(/\s+/g, '');
 		if (!body) return null;
 		const compactParts = body.split('.');
@@ -2820,6 +2826,10 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 			applySnapshotSoundId(soundId, d);
 			if (gridTokenRaw.startsWith('p1') || gridTokenRaw.startsWith('p2') || gridTokenRaw.startsWith('p3')) {
 				if (!unpackGridTokenPacked(gridTokenRaw, d)) return null;
+				// Some shared compact strings have outer bars/syllables that are newer than packed p3 internals.
+				// Keep explicit outer geometry to preserve user-intended layout on paste.
+				d.bars = bars;
+				d.syllables = syllables;
 			} else if (gridTokenRaw.includes('|')) {
 				const [accentToken, rowSyllablesToken, subdivisionsToken, multipliersToken, pulseUnlinkedToken] =
 					gridTokenRaw.split('|');
@@ -2864,6 +2874,9 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 			applySnapshotSoundId(soundId, d);
 			if (gridTokenRaw.startsWith('p1') || gridTokenRaw.startsWith('p2') || gridTokenRaw.startsWith('p3')) {
 				if (!unpackGridTokenPacked(gridTokenRaw, d)) return null;
+				// Keep explicit compact header geometry for compatibility with externally edited short snapshots.
+				d.bars = bars;
+				d.syllables = syllables;
 			} else if (gridTokenRaw.includes('|')) {
 				const [accentToken, rowSyllablesToken, subdivisionsToken, multipliersToken, pulseUnlinkedToken] =
 					gridTokenRaw.split('|');
@@ -2903,6 +2916,11 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 		}
 	}
 	return null;
+}
+
+// Debug helper for offline timing reports from compact snapshot strings.
+export function decodeSnapshotClipboardForReport(text: string) {
+  return tryDecodeSnapshotClipboard(text);
 }
 
 function loadSnapshotStorage(): {
@@ -6209,38 +6227,94 @@ export default function App() {
     }
   };
 
-  const handleExportMidi = () => {
+  const handleExportMidi = async () => {
     try {
-      const pv = polyVoicesRef.current === 3 ? 3 : 2;
+      let exportSnapshot: ReturnType<typeof createEmptySnapshot> | null = null;
+      try {
+        if (typeof navigator !== 'undefined' && navigator.clipboard?.readText) {
+          const clip = await navigator.clipboard.readText();
+          const parsed = tryDecodeSnapshotClipboard(clip);
+          if (parsed) {
+            exportSnapshot = normalizeSnapshotForStorage(parsed);
+          }
+        }
+      } catch {
+        // Clipboard may be unavailable; silently fall back to current UI state.
+      }
+
+      const src = exportSnapshot;
+      const exportPolyMode = src ? src.polyMode === true : polyModeRef.current;
+      const exportPolyVoices = src ? parsePolyVoices(src.polyVoices) : polyVoicesRef.current;
+      const pv = exportPolyVoices === 3 ? 3 : 2;
+      const laneRoleGains: Partial<Record<0 | 1 | 2, { accent: number; alt: number; passive: number }>> = {};
+      const laneCount = exportPolyMode ? pv : 1;
+      for (let lane = 0; lane < laneCount; lane++) {
+        const voiceIdx = (lane <= 0 ? 0 : lane === 1 ? 1 : 2) as 0 | 1 | 2;
+        const sourceVoiceGains = src
+          ? parsePolyVoiceGainsFromUnknown((src as { polyVoiceGains?: unknown }).polyVoiceGains) ?? DEFAULT_POLY_VOICE_GAINS
+          : polyVoiceGainsRef.current;
+        const sourceClickSound = src ? src.clickSound : clickSoundRef.current;
+        const sourceClickSoundByVoice = src ? normalizeClickSoundByPolyVoice(src.clickSoundByPolyVoice) : clickSoundByPolyVoiceRef.current;
+        const sourceBusByVoice = src
+          ? parseClickBusBalanceByVoicePresetFromUnknown((src as { clickBusBalanceByVoicePreset?: unknown }).clickBusBalanceByVoicePreset) ?? {}
+          : clickPresetBusGainsByVoiceRef.current;
+        const sourceBusByPreset = src
+          ? parseClickBusBalanceByPresetFromUnknown((src as { clickBusBalanceByPreset?: unknown }).clickBusBalanceByPreset) ?? {}
+          : clickPresetBusGainsRef.current;
+        const voiceGain = exportPolyMode
+          ? Math.max(0, Math.min(1.6, sourceVoiceGains[voiceIdx] ?? 1))
+          : Math.max(0, Math.min(1.6, sourceVoiceGains[0] ?? 1));
+        const preset = resolveClickSoundForPolyVoice(
+          voiceIdx,
+          exportPolyMode,
+          sourceClickSoundByVoice,
+          sourceClickSound,
+        );
+        const bus = getClickPresetBusGainsForVoicePreset(
+          sourceBusByVoice,
+          sourceBusByPreset,
+          voiceIdx,
+          preset,
+        );
+        laneRoleGains[voiceIdx] = {
+          accent: Math.max(0, voiceGain * bus.accent),
+          alt: Math.max(0, voiceGain * bus.alt),
+          passive: Math.max(0, voiceGain * bus.passive),
+        };
+      }
       const blob = generateMidiBlob({
-        bpm: tempoRef.current,
-        bars: barsRef.current,
-        baseSyllables: syllablesRef.current,
-        customSyllables: { ...customSyllablesRef.current },
-        customSubdivisions: { ...customSubdivisionsRef.current },
-        pulseMeterUnlinked: { ...pulseMeterUnlinkedRef.current },
-        customMultipliers: { ...customMultipliersRef.current },
+        bpm: src ? src.tempo : tempoRef.current,
+        bars: src ? src.bars : barsRef.current,
+        baseSyllables: src ? src.syllables : syllablesRef.current,
+        customSyllables: src ? { ...src.customSyllables } : { ...customSyllablesRef.current },
+        customSubdivisions: src ? { ...src.customSubdivisions } : { ...customSubdivisionsRef.current },
+        pulseMeterUnlinked: src ? { ...(src.pulseMeterUnlinked || {}) } : { ...pulseMeterUnlinkedRef.current },
+        customMultipliers: src ? { ...src.customMultipliers } : { ...customMultipliersRef.current },
         rowRuntimeContexts,
-        accents: new Set(accentsRef.current),
-        accentsByLane: cloneLaneSetMap(accentsByLaneRef.current),
-        taDingKeys: new Set(taDingKeysRef.current),
-        taDingKeysByLane: cloneLaneSetMap(taDingKeysByLaneRef.current),
-        firstBeatAccent: firstBeatAccentRef.current,
-        firstBeatAccentByLane: { ...firstBeatAccentByLaneRef.current },
-        firstBeatDingSuppressedRows: new Set(firstBeatDingSuppressedRowsRef.current),
-        deadCells: { ...deadCellsRef.current },
-        polyMode: polyModeRef.current,
+        progressiveDensityMode: src ? src.progressiveDensityMode : progressiveDensityModeRef.current,
+        deSyncJatiActive: src ? src.deSyncJatiActive : deSyncJatiActiveRef.current,
+        deSyncCycleLength: src ? src.deSyncCycleLength : deSyncCycleLengthRef.current,
+        accents: src ? new Set(src.accents) : new Set(accentsRef.current),
+        accentsByLane: src ? cloneLaneSetMap(src.accentsByLane) : cloneLaneSetMap(accentsByLaneRef.current),
+        taDingKeys: src ? new Set(src.taDingKeys) : new Set(taDingKeysRef.current),
+        taDingKeysByLane: src ? cloneLaneSetMap(src.taDingKeysByLane) : cloneLaneSetMap(taDingKeysByLaneRef.current),
+        firstBeatAccent: src ? src.firstBeatAccent : firstBeatAccentRef.current,
+        firstBeatAccentByLane: src ? { ...src.firstBeatAccentByLane } : { ...firstBeatAccentByLaneRef.current },
+        firstBeatDingSuppressedRows: src ? new Set(src.firstBeatDingSuppressedRows ?? []) : new Set(firstBeatDingSuppressedRowsRef.current),
+        deadCells: src ? { ...(src.deadCells || {}) } : { ...deadCellsRef.current },
+        polyMode: exportPolyMode,
         polyVoices: pv,
-        mixerLayerMode: mixerLayerModeRef.current,
-        trainerMode: trainerModeRef.current,
-        trainerHoldMute: trainerHoldMuteRef.current,
-        ...mapNewModesToLegacySnapshot(mixerLayerModeRef.current, trainerModeRef.current),
-        syllableReadMuteMode: syllableReadMuteModeRef.current,
-        dictantMode: dictantModeRef.current,
+        mixerLayerMode: src ? src.mixerLayerMode : mixerLayerModeRef.current,
+        trainerMode: src ? src.trainerMode : trainerModeRef.current,
+        trainerHoldMute: src ? src.trainerHoldMute : trainerHoldMuteRef.current,
+        ...mapNewModesToLegacySnapshot(src ? src.mixerLayerMode : mixerLayerModeRef.current, src ? src.trainerMode : trainerModeRef.current),
+        syllableReadMuteMode: src ? src.syllableReadMuteMode : syllableReadMuteModeRef.current,
+        dictantMode: src ? src.dictantMode : dictantModeRef.current,
+        clickSound: src ? src.clickSound : clickSoundRef.current,
+        clickSoundByPolyVoice: src ? { ...normalizeClickSoundByPolyVoice(src.clickSoundByPolyVoice) } : { ...clickSoundByPolyVoiceRef.current },
+        laneRoleGains,
       });
-      const name = `konnakol_${tempoRef.current}bpm_${barsRef.current}b_${
-        polyModeRef.current ? `poly${pv}` : 'legacy'
-      }_${APP_COMMIT_VERSION}.mid`;
+      const name = `konnakol_midi_${APP_COMMIT_VERSION}.mid`;
       const file = new File([blob], name, { type: 'audio/midi' });
       if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
         const can = navigator.canShare?.({ files: [file] });
@@ -7219,8 +7293,6 @@ export default function App() {
         const hasTaDingHere = taEnabled && laneTaDing.has(`${rIdx}-${cIdx}`);
         const dictantActive = trainerMode === 'dictation';
         const trainerTaOnly = trainerMode === 'ta_only';
-        const noAltLayer = mixerMode === 'no_alt';
-        const altOnlyLayer = mixerMode === 'alt_only';
         const shouldPlayBeat =
           trainerTaOnly ? hasTaDingHere || shouldPlayFirstBeatTa : true;
         const isTaFirstBeatArticulation =
@@ -7260,15 +7332,7 @@ export default function App() {
         const hasUserWhiteAccent =
           shouldPlayFirstBeatTa || shouldPlayTaDingSound || hasTaDingHere;
         const hasUserPurpleAltAccent = isAccent;
-        const hasOverlapAccentAlt = hasUserWhiteAccent && hasUserPurpleAltAccent;
         const taStableSampleMode = debugTaEngineModeRef.current && hasUserWhiteAccent;
-        const voiceRole: 'accent' | 'base' | 'alt' = hasUserWhiteAccent
-          ? 'accent'
-          : hasUserPurpleAltAccent
-            ? noAltLayer
-              ? 'base'
-              : 'alt'
-            : 'base';
         if (taStableSampleMode) {
           if (accentGain <= 0) return;
           playBarFirstHighClick(ctx, subTime, soundPreset, accentGain);
@@ -7277,51 +7341,42 @@ export default function App() {
           }
           return;
         }
-        if (hasOverlapAccentAlt) {
-          if (mainAccentClick && accentGain > 0) {
-            playSharpClick(
-              ctx,
-              subTime,
-              sharpAsChecked,
-              soundPreset,
-              accentOnlyPlayback,
-              'accent',
-              accentGain,
-            );
-          }
-          const overlapSecondRole: 'alt' | 'base' = noAltLayer ? 'base' : 'alt';
-          const overlapSecondGain = gainMulForRole(overlapSecondRole);
-          if (
-            !(
-              altOnlyLayer &&
-              overlapSecondRole === 'base'
-            )
-            && overlapSecondGain > 0
-          ) {
-            playSharpClick(
-              ctx,
-              subTime,
-              sharpAsChecked,
-              soundPreset,
-              accentOnlyPlayback,
-              overlapSecondRole,
-              overlapSecondGain,
-            );
-          }
-        } else {
-          if (altOnlyLayer && voiceRole === 'base') {
-            return;
-          }
-          const voiceRoleGain = gainMulForRole(voiceRole);
-          if (voiceRoleGain <= 0) return;
+        // Additive routing: layer marks do not mute each other.
+        const passiveGain = gainMulForRole('base');
+        if (passiveGain > 0) {
           playSharpClick(
             ctx,
             subTime,
             sharpAsChecked,
             soundPreset,
             accentOnlyPlayback,
-            voiceRole,
-            voiceRoleGain,
+            'base',
+            passiveGain,
+          );
+        }
+        if (hasUserPurpleAltAccent && !hasUserWhiteAccent) {
+          const altGain = gainMulForRole('alt');
+          if (altGain > 0) {
+            playSharpClick(
+              ctx,
+              subTime,
+              sharpAsChecked,
+              soundPreset,
+              accentOnlyPlayback,
+              'alt',
+              altGain,
+            );
+          }
+        }
+        if (hasUserWhiteAccent && mainAccentClick && accentGain > 0) {
+          playSharpClick(
+            ctx,
+            subTime,
+            sharpAsChecked,
+            soundPreset,
+            accentOnlyPlayback,
+            'accent',
+            accentGain,
           );
         }
         // USER-SOURCE-OF-TRUTH:
@@ -8760,7 +8815,6 @@ export default function App() {
                     >
                       <span className="text-[7px] font-semibold tracking-wide">MIDI</span>
                     </button>
-                    {/*
                     <button
                       type="button"
                       title="Скачать markdown-лог урока"
@@ -8815,7 +8869,6 @@ export default function App() {
                     >
                       <span className="text-[7px] font-semibold tracking-wide">LOG</span>
                     </button>
-                    */}
                   </div>
                   <div className="w-full h-px bg-[#1e2a45]/80 my-0.5"></div>
                   <div className="flex flex-col gap-2">
