@@ -424,6 +424,8 @@ const TEMPO_HOLD_REPEAT_MS = 100;
 const TEMPO_HOLD_REPEAT_STEP = 5;
 /** Long press on tempo slider track (without much move) → inline BPM on thumb. */
 const TEMPO_MANUAL_HOLD_MS = 2000;
+/** Tempo slider long-press to inline BPM edit (short hold). */
+const TEMPO_SLIDER_INLINE_HOLD_MS = 420;
 const TEMPO_MANUAL_MAX_MOVE_PX = 14;
 /*
  * Do not modify this block without a migration plan.
@@ -3306,11 +3308,7 @@ type TempoSliderTrackProps = {
 	onTempoManualTextChange: (v: string) => void;
 	onCommitTempoInline: () => void;
 	onCancelTempoInline: () => void;
-	/**
-	 * Long-press (без drag > `TEMPO_MANUAL_MAX_MOVE_PX`) → inline-редактор BPM.
-	 * По аналогии с tap-кнопкой: тот же порог и тот же таймаут. Opt-in: если не
-	 * передан — hold игнорируется, старый drag-only режим.
-	 */
+	/** Legacy prop kept for compatibility; slider long-press now resets to minimum BPM. */
 	onBeginInlineEdit?: (slot: TempoSliderSlot) => void;
 	className?: string;
 };
@@ -3349,7 +3347,8 @@ function TempoSliderTrack({
 				const thumbHalf = 24;
 				const startX = e.clientX;
 				const startY = e.clientY;
-				const moveCancelSq = TEMPO_MANUAL_MAX_MOVE_PX * TEMPO_MANUAL_MAX_MOVE_PX;
+				// Any movement cancels long-press inline mode for this pointer session.
+				const moveCancelSq = 0;
 				let holdTimer: number | null = null;
 				const clearHold = () => {
 					if (holdTimer !== null) {
@@ -3401,12 +3400,10 @@ function TempoSliderTrack({
 						holdTimer = null;
 						if (finished) return;
 						finished = true;
-						// Фиксируем текущее значение слайдера (от первого press), отцепляемся,
-						// передаём управление inline-редактору — поведение как на tap-кнопке.
 						flushTempoCommit();
 						detachListeners();
 						onBeginInlineEdit(tempoSliderSlot);
-					}, TEMPO_MANUAL_HOLD_MS);
+					}, TEMPO_SLIDER_INLINE_HOLD_MS);
 				}
 			}}
 		>
@@ -3765,6 +3762,12 @@ export default function App() {
       window.clearTimeout(clickPresetBusTwoBarsPreviewDebounceRef.current);
       clickPresetBusTwoBarsPreviewDebounceRef.current = null;
     }
+    if (clickBusSliderHoldRef.current.timer !== null) {
+      window.clearTimeout(clickBusSliderHoldRef.current.timer);
+      clickBusSliderHoldRef.current.timer = null;
+      clickBusSliderHoldRef.current.moved = false;
+      clickBusSliderHoldRef.current.token = null;
+    }
     if (previewResetTimerRef.current !== null) {
       window.clearTimeout(previewResetTimerRef.current);
       previewResetTimerRef.current = null;
@@ -3971,6 +3974,12 @@ export default function App() {
   const eraserHoldAteClickRef = useRef(false);
   const clickPresetBusTwoBarsPreviewDebounceRef = useRef<number | null>(null);
   const clickPresetBusTwoBarsPreviewRetryTimerRef = useRef<number | null>(null);
+  const clickBusSliderHoldRef = useRef<{ timer: number | null; moved: boolean; token: string | null }>({
+    timer: null,
+    moved: false,
+    token: null,
+  });
+  const CLICK_BUS_SLIDER_HOLD_MS = 600;
   const [randomDiceMintFlash, setRandomDiceMintFlash] = useState(false);
   const randomDiceMintFlashClearRef = useRef<number | null>(null);
   const [syllableReadMuteMode, setSyllableReadMuteMode] = useState<SyllableReadMuteMode>(() =>
@@ -6907,6 +6916,12 @@ export default function App() {
         window.clearTimeout(clickPresetBusTwoBarsPreviewRetryTimerRef.current);
         clickPresetBusTwoBarsPreviewRetryTimerRef.current = null;
       }
+      if (clickBusSliderHoldRef.current.timer !== null) {
+        window.clearTimeout(clickBusSliderHoldRef.current.timer);
+        clickBusSliderHoldRef.current.timer = null;
+        clickBusSliderHoldRef.current.moved = false;
+        clickBusSliderHoldRef.current.token = null;
+      }
       if (randomDiceHoldTimerRef.current !== null) {
         window.clearTimeout(randomDiceHoldTimerRef.current);
         randomDiceHoldTimerRef.current = null;
@@ -8033,6 +8048,12 @@ export default function App() {
         window.clearTimeout(clickPresetBusTwoBarsPreviewRetryTimerRef.current);
         clickPresetBusTwoBarsPreviewRetryTimerRef.current = null;
       }
+      if (clickBusSliderHoldRef.current.timer !== null) {
+        window.clearTimeout(clickBusSliderHoldRef.current.timer);
+        clickBusSliderHoldRef.current.timer = null;
+        clickBusSliderHoldRef.current.moved = false;
+        clickBusSliderHoldRef.current.token = null;
+      }
       if (randomDiceHoldTimerRef.current !== null) {
         window.clearTimeout(randomDiceHoldTimerRef.current);
         randomDiceHoldTimerRef.current = null;
@@ -8716,6 +8737,28 @@ export default function App() {
                                   aria-label={aria}
                                   className="flex items-center gap-2 w-full min-w-0 py-1"
                                 >
+                                  {(() => {
+                                    const sliderToken = `${busVoice}-${busPreset}-${key}`;
+                                    const cancelBusSliderHold = () => {
+                                      const hold = clickBusSliderHoldRef.current;
+                                      if (hold.timer !== null) {
+                                        window.clearTimeout(hold.timer);
+                                        hold.timer = null;
+                                      }
+                                      hold.moved = false;
+                                      hold.token = null;
+                                    };
+                                    const markBusSliderMoved = () => {
+                                      const hold = clickBusSliderHoldRef.current;
+                                      if (hold.token !== sliderToken) return;
+                                      hold.moved = true;
+                                      if (hold.timer !== null) {
+                                        window.clearTimeout(hold.timer);
+                                        hold.timer = null;
+                                      }
+                                    };
+                                    return (
+                                      <>
                                   <span className="w-7 shrink-0 flex items-center justify-center pointer-events-none">
                                     <span className={swatchClass} aria-hidden />
                                   </span>
@@ -8727,6 +8770,7 @@ export default function App() {
                                     value={gRow[key]}
                                     onInput={(e) => {
                                       beginLiveControlWindow();
+                                      markBusSliderMoved();
                                       const raw = Number((e.target as HTMLInputElement).value);
                                       const nextVal = Number.isFinite(raw)
                                         ? Math.max(0, Math.min(1.6, raw))
@@ -8749,6 +8793,7 @@ export default function App() {
                                     }}
                                     onChange={(e) => {
                                       beginLiveControlWindow();
+                                      markBusSliderMoved();
                                       const raw = Number(e.target.value);
                                       const nextVal = Number.isFinite(raw)
                                         ? Math.max(0, Math.min(1.6, raw))
@@ -8774,19 +8819,13 @@ export default function App() {
                                       beginLiveControlWindow();
                                       setClickPresetBusGainsByVoice((prev) => {
                                         const voiceMap = { ...(prev[busVoice] ?? {}) };
-                                        const defaultRow = getClickPresetBusGainsForVoicePreset(
-                                          HARDCODED_DEFAULT_CLICK_PRESET_BUS_GAINS_BY_VOICE,
-                                          HARDCODED_DEFAULT_CLICK_PRESET_BUS_GAINS_BY_PRESET,
-                                          busVoice,
-                                          busPreset,
-                                        );
                                         const cur = getClickPresetBusGainsForVoicePreset(
                                           prev,
                                           clickPresetBusGainsRef.current,
                                           busVoice,
                                           busPreset,
                                         );
-                                        const row: ClickPresetBusGains = { ...cur, [key]: defaultRow[key] };
+                                        const row: ClickPresetBusGains = { ...cur, [key]: 1 };
                                         const updatedVoice = { ...voiceMap, [busPreset]: row };
                                         const updated = { ...prev, [busVoice]: updatedVoice };
                                         clickPresetBusGainsByVoiceRef.current = updated;
@@ -8796,14 +8835,50 @@ export default function App() {
                                     }}
                                     onPointerDown={() => {
                                       beginLiveControlWindow();
+                                      const hold = clickBusSliderHoldRef.current;
+                                      if (hold.timer !== null) window.clearTimeout(hold.timer);
+                                      hold.token = sliderToken;
+                                      hold.moved = false;
+                                      hold.timer = window.setTimeout(() => {
+                                        const current = clickBusSliderHoldRef.current;
+                                        if (current.token !== sliderToken || current.moved) return;
+                                        current.timer = null;
+                                        setClickPresetBusGainsByVoice((prev) => {
+                                          const voiceMap = { ...(prev[busVoice] ?? {}) };
+                                          const cur = getClickPresetBusGainsForVoicePreset(
+                                            prev,
+                                            clickPresetBusGainsRef.current,
+                                            busVoice,
+                                            busPreset,
+                                          );
+                                          const row: ClickPresetBusGains = { ...cur, [key]: 1 };
+                                          const updatedVoice = { ...voiceMap, [busPreset]: row };
+                                          const updated = { ...prev, [busVoice]: updatedVoice };
+                                          clickPresetBusGainsByVoiceRef.current = updated;
+                                          return updated;
+                                        });
+                                        scheduleClickPresetBusTwoBarsPreview();
+                                      }, CLICK_BUS_SLIDER_HOLD_MS);
                                     }}
                                     onPointerEnter={() => {}}
-                                    onPointerUp={() => endLiveControlWindow()}
-                                    onPointerCancel={() => endLiveControlWindow()}
-                                    onPointerLeave={() => endLiveControlWindow()}
+                                    onPointerUp={() => {
+                                      endLiveControlWindow();
+                                      cancelBusSliderHold();
+                                    }}
+                                    onPointerCancel={() => {
+                                      endLiveControlWindow();
+                                      cancelBusSliderHold();
+                                    }}
+                                    onPointerLeave={() => {
+                                      endLiveControlWindow();
+                                      cancelBusSliderHold();
+                                    }}
                                     className={busRowSliderClass}
                                   />
                                   <span className="w-7 shrink-0" aria-hidden />
+                                      </>
+                                    );
+                                  })()}
                                 </label>
                               ))}
                               <label className="-mt-1 flex items-center gap-2 w-full min-w-0 py-1 -mb-0.5 touch-manipulation">
