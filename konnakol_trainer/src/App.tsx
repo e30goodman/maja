@@ -4131,6 +4131,7 @@ export default function App() {
   const customSubdivisionsRef = useRef(customSubdivisions);
   const customCellSyllablesRef = useRef(customCellSyllables);
   const pulseMeterUnlinkedRef = useRef(pulseMeterUnlinked);
+  const prevCustomSyllablesRef = useRef<Record<number, number>>({ ...customSyllables });
   const onlyAccentsRef = useRef(onlyAccents);
   const mixerLayerModeRef = useRef<MixerLayerMode>(mixerLayerMode);
   const trainerModeRef = useRef<TrainerMode>(trainerMode);
@@ -4331,6 +4332,21 @@ export default function App() {
   useEffect(() => { customSubdivisionsRef.current = customSubdivisions; }, [customSubdivisions]);
   useEffect(() => { customCellSyllablesRef.current = customCellSyllables; }, [customCellSyllables]);
   useEffect(() => { pulseMeterUnlinkedRef.current = pulseMeterUnlinked; }, [pulseMeterUnlinked]);
+  useEffect(() => {
+    const prev = prevCustomSyllablesRef.current;
+    if (isPlayingRef.current && polyModeRef.current && audioCtxRef.current && polySubLegacyRef.current) {
+      const poly = polySubLegacyRef.current;
+      const nowAnchor = audioCtxRef.current.currentTime + schedulerConfigRef.current.scheduleAheadSec;
+      const maxBars = Math.max(0, barsRef.current);
+      for (let barIdx = 0; barIdx < maxBars; barIdx++) {
+        const prevSyl = prev[barIdx] !== undefined ? prev[barIdx]! : syllablesRef.current;
+        const nextSyl = customSyllables[barIdx] !== undefined ? customSyllables[barIdx]! : syllablesRef.current;
+        if (prevSyl === nextSyl) continue;
+        poly.handleRowSyllablesHotSwitch(barIdx, prevSyl, nextSyl, nowAnchor);
+      }
+    }
+    prevCustomSyllablesRef.current = { ...customSyllables };
+  }, [customSyllables]);
   useEffect(() => { customSyllablesRef.current = customSyllables; }, [customSyllables]);
   useEffect(() => { deadCellsRef.current = deadCells; }, [deadCells]);
 
