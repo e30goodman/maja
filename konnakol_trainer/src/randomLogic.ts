@@ -109,42 +109,67 @@ export function accentFillRatioFromChaos(c: number): number {
 
 export const CELL_SPEED_RANDOM_POOL = [2, 3, 4] as const;
 
-/**
- * Веса подделений: 2 (Chatusra) и 4 — основа (четные деления), 3 (Tisra) — специя/синкопа.
- * Равномерный пул делает грув "рваным" и нехарактерным для Востока; при этих весах
- * триоли остаются заметным, но не доминирующим цветом.
- */
-const CELL_SPEED_WEIGHTS: readonly (readonly [number, number])[] = [
-	[2, 0.5],
-	[4, 0.35],
-	[3, 0.15],
-];
+/** Полный набор подделений (совпадает с KONNAKOL_DICTIONARY / Ta-редактором). */
+export const CELL_SPEED_FULL_POOL = [2, 3, 4, 5, 6, 7, 8, 9] as const;
 
 /**
- * Random Speed: {2, 3, 4} с весами 0.5/0.35/0.15. При наличии prev — Markov-bias
- * сохранять предыдущее подделение, stickProb = 1 − chaos/100 (пробежки одинаковой
- * микроритмики — учебно ценно).
+ * Веса базового пула (chaos≤50): 2 (Chatusra) и 4 — основа, 3 (Tisra) — специя.
+ * 5–9 получают вес 0 до начала смешивания с равномеркой (см. `cellSpeedExtendedBlendFromChaos`).
+ */
+const BASE_CELL_SPEED_WEIGHT: Record<(typeof CELL_SPEED_FULL_POOL)[number], number> = {
+	2: 0.5,
+	3: 0.15,
+	4: 0.35,
+	5: 0,
+	6: 0,
+	7: 0,
+	8: 0,
+	9: 0,
+};
+
+/**
+ * 50→0, 90→1: между базовыми весами на {2..4} и равномерным распределением по {2..9}.
+ * При chaos≥90 (и 100) все подделения участвуют с равной долей.
+ */
+export function cellSpeedExtendedBlendFromChaos(chaos: number): number {
+	const c = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
+	if (c <= 50) return 0;
+	if (c >= 90) return 1;
+	return smoothstep01((c - 50) / 40);
+}
+
+/**
+ * Random Speed: при низком хаосе — только {2,3,4} с базовыми весами; с chaos>50 плавно
+ * подмешивается равномерка по {2..9}; с 90 — полная равномерка. При наличии prev —
+ * Markov-bias (stickProb = 1 − chaos/100) для любого допустимого подделения из полного пула.
  */
 export function pickRandomCellSpeedSubdiv(
 	rng: RNG = Math.random,
 	prev?: number,
 	chaos: number = 100,
 ): number {
-	if (
-		typeof prev === 'number' &&
-		CELL_SPEED_RANDOM_POOL.includes(prev as (typeof CELL_SPEED_RANDOM_POOL)[number])
-	) {
+	const blend = cellSpeedExtendedBlendFromChaos(chaos);
+	const uniform = 1 / CELL_SPEED_FULL_POOL.length;
+
+	if (typeof prev === 'number' && (CELL_SPEED_FULL_POOL as readonly number[]).includes(prev)) {
 		const stickProb = Math.max(0, 1 - chaos / 100);
 		if (rng() < stickProb) return prev;
 	}
+
 	let sum = 0;
-	for (const [, w] of CELL_SPEED_WEIGHTS) sum += w;
-	let r = rng() * sum;
-	for (const [v, w] of CELL_SPEED_WEIGHTS) {
-		r -= w;
-		if (r <= 0) return v;
+	const weights: number[] = [];
+	for (const v of CELL_SPEED_FULL_POOL) {
+		const base = BASE_CELL_SPEED_WEIGHT[v];
+		const w = (1 - blend) * base + blend * uniform;
+		weights.push(w);
+		sum += w;
 	}
-	return CELL_SPEED_WEIGHTS[CELL_SPEED_WEIGHTS.length - 1]![0];
+	let r = rng() * sum;
+	for (let i = 0; i < CELL_SPEED_FULL_POOL.length; i++) {
+		r -= weights[i]!;
+		if (r <= 0) return CELL_SPEED_FULL_POOL[i]!;
+	}
+	return CELL_SPEED_FULL_POOL[CELL_SPEED_FULL_POOL.length - 1]!;
 }
 
 /**

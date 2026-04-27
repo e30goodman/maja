@@ -3172,6 +3172,13 @@ const playBarFirstHighClick = (
   playSharpClick(ctx, time, true, soundType, false, 'accent', voiceGainMul);
 };
 
+/** Long-press on slider thumb only: if pointer moves more than `slopPx` before `holdMs`, arm is cancelled for this gesture (lift finger, try again). */
+type StructuralSliderThumbIdleArm = {
+  holdMs: number;
+  slopPx: number;
+  onArm: () => void;
+};
+
 type StructuralSliderProps = {
   label: string;
   min: number;
@@ -3183,6 +3190,9 @@ type StructuralSliderProps = {
   onCommit: (next: number) => void;
   onLiveChange?: (next: number) => void;
   onBeginDrag?: () => void;
+  thumbIdleArm?: StructuralSliderThumbIdleArm;
+  /** Вызывается после отпускания/отмены жеста с рукоятки (up, cancel, blur). */
+  onThumbPointerSessionEnd?: () => void;
 };
 
 /** Ширина «рукоятки» в px (совпадает с w-4 в классе слайдера) — только по ней принимаем pointerdown, не по дорожке. */
@@ -3198,12 +3208,29 @@ function StructuralSlider({
   onCommit,
   onLiveChange,
   onBeginDrag,
+  thumbIdleArm,
+  onThumbPointerSessionEnd,
 }: StructuralSliderProps) {
   const [localValue, setLocalValue] = useState(value);
   const committedValueRef = useRef(value);
   const lastLiveValueRef = useRef(value);
   const pointerActiveRef = useRef(false);
   const localValueRef = useRef(value);
+  const thumbArmTimerRef = useRef<number | null>(null);
+  const thumbArmStartRef = useRef<{ x: number; y: number } | null>(null);
+  const thumbIdleArmRef = useRef(thumbIdleArm);
+  thumbIdleArmRef.current = thumbIdleArm;
+  const onThumbPointerSessionEndRef = useRef(onThumbPointerSessionEnd);
+  onThumbPointerSessionEndRef.current = onThumbPointerSessionEnd;
+
+  const clearThumbArmTimer = useCallback(() => {
+    if (thumbArmTimerRef.current !== null) {
+      window.clearTimeout(thumbArmTimerRef.current);
+      thumbArmTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => clearThumbArmTimer(), [clearThumbArmTimer]);
 
   useEffect(() => {
     localValueRef.current = localValue;
@@ -3270,18 +3297,69 @@ function StructuralSlider({
           return;
         }
         pointerActiveRef.current = true;
+        const cfg = thumbIdleArmRef.current;
+        if (cfg) {
+          clearThumbArmTimer();
+          thumbArmStartRef.current = { x: e.clientX, y: e.clientY };
+          const holdMs = cfg.holdMs;
+          thumbArmTimerRef.current = window.setTimeout(() => {
+            thumbArmTimerRef.current = null;
+            thumbArmStartRef.current = null;
+            thumbIdleArmRef.current?.onArm();
+          }, holdMs);
+          try {
+            e.currentTarget.setPointerCapture(e.pointerId);
+          } catch {
+            /* ignore */
+          }
+        }
         onBeginDrag?.();
       }}
-      onPointerUp={() => {
-        if (pointerActiveRef.current) pointerActiveRef.current = false;
-        commitLocalValue(localValue);
+      onPointerMove={(e) => {
+        const cfg = thumbIdleArmRef.current;
+        if (!cfg || thumbArmTimerRef.current === null || !thumbArmStartRef.current) return;
+        const { x, y } = thumbArmStartRef.current;
+        const dx = e.clientX - x;
+        const dy = e.clientY - y;
+        const sp = cfg.slopPx;
+        if (dx * dx + dy * dy > sp * sp) {
+          clearThumbArmTimer();
+          thumbArmStartRef.current = null;
+        }
       }}
-      onPointerCancel={() => {
+      onPointerUp={(e) => {
+        clearThumbArmTimer();
+        thumbArmStartRef.current = null;
+        try {
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+          }
+        } catch {
+          /* ignore */
+        }
         if (pointerActiveRef.current) pointerActiveRef.current = false;
         commitLocalValue(localValue);
+        onThumbPointerSessionEndRef.current?.();
+      }}
+      onPointerCancel={(e) => {
+        clearThumbArmTimer();
+        thumbArmStartRef.current = null;
+        try {
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+          }
+        } catch {
+          /* ignore */
+        }
+        if (pointerActiveRef.current) pointerActiveRef.current = false;
+        commitLocalValue(localValue);
+        onThumbPointerSessionEndRef.current?.();
       }}
       onBlur={() => {
+        clearThumbArmTimer();
+        thumbArmStartRef.current = null;
         commitLocalValue(localValue);
+        onThumbPointerSessionEndRef.current?.();
       }}
       onInput={(e) => {
         applyLiveValue(normalizeValue(e.currentTarget.value));
@@ -4668,16 +4746,13 @@ export default function App() {
   }, [getPressState, applyPressPatch]);
 
   /**
-   * Press Matrix arm trigger — long-press на Snowflake-кнопке.
-   * Short tap: оставляет существующее поведение (toggle frozenScale).
-   * Long press (>= threshold ms): фиксирует baseline текущей матрицы,
-   * primed = true. Существующий onClick проверяет `pressLongPressFiredRef`
-   * и swallows event если long-press уже сработал.
+   * Press Matrix: long-press на рукоятке слайдера Bars (см. `StructuralSlider` thumbIdleArm).
+   * Любое смещение указателя больше `PRESS_BARS_SLIDER_ARM_SLOP_PX` до истечения hold — отмена arm для этого жеста; новая попытка только после отпускания.
+   * Short path: снежинка — только freeze row height; matrix arm/disarm — слайдер или Eraser / клик по снежинке при primed без freeze.
    */
   const PRESS_LONG_PRESS_MS = 600;
-  const pressLongPressTimerRef = useRef<number | null>(null);
-  const pressLongPressFiredRef = useRef(false);
-  const [isPressLongPressing, setIsPressLongPressing] = useState(false);
+  /** ~1mm на типичном DPI: порог отмены long-press arm при дрожании / съезде с рукоятки. */
+  const PRESS_BARS_SLIDER_ARM_SLOP_PX = 4;
   const [isPressMatrixPrimedUi, setIsPressMatrixPrimedUi] = useState(false);
 
   const armPressFromCurrentMatrix = useCallback(() => {
@@ -4690,36 +4765,15 @@ export default function App() {
     setIsPressMatrixPrimedUi(false);
   }, []);
 
-  const handlePressTriggerPointerDown = useCallback(() => {
-    pressLongPressFiredRef.current = false;
-    if (pressLongPressTimerRef.current !== null) {
-      window.clearTimeout(pressLongPressTimerRef.current);
-    }
-    pressLongPressTimerRef.current = window.setTimeout(() => {
-      pressLongPressFiredRef.current = true;
-      pressLongPressTimerRef.current = null;
-      setIsPressLongPressing(true);
-      if (isPressPrimed()) disarmPressMatrixMode();
-      else armPressFromCurrentMatrix();
-    }, PRESS_LONG_PRESS_MS);
+  const handleBarsSliderThumbIdleArm = useCallback(() => {
+    if (isPressPrimed()) disarmPressMatrixMode();
+    else armPressFromCurrentMatrix();
   }, [armPressFromCurrentMatrix, disarmPressMatrixMode]);
 
-  const cancelPressTriggerLongPress = useCallback(() => {
-    setIsPressLongPressing(false);
-    if (pressLongPressTimerRef.current !== null) {
-      window.clearTimeout(pressLongPressTimerRef.current);
-      pressLongPressTimerRef.current = null;
-    }
-  }, []);
-
-  /** Returns true iff a long-press just fired and the click should be swallowed. */
-  const consumePressTriggerLongPress = useCallback((): boolean => {
-    if (pressLongPressFiredRef.current) {
-      pressLongPressFiredRef.current = false;
-      return true;
-    }
-    return false;
-  }, []);
+  /** Press matrix: один жест с рукоятки Bars — при отпускании всегда выход из режима (tiling только пока палец на слайдере). */
+  const handleBarsSliderThumbSessionEnd = useCallback(() => {
+    if (isPressPrimed()) disarmPressMatrixMode();
+  }, [disarmPressMatrixMode]);
 
   const getLaneAccentsSetRef = useCallback((r: number): Set<string> => {
     if (!polyModeRef.current) return accentsRef.current;
@@ -9420,13 +9474,7 @@ export default function App() {
                 <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold">Bars</span>
                 <button 
                   type="button"
-                  onPointerDown={handlePressTriggerPointerDown}
-                  onPointerUp={cancelPressTriggerLongPress}
-                  onPointerLeave={cancelPressTriggerLongPress}
-                  onPointerCancel={cancelPressTriggerLongPress}
                   onClick={() => {
-                    /* Press Matrix: swallow click if long-press already fired (arm-only). */
-                    if (consumePressTriggerLongPress()) return;
                     if (isPressMatrixPrimedUi && frozenScale === null) {
                       // Single click exits matrix mode only when regular freeze is not active.
                       notifyPressErased();
@@ -9455,15 +9503,13 @@ export default function App() {
                     });
                   }}
                   className={`flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-all duration-300 ${
-                    isPressLongPressing
+                    isPressMatrixPrimedUi && frozenScale !== null
                       ? `bg-violet-500/25 text-violet-300 ring-1 ring-violet-500/60 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(167,139,250,0.35)]'}`
-                      : isPressMatrixPrimedUi && frozenScale !== null
-                        ? `bg-violet-500/25 text-violet-300 ring-1 ring-violet-500/60 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(167,139,250,0.35)]'}`
                       : isPressMatrixPrimedUi
                         ? `bg-violet-500/25 text-violet-300 ring-1 ring-violet-500/60 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(167,139,250,0.35)]'}`
-                      : frozenScale !== null 
-                        ? `bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/50 ${lowPerfMode ? '' : 'shadow-[0_0_8px_rgba(59,130,246,0.3)]'}` 
-                        : 'bg-[#1e2a45]/40 text-slate-400 hover:text-slate-200 hover:bg-[#1e2a45] ring-1 ring-[#2f4066]/30'
+                        : frozenScale !== null 
+                          ? `bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/50 ${lowPerfMode ? '' : 'shadow-[0_0_8px_rgba(59,130,246,0.3)]'}` 
+                          : 'bg-[#1e2a45]/40 text-slate-400 hover:text-slate-200 hover:bg-[#1e2a45] ring-1 ring-[#2f4066]/30'
                   }`}
                   aria-label={frozenScale !== null ? 'Unfreeze row height' : 'Freeze row scale'}
                 >
@@ -9476,7 +9522,17 @@ export default function App() {
                 max={barsStructuralRange.max}
                 step={barsStructuralRange.step}
                 value={bars}
-                colorClass="[&::-webkit-slider-thumb]:bg-blue-400"
+                colorClass={
+                  isPressMatrixPrimedUi
+                    ? '[&::-webkit-slider-thumb]:bg-violet-500 [&::-moz-range-thumb]:bg-violet-500'
+                    : '[&::-webkit-slider-thumb]:bg-blue-400 [&::-moz-range-thumb]:bg-blue-400'
+                }
+                thumbIdleArm={{
+                  holdMs: PRESS_LONG_PRESS_MS,
+                  slopPx: PRESS_BARS_SLIDER_ARM_SLOP_PX,
+                  onArm: handleBarsSliderThumbIdleArm,
+                }}
+                onThumbPointerSessionEnd={handleBarsSliderThumbSessionEnd}
                 onBeginDrag={() => {
                   barsSliderDraggingRef.current = true;
                   attachSliderWindowListeners();

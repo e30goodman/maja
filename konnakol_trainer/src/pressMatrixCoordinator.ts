@@ -6,8 +6,9 @@
  *  - `baselineState` — frozen `PressState` snapshot captured at arm time.
  *  - `baselineBars` — bar count at arm time. Tile uses this as the cylinder size.
  *
- * Activation contract: arming is explicit (long-press on the star button in
- * `App.tsx`). After arming, edits to the live state DO NOT mutate the
+ * Activation contract: arming is explicit (long-press on the Bars slider thumb
+ * in `App.tsx`, without pointer slop before hold completes). After arming,
+ * edits to the live state DO NOT mutate the
  * baseline — only a re-arm replaces it.
  *
  * Deactivation contract: full Eraser, or explicit `disarm`. After deactivation,

@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import {
 	applyRandomizerEffectsToBar,
 	barSpeedChangeProbFromChaos,
+	cellSpeedExtendedBlendFromChaos,
 	cellSpeedHitPFromChaos,
 	mulberry32,
 	patternChangeProbFromChaos,
@@ -270,25 +271,51 @@ function testFirstBeatNotForcedWithoutFlag() {
 	);
 }
 
-/**
- * Cell-speed weights: 2->0.5, 4->0.35, 3->0.15. Check frequencies on 5000 independent samples
- * (chaos=100, prev=undefined - Markov stickiness off).
- */
-function testCellSpeedWeightedDistribution() {
+/** chaos≤50: только базовые веса на {2,3,4}. */
+function testCellSpeedWeightedDistributionLowChaos() {
 	const rng = mulberry32(0xabcdef);
 	const counts: Record<number, number> = { 2: 0, 3: 0, 4: 0 };
 	const trials = 5000;
 	for (let i = 0; i < trials; i++) {
-		const v = pickRandomCellSpeedSubdiv(rng, undefined, 100);
+		const v = pickRandomCellSpeedSubdiv(rng, undefined, 45);
 		counts[v]! += 1;
 	}
 	const f2 = counts[2]! / trials;
 	const f3 = counts[3]! / trials;
 	const f4 = counts[4]! / trials;
-	// Tolerance +/-0.03 for statistical noise at 5000 samples.
 	assert.ok(f2 > 0.47 && f2 < 0.53, `freq(2)=${f2.toFixed(3)} out of [0.47, 0.53]`);
 	assert.ok(f3 > 0.12 && f3 < 0.18, `freq(3)=${f3.toFixed(3)} out of [0.12, 0.18]`);
 	assert.ok(f4 > 0.32 && f4 < 0.38, `freq(4)=${f4.toFixed(3)} out of [0.32, 0.38]`);
+}
+
+/** chaos≥90: равномерка по всем подделениям 2..9 (для 90 и 100). */
+function testCellSpeedUniformHighChaos() {
+	const trials = 12000;
+	const expected = 1 / 8;
+	for (const chaos of [90, 100]) {
+		const rng = mulberry32(0xf00dbaad + chaos);
+		const counts: Record<number, number> = {};
+		for (let s = 2; s <= 9; s++) counts[s] = 0;
+		for (let i = 0; i < trials; i++) {
+			const v = pickRandomCellSpeedSubdiv(rng, undefined, chaos);
+			counts[v]! += 1;
+		}
+		for (let s = 2; s <= 9; s++) {
+			const f = counts[s]! / trials;
+			assert.ok(
+				f > expected - 0.035 && f < expected + 0.035,
+				`chaos=${chaos} freq(${s})=${f.toFixed(3)} vs ~${expected}`,
+			);
+		}
+	}
+}
+
+function testCellSpeedExtendedBlendEndpoints() {
+	assert.equal(cellSpeedExtendedBlendFromChaos(0), 0);
+	assert.equal(cellSpeedExtendedBlendFromChaos(50), 0);
+	assert.equal(cellSpeedExtendedBlendFromChaos(90), 1);
+	assert.equal(cellSpeedExtendedBlendFromChaos(100), 1);
+	assert.ok(cellSpeedExtendedBlendFromChaos(70) > 0 && cellSpeedExtendedBlendFromChaos(70) < 1);
 }
 
 /**
@@ -362,7 +389,9 @@ testMulberry32Determinism();
 testMulberry32DifferentSeeds();
 testFirstBeatForcedWhenFlag();
 testFirstBeatNotForcedWithoutFlag();
-testCellSpeedWeightedDistribution();
+testCellSpeedWeightedDistributionLowChaos();
+testCellSpeedUniformHighChaos();
+testCellSpeedExtendedBlendEndpoints();
 testDeadCellsIndependentOfAccents();
 testSpeedFillsAllCellsIndependentOfAccents();
 console.log('randomCurves.test.ts: ok');
