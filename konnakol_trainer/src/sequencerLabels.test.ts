@@ -1,5 +1,5 @@
 /**
- * Запуск: `npx tsx src/sequencerLabels.test.ts` из каталога konnakol_trainer.
+ * Run: `npx tsx src/sequencerLabels.test.ts` from the `konnakol_trainer` directory.
  */
 import assert from 'node:assert/strict';
 import {
@@ -44,7 +44,7 @@ function testPickKalamHysteresisSlowMedium() {
 }
 
 function testPickKalamHysteresisMediumFast() {
-	assert.equal(pickKalam(KALAM_THRESHOLDS.mediumToFast, 'medium'), 'fast', 'NPS>8 fast-switch override');
+	assert.equal(pickKalam(KALAM_THRESHOLDS.mediumToFast, 'medium'), 'medium', 'edge 8.4 stays medium');
 	assert.equal(pickKalam(8.5, 'medium'), 'fast');
 	assert.equal(pickKalam(8.0, 'fast'), 'fast', 'above fastToMedium stays fast');
 	assert.equal(pickKalam(KALAM_THRESHOLDS.fastToMedium, 'fast'), 'fast', 'edge 7.6 stays fast');
@@ -77,10 +77,9 @@ function testComposeLongBar() {
 	assert.equal(composeLongBar(12, 'slow').length, 12);
 	assert.equal(composeLongBar(16, 'slow').length, 16);
 	assert.deepEqual(composeLongBar(9, 'slow'), getSyllablesForGati(9, 'slow'), 'segLen=9 is plain');
-	const twelve = composeLongBar(12, 'slow');
-	assert.deepEqual(twelve.slice(0, 4), getSyllablesForGati(4, 'slow'), '12 uses equal factoring');
-	assert.deepEqual(twelve.slice(4, 8), getSyllablesForGati(4, 'slow'), '12 uses 4+4+4');
-	assert.deepEqual(twelve.slice(8, 12), getSyllablesForGati(4, 'slow'), '12 uses 4+4+4');
+	const ten = composeLongBar(10, 'slow');
+	assert.deepEqual(ten.slice(0, 9), getSyllablesForGati(9, 'slow'), '10 uses 9+1 split');
+	assert.deepEqual(ten.slice(9), getSyllablesForGati(1, 'slow'), '10 uses 9+1 split');
 }
 
 function testBuildRow4BpmSlow() {
@@ -147,17 +146,65 @@ function testSubdiv4AlwaysDictionaryPerKalamAndNonUniform() {
 	];
 	for (const { bpm, kalam } of cases) {
 		const out = buildRowCellSyllableLabels(1, { '0-0': 4 }, 0, { bpm });
-		assert.deepEqual(out[0].map((x) => x.syl), KONNAKOL_DICTIONARY[4][kalam], `subdivs=4 должен следовать словарю (${kalam})`);
-		assert.equal(new Set(out[0].map((x) => x.syl)).size, 4, `subdivs=4 (${kalam}) должен давать 4 разных слога`);
+		assert.deepEqual(out[0].map((x) => x.syl), KONNAKOL_DICTIONARY[4][kalam], `subdivs=4 must follow dictionary (${kalam})`);
+		assert.equal(new Set(out[0].map((x) => x.syl)).size, 4, `subdivs=4 (${kalam}) must produce 4 different syllables`);
 	}
 }
 
-function testSubdiv4IgnoresUniformOverrideFiller() {
-	const out = buildRowCellSyllableLabels(1, { '0-0': 4 }, 0, {
-		bpm: 60,
-		cellSyllableOverrides: { '0-0': 'Thom' },
-	});
-	assert.deepEqual(out[0].map((x) => x.syl), KONNAKOL_DICTIONARY[4].slow, 'uniform override для subdiv>1 должен откатываться к словарю');
+function testNoStutterForSubdiv2And3() {
+	const out2 = buildRowCellSyllableLabels(1, { '0-0': 2 }, 0, { bpm: 60 });
+	assert.deepEqual(out2[0].map((x) => x.syl), KONNAKOL_DICTIONARY[2].slow, 'subdiv=2 must stay Ta Ka');
+	assert.notEqual(out2[0]?.[0]?.syl, out2[0]?.[1]?.syl, 'subdiv=2 must not stutter');
+
+	const out3 = buildRowCellSyllableLabels(1, { '0-0': 3 }, 0, { bpm: 60 });
+	assert.deepEqual(out3[0].map((x) => x.syl), KONNAKOL_DICTIONARY[3].slow, 'subdiv=3 must stay Ta Ki Ta');
+	assert.equal(out3[0]?.[0]?.syl, 'Ta');
+	assert.equal(out3[0]?.[1]?.syl, 'Ki');
+}
+
+function testAllSubdivs2to9StrictDictionaryMapping() {
+	for (let subdiv = 2; subdiv <= 9; subdiv++) {
+		const out = buildRowCellSyllableLabels(1, { '0-0': subdiv }, 0, { bpm: 60 });
+		const sylls = out[0].map((x) => x.syl);
+		const kalam = pickKalam(computeNps(60, subdiv), undefined);
+		assert.equal(sylls.length, subdiv, `subdiv=${subdiv}: length must equal subdiv`);
+		assert.deepEqual(
+			sylls,
+			KONNAKOL_DICTIONARY[subdiv as 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9][kalam],
+			`subdiv=${subdiv}: must strictly follow dictionary`,
+		);
+		if (subdiv > 1) {
+			assert.equal(
+				new Set(sylls).size > 1,
+				true,
+				`subdiv=${subdiv}: phrase must not collapse to uniform fallback filler`,
+			);
+		}
+	}
+}
+
+function testMixedRowLengthInvariantForAllCells() {
+	const out = buildRowCellSyllableLabels(
+		9,
+		{
+			'0-0': 2,
+			'0-1': 3,
+			'0-2': 4,
+			'0-3': 5,
+			'0-4': 6,
+			'0-5': 7,
+			'0-6': 8,
+			'0-7': 9,
+			'0-8': 1,
+		},
+		0,
+		{ bpm: 60 },
+	);
+	assert.equal(out.length, 9, 'row length invariant');
+	const expectedLens = [2, 3, 4, 5, 6, 7, 8, 9, 1];
+	for (let i = 0; i < expectedLens.length; i++) {
+		assert.equal(out[i]?.length, expectedLens[i], `cell ${i}: syllable length invariant`);
+	}
 }
 
 function testHysteresisStickyAroundBoundary() {
@@ -171,7 +218,7 @@ function testHysteresisStickyAroundBoundary() {
 	buildRowCellSyllableLabels(5, {}, 0, { bpm: 92, kalamMap: km });
 	assert.equal(km.get('0-seg0'), 'medium', 'NPS=7.67 stays medium');
 
-	/** BPM 88 → обратно, всё ещё medium. */
+	/** BPM 88 -> back down, still medium. */
 	buildRowCellSyllableLabels(5, {}, 0, { bpm: 88, kalamMap: km });
 	assert.equal(km.get('0-seg0'), 'medium', 'return to 7.33 still medium (no thrash)');
 
@@ -217,15 +264,36 @@ function testTerminalSyllableOnLessonEnd() {
 		bpm: 60,
 		isLessonLastRow: true,
 	});
-	assert.equal(out[3]?.[0]?.syl, 'Ta');
+	assert.equal(out[3]?.[0]?.syl, 'Mi', 'stable algorithm keeps dictionary ending for row=4');
 }
 
-function testInternalThomIsSanitized() {
-	const out = buildRowCellSyllableLabels(1, { '0-0': 4 }, 0, {
-		bpm: 60,
-		cellSyllableOverrides: { '0-0': 'Thom' },
+function testNps833StaysMediumUntil84WhenSticky() {
+	const km: KalamMap = new Map();
+	buildRowCellSyllableLabels(1, { '0-0': 4 }, 0, { bpm: 120, kalamMap: km });
+	assert.equal(km.get('0-c0'), 'medium', 'NPS=8.0 starts medium');
+	buildRowCellSyllableLabels(1, { '0-0': 4 }, 0, {
+		bpm: 120,
+		kalamMap: km,
+		rowRuntimeContext: { effectiveBpm: 125 },
 	});
-	assert.ok(out[0]?.every((it) => it.syl !== 'Thom'), 'Thom cannot appear in internal phrase positions');
+	assert.equal(km.get('0-c0'), 'medium', 'NPS=8.33 must stay medium until >8.4');
+	buildRowCellSyllableLabels(1, { '0-0': 4 }, 0, {
+		bpm: 120,
+		kalamMap: km,
+		rowRuntimeContext: { effectiveBpm: 127 },
+	});
+	assert.equal(km.get('0-c0'), 'fast', 'crossing 8.4 transitions to fast');
+}
+
+function testDebugTraceIncludesRuntimeContext() {
+	const trace: Array<{ localJati?: number; gatiTargetSub?: number; roleType?: string }> = [];
+	buildRowCellSyllableLabels(1, { '0-0': 4 }, 0, {
+		bpm: 120,
+		rowRuntimeContext: { localJati: 7, gatiTargetSub: 8, roleType: 'tihai' },
+		debugTrace: (e) => trace.push({ localJati: e.localJati, gatiTargetSub: e.gatiTargetSub, roleType: e.roleType }),
+	});
+	assert.equal(trace.length, 1);
+	assert.deepEqual(trace[0], { localJati: 7, gatiTargetSub: 8, roleType: 'tihai' });
 }
 
 function testRowSyllCountZero() {
@@ -247,12 +315,15 @@ testBuildRow5DeadStart3();
 testBuildRow5WithCellSubdivAndDead();
 testBuildRowMixedCellThenOnes();
 testSubdiv4AlwaysDictionaryPerKalamAndNonUniform();
-testSubdiv4IgnoresUniformOverrideFiller();
+testNoStutterForSubdiv2And3();
+testAllSubdivs2to9StrictDictionaryMapping();
+testMixedRowLengthInvariantForAllCells();
 testHysteresisStickyAroundBoundary();
 testTouchedKeysAndGcContract();
 testBuildRowDeadStartZero();
 testRowSyllCountZero();
 testAccentObjectsIntegrated();
 testTerminalSyllableOnLessonEnd();
-testInternalThomIsSanitized();
+testNps833StaysMediumUntil84WhenSticky();
+testDebugTraceIncludesRuntimeContext();
 console.log('sequencerLabels.test.ts: ok');

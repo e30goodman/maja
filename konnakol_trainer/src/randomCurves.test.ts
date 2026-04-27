@@ -1,6 +1,6 @@
 /**
- * Тесты рандом-логики konnakol (см. randomLogic.ts).
- * Запуск: `npx tsx src/randomCurves.test.ts` из каталога konnakol_trainer.
+ * Tests for konnakol random logic (see randomLogic.ts).
+ * Run: `npx tsx src/randomCurves.test.ts` from the `konnakol_trainer` directory.
  */
 import assert from 'node:assert/strict';
 import {
@@ -28,7 +28,7 @@ const makeEmptyState = (): BarRandomizerMutable => ({
 	deadCells: {},
 });
 
-/** Все probability-curves должны быть монотонно неубывающими и жить в [0, 1]. */
+/** All probability curves must be monotone non-decreasing and stay within [0, 1]. */
 function testChangeProbCurvesMonotoneAndBounded() {
 	const fns: [string, (c: number) => number][] = [
 		['pulsationChangeProb', pulsationChangeProbFromChaos],
@@ -47,7 +47,7 @@ function testChangeProbCurvesMonotoneAndBounded() {
 				v + 1e-12 >= prev,
 				`${name} not monotone non-decreasing at c=${c}: prev=${prev} v=${v}`,
 			);
-			// Нет обрывов > 0.05 на шаге 1 — кривая гладкая.
+			// No jumps > 0.05 per step 1 - curve should be smooth.
 			assert.ok(
 				v - prev <= 0.05 + 1e-12,
 				`${name} jump >0.05 at c=${c}: prev=${prev} v=${v}`,
@@ -57,7 +57,7 @@ function testChangeProbCurvesMonotoneAndBounded() {
 	}
 }
 
-/** cellSpeedHitPFromChaos: непрерывность на стыке 25/26. */
+/** cellSpeedHitPFromChaos: continuity at 25/26 boundary. */
 function testCellSpeedHitPContinuityAt25() {
 	const at25 = cellSpeedHitPFromChaos(25);
 	const at26 = cellSpeedHitPFromChaos(26);
@@ -65,7 +65,7 @@ function testCellSpeedHitPContinuityAt25() {
 	assert.ok(at25 > 0.14 && at25 < 0.16, `at25=${at25} expected ~0.15`);
 }
 
-/** smoothstep01: границы + 3t²−2t³. */
+/** smoothstep01: boundaries + 3t^2-2t^3. */
 function testSmoothstep() {
 	assert.equal(smoothstep01(-1), 0);
 	assert.equal(smoothstep01(0), 0);
@@ -74,7 +74,7 @@ function testSmoothstep() {
 	assert.ok(Math.abs(smoothstep01(0.5) - 0.5) < 1e-9);
 }
 
-/** pickAccentCountForBar: для малых пульсаций (curSyl≤3) пол=1 независимо от chaos. */
+/** pickAccentCountForBar: for small pulses (curSyl<=3), floor is 1 regardless of chaos. */
 function testPickAccentCountMinForSmallBar() {
 	const rng = mulberry32(42);
 	for (let curSyl = 1; curSyl <= 3; curSyl++) {
@@ -90,12 +90,12 @@ function testPickAccentCountMinForSmallBar() {
 	}
 }
 
-/** pickAccentCountForBar: 0 для curSyl<1. */
+/** pickAccentCountForBar: 0 for curSyl<1. */
 function testPickAccentCountZeroOnEmpty() {
 	assert.equal(pickAccentCountForBar(50, 0, mulberry32(1)), 0);
 }
 
-/** Пулы пульсации: 1 и 2 исключены на всех уровнях chaos (Тала Шастра). */
+/** Pulsation pools: 1 and 2 are excluded at all chaos levels (Tala Shastra). */
 function testPulsationPoolsExclude1And2() {
 	for (let chaos = 0; chaos <= 100; chaos += 5) {
 		const pool = pulsationPoolForChaos(chaos);
@@ -105,7 +105,7 @@ function testPulsationPoolsExclude1And2() {
 	}
 }
 
-/** pickRandomPulsationMeter: результат всегда принадлежит pulsationPoolForChaos(chaos), никогда 1/2. */
+/** pickRandomPulsationMeter: result is always from pulsationPoolForChaos(chaos), never 1/2. */
 function testPickPulsationMeterInPool() {
 	for (const chaos of [0, 10, 30, 31, 50, 70, 71, 100]) {
 		const pool = pulsationPoolForChaos(chaos);
@@ -113,15 +113,15 @@ function testPickPulsationMeterInPool() {
 		for (let i = 0; i < 200; i++) {
 			const v = pickRandomPulsationMeter(chaos, undefined, rng);
 			assert.ok(pool.includes(v), `chaos=${chaos}: got ${v} not in pool ${pool}`);
-			assert.ok(v >= 3, `chaos=${chaos}: got ${v} — должно быть ≥ 3`);
+			assert.ok(v >= 3, `chaos=${chaos}: got ${v} - expected >= 3`);
 		}
 	}
 }
 
-/** pickRandomPulsationMeter: с prev и малым chaos результат близко к prev (±1) большинство раз. */
+/** pickRandomPulsationMeter: with prev and low chaos, result stays close to prev (+/-1) most of the time. */
 function testPulsationMarkovCloseToPrev() {
 	const chaos = 10;
-	const prev = 4; // 4 ∈ {3,4,5} новый LE_30
+	const prev = 4; // 4 in {3,4,5} under new LE_30
 	const rng = mulberry32(12345);
 	let closeCount = 0;
 	const trials = 1000;
@@ -129,11 +129,11 @@ function testPulsationMarkovCloseToPrev() {
 		const v = pickRandomPulsationMeter(chaos, prev, rng);
 		if (Math.abs(v - prev) <= 1) closeCount++;
 	}
-	// stickProb(chaos=10)=0.55; весь пул {3,4,5} в ±1 от prev=4, так что ≈100%.
+	// stickProb(chaos=10)=0.55; full pool {3,4,5} is within +/-1 of prev=4, so approx 100%.
 	assert.ok(closeCount / trials > 0.6, `markov too weak: ${closeCount}/${trials} close`);
 }
 
-/** applyRandomizerEffectsToBar с фиксированным seed — детерминизм. */
+/** applyRandomizerEffectsToBar with fixed seed must be deterministic. */
 function testApplyDeterministic() {
 	const run = () => {
 		const m = makeEmptyState();
@@ -150,7 +150,7 @@ function testApplyDeterministic() {
 	assert.deepEqual(a, b, 'applyRandomizerEffectsToBar not deterministic under same seed');
 }
 
-/** Порядок операций: dead-зона не содержит accents/subdivisions (pattern/speed после barSpeed). */
+/** Operation order: dead zone must not contain accents/subdivisions (pattern/speed after barSpeed). */
 function testOrderDeadRegionClean() {
 	for (let seed = 1; seed <= 50; seed++) {
 		const m = makeEmptyState();
@@ -168,7 +168,7 @@ function testOrderDeadRegionClean() {
 	}
 }
 
-/** Cap dead на 80%: не более floor(curSyl*0.8) мёртвых при chaos=100 (Vilambit Laya). */
+/** Dead cap at 80%: at most floor(curSyl*0.8) dead cells when chaos=100 (Vilambit Laya). */
 function testDeadCellsCapAt80Percent() {
 	for (let seed = 1; seed <= 100; seed++) {
 		const m: BarRandomizerMutable = {
@@ -187,12 +187,12 @@ function testDeadCellsCapAt80Percent() {
 			deadCount <= Math.floor(9 * 0.8),
 			`seed=${seed}: dead=${deadCount} > 80% of curSyl=9`,
 		);
-		// Инвариант "минимум одна живая клетка".
+		// Invariant: "at least one live cell".
 		assert.ok(meta.deadStart >= 1, `seed=${seed}: all cells dead (deadStart=0)`);
 	}
 }
 
-/** mulberry32: одинаковый seed → одинаковая последовательность. */
+/** mulberry32: same seed -> same sequence. */
 function testMulberry32Determinism() {
 	const a = mulberry32(0xdeadbeef);
 	const b = mulberry32(0xdeadbeef);
@@ -201,7 +201,7 @@ function testMulberry32Determinism() {
 	}
 }
 
-/** mulberry32: разные seed → разные начальные значения. */
+/** mulberry32: different seeds -> different initial values. */
 function testMulberry32DifferentSeeds() {
 	const a = mulberry32(1);
 	const b = mulberry32(2);
@@ -213,9 +213,9 @@ function testMulberry32DifferentSeeds() {
 }
 
 /**
- * forceFirstBeat=true: акцент на доле 0 гарантирован при мутации pattern
- * (Sam/Eduppu — гравитационный центр Тала). Проверяем на низком chaos, где
- * pickAccentCountForBar даёт малые значения.
+ * forceFirstBeat=true: accent on beat 0 is guaranteed for pattern mutation
+ * (Sam/Eduppu is Tala's gravitational center). Test at low chaos where
+ * pickAccentCountForBar yields low values.
  */
 function testFirstBeatForcedWhenFlag() {
 	let mutated = 0;
@@ -228,22 +228,22 @@ function testFirstBeatForcedWhenFlag() {
 			customMultipliers: {},
 			deadCells: {},
 		};
-		// chaos=60 — patternChangeProb ≈ 0.68, в большинстве попыток pattern мутирует.
-		// Axis pattern on, pulsation/barSpeed/speed off — изолируем эффект.
+		// chaos=60: patternChangeProb approx 0.68, so pattern mutates in most attempts.
+		// Axis pattern on, pulsation/barSpeed/speed off - isolate the effect.
 		applyRandomizerEffectsToBar(0, 60, false, true, false, false, false, 8, m, mulberry32(seed), true);
-		if (m.accents.size === 0) continue; // pattern gate не сработал
+		if (m.accents.size === 0) continue; // pattern gate did not fire
 		mutated++;
 		assert.ok(
 			m.accents.has('0-0'),
-			`seed=${seed}: forceFirstBeat=true, но accent-0 отсутствует (accents=${[...m.accents]})`,
+			`seed=${seed}: forceFirstBeat=true but accent-0 is missing (accents=${[...m.accents]})`,
 		);
 	}
-	assert.ok(mutated > 50, `pattern rarely mutated: ${mutated}/200 — тест недостоверен`);
+	assert.ok(mutated > 50, `pattern rarely mutated: ${mutated}/200 - test is not reliable`);
 }
 
 /**
- * forceFirstBeat=false на chaos=100: хотя бы часть тактов получает pattern без акцента на 0
- * (Korvai-зона разрешает "плавающие" акценты).
+ * forceFirstBeat=false at chaos=100: at least some bars should get pattern without accent on 0
+ * (Korvai zone allows "floating" accents).
  */
 function testFirstBeatNotForcedWithoutFlag() {
 	let withoutFirst = 0;
@@ -263,16 +263,16 @@ function testFirstBeatNotForcedWithoutFlag() {
 		if (!m.accents.has('0-0')) withoutFirst++;
 	}
 	assert.ok(mutated > 100, `pattern rarely mutated: ${mutated}/500`);
-	// Без форса и на chaos=100 ожидаем существенную долю без accent-0.
+	// Without force at chaos=100, expect a meaningful share without accent-0.
 	assert.ok(
 		withoutFirst > 0,
-		`forceFirstBeat=false на chaos=100, но каждый такт получил accent-0 — форс утекает?`,
+		`forceFirstBeat=false at chaos=100, but every bar got accent-0 - force may be leaking`,
 	);
 }
 
 /**
- * Веса cell-speed: 2→0.5, 4→0.35, 3→0.15. Проверяем частоты на 5000 независимых семплов
- * (chaos=100, prev=undefined — Markov-stick выключен).
+ * Cell-speed weights: 2->0.5, 4->0.35, 3->0.15. Check frequencies on 5000 independent samples
+ * (chaos=100, prev=undefined - Markov stickiness off).
  */
 function testCellSpeedWeightedDistribution() {
 	const rng = mulberry32(0xabcdef);
@@ -285,15 +285,15 @@ function testCellSpeedWeightedDistribution() {
 	const f2 = counts[2]! / trials;
 	const f3 = counts[3]! / trials;
 	const f4 = counts[4]! / trials;
-	// Допуски ±0.03 — статистический шум на 5000 семплов.
-	assert.ok(f2 > 0.47 && f2 < 0.53, `freq(2)=${f2.toFixed(3)} вне [0.47, 0.53]`);
-	assert.ok(f3 > 0.12 && f3 < 0.18, `freq(3)=${f3.toFixed(3)} вне [0.12, 0.18]`);
-	assert.ok(f4 > 0.32 && f4 < 0.38, `freq(4)=${f4.toFixed(3)} вне [0.32, 0.38]`);
+	// Tolerance +/-0.03 for statistical noise at 5000 samples.
+	assert.ok(f2 > 0.47 && f2 < 0.53, `freq(2)=${f2.toFixed(3)} out of [0.47, 0.53]`);
+	assert.ok(f3 > 0.12 && f3 < 0.18, `freq(3)=${f3.toFixed(3)} out of [0.12, 0.18]`);
+	assert.ok(f4 > 0.32 && f4 < 0.38, `freq(4)=${f4.toFixed(3)} out of [0.32, 0.38]`);
 }
 
 /**
- * Dead-cells независимы от акцентов: при chaos=60 и randomPattern=false, randomBarSpeed=true
- * dead-зоны всё равно генерируются в существенной доле попыток.
+ * Dead-cells are independent from accents: with chaos=60 and randomPattern=false, randomBarSpeed=true
+ * dead zones should still appear in a meaningful fraction of attempts.
  */
 function testDeadCellsIndependentOfAccents() {
 	let withDead = 0;
@@ -307,7 +307,7 @@ function testDeadCellsIndependentOfAccents() {
 			customMultipliers: {},
 			deadCells: {},
 		};
-		// Pattern off — accents всегда пустые. Dead-cells не должны зависеть от них.
+		// Pattern off - accents are always empty. Dead-cells must not depend on them.
 		const didChange = applyRandomizerEffectsToBar(
 			0, 60, false, false, false, true, false, 8, m, mulberry32(seed),
 		);
@@ -317,13 +317,13 @@ function testDeadCellsIndependentOfAccents() {
 	assert.ok(mutated > 50, `barSpeed gate rarely fires: ${mutated}/300`);
 	assert.ok(
 		withDead > 20,
-		`dead-cells на chaos=60 без pattern редки: ${withDead}/300 — есть ли утечка связи с accents?`,
+		`dead-cells at chaos=60 without pattern are rare: ${withDead}/300 - possible accidental dependency on accents?`,
 	);
 }
 
 /**
- * Speed бьёт безакцентные клетки: с пустыми accents и chaos=100, randomSpeed=true
- * подделения появляются на любых живых индексах.
+ * Speed affects non-accented cells: with empty accents and chaos=100, randomSpeed=true
+ * subdivisions should appear on any live indices.
  */
 function testSpeedFillsAllCellsIndependentOfAccents() {
 	let subdivsOnNonAccent = 0;
@@ -343,7 +343,7 @@ function testSpeedFillsAllCellsIndependentOfAccents() {
 	}
 	assert.ok(
 		subdivsOnNonAccent > 100,
-		`Speed поставил подделения на безакц. клетки ${subdivsOnNonAccent} раз — мало; связь с accents не развязана?`,
+		`Speed added subdivisions to non-accent cells only ${subdivsOnNonAccent} times - too low; dependency on accents may remain`,
 	);
 }
 
