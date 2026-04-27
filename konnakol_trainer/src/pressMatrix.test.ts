@@ -216,7 +216,7 @@ function testBaselineFreeze() {
 	state.customSyllables[0] = 5;
 	state.accents.add('0-0');
 
-	armPressFromState(state);
+	armPressFromState(state, 'star');
 	assert.equal(isPressPrimed(), true);
 	const baseline = getPressBaseline()!;
 	assert.equal(baseline.bars, 2);

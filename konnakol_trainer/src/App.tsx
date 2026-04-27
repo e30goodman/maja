@@ -76,6 +76,7 @@ import {
 } from './pressMatrix';
 import {
 	armPressFromState,
+	getPressArmSource,
 	getPressBaseline,
 	isPressPrimed,
 	notifyPressErased,
@@ -3190,6 +3191,8 @@ type StructuralSliderProps = {
   onLiveChange?: (next: number) => void;
   onBeginDrag?: () => void;
   thumbIdleArm?: StructuralSliderThumbIdleArm;
+  /** После жеста с рукоятки (up/cancel/blur); Bars использует для disarm при arm с «slider». */
+  onThumbPointerSessionEnd?: () => void;
 };
 
 /** Ширина «рукоятки» в px (совпадает с w-4 в классе слайдера) — только по ней принимаем pointerdown, не по дорожке. */
@@ -3206,6 +3209,7 @@ function StructuralSlider({
   onLiveChange,
   onBeginDrag,
   thumbIdleArm,
+  onThumbPointerSessionEnd,
 }: StructuralSliderProps) {
   const [localValue, setLocalValue] = useState(value);
   const committedValueRef = useRef(value);
@@ -3215,6 +3219,8 @@ function StructuralSlider({
   const thumbArmTimerRef = useRef<number | null>(null);
   const thumbIdleArmRef = useRef(thumbIdleArm);
   thumbIdleArmRef.current = thumbIdleArm;
+  const onThumbPointerSessionEndRef = useRef(onThumbPointerSessionEnd);
+  onThumbPointerSessionEndRef.current = onThumbPointerSessionEnd;
 
   const clearThumbArmTimer = useCallback(() => {
     if (thumbArmTimerRef.current !== null) {
@@ -3317,6 +3323,7 @@ function StructuralSlider({
         }
         if (pointerActiveRef.current) pointerActiveRef.current = false;
         commitLocalValue(localValue);
+        onThumbPointerSessionEndRef.current?.();
       }}
       onPointerCancel={(e) => {
         clearThumbArmTimer();
@@ -3329,10 +3336,12 @@ function StructuralSlider({
         }
         if (pointerActiveRef.current) pointerActiveRef.current = false;
         commitLocalValue(localValue);
+        onThumbPointerSessionEndRef.current?.();
       }}
       onBlur={() => {
         clearThumbArmTimer();
         commitLocalValue(localValue);
+        onThumbPointerSessionEndRef.current?.();
       }}
       onInput={(e) => {
         applyLiveValue(normalizeValue(e.currentTarget.value));
@@ -4719,9 +4728,10 @@ export default function App() {
   }, [getPressState, applyPressPatch]);
 
   /**
-   * Press Matrix:
-   * - Bars: long-press на рукоятке — только arm, если ещё не primed (касание слайдера не disarm).
-   * - Снежинка: long-press — вход; повторный long-press — выход. Короткий клик — только freeze.
+   * Press Matrix (источник в `pressMatrixCoordinator` `PressArmSource`):
+   * - Снежинка: arm с `'star'` — выход только повторным long-press по снежинке.
+   * - Bars thumb: arm с `'slider'` — выход при отпускании рукоятки (session end).
+   * Eraser сбрасывает оба. Snapshot непустой — arm как `'star'` (выход как у звезды).
    */
   const PRESS_LONG_PRESS_MS = 600;
   /** Снежинка: slop отмены long-press при съезде пальца до истечения hold. */
@@ -4732,8 +4742,13 @@ export default function App() {
   const pressStarArmStartRef = useRef<{ x: number; y: number } | null>(null);
   const [isPressStarLongPressing, setIsPressStarLongPressing] = useState(false);
 
-  const armPressFromCurrentMatrix = useCallback(() => {
-    armPressFromState(getPressState());
+  const armPressMatrixFromStar = useCallback(() => {
+    armPressFromState(getPressState(), 'star');
+    setIsPressMatrixPrimedUi(true);
+  }, [getPressState]);
+
+  const armPressMatrixFromSlider = useCallback(() => {
+    armPressFromState(getPressState(), 'slider');
     setIsPressMatrixPrimedUi(true);
   }, [getPressState]);
 
@@ -4743,8 +4758,13 @@ export default function App() {
   }, []);
 
   const handleBarsSliderThumbIdleArm = useCallback(() => {
-    if (!isPressPrimed()) armPressFromCurrentMatrix();
-  }, [armPressFromCurrentMatrix]);
+    if (!isPressPrimed()) armPressMatrixFromSlider();
+  }, [armPressMatrixFromSlider]);
+
+  /** Disarm только для сессии, заармленной с рукоятки Bars (`'slider'`). */
+  const handleBarsSliderThumbSessionEnd = useCallback(() => {
+    if (isPressPrimed() && getPressArmSource() === 'slider') disarmPressMatrixMode();
+  }, [disarmPressMatrixMode]);
 
   const clearPressStarLongPressTimer = useCallback(() => {
     if (pressStarLongPressTimerRef.current !== null) {
@@ -4763,8 +4783,8 @@ export default function App() {
         pressStarArmStartRef.current = null;
         pressStarLongPressFiredRef.current = true;
         setIsPressStarLongPressing(true);
-        if (isPressPrimed()) disarmPressMatrixMode();
-        else armPressFromCurrentMatrix();
+        if (isPressPrimed() && getPressArmSource() === 'star') disarmPressMatrixMode();
+        else if (!isPressPrimed()) armPressMatrixFromStar();
       }, PRESS_LONG_PRESS_MS);
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
@@ -4772,7 +4792,7 @@ export default function App() {
         /* ignore */
       }
     },
-    [clearPressStarLongPressTimer, armPressFromCurrentMatrix, disarmPressMatrixMode],
+    [clearPressStarLongPressTimer, armPressMatrixFromStar, disarmPressMatrixMode],
   );
 
   const handlePressStarPointerMove = useCallback(
@@ -6529,7 +6549,7 @@ export default function App() {
         notifyPressErased();
         setIsPressMatrixPrimedUi(false);
       } else {
-        armPressFromState(snapPressState);
+        armPressFromState(snapPressState, 'star');
         setIsPressMatrixPrimedUi(true);
       }
     }
@@ -9575,6 +9595,7 @@ export default function App() {
                   holdMs: PRESS_LONG_PRESS_MS,
                   onArm: handleBarsSliderThumbIdleArm,
                 }}
+                onThumbPointerSessionEnd={handleBarsSliderThumbSessionEnd}
                 onBeginDrag={() => {
                   barsSliderDraggingRef.current = true;
                   attachSliderWindowListeners();

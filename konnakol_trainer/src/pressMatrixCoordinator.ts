@@ -6,10 +6,13 @@
  *  - `baselineState` — frozen `PressState` snapshot captured at arm time.
  *  - `baselineBars` — bar count at arm time. Tile uses this as the cylinder size.
  *
- * Activation contract: arming is explicit in `App.tsx` — long-press on the Bars
- * slider thumb (time-based only; dragging does not cancel) or long-press on the
- * snowflake (toggle: repeat long-press disarms). Disarm: snowflake repeat, Eraser,
- * or empty snapshot path — not by touching the Bars slider. After arming,
+ * Activation contract: arming is explicit in `App.tsx` — with a stored
+ * `PressArmSource`:
+ *  - `'star'` — long-press snowflake; disarm only via repeat snowflake long-press
+ *    (plus Eraser / empty snapshot), not via Bars slider release.
+ *  - `'slider'` — long-press Bars thumb; disarm on Bars slider pointer release
+ *    (plus Eraser). Snowflake repeat does not disarm this arm.
+ * After arming,
  * edits to the live state DO NOT mutate the
  * baseline — only a re-arm replaces it.
  *
@@ -23,18 +26,29 @@ let primed = false;
 let baselineState: PressState | null = null;
 let baselineBars = 0;
 
+/** How the current primed session was armed — drives which UI gesture disarms. */
+export type PressArmSource = 'star' | 'slider';
+
+let armSource: PressArmSource | null = null;
+
 export function isPressPrimed(): boolean {
 	return primed && baselineState !== null && baselineBars >= 1;
+}
+
+export function getPressArmSource(): PressArmSource | null {
+	if (!isPressPrimed()) return null;
+	return armSource;
 }
 
 /**
  * Freezes the current `PressState` as the baseline. Re-arming overwrites the
  * previous baseline — that is the intended UX for "give me a new template".
  */
-export function armPressFromState(state: PressState): void {
+export function armPressFromState(state: PressState, source: PressArmSource): void {
 	baselineState = clonePressState(state);
 	baselineBars = Math.max(1, state.bars | 0);
 	primed = true;
+	armSource = source;
 }
 
 export function getPressBaseline(): { state: PressState; bars: number } | null {
@@ -49,6 +63,7 @@ export function notifyPressErased(): void {
 	primed = false;
 	baselineState = null;
 	baselineBars = 0;
+	armSource = null;
 }
 
 /**
@@ -58,4 +73,5 @@ export function _resetPressCoordinatorForTests(): void {
 	primed = false;
 	baselineState = null;
 	baselineBars = 0;
+	armSource = null;
 }
