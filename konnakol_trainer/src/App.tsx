@@ -3388,6 +3388,9 @@ export default function App() {
   const skipTempoInlineBlurCommitRef = useRef(false);
   const tempoTapInlineInputRef = useRef<HTMLInputElement>(null);
   const [bars, setBars] = useState(seed.bars);
+  const [barsInlineEditing, setBarsInlineEditing] = useState(false);
+  const [barsManualText, setBarsManualText] = useState(String(seed.bars));
+  const barsInlineInputRef = useRef<HTMLInputElement>(null);
   const [syllables, setSyllables] = useState(seed.syllables);
 
   // Metronome state
@@ -3787,6 +3790,40 @@ export default function App() {
     },
     [lowPerfMode, normalizeBarsForMode],
   );
+
+  const beginBarsInlineEdit = useCallback(() => {
+    setBarsManualText(String(bars));
+    setBarsInlineEditing(true);
+  }, [bars]);
+
+  const commitBarsInlineEdit = useCallback(() => {
+    const parsed = parseInt(barsManualText, 10);
+    const normalized = Number.isFinite(parsed) ? Math.max(1, Math.min(100, parsed)) : bars;
+    applyBarsWithPotatoFreeze(normalized);
+    setBarsManualText(String(normalized));
+    setBarsInlineEditing(false);
+  }, [applyBarsWithPotatoFreeze, bars, barsManualText]);
+
+  const cancelBarsInlineEdit = useCallback(() => {
+    setBarsManualText(String(bars));
+    setBarsInlineEditing(false);
+  }, [bars]);
+
+  useEffect(() => {
+    if (barsInlineEditing) return;
+    setBarsManualText(String(bars));
+  }, [bars, barsInlineEditing]);
+
+  useEffect(() => {
+    if (!barsInlineEditing) return;
+    const rafId = window.requestAnimationFrame(() => {
+      const el = barsInlineInputRef.current;
+      if (!el) return;
+      el.focus();
+      el.select();
+    });
+    return () => window.cancelAnimationFrame(rafId);
+  }, [barsInlineEditing]);
 
   /** Целевое число тактов для parent-режима по выбранному стилю (preset). */
   function targetBarsForParentPreset(preset: FormPresetId): number {
@@ -5734,12 +5771,16 @@ export default function App() {
   const polyChunksRef = useRef(polyChunks);
   polyChunksRef.current = polyChunks;
 
-  /** Слайдер Bars: в poly на 3 голоса только кратно 3 (native step); на 2 — кратно 2 (до 100 как в normalize). */
+  /** Слайдер Bars: legacy-диапазон в poly 30/32; если вручную введено больше, расширяем шкалу до 99/100. */
   const barsStructuralRange = useMemo(() => {
     if (!polyMode) return { min: 1, max: 32, step: 1 };
-    if (polyVoices === 3) return { min: 3, max: 99, step: 3 };
-    return { min: 2, max: 100, step: 2 };
-  }, [polyMode, polyVoices]);
+    if (polyVoices === 3) {
+      const max = bars > 30 ? 99 : 30;
+      return { min: 3, max, step: 3 };
+    }
+    const max = bars > 32 ? 100 : 32;
+    return { min: 2, max, step: 2 };
+  }, [polyMode, polyVoices, bars]);
 
   // Auto-save preset whenever parameters change (пропуск во время drag Bars/Syllables — см. pointerup flush)
   useEffect(() => {
@@ -8945,23 +8986,34 @@ export default function App() {
                 }}
               />
               <div className="w-5 shrink-0 flex justify-end">
-                <input 
-                  type="text"
-                  inputMode="numeric"
-                  key={`bars-input-${bars}`}
-                  defaultValue={bars}
-                  onFocus={e => e.target.select()}
-                  onBlur={e => {
-                    let val = parseInt(e.target.value);
-                    if (isNaN(val) || val < 1) val = 1;
-                    if (val > 100) val = 100;
-                    applyBarsWithPotatoFreeze(val);
-                  }}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') e.currentTarget.blur();
-                  }}
-                  className="w-full text-xs font-bold text-slate-300 text-right bg-transparent hover:bg-[#1e2a45] focus:bg-[#1e2a45] rounded outline-none transition-colors py-1 cursor-text select-text"
-                />
+                {barsInlineEditing ? (
+                  <input
+                    ref={barsInlineInputRef}
+                    type="text"
+                    inputMode="numeric"
+                    value={barsManualText}
+                    onChange={(e) => setBarsManualText(e.target.value)}
+                    onBlur={() => commitBarsInlineEdit()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        commitBarsInlineEdit();
+                      } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        cancelBarsInlineEdit();
+                      }
+                    }}
+                    className="w-full text-xs font-bold text-slate-300 text-right bg-transparent hover:bg-[#1e2a45] focus:bg-[#1e2a45] rounded outline-none transition-colors py-1 cursor-text select-text"
+                  />
+                ) : (
+                  <span
+                    onDoubleClick={() => beginBarsInlineEdit()}
+                    className="w-full text-xs font-bold text-slate-300 text-right bg-transparent hover:bg-[#1e2a45] rounded outline-none transition-colors py-1 cursor-text select-none"
+                    title="Double click to edit (1-100)"
+                  >
+                    {bars}
+                  </span>
+                )}
               </div>
             </div>
 
