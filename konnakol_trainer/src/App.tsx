@@ -4022,6 +4022,9 @@ export default function App() {
   const randomDiceHoldAteClickRef = useRef(false);
   const randomDicePointerTapHandledRef = useRef(false);
   const randomDiceHoldStartedAtRef = useRef<number | null>(null);
+  /** Coarse pointer: доп. выход из Press — любой `pointerdown` после arm со слайдера (когда отпускание не ловится). */
+  const mobileSliderDisarmListenerAttachedRef = useRef(false);
+  const detachMobileSliderCoarseDisarmRef = useRef<() => void>(() => {});
   const taHoldTimerRef = useRef<number | null>(null);
   const taHoldAteClickRef = useRef(false);
   const taHoldFillSnapTimerRef = useRef<number | null>(null);
@@ -4145,6 +4148,7 @@ export default function App() {
     setFrozenScale(null);
     frozenScaleRef.current = null;
     /* Press Matrix: full eraser disarms baseline (single source of "primed" reset). */
+    detachMobileSliderCoarseDisarmRef.current();
     notifyPressErased();
     setPressMatrixArmSourceUi(null);
   };
@@ -4737,6 +4741,7 @@ export default function App() {
    * Press Matrix (источник в `pressMatrixCoordinator` `PressArmSource`):
    * - Снежинка: arm с `'star'` — выход только повторным long-press по снежинке.
    * - Bars thumb: arm с `'slider'` — выход при отпускании рукоятки (session end).
+   * - На `(pointer: coarse)` дополнительно: любой следующий `pointerdown` снимает `'slider'`-сессию.
    * Eraser сбрасывает оба. Snapshot непустой — arm как `'star'` (выход как у звезды).
    */
   const PRESS_LONG_PRESS_MS = 600;
@@ -4749,20 +4754,63 @@ export default function App() {
   const pressStarArmStartRef = useRef<{ x: number; y: number } | null>(null);
   const [isPressStarLongPressing, setIsPressStarLongPressing] = useState(false);
 
+  const disarmPressMatrixModeRef = useRef<() => void>(() => {});
+
+  const stableMobileCoarsePointerDown = useCallback((e: Event) => {
+    void e;
+    try {
+      if (!window.matchMedia('(pointer: coarse)').matches) return;
+    } catch {
+      return;
+    }
+    if (!isPressPrimed() || getPressArmSource() !== 'slider') return;
+    disarmPressMatrixModeRef.current();
+  }, []);
+
+  const detachMobileSliderCoarseDisarm = useCallback(() => {
+    if (!mobileSliderDisarmListenerAttachedRef.current) return;
+    mobileSliderDisarmListenerAttachedRef.current = false;
+    window.removeEventListener('pointerdown', stableMobileCoarsePointerDown, true);
+  }, [stableMobileCoarsePointerDown]);
+
+  const attachMobileSliderCoarseDisarm = useCallback(() => {
+    try {
+      if (!window.matchMedia('(pointer: coarse)').matches) return;
+    } catch {
+      return;
+    }
+    if (mobileSliderDisarmListenerAttachedRef.current) return;
+    mobileSliderDisarmListenerAttachedRef.current = true;
+    window.addEventListener('pointerdown', stableMobileCoarsePointerDown, true);
+  }, [stableMobileCoarsePointerDown]);
+
+  const disarmPressMatrixMode = useCallback(() => {
+    detachMobileSliderCoarseDisarm();
+    notifyPressErased();
+    setPressMatrixArmSourceUi(null);
+  }, [detachMobileSliderCoarseDisarm]);
+
+  disarmPressMatrixModeRef.current = disarmPressMatrixMode;
+  detachMobileSliderCoarseDisarmRef.current = detachMobileSliderCoarseDisarm;
+
+  useEffect(
+    () => () => {
+      detachMobileSliderCoarseDisarmRef.current();
+    },
+    [],
+  );
+
   const armPressMatrixFromStar = useCallback(() => {
+    detachMobileSliderCoarseDisarm();
     armPressFromState(getPressState(), 'star');
     setPressMatrixArmSourceUi('star');
-  }, [getPressState]);
+  }, [getPressState, detachMobileSliderCoarseDisarm]);
 
   const armPressMatrixFromSlider = useCallback(() => {
     armPressFromState(getPressState(), 'slider');
     setPressMatrixArmSourceUi('slider');
-  }, [getPressState]);
-
-  const disarmPressMatrixMode = useCallback(() => {
-    notifyPressErased();
-    setPressMatrixArmSourceUi(null);
-  }, []);
+    attachMobileSliderCoarseDisarm();
+  }, [getPressState, attachMobileSliderCoarseDisarm]);
 
   const handleBarsSliderThumbIdleArm = useCallback(() => {
     if (!isPressPrimed()) armPressMatrixFromSlider();
@@ -6563,6 +6611,7 @@ export default function App() {
         pulseMeterUnlinked: { ...nextPulseUnlinked },
         deadCells: { ...((snap as { deadCells?: DeadCellsMap }).deadCells || {}) },
       };
+      detachMobileSliderCoarseDisarmRef.current();
       if (isPressStateEmpty(snapPressState)) {
         notifyPressErased();
         setPressMatrixArmSourceUi(null);
