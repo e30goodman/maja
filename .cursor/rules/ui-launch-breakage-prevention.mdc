@@ -1,0 +1,18 @@
+---
+description: "must check after refactors/reverts"
+alwaysApply: false
+---
+# UI Launch Breakage Prevention Rule
+
+Reference: `konnakol_trainer/docs/agent-playbooks/ui-launch-breakage-prevention.md`.
+
+Apply this rule whenever agent changes include at least one of:
+- export/import edits in TS/JS modules,
+- revert/restore of recently edited logic files,
+- cross-file refactor affecting symbol ownership.
+
+Mandatory actions before claiming "UI fixed":
+- Run `npm run build` in `konnakol_trainer` first.
+- If build shows unresolved export/import, fix symbol contract immediately (producer or consumer).
+- Start `npm run dev` only after successful build.
+- Treat white screen as probable module/runtime failure before investigating ports/network.

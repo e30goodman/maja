@@ -67,6 +67,19 @@ import {
 } from './lessonLogger';
 import { generateMidiBlob } from './midiExport';
 import type { RowRuntimeContext } from './sequencerLabels';
+import {
+	dropPress,
+	isStateEmpty as isPressStateEmpty,
+	tilePress,
+	type PressPatch,
+	type PressState,
+} from './pressMatrix';
+import {
+	armPressFromState,
+	getPressBaseline,
+	isPressPrimed,
+	notifyPressErased,
+} from './pressMatrixCoordinator';
 
 function buildPolyChunks(barCount: number, voiceCount: number): number[][] {
 	const safeBars = Math.max(0, Math.floor(barCount));
@@ -3803,6 +3816,9 @@ export default function App() {
       const prevBars = barsRef.current;
       setBars(normalizedNext);
       barsRef.current = normalizedNext;
+      // Press Matrix gate: tile/drop from frozen baseline if armed.
+      // Pure functions live in `pressMatrix.ts`; closure-resolved at call time.
+      handlePressOnBarsChange(prevBars, normalizedNext);
       if (!lowPerfMode) return;
       if (normalizedNext <= 5) {
         potatoAutoFreezeArmedRef.current = true;
@@ -3816,6 +3832,8 @@ export default function App() {
         setFrozenScale(normalizedNext);
       }
     },
+    /* `handlePressOnBarsChange` resolved via closure at call time (declared later in component body). */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [lowPerfMode, normalizeBarsForMode],
   );
 
@@ -3883,6 +3901,8 @@ export default function App() {
   const taHoldTimerRef = useRef<number | null>(null);
   const taHoldAteClickRef = useRef(false);
   const taHoldFillSnapTimerRef = useRef<number | null>(null);
+  const midiHoldTimerRef = useRef<number | null>(null);
+  const midiHoldAteClickRef = useRef(false);
   const cancelTaHoldFillAnim = () => {
     if (taHoldFillSnapTimerRef.current !== null) {
       window.clearTimeout(taHoldFillSnapTimerRef.current);
@@ -3995,6 +4015,8 @@ export default function App() {
     setDeSyncCycleLength(undefined);
     setFrozenScale(null);
     frozenScaleRef.current = null;
+    /* Press Matrix: full eraser disarms baseline (single source of "primed" reset). */
+    notifyPressErased();
   };
 
   /**
@@ -4485,6 +4507,145 @@ export default function App() {
       return next;
     });
   }, [bars]);
+
+  /**
+   * Press Matrix helpers — собирают PressState из refs и применяют patch.
+   *
+   * Контракт: see `pressMatrix.ts`. Refs здесь — стабильные ссылки на текущее
+   * состояние. Setters стабильны через render'ы. Helpers безопасно вызывать
+   * из любых обработчиков, в т.ч. из `applyBarsWithPotatoFreeze` (closure).
+   */
+  const getPressState = useCallback((): PressState => ({
+    bars: barsRef.current,
+    syllables: syllablesRef.current,
+    polyMode: polyModeRef.current,
+    polyVoices: polyVoicesRef.current,
+    customSyllables: { ...customSyllablesRef.current },
+    customMultipliers: { ...customMultipliersRef.current },
+    customSubdivisions: { ...customSubdivisionsRef.current },
+    customCellSyllables: { ...customCellSyllablesRef.current },
+    accents: new Set(accentsRef.current),
+    taDingKeys: new Set(taDingKeysRef.current),
+    accentsByLane: cloneLaneSetMap(accentsByLaneRef.current),
+    taDingKeysByLane: cloneLaneSetMap(taDingKeysByLaneRef.current),
+    firstBeatDingSuppressedRows: new Set(firstBeatDingSuppressedRowsRef.current),
+    pulseMeterUnlinked: { ...pulseMeterUnlinkedRef.current },
+    deadCells: { ...deadCellsRef.current },
+  }), []);
+
+  const applyPressPatch = useCallback((patch: PressPatch) => {
+    if (patch.customSyllables) {
+      customSyllablesRef.current = patch.customSyllables;
+      setCustomSyllables(patch.customSyllables);
+    }
+    if (patch.customMultipliers) {
+      customMultipliersRef.current = patch.customMultipliers;
+      setCustomMultipliers(patch.customMultipliers);
+    }
+    if (patch.customSubdivisions) {
+      customSubdivisionsRef.current = patch.customSubdivisions;
+      setCustomSubdivisions(patch.customSubdivisions);
+    }
+    if (patch.customCellSyllables) {
+      customCellSyllablesRef.current = patch.customCellSyllables;
+      setCustomCellSyllables(patch.customCellSyllables);
+    }
+    if (patch.accents) {
+      accentsRef.current = patch.accents;
+      setAccents(patch.accents);
+    }
+    if (patch.accentsByLane) {
+      accentsByLaneRef.current = patch.accentsByLane;
+      setAccentsByLane(patch.accentsByLane);
+    }
+    if (patch.taDingKeys) {
+      taDingKeysRef.current = patch.taDingKeys;
+      setTaDingKeys(patch.taDingKeys);
+    }
+    if (patch.taDingKeysByLane) {
+      taDingKeysByLaneRef.current = patch.taDingKeysByLane;
+      setTaDingKeysByLane(patch.taDingKeysByLane);
+    }
+    if (patch.firstBeatDingSuppressedRows) {
+      firstBeatDingSuppressedRowsRef.current = patch.firstBeatDingSuppressedRows;
+      setFirstBeatDingSuppressedRows(patch.firstBeatDingSuppressedRows);
+    }
+    if (patch.pulseMeterUnlinked) {
+      pulseMeterUnlinkedRef.current = patch.pulseMeterUnlinked;
+      setPulseMeterUnlinked(patch.pulseMeterUnlinked);
+    }
+    if (patch.deadCells) {
+      deadCellsRef.current = patch.deadCells;
+      setDeadCells(patch.deadCells);
+    }
+  }, []);
+
+  /**
+   * Press Matrix: при `bars` expand — tile из baseline (frozen at arm time);
+   * при shrink — drop всех данных за пределом. Гейт: only when primed.
+   * Pure-функции из `pressMatrix.ts` принимают prevN и nextM как параметры,
+   * избегая зависимости от refs.
+   */
+  const handlePressOnBarsChange = useCallback((prevBars: number, nextBars: number) => {
+    if (!isPressPrimed()) return;
+    if (prevBars === nextBars) return;
+    const baseline = getPressBaseline();
+    if (!baseline) return;
+    const live = getPressState();
+    if (nextBars > prevBars) {
+      const sourceN = baseline.bars >= 1 ? baseline.bars : prevBars;
+      if (sourceN < 1) return;
+      applyPressPatch(tilePress(prevBars, nextBars, live, baseline.state, sourceN));
+    } else {
+      applyPressPatch(dropPress(nextBars, live));
+    }
+  }, [getPressState, applyPressPatch]);
+
+  /**
+   * Press Matrix arm trigger — long-press на Snowflake-кнопке.
+   * Short tap: оставляет существующее поведение (toggle frozenScale).
+   * Long press (>= threshold ms): фиксирует baseline текущей матрицы,
+   * primed = true. Существующий onClick проверяет `pressLongPressFiredRef`
+   * и swallows event если long-press уже сработал.
+   */
+  const PRESS_LONG_PRESS_MS = 450;
+  const pressLongPressTimerRef = useRef<number | null>(null);
+  const pressLongPressFiredRef = useRef(false);
+  const [isPressLongPressing, setIsPressLongPressing] = useState(false);
+
+  const armPressFromCurrentMatrix = useCallback(() => {
+    armPressFromState(getPressState());
+  }, [getPressState]);
+
+  const handlePressTriggerPointerDown = useCallback(() => {
+    pressLongPressFiredRef.current = false;
+    setIsPressLongPressing(true);
+    if (pressLongPressTimerRef.current !== null) {
+      window.clearTimeout(pressLongPressTimerRef.current);
+    }
+    pressLongPressTimerRef.current = window.setTimeout(() => {
+      pressLongPressFiredRef.current = true;
+      pressLongPressTimerRef.current = null;
+      armPressFromCurrentMatrix();
+    }, PRESS_LONG_PRESS_MS);
+  }, [armPressFromCurrentMatrix]);
+
+  const cancelPressTriggerLongPress = useCallback(() => {
+    setIsPressLongPressing(false);
+    if (pressLongPressTimerRef.current !== null) {
+      window.clearTimeout(pressLongPressTimerRef.current);
+      pressLongPressTimerRef.current = null;
+    }
+  }, []);
+
+  /** Returns true iff a long-press just fired and the click should be swallowed. */
+  const consumePressTriggerLongPress = useCallback((): boolean => {
+    if (pressLongPressFiredRef.current) {
+      pressLongPressFiredRef.current = false;
+      return true;
+    }
+    return false;
+  }, []);
 
   const getLaneAccentsSetRef = useCallback((r: number): Set<string> => {
     if (!polyModeRef.current) return accentsRef.current;
@@ -6166,6 +6327,38 @@ export default function App() {
     if (!options?.preservePanel) {
       setIsPanelExpanded(snap.panelExpanded === true);
     }
+    /**
+     * Press Matrix: snapshot load is treated as the "freshly loaded press template".
+     * Build PressState directly from the snapshot (refs may not yet be in sync —
+     * setState is async, ref-syncing useEffects haven't run).
+     * If everything's empty → disarm. Otherwise → arm with snap as baseline so
+     * subsequent expand reproduces the loaded pattern via mod-N tiling.
+     */
+    {
+      const snapSuppressed = normalizeSuppressedRows(
+        (snap as { firstBeatDingSuppressedRows?: unknown }).firstBeatDingSuppressedRows,
+        snap.bars,
+      );
+      const snapPressState: PressState = {
+        bars: snap.bars,
+        syllables: snap.syllables,
+        polyMode: snap.polyMode === true,
+        polyVoices: snapVoices,
+        customSyllables: { ...snap.customSyllables },
+        customMultipliers: { ...(snap.customMultipliers || {}) },
+        customSubdivisions: { ...(snap.customSubdivisions || {}) },
+        customCellSyllables: { ...((snap as { customCellSyllables?: Record<string, string> }).customCellSyllables || {}) },
+        accents: new Set(nextAccents),
+        taDingKeys: new Set(nextTaDing),
+        accentsByLane: cloneLaneSetMap(nextAccByLane),
+        taDingKeysByLane: cloneLaneSetMap(nextTaByLane),
+        firstBeatDingSuppressedRows: new Set(snapSuppressed),
+        pulseMeterUnlinked: { ...nextPulseUnlinked },
+        deadCells: { ...((snap as { deadCells?: DeadCellsMap }).deadCells || {}) },
+      };
+      if (isPressStateEmpty(snapPressState)) notifyPressErased();
+      else armPressFromState(snapPressState);
+    }
   };
 
   const loadSnapshot = (id: number) => {
@@ -6225,7 +6418,7 @@ export default function App() {
     }
   };
 
-  const handleExportMidi = async () => {
+  const handleExportMidi = async (opts?: { autoAlignTwoVoice?: boolean }) => {
     try {
       let exportSnapshot: ReturnType<typeof createEmptySnapshot> | null = null;
       try {
@@ -6244,6 +6437,13 @@ export default function App() {
       const exportPolyMode = src ? src.polyMode === true : polyModeRef.current;
       const exportPolyVoices = src ? parsePolyVoices(src.polyVoices) : polyVoicesRef.current;
       const pv = exportPolyVoices === 3 ? 3 : 2;
+      const autoAlignRequested = opts?.autoAlignTwoVoice === true;
+      const autoAlignEnabled = autoAlignRequested && exportPolyMode && pv === 2;
+      if (autoAlignRequested && !autoAlignEnabled) {
+        showClipboardToast('Auto-align MIDI доступен только в 2-voice poly');
+      } else if (autoAlignEnabled) {
+        showClipboardToast('MIDI: auto-align по первым нотам (лимит 100 тактов)');
+      }
       const laneRoleGains: Partial<Record<0 | 1 | 2, { accent: number; alt: number; passive: number }>> = {};
       const laneCount = exportPolyMode ? pv : 1;
       for (let lane = 0; lane < laneCount; lane++) {
@@ -6311,6 +6511,8 @@ export default function App() {
         clickSound: src ? src.clickSound : clickSoundRef.current,
         clickSoundByPolyVoice: src ? { ...normalizeClickSoundByPolyVoice(src.clickSoundByPolyVoice) } : { ...clickSoundByPolyVoiceRef.current },
         laneRoleGains,
+        twoVoiceAutoAlignByFirstNotes: autoAlignEnabled,
+        twoVoiceAutoAlignMaxBars: 100,
       });
       const exportBpm = Math.max(1, Math.round(src ? src.tempo : tempoRef.current));
       const exportVoices = exportPolyMode ? pv : 1;
@@ -6646,6 +6848,10 @@ export default function App() {
       if (taHoldTimerRef.current !== null) {
         window.clearTimeout(taHoldTimerRef.current);
         taHoldTimerRef.current = null;
+      }
+      if (midiHoldTimerRef.current !== null) {
+        window.clearTimeout(midiHoldTimerRef.current);
+        midiHoldTimerRef.current = null;
       }
       cancelTaHoldFillAnim();
       if (eraserHoldTimerRef.current !== null) {
@@ -8810,7 +9016,43 @@ export default function App() {
                     </button>
                     <button
                       type="button"
-                      onClick={handleExportMidi}
+                      onPointerDown={() => {
+                        midiHoldAteClickRef.current = false;
+                        if (midiHoldTimerRef.current !== null) {
+                          window.clearTimeout(midiHoldTimerRef.current);
+                          midiHoldTimerRef.current = null;
+                        }
+                        midiHoldTimerRef.current = window.setTimeout(() => {
+                          midiHoldTimerRef.current = null;
+                          midiHoldAteClickRef.current = true;
+                          void handleExportMidi({ autoAlignTwoVoice: true });
+                        }, 520);
+                      }}
+                      onPointerUp={() => {
+                        if (midiHoldTimerRef.current !== null) {
+                          window.clearTimeout(midiHoldTimerRef.current);
+                          midiHoldTimerRef.current = null;
+                        }
+                      }}
+                      onPointerLeave={() => {
+                        if (midiHoldTimerRef.current !== null) {
+                          window.clearTimeout(midiHoldTimerRef.current);
+                          midiHoldTimerRef.current = null;
+                        }
+                      }}
+                      onPointerCancel={() => {
+                        if (midiHoldTimerRef.current !== null) {
+                          window.clearTimeout(midiHoldTimerRef.current);
+                          midiHoldTimerRef.current = null;
+                        }
+                      }}
+                      onClick={() => {
+                        if (midiHoldAteClickRef.current) {
+                          midiHoldAteClickRef.current = false;
+                          return;
+                        }
+                        void handleExportMidi();
+                      }}
                       className="w-8 h-8 rounded-md border bg-[#1a253c]/60 border-[#2a385b] text-slate-300 hover:text-white hover:bg-[#1a243b] transition-colors flex items-center justify-center"
                     >
                       <span className="text-[7px] font-semibold tracking-wide">MIDI</span>
@@ -9062,7 +9304,13 @@ export default function App() {
                 <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold">Bars</span>
                 <button 
                   type="button"
+                  onPointerDown={handlePressTriggerPointerDown}
+                  onPointerUp={cancelPressTriggerLongPress}
+                  onPointerLeave={cancelPressTriggerLongPress}
+                  onPointerCancel={cancelPressTriggerLongPress}
                   onClick={() => {
+                    /* Press Matrix: swallow click if long-press already fired (arm-only). */
+                    if (consumePressTriggerLongPress()) return;
                     setFrozenScale((prev) => {
                       const next = prev !== null ? null : bars;
                       const firstRowHeight = rowRefs.current[0]?.getBoundingClientRect().height ?? null;
@@ -9086,7 +9334,9 @@ export default function App() {
                     });
                   }}
                   className={`flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-all duration-300 ${
-                    frozenScale !== null 
+                    isPressLongPressing
+                      ? `bg-red-500/25 text-red-300 ring-1 ring-red-500/60 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(239,68,68,0.35)]'}`
+                      : frozenScale !== null 
                       ? `bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/50 ${lowPerfMode ? '' : 'shadow-[0_0_8px_rgba(59,130,246,0.3)]'}` 
                       : 'bg-[#1e2a45]/40 text-slate-400 hover:text-slate-200 hover:bg-[#1e2a45] ring-1 ring-[#2f4066]/30'
                   }`}
