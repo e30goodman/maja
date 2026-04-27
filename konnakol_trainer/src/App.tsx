@@ -61,9 +61,7 @@ import {
 	PRESET_TARGET_BARS,
 } from './parentModeUi';
 import {
-	buildGridLessonLogMarkdown,
 	buildBarLogForParentRow,
-	downloadAestheticScore,
 	formatParentGenomeHumanLine,
 	lessonLogger,
 } from './lessonLogger';
@@ -8815,7 +8813,7 @@ export default function App() {
                     >
                       <span className="text-[7px] font-semibold tracking-wide">MIDI</span>
                     </button>
-                    <button
+                    {/* <button
                       type="button"
                       title="Скачать markdown-лог урока"
                       onClick={() => {
@@ -8868,7 +8866,7 @@ export default function App() {
                       className="w-8 h-8 rounded-md border bg-[#1a253c]/60 border-[#2a385b] text-slate-300 hover:text-white hover:bg-[#1a243b] transition-colors flex items-center justify-center"
                     >
                       <span className="text-[7px] font-semibold tracking-wide">LOG</span>
-                    </button>
+                    </button> */}
                   </div>
                   <div className="w-full h-px bg-[#1e2a45]/80 my-0.5"></div>
                   <div className="flex flex-col gap-2">
