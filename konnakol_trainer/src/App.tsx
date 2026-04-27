@@ -3191,7 +3191,7 @@ type StructuralSliderProps = {
   onLiveChange?: (next: number) => void;
   onBeginDrag?: () => void;
   thumbIdleArm?: StructuralSliderThumbIdleArm;
-  /** После жеста с рукоятки (up/cancel/blur); Bars использует для disarm при arm с «slider». */
+  /** Только после реального `pointerup` с рукоятки; Bars — disarm при arm с «slider» (не cancel/blur). */
   onThumbPointerSessionEnd?: () => void;
 };
 
@@ -3326,7 +3326,10 @@ function StructuralSlider({
         onThumbPointerSessionEndRef.current?.();
       }}
       onPointerCancel={(e) => {
-        clearThumbArmTimer();
+        /* С thumbIdleArm не гасим таймер arm: лёгкий сдвиг часто даёт pointercancel без отпускания. */
+        if (!thumbIdleArmRef.current) {
+          clearThumbArmTimer();
+        }
         try {
           if (e.currentTarget.hasPointerCapture(e.pointerId)) {
             e.currentTarget.releasePointerCapture(e.pointerId);
@@ -3336,12 +3339,12 @@ function StructuralSlider({
         }
         if (pointerActiveRef.current) pointerActiveRef.current = false;
         commitLocalValue(localValue);
-        onThumbPointerSessionEndRef.current?.();
       }}
       onBlur={() => {
-        clearThumbArmTimer();
+        if (!thumbIdleArmRef.current) {
+          clearThumbArmTimer();
+        }
         commitLocalValue(localValue);
-        onThumbPointerSessionEndRef.current?.();
       }}
       onInput={(e) => {
         applyLiveValue(normalizeValue(e.currentTarget.value));
