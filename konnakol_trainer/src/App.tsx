@@ -4803,7 +4803,7 @@ export default function App() {
   const PRESS_STAR_ARM_SLOP_PX = 8;
   /** Bars: до срабатывания long-press arm — порог смещения указателя (px). */
   const PRESS_BARS_SLIDER_ARM_SLOP_PX = 6;
-  /** UI: источник arm (star|slider) — фиолет thumb Bars только со слайдера; снежинка «matrix glow» при любом primed (и со слайдера тоже). */
+  /** UI: источник arm (star|slider) — фиолет thumb Bars при любом primed; снежинка glow тоже при любом primed. */
   const [pressMatrixArmSourceUi, setPressMatrixArmSourceUi] = useState<PressArmSource | null>(null);
   const pressStarLongPressTimerRef = useRef<number | null>(null);
   const pressStarLongPressFiredRef = useRef(false);
@@ -9710,7 +9710,7 @@ export default function App() {
                 step={barsStructuralRange.step}
                 value={bars}
                 colorClass={
-                  pressMatrixArmSourceUi === 'slider'
+                  pressMatrixArmSourceUi !== null
                     ? '[&::-webkit-slider-thumb]:bg-violet-500 [&::-moz-range-thumb]:bg-violet-500'
                     : '[&::-webkit-slider-thumb]:bg-blue-400 [&::-moz-range-thumb]:bg-blue-400'
                 }
