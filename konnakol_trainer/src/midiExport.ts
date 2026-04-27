@@ -649,6 +649,7 @@ function buildPendingNotes(input: MidiExportInput): {
 		role: MidiExportRole,
 		baseTick: number,
 		cellTicks: number,
+		rowMultiplier: number,
 		rowIdx: number,
 		colIdx: number,
 		cellSubdivs: number,
@@ -661,6 +662,8 @@ function buildPendingNotes(input: MidiExportInput): {
 		const velBase = computeVelocity(role, colIdx, mainAccent, shouldPlayFirstBeatTa, headSyl, humanize, rng);
 		// TEMP: keep export velocity independent from runtime metronome faders.
 		const vel = velBase;
+		// Keep note lengths proportional to bar-speed multipliers (x2/x3/x4 => shorter notes).
+		const scaledDurTicks = Math.max(1, Math.round(drumDurTicks / Math.max(1, rowMultiplier)));
 		pushNote(
 			pending,
 			trackIndexFor(lane, role),
@@ -673,7 +676,7 @@ function buildPendingNotes(input: MidiExportInput): {
 			pitch,
 			vel,
 			cellTicks,
-			drumDurTicks,
+			scaledDurTicks,
 			humanize,
 			rng,
 		);
@@ -732,6 +735,7 @@ function buildPendingNotes(input: MidiExportInput): {
 		);
 		const shouldPlayFirstBeatTa = colIdx === 0 && firstBeatCellHitRow && (subdivs > 1 || 0 === 0);
 		const mainAccent = isAccent;
+		const rowMultiplier = Math.max(1, Math.min(4, Math.floor(mult[rowIdx] ?? 1)));
 		const cellTicks = ticksPerCellFromRow(
 			bpm,
 			rowIdx,
@@ -768,8 +772,8 @@ function buildPendingNotes(input: MidiExportInput): {
 		const baseTick = wallSecToTick(wallSec, bpm, ppq);
 		const subCount = Math.max(1, Math.floor(subdivs));
 		const subCellTicks = cellTicks / subCount;
-		if (hits.taHigh) tryPush(lane, 'taHigh', baseTick, subCellTicks, rowIdx, colIdx, subdivs, headSyl, mainAccent, shouldPlayFirstBeatTa);
-		if (hits.accent) tryPush(lane, 'accent', baseTick, subCellTicks, rowIdx, colIdx, subdivs, headSyl, mainAccent, shouldPlayFirstBeatTa);
+		if (hits.taHigh) tryPush(lane, 'taHigh', baseTick, subCellTicks, rowMultiplier, rowIdx, colIdx, subdivs, headSyl, mainAccent, shouldPlayFirstBeatTa);
+		if (hits.accent) tryPush(lane, 'accent', baseTick, subCellTicks, rowMultiplier, rowIdx, colIdx, subdivs, headSyl, mainAccent, shouldPlayFirstBeatTa);
 		if (hits.altShadow) {
 			for (let subIdx = 0; subIdx < subCount; subIdx++) {
 				const subTick = baseTick + subIdx * subCellTicks;
@@ -778,6 +782,7 @@ function buildPendingNotes(input: MidiExportInput): {
 					'alt',
 					subTick,
 					subCellTicks,
+					rowMultiplier,
 					rowIdx,
 					colIdx,
 					subdivs,
@@ -795,6 +800,7 @@ function buildPendingNotes(input: MidiExportInput): {
 					'passive',
 					subTick,
 					subCellTicks,
+					rowMultiplier,
 					rowIdx,
 					colIdx,
 					subdivs,
@@ -812,6 +818,7 @@ function buildPendingNotes(input: MidiExportInput): {
 					'passive',
 					subTick,
 					subCellTicks,
+					rowMultiplier,
 					rowIdx,
 					colIdx,
 					subdivs,
