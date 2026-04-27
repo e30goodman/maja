@@ -6,10 +6,22 @@ import { getMetronomeSummingInput } from './metraAudioBus';
 
 export type MetroVoiceKey = 'accent' | 'alt' | 'passive';
 
+/**
+ * Anti-phase micro-delays per voice bus (seconds).
+ * Values are intentionally tiny: audible alignment stays intact,
+ * but mono cancellation risk between voices is reduced.
+ */
+const VOICE_MICRO_DELAY_SEC: Record<MetroVoiceKey, number> = {
+	accent: 0,
+	alt: 0.00045,
+	passive: 0.0009,
+};
+
 type VoiceBus = {
 	layerSum: GainNode;
 	groupHp: BiquadFilterNode;
 	groupLp: BiquadFilterNode;
+	groupDelay: DelayNode;
 	groupMaster: GainNode;
 };
 
@@ -28,13 +40,16 @@ function ensureVoiceBuses(ctx: AudioContext): Record<MetroVoiceKey, VoiceBus> {
 		const groupLp = ctx.createBiquadFilter();
 		groupLp.type = 'lowpass';
 		groupLp.frequency.value = 20000;
+		const groupDelay = ctx.createDelay(0.05);
+		groupDelay.delayTime.value = 0;
 		const groupMaster = ctx.createGain();
 		groupMaster.gain.value = 1;
 		layerSum.connect(groupHp);
 		groupHp.connect(groupLp);
-		groupLp.connect(groupMaster);
+		groupLp.connect(groupDelay);
+		groupDelay.connect(groupMaster);
 		groupMaster.connect(masterIn);
-		return { layerSum, groupHp, groupLp, groupMaster };
+		return { layerSum, groupHp, groupLp, groupDelay, groupMaster };
 	};
 	const buses: Record<MetroVoiceKey, VoiceBus> = {
 		accent: mk(),
@@ -64,6 +79,8 @@ export function applyVoiceGroupChain(
 	const lp = Math.max(20, lpHz);
 	b.groupHp.frequency.setValueAtTime(hp, t);
 	b.groupLp.frequency.setValueAtTime(lp, t);
+	const microDelaySec = VOICE_MICRO_DELAY_SEC[voice] ?? 0;
+	b.groupDelay.delayTime.setValueAtTime(microDelaySec, t);
 	const g = Math.max(0, Math.min(4, masterLinear));
 	b.groupMaster.gain.setValueAtTime(g, t);
 }

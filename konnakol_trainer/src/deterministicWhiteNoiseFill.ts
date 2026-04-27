@@ -1,7 +1,7 @@
 /**
- * Стабильный «белый» шум для Web Audio буферов: один и тот же тембр между сессиями
- * и пересозданиями `AudioContext` (в отличие от `Math.random()`).
- * Не влияет на рандом сетки/тактов — только заполнение аудиобуферов.
+ * Stable "white" noise for Web Audio buffers: same timbre across sessions
+ * and `AudioContext` recreations (unlike `Math.random()`).
+ * Does not affect grid/bar randomization - only audio-buffer filling.
  */
 
 export const SHARED_AUDIO_NOISE_SEED = 0x2f6b9a3e;

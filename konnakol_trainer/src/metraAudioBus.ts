@@ -1,7 +1,7 @@
 /**
- * METRA-style master path: linear sum of всех слоёв метронома → **мастер-лимитер** → destination.
- * В Web Audio нет отдельного LimiterNode: используем `DynamicsCompressor` с настройками пикового лимитера.
- * One chain per AudioContext (WeakMap); safe when context is closed/GC’d.
+ * METRA-style master path: linear sum of all metronome layers -> **master limiter** -> destination.
+ * Web Audio has no dedicated LimiterNode: use `DynamicsCompressor` with peak-limiter settings.
+ * One chain per AudioContext (WeakMap); safe when context is closed/GC'd.
  */
 
 const masterBusByContext = new WeakMap<AudioContext, { summing: GainNode; masterLimiter: DynamicsCompressorNode }>();

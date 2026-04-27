@@ -1,5 +1,5 @@
 /**
- * Запуск: `npx tsx src/polySubLegacyScheduler.test.ts` из каталога konnakol_trainer.
+ * Run: `npx tsx src/polySubLegacyScheduler.test.ts` from the `konnakol_trainer` directory.
  */
 import assert from 'node:assert/strict';
 import {
@@ -22,7 +22,7 @@ function testAdvancePolyLaneAfterEmit() {
 	assert.deepEqual(advancePolyLaneAfterEmit(2, 4, 3), { nextC: 0, advanceBar: false });
 	assert.deepEqual(advancePolyLaneAfterEmit(3, 4, undefined), { nextC: 0, advanceBar: true });
 	assert.deepEqual(advancePolyLaneAfterEmit(0, 4, undefined), { nextC: 1, advanceBar: false });
-	/* одна живая клетка: после c=0 следующий индекс уходит в мёртвую зону → nextC 0 без advanceBar */
+	/* one live cell: after c=0 next index goes to dead zone -> nextC 0 without advanceBar */
 	assert.deepEqual(advancePolyLaneAfterEmit(0, 4, 1), { nextC: 0, advanceBar: false });
 }
 
@@ -60,7 +60,7 @@ function testFillLookaheadMonotone() {
 	assert.ok(barsHitVoice1.has(3), 'lane1 must advance to bar 3 after dead-wrap on bar 1, not stick on bar 1');
 }
 
-/** Три мёртвых из четырёх: `deadStart === 1` — только c=0; линия должна уходить на следующий такт, не висеть. */
+/** Three dead out of four: `deadStart === 1` means only c=0; lane must advance to next bar, not hang. */
 function testFillLookaheadSingleLiveCellNotStuck() {
 	const events: { bar: number; c: number; voice: number }[] = [];
 	const sch = createPolySubLegacyScheduler({

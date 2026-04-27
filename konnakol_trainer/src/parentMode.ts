@@ -15,7 +15,7 @@
 
 import type { BarRandomizerMutable, RNG } from './randomLogic';
 import { smoothstep01, applyRandomizerEffectsToBar } from './randomLogic';
-import { computeNps, getSyllablesForGati, pickKalam, type Gati } from './sequencerLabels';
+import { computeNps, getSyllablesForGati, pickKalam, type Gati, type Kalam } from './sequencerLabels';
 
 /** 13 типов наследственных мутаций + служебные 'parent' (чистая копия) и 'free' (free-random filler). */
 export type MutationType =
@@ -149,6 +149,240 @@ const KARVAI_TOKEN = '-';
 const SOFT_PHONETICS = ['Dhi', 'Mi', 'Nu', 'Ju'] as const;
 const HARD_PHONETICS = ['Ta', 'Ki', 'Te', 'Thom'] as const;
 
+type GoldenDnaLike = {
+	weights?: {
+		bridgeEduppuPenalty?: Record<string, number>;
+		tihaiSyllable?: Record<string, number>;
+		dominancePenalty?: {
+			bridgeLength?: Record<string, number>;
+			tihaiSyllable?: Record<string, number>;
+		};
+	};
+};
+
+let cachedGoldenDnaRef: unknown = undefined;
+let cachedGoldenDna: GoldenDnaLike | null = null;
+
+function getGoldenDna(): GoldenDnaLike | null {
+	const maybeRef = (globalThis as unknown as { __goldenDna?: unknown }).__goldenDna;
+	if (maybeRef === cachedGoldenDnaRef) return cachedGoldenDna;
+	cachedGoldenDnaRef = maybeRef;
+	if (!maybeRef || typeof maybeRef !== 'object') {
+		cachedGoldenDna = null;
+		return null;
+	}
+	cachedGoldenDna = maybeRef as GoldenDnaLike;
+	return cachedGoldenDna;
+}
+
+function getBridgeEduppuPenalty(bridgePulses: number, shiftLabel: string): number {
+	const penalties = getGoldenDna()?.weights?.bridgeEduppuPenalty;
+	if (!penalties) return 0;
+	const key = `${bridgePulses}|${shiftLabel}`;
+	const raw = Number(penalties[key] ?? 0);
+	if (!Number.isFinite(raw) || raw <= 0) return 0;
+	return Math.max(0, Math.min(1, raw));
+}
+
+function getBridgeDominancePenalty(bridgePulses: number): number {
+	const raw = Number(getGoldenDna()?.weights?.dominancePenalty?.bridgeLength?.[String(bridgePulses)] ?? 1);
+	if (!Number.isFinite(raw) || raw <= 0) return 1;
+	return Math.max(0.5, Math.min(1, raw));
+}
+
+function getSyllableDominancePenalty(token: string): number {
+	const raw = Number(getGoldenDna()?.weights?.dominancePenalty?.tihaiSyllable?.[token] ?? 1);
+	if (!Number.isFinite(raw) || raw <= 0) return 1;
+	return Math.max(0.5, Math.min(1, raw));
+}
+
+const TIHAI_CONTEXT_ENTRY = ['Ta', 'Di', 'Na', 'Dhi'] as const;
+const TIHAI_CONTEXT_MID = ['Di', 'Dhi', 'Mi', 'Na', 'Gi', 'Nu'] as const;
+const TIHAI_CONTEXT_CADENCE = ['Ta', 'Dhin', 'Na', 'Mi', 'Ka'] as const;
+const TIHAI_CONTEXT_FINAL_PREP = ['Ta', 'Dhin', 'Thom'] as const;
+
+function contextBaseWeight(token: string, phase: 'entry' | 'mid' | 'cadence' | 'final_prep'): number {
+	if (phase === 'entry') {
+		if (token === 'Ta') return 1.2;
+		if (token === 'Di' || token === 'Na') return 1.05;
+		return 0.9;
+	}
+	if (phase === 'mid') {
+		if (token === 'Thom') return 0.08;
+		if (token === 'Ta') return 0.65;
+		if (token === 'Dhi' || token === 'Mi' || token === 'Nu') return 1.2;
+		return 1.0;
+	}
+	if (phase === 'cadence') {
+		if (token === 'Dhin') return 1.25;
+		if (token === 'Ta' || token === 'Na') return 1.05;
+		if (token === 'Thom') return 0.35;
+		return 0.95;
+	}
+	// final_prep
+	if (token === 'Thom') return 1.5;
+	if (token === 'Dhin') return 1.2;
+	if (token === 'Ta') return 0.9;
+	return 0.75;
+}
+
+function hash01(seed: number): number {
+	const x = Math.sin(seed * 12.9898 + 78.233) * 43758.5453;
+	return x - Math.floor(x);
+}
+
+function pickWeightedTokenBySeed(tokens: readonly string[], weights: readonly number[], seed: number): string {
+	if (tokens.length === 0) return 'Ta';
+	const cleanWeights = weights.map((w) => (Number.isFinite(w) && w > 0 ? w : 0));
+	const total = cleanWeights.reduce((a, b) => a + b, 0);
+	if (total <= 0) return tokens[Math.abs(seed) % tokens.length] ?? 'Ta';
+	let r = hash01(seed) * total;
+	for (let i = 0; i < tokens.length; i++) {
+		r -= cleanWeights[i] ?? 0;
+		if (r <= 0) return tokens[i] ?? 'Ta';
+	}
+	return tokens[tokens.length - 1] ?? 'Ta';
+}
+
+function pickContextualTihaiTokenBySeed(cellIdx: number, total: number, phraseId: number): string {
+	const safeTotal = Math.max(1, total);
+	const t = safeTotal <= 1 ? 1 : cellIdx / (safeTotal - 1);
+	const phase: 'entry' | 'mid' | 'cadence' | 'final_prep' =
+		t <= 0.2 ? 'entry' : t <= 0.72 ? 'mid' : t <= 0.9 ? 'cadence' : 'final_prep';
+	const pool =
+		phase === 'entry'
+			? TIHAI_CONTEXT_ENTRY
+			: phase === 'mid'
+				? TIHAI_CONTEXT_MID
+				: phase === 'cadence'
+					? TIHAI_CONTEXT_CADENCE
+					: TIHAI_CONTEXT_FINAL_PREP;
+	const dnaWeights = getGoldenDna()?.weights?.tihaiSyllable ?? {};
+	const weights = pool.map((tok) => {
+		const dnaW = Math.max(0, Number(dnaWeights[tok] ?? 0));
+		// Weaken leader collapse: DNA nudges, but should not dominate contextual phrasing.
+		const dnaMul = dnaW > 0 ? 0.9 + Math.sqrt(Math.min(0.35, dnaW)) * 0.9 : 1.0;
+		return contextBaseWeight(tok, phase) * dnaMul * getSyllableDominancePenalty(tok);
+	});
+	const seed = (phraseId >>> 0) * 131 + (cellIdx + 1) * 17 + safeTotal * 43;
+	return pickWeightedTokenBySeed(pool, weights, seed);
+}
+
+function buildContextualTihaiFormula(phraseId: number, pulseLen: number): Record<number, string> {
+	const out: Record<number, string> = {};
+	const n = Math.max(1, pulseLen);
+	for (let c = 0; c < n; c++) out[c] = pickContextualTihaiTokenBySeed(c, n, phraseId);
+	enforceLegacySyllableAssembly(out, n, phraseId);
+	enforceNoRepeatedTaRuns(out, phraseId, n);
+	enforceNoRepeatedSyllableRuns(out, phraseId, n);
+	enforceLegacySyllableAssembly(out, n, phraseId + 401);
+	return out;
+}
+
+function normalizeTokLower(raw: string): string {
+	return normalizeTokenClass(raw).toLowerCase();
+}
+
+function chooseLegacyKalamByEnergy(energy: number): Kalam {
+	const e = Math.max(0, Math.min(1, energy));
+	if (e >= 0.72) return 'fast';
+	if (e >= 0.42) return 'medium';
+	return 'slow';
+}
+
+function enforceLegacySyllableAssembly(cells: Record<number, string>, pulseLen: number, seedHint: number): void {
+	const g = Math.max(1, Math.min(9, Math.floor(pulseLen)));
+	const primary = chooseLegacyKalamByEnergy(Math.abs(Math.sin(seedHint)));
+	const kalamOrder: Kalam[] =
+		primary === 'slow' ? ['slow', 'medium', 'fast'] : primary === 'medium' ? ['medium', 'slow', 'fast'] : ['fast', 'medium', 'slow'];
+	const baseKalam = kalamOrder[0] ?? 'medium';
+	const basePhrase = getSyllablesForGati(g, baseKalam).slice(0, g);
+	const alternatives = kalamOrder.slice(1).map((k) => getSyllablesForGati(g, k).slice(0, g));
+	for (let i = 0; i < g; i++) {
+		const current = normalizeTokLower(cells[i] ?? '');
+		const allowed = new Set<string>([normalizeTokLower(basePhrase[i] ?? '')]);
+		for (const alt of alternatives) allowed.add(normalizeTokLower(alt[i] ?? ''));
+		if (!allowed.has(current)) {
+			cells[i] = basePhrase[i] ?? 'Ta';
+		}
+	}
+}
+
+function enforceNoRepeatedTaRuns(cells: Record<number, string>, phraseId: number, total: number): void {
+	const n = Math.max(1, total);
+	let runStart = -1;
+	for (let i = 0; i <= n; i++) {
+		const tok = i < n ? normalizeTokenClass(cells[i] ?? '').toLowerCase() : '__end__';
+		if (tok === 'ta') {
+			if (runStart < 0) runStart = i;
+			continue;
+		}
+		if (runStart >= 0) {
+			const runLen = i - runStart;
+			// Hard lock: forbid Ta-Ta-Ta... sequences (3+), including 3..9.
+			if (runLen >= 3) {
+				for (let p = runStart + 2; p < i; p += 2) {
+					cells[p] = pickContextualTihaiTokenBySeed(p, n, phraseId + 997);
+					if (normalizeTokenClass(cells[p] ?? '').toLowerCase() === 'ta') {
+						cells[p] = p >= Math.floor(n * 0.75) ? 'Dhin' : 'Di';
+					}
+				}
+			}
+			runStart = -1;
+		}
+	}
+}
+
+function enforceNoRepeatedSyllableRuns(cells: Record<number, string>, phraseId: number, total: number): void {
+	const n = Math.max(1, total);
+	let runStart = -1;
+	let runTok = '';
+	const flushRun = (endExclusive: number): void => {
+		if (runStart < 0 || !runTok) return;
+		const runLen = endExclusive - runStart;
+		const limit = runTok === 'ka' || runTok === 'ta' ? 2 : 3; // Ka-Ka / Ta-Ta from 2+, others from 3+.
+		if (runLen >= limit) {
+			for (let p = runStart + 1; p < endExclusive; p++) {
+				const replacement = pickContextualTihaiTokenBySeed(p, n, phraseId + 1297 + p * 11);
+				const replNorm = normalizeTokenClass(replacement).toLowerCase();
+				cells[p] = replNorm === runTok ? (p >= Math.floor(n * 0.75) ? 'Dhin' : 'Di') : replacement;
+			}
+		}
+	};
+	for (let i = 0; i <= n; i++) {
+		const tok = i < n ? normalizeTokenClass(cells[i] ?? '').toLowerCase() : '__end__';
+		if (!tok || tok === '-' || tok === '—' || tok === '.') {
+			flushRun(i);
+			runStart = -1;
+			runTok = '';
+			continue;
+		}
+		if (runStart < 0) {
+			runStart = i;
+			runTok = tok;
+			continue;
+		}
+		if (tok !== runTok) {
+			flushRun(i);
+			runStart = i;
+			runTok = tok;
+		}
+	}
+}
+
+function getRuntimeBridgeWhitelist(): Set<number> | null {
+	const raw = (globalThis as unknown as { __macroBridgeWhitelist?: unknown }).__macroBridgeWhitelist;
+	if (!Array.isArray(raw) || raw.length === 0) return null;
+	const out = new Set<number>();
+	for (const v of raw) {
+		const n = Number(v);
+		if (!Number.isFinite(n)) continue;
+		const p = Math.max(1, Math.min(9, Math.floor(n)));
+		out.add(p);
+	}
+	return out.size > 0 ? out : null;
+}
+
 function resolveTihaiGapPulses(profile: EmotionalProfile, curSyl: number): number | undefined {
 	const safe = Math.max(1, Math.min(9, Math.floor(curSyl)));
 	// Lasya: длинный вдох (полный gap-бар), Tandava/Yati: частичное затухание.
@@ -241,6 +475,8 @@ export type PhraseRole =
 			tihaiGapPulses?: number;
 			/** Tihai plan: индекс landing-слага внутри последнего бара. */
 			tihaiLandingIndex?: number;
+			/** Плановая длина tihai-бара в пульсах для строгого Plan=Fact. */
+			tihaiPulseLen?: number;
 			/** Явная инструкция для App-layer: применить единый Jati action. */
 			triggerJatiAction?: { targetCurSyl: 5 | 7 | 9; source: 'auto' | 'ui' };
 			/** Художественный профиль фразы (агрессия/плавность/симметрия). */
@@ -291,6 +527,25 @@ export type PhraseRole =
 export type PhraseSchedule = PhraseRole[];
 
 export type RandomMode = 'free' | 'parent';
+
+export type PrasaPhase = 'exposition' | 'exploration' | 'destabilization' | 'culmination';
+
+export function computePrasaPolicy(input: {
+	phase: PrasaPhase;
+	prasaMaxEditDistance?: number;
+	anchorSyllableCount: number;
+	liveLength: number;
+}): { parentLimit: number; anchorCap: number } {
+	const baseCap = Math.max(0, Math.floor(input.prasaMaxEditDistance ?? 2));
+	const anchorHalfCap = Math.max(0, Math.floor(Math.max(1, input.anchorSyllableCount) / 2));
+	const anchorCap = Math.max(0, Math.min(baseCap, anchorHalfCap));
+	const live = Math.max(1, Math.floor(input.liveLength));
+	if (input.phase === 'destabilization') {
+		// In destabilization we allow wider parent divergence, but keep anchor recognition tight.
+		return { parentLimit: live, anchorCap };
+	}
+	return { parentLimit: baseCap, anchorCap };
+}
 
 // ============================================================================
 // Chaos → intensity (ослабленное влияние per требованию)
@@ -389,6 +644,25 @@ export function applyGenomeToBar(
 	}
 }
 
+function computePhysicalPulseOffsetBeforeBar(
+	barIdx: number,
+	syllablesDefault: number,
+	m: BarRandomizerMutable,
+): number {
+	let pulses = 0;
+	for (let i = 0; i < barIdx; i++) {
+		pulses += Math.max(1, Math.floor(m.customSyllables[i] ?? syllablesDefault));
+	}
+	return pulses;
+}
+
+function hasContinuousMaterializedHistory(barIdx: number, m: BarRandomizerMutable): boolean {
+	for (let i = 0; i < barIdx; i++) {
+		if (typeof m.customSyllables[i] !== 'number') return false;
+	}
+	return true;
+}
+
 /** Глубокое клонирование BarGenome (Set и объекты — новые ссылки). */
 export function cloneBarGenome(g: BarGenome): BarGenome {
 	const out: BarGenome = {
@@ -468,7 +742,7 @@ function estimateRolePulseLen(
 		return Math.max(1, Math.round(localCycleLength));
 	}
 	if (role.type === 'resync_bridge') {
-		if (role.bridgeKind === 'gati_prep' && typeof localCycleLength === 'number' && localCycleLength > 0) {
+		if (typeof localCycleLength === 'number' && localCycleLength > 0) {
 			return Math.max(1, Math.round(localCycleLength));
 		}
 		return base;
@@ -523,7 +797,7 @@ function decideProgressiveDensityRoute(input: {
 	const forceNearWindowEnd = chaosLevel >= 80 && !phaseContext.forcedJatiDone && barsLeftInWindow <= 2;
 	if (forceNearWindowEnd || rng() < pJati) {
 		const roll = rng();
-		const localJati: 5 | 7 | 9 = roll < 0.45 ? 5 : roll < 0.8 ? 7 : 9;
+		const localJati: 5 | 7 | 9 = roll < 0.25 ? 5 : roll < 0.75 ? 7 : 9;
 		const lockBars = localJati === 9 ? 2 : 3;
 		return { route: 'jati', localJati, lockBars };
 	}
@@ -641,8 +915,8 @@ function pickGatiPrepLengthForStrictTihai(
 		const fit = pickStrictTihaiPlanForWindow(nextOffset, motifLen, remainingBars - 1, TIHAI_ADI_CYCLE);
 		if (!fit.fits) continue;
 		if (fit.totalBars > remainingBars - 1) continue;
-		const lastGlobalPulse = nextOffset + (fit.totalBars - 1) * P + fit.landingIndex;
-		const mod = ((lastGlobalPulse % TIHAI_ADI_CYCLE) + TIHAI_ADI_CYCLE) % TIHAI_ADI_CYCLE;
+		const tihaiLength = resolveTihaiLengthToLandingPulses(fit, P);
+		const mod = expectedFinalPulseMod8(pulseOffsetBeforePrep, localCycle, tihaiLength);
 		if (mod !== TIHAI_ADI_CYCLE - 1) continue;
 		if (fit.totalBars === remainingBars - 1) return localCycle;
 		if (!requireExactWindow) {
@@ -660,13 +934,105 @@ function pickGatiPrepLengthForStrictTihai(
 	return fallback?.prep ?? unstableFallback?.prep ?? null;
 }
 
+function isTihaiFormulaReplicaStep(role: Extract<PhraseRole, { type: 'tihai' }>): boolean {
+	const n = Math.max(1, role.phraseLength);
+	const last = n - 1;
+	if (role.phraseStep <= 0 || role.phraseStep >= last) return false;
+	const prefixBars = Math.max(0, Math.floor(role.tihaiPrefixBars ?? Math.max(0, n - 6)));
+	const gapBars = Math.max(0, Math.floor(role.tihaiGapBars ?? 1));
+	const coreStep = role.phraseStep - prefixBars;
+	const phrase2Start = 1 + gapBars;
+	const phrase3Start = phrase2Start + 1 + gapBars;
+	return coreStep === phrase2Start || coreStep === phrase3Start;
+}
+
+function isTihaiKarvaiOnlyStep(role: Extract<PhraseRole, { type: 'tihai' }>): boolean {
+	const n = Math.max(1, role.phraseLength);
+	const last = n - 1;
+	const s = role.phraseStep;
+	if (s < 0 || s >= n) return false;
+	if (s === 0 || s === last) return false;
+	const prefixBars = Math.max(0, Math.floor(role.tihaiPrefixBars ?? Math.max(0, n - 6)));
+	if (s < prefixBars) return true;
+	const gapBars = Math.max(0, Math.floor(role.tihaiGapBars ?? 1));
+	const coreStep = s - prefixBars;
+	const phrase2Start = 1 + gapBars;
+	const phrase3Start = phrase2Start + 1 + gapBars;
+	return (
+		(coreStep > 0 && coreStep < phrase2Start) ||
+		(coreStep > phrase2Start && coreStep < phrase3Start)
+	);
+}
+
+function expectedFinalPulseMod8(currentGlobalPulse: number, bridgePaddingPulses: number, tihaiLength: number): number {
+	const finalPulse = currentGlobalPulse + bridgePaddingPulses + tihaiLength - 1;
+	return ((finalPulse % TIHAI_ADI_CYCLE) + TIHAI_ADI_CYCLE) % TIHAI_ADI_CYCLE;
+}
+
+function resolveTihaiLengthToLandingPulses(plan: StrictTihaiPlan, motifPulseLen: number): number {
+	const motifLen = Math.max(1, Math.floor(motifPulseLen));
+	const body = Math.max(0, plan.totalBars - 1) * motifLen;
+	const landing = Math.max(0, Math.min(motifLen - 1, plan.landingIndex)) + 1;
+	return body + landing;
+}
+
+function logBridgePlannerPadding(
+	currentGlobalPulse: number,
+	bridgePaddingPulses: number,
+	plan: StrictTihaiPlan,
+	motifPulseLen: number,
+): void {
+	const tihaiLength = resolveTihaiLengthToLandingPulses(plan, motifPulseLen);
+	const finalMod = expectedFinalPulseMod8(currentGlobalPulse, bridgePaddingPulses, tihaiLength);
+	console.log(`[Planner] Bridge Padding P=${bridgePaddingPulses}, Expected Final Pulse Mod 8 = ${finalMod}`);
+}
+
+function pickSoftResyncBridgeForTihaiWindow(
+	pulseOffsetBeforeBridge: number,
+	motifLen: number,
+	remainingBars: number,
+): { bridgePulses: number; plan: StrictTihaiPlan } | null {
+	if (remainingBars <= 1) return null;
+	const motifPulseLen = Math.max(1, Math.min(9, Math.floor(motifLen)));
+	const naturalLanding = Math.max(0, motifPulseLen - 1);
+	const baseCandidates = [motifPulseLen, 7, 6, 5, 4, 3, 8, 2, 9, 1];
+	const whitelist = getRuntimeBridgeWhitelist();
+	const candidates = whitelist ? baseCandidates.filter((c) => whitelist.has(c)) : baseCandidates;
+	if (candidates.length === 0) return null;
+	let best: { bridgePulses: number; plan: StrictTihaiPlan; score: number } | null = null;
+	for (const pulses of candidates) {
+		const bridgePulses = Math.max(1, Math.min(9, Math.floor(pulses)));
+		const nextOffset = pulseOffsetBeforeBridge + bridgePulses;
+		const plan = pickStrictTihaiPlanForWindow(nextOffset, motifLen, remainingBars - 1, TIHAI_ADI_CYCLE);
+		if (!plan.fits || plan.totalBars > remainingBars - 1) continue;
+		const tihaiLength = resolveTihaiLengthToLandingPulses(plan, motifPulseLen);
+		const finalMod = expectedFinalPulseMod8(pulseOffsetBeforeBridge, bridgePulses, tihaiLength);
+		if (finalMod !== 7) continue;
+		const naturalBonus = plan.landingIndex === naturalLanding ? 100 : 0;
+		const fullWindowBonus = plan.totalBars === remainingBars - 1 ? 20 : 0;
+		const closenessPenalty = Math.abs(bridgePulses - motifPulseLen);
+		let score = naturalBonus + fullWindowBonus - closenessPenalty;
+		const shift = ((pulseOffsetBeforeBridge + bridgePulses) % 8 + 8) % 8;
+		const shiftLabel = shift === 0 ? 'Sam (0)' : `+${shift}`;
+		const weakEndingPenalty = getBridgeEduppuPenalty(bridgePulses, shiftLabel);
+		// Anti-DNA: combinations with high WEAK_ENDING rate are downweighted aggressively.
+		score -= weakEndingPenalty * 240;
+		score *= getBridgeDominancePenalty(bridgePulses);
+		if (best === null || score > best.score) {
+			best = { bridgePulses, plan, score };
+		}
+	}
+	return best ? { bridgePulses: best.bridgePulses, plan: best.plan } : null;
+}
+
 function assertBridgePulseConsistency(role: PhraseRole, physicalBarLen: number): void {
-	if (role.type !== 'resync_bridge' || role.bridgeKind !== 'gati_prep') return;
+	if (role.type !== 'resync_bridge') return;
+	if (role.bridgeKind !== 'gati_prep' && role.bridgeKind !== 'resync' && role.bridgeKind !== 'de_sync_prep') return;
 	if (typeof role.localCycleLength !== 'number' || role.localCycleLength <= 0) return;
 	const expected = Math.max(1, Math.round(role.localCycleLength));
 	if (physicalBarLen !== expected) {
 		throw new Error(
-			`CRITICAL: gati_prep bridge pulse mismatch. expected=${expected}, actual=${physicalBarLen}`,
+			`CRITICAL: ${role.bridgeKind} bridge pulse mismatch. expected=${expected}, actual=${physicalBarLen}`,
 		);
 	}
 }
@@ -682,6 +1048,7 @@ function assertBridgePulseConsistency(role: PhraseRole, physicalBarLen: number):
  */
 export function buildPhraseSchedule(ctx: SchedulerContext): PhraseSchedule {
 	const { bars, enabledMutations, preset, parentLength, rng } = ctx;
+	const hasExplicitMotifPulseLen = typeof ctx.motifPulseLen === 'number' && Number.isFinite(ctx.motifPulseLen);
 	const motifL = Math.max(1, Math.min(9, Math.floor(ctx.motifPulseLen ?? 4)));
 	const densityMode: ProgressiveDensityMode = ctx.progressiveDensityMode ?? 'gati_mode';
 	const deSyncJati = ctx.deSyncJati === true;
@@ -987,6 +1354,7 @@ export function buildPhraseSchedule(ctx: SchedulerContext): PhraseSchedule {
 							tihaiGapBars: strict.gapBars,
 							tihaiGapPulses: resolveTihaiGapPulses(emotionalProfile, motifL),
 							tihaiLandingIndex: strict.landingIndex,
+							tihaiPulseLen: hasExplicitMotifPulseLen ? motifL : undefined,
 						});
 						globalPulseAccumulator += estimateRolePulseLen(
 							{ type: 'tihai', phraseStep: step, phraseLength: tiLen },
@@ -1030,6 +1398,7 @@ export function buildPhraseSchedule(ctx: SchedulerContext): PhraseSchedule {
 						tihaiGapBars: strictMid.gapBars,
 						tihaiGapPulses: resolveTihaiGapPulses(emotionalProfile, motifL),
 						tihaiLandingIndex: strictMid.landingIndex,
+						tihaiPulseLen: hasExplicitMotifPulseLen ? motifL : undefined,
 					});
 					globalPulseAccumulator += estimateRolePulseLen(
 						{ type: 'tihai', phraseStep: step, phraseLength: tiMidLen },
@@ -1103,6 +1472,15 @@ export function buildPhraseSchedule(ctx: SchedulerContext): PhraseSchedule {
 			if (!strictTail.fits && remaining > 5) {
 				const prepLen = pickGatiPrepLengthForStrictTihai(globalPulseAccumulator, motifL, remaining, true);
 				if ((activeDeSyncJati || everAutoDeSync || deSyncJati) && prepLen !== null) {
+					const postPrepPlan = pickStrictTihaiPlanForWindow(
+						globalPulseAccumulator + prepLen,
+						motifL,
+						remaining - 1,
+						TIHAI_ADI_CYCLE,
+					);
+					if (postPrepPlan.fits) {
+						logBridgePlannerPadding(globalPulseAccumulator, prepLen, postPrepPlan, motifL);
+					}
 					out.push({
 						type: 'resync_bridge',
 						phraseId: phraseId++,
@@ -1143,6 +1521,15 @@ export function buildPhraseSchedule(ctx: SchedulerContext): PhraseSchedule {
 			if (remaining > strictTail.totalBars) {
 				const exactPrep = pickGatiPrepLengthForStrictTihai(globalPulseAccumulator, motifL, remaining, true);
 				if ((activeDeSyncJati || everAutoDeSync || deSyncJati) && exactPrep !== null) {
+					const postPrepPlan = pickStrictTihaiPlanForWindow(
+						globalPulseAccumulator + exactPrep,
+						motifL,
+						remaining - 1,
+						TIHAI_ADI_CYCLE,
+					);
+					if (postPrepPlan.fits) {
+						logBridgePlannerPadding(globalPulseAccumulator, exactPrep, postPrepPlan, motifL);
+					}
 					out.push({
 						type: 'resync_bridge',
 						phraseId: phraseId++,
@@ -1197,6 +1584,7 @@ export function buildPhraseSchedule(ctx: SchedulerContext): PhraseSchedule {
 					// Если обязательный «вдох» рушит strict-landing, оставляем математический путь без него.
 					// Приоритет: корректный Sam-финал.
 				} else {
+				logBridgePlannerPadding(globalPulseAccumulator, prepLen, afterPrepPlan, motifL);
 				out.push({
 					type: 'resync_bridge',
 					phraseId: phraseId++,
@@ -1262,6 +1650,7 @@ export function buildPhraseSchedule(ctx: SchedulerContext): PhraseSchedule {
 					tihaiGapBars: tailGapBars,
 					tihaiGapPulses: resolveTihaiGapPulses(emotionalProfile, motifL),
 					tihaiLandingIndex: tailLandingIndex,
+					tihaiPulseLen: hasExplicitMotifPulseLen ? motifL : undefined,
 				});
 				globalPulseAccumulator += estimateRolePulseLen(
 					{ type: 'tihai', phraseStep: step, phraseLength: len },
@@ -1304,11 +1693,16 @@ export function buildPhraseSchedule(ctx: SchedulerContext): PhraseSchedule {
 			chosen === 'tihai'
 				? computeStrictTihaiPlan(globalPulseAccumulator, motifL, remaining)
 				: null;
+		let phraseTihaiPlan = strictTihai;
 		let len =
 			chosen === 'tihai'
 				? Math.min(strictTihai?.totalBars ?? remaining, remaining)
 				: MUTATION_PHRASE_LEN[chosen];
 		const wantsBridge = chosen === 'tihai' && everAutoDeSync && progress >= 0.7;
+		const needsSoftLandingBridge =
+			chosen === 'tihai' &&
+			remaining > 5 &&
+			(strictTihai?.landingIndex ?? Math.max(0, motifL - 1)) !== Math.max(0, motifL - 1);
 		if (wantsBridge && remaining <= len && len > 3) {
 			len -= 1;
 		}
@@ -1398,7 +1792,7 @@ export function buildPhraseSchedule(ctx: SchedulerContext): PhraseSchedule {
 			autoJatiEnabled &&
 			(activeDeSyncJati || phraseAutoDeSync || everAutoDeSync) &&
 			remaining > len;
-		const needsReSyncBridge = (wantsBridge || hardJatiBridge) && remaining > len;
+		const needsReSyncBridge = (wantsBridge || hardJatiBridge || needsSoftLandingBridge) && remaining > len;
 		const needsDeSyncPrep = phraseAutoDeSync && remaining > len + (needsReSyncBridge ? 1 : 0);
 		if (needsDeSyncPrep) {
 			out.push({
@@ -1412,15 +1806,25 @@ export function buildPhraseSchedule(ctx: SchedulerContext): PhraseSchedule {
 				bridgeKind: 'de_sync_prep',
 			});
 			globalPulseAccumulator += estimateRolePulseLen(
-				{ type: 'resync_bridge', phraseStep: 0, phraseLength: 1 },
+				{ type: 'resync_bridge', phraseStep: 0, phraseLength: 1, bridgeKind: 'de_sync_prep' },
 				motifL,
 				densityMode,
-				false,
-				undefined,
+				true,
+				phraseLocalCycle,
 			);
 			remaining -= 1;
 		}
 		if (needsReSyncBridge) {
+			const softBridge =
+				chosen === 'tihai'
+					? pickSoftResyncBridgeForTihaiWindow(globalPulseAccumulator, motifL, remaining)
+					: null;
+			const bridgePulseLen = softBridge?.bridgePulses ?? TIHAI_ADI_CYCLE;
+			if (chosen === 'tihai' && softBridge) {
+				phraseTihaiPlan = softBridge.plan;
+				len = Math.min(softBridge.plan.totalBars, remaining - 1);
+				logBridgePlannerPadding(globalPulseAccumulator, bridgePulseLen, softBridge.plan, motifL);
+			}
 			out.push({
 				type: 'resync_bridge',
 				phraseId: phraseId++,
@@ -1428,7 +1832,7 @@ export function buildPhraseSchedule(ctx: SchedulerContext): PhraseSchedule {
 				phraseLength: 1,
 				parentBarIdx,
 				pulseOffsetBeforeBar: globalPulseAccumulator,
-				localCycleLength: TIHAI_ADI_CYCLE,
+				localCycleLength: bridgePulseLen,
 				bridgeKind: 'resync',
 			});
 			globalPulseAccumulator += estimateRolePulseLen(
@@ -1436,7 +1840,7 @@ export function buildPhraseSchedule(ctx: SchedulerContext): PhraseSchedule {
 				motifL,
 				densityMode,
 				true,
-				TIHAI_ADI_CYCLE,
+				bridgePulseLen,
 			);
 			remaining -= 1;
 			activeDeSyncJati = false;
@@ -1447,7 +1851,7 @@ export function buildPhraseSchedule(ctx: SchedulerContext): PhraseSchedule {
 		for (let step = 0; step < len; step++) {
 			const barPosNow = out.length;
 			const roleDeSync = activeDeSyncJati || phraseAutoDeSync || needsReSyncBridge;
-			const roleLocalCycle = roleDeSync ? (needsReSyncBridge ? TIHAI_ADI_CYCLE : phraseLocalCycle) : undefined;
+			const roleLocalCycle = roleDeSync ? (needsReSyncBridge ? undefined : phraseLocalCycle) : undefined;
 			const baseIntensity = preset === 'progressive' ? progressiveIntensityTarget(barPosNow) : undefined;
 			const finalMuktayiPeak =
 				chosen === 'tihai' && barPosNow >= Math.max(0, bars - 8)
@@ -1468,13 +1872,15 @@ export function buildPhraseSchedule(ctx: SchedulerContext): PhraseSchedule {
 					preset === 'progressive'
 						? Math.max(baseIntensity ?? 0, finalMuktayiPeak ?? 0)
 						: undefined,
-				tihaiPrefixBars: chosen === 'tihai' ? strictTihai?.prefixKarvaiBars : undefined,
-				tihaiGapBars: chosen === 'tihai' ? strictTihai?.gapBars : undefined,
+				tihaiPrefixBars: chosen === 'tihai' ? phraseTihaiPlan?.prefixKarvaiBars : undefined,
+				tihaiGapBars: chosen === 'tihai' ? phraseTihaiPlan?.gapBars : undefined,
 				tihaiGapPulses:
 					chosen === 'tihai'
 						? resolveTihaiGapPulses(emotionalProfile, motifL)
 						: undefined,
-				tihaiLandingIndex: chosen === 'tihai' ? strictTihai?.landingIndex : undefined,
+				tihaiLandingIndex: chosen === 'tihai' ? phraseTihaiPlan?.landingIndex : undefined,
+				tihaiPulseLen:
+					chosen === 'tihai' && preset === 'progressive' && hasExplicitMotifPulseLen ? motifL : undefined,
 			});
 			globalPulseAccumulator += estimateRolePulseLen(
 				{ type: chosen, phraseStep: step, phraseLength: len },
@@ -1561,9 +1967,11 @@ export function buildPhraseSchedule(ctx: SchedulerContext): PhraseSchedule {
 			role.arudiReason = role.phraseLength % 2 === 0 ? 'symmetry_close' : 'phrase_cadence';
 		}
 		role.prasaMaxEditDistance =
-			emotionalProfile === 'yati' ? 1
-			: emotionalProfile === 'lasya' ? 2
-			: 3;
+			role.type === 'tihai'
+				? 1
+				: emotionalProfile === 'yati' ? 1
+				: emotionalProfile === 'lasya' ? 2
+				: 3;
 	}
 	return out;
 }
@@ -1852,6 +2260,7 @@ const prependAppendOperator: MutationOperator = (parent, role) => {
  */
 const tihaiOperator: MutationOperator = (parent, role, intensity, rng) => {
 	const src = parent.bars[role.parentBarIdx] ?? parent.bars[0]!;
+	const targetPulseLen = Math.max(1, Math.min(9, Math.floor(role.tihaiPulseLen ?? src.curSyl)));
 	const n = role.phraseLength;
 	const s = role.phraseStep;
 	const last = n - 1;
@@ -1865,7 +2274,9 @@ const tihaiOperator: MutationOperator = (parent, role, intensity, rng) => {
 
 	if (s === last) {
 		const out = cloneBarGenome(src);
+		out.curSyl = targetPulseLen;
 		delete out.deadStart;
+		out.subdivisions = {};
 		out.accents = new Set<number>();
 		const landingIdx = resolveFinalTihaiLandingIndex(out.curSyl, role.tihaiLandingIndex);
 		out.accents.add(landingIdx);
@@ -1874,6 +2285,10 @@ const tihaiOperator: MutationOperator = (parent, role, intensity, rng) => {
 			const tok = out.cellSyllables?.[c];
 			cs[c] = tok === 'Thom' ? 'Ta' : tok ?? 'Ta';
 		}
+		enforceLegacySyllableAssembly(cs, out.curSyl, role.phraseId + 197);
+		enforceNoRepeatedTaRuns(cs, role.phraseId + 211, out.curSyl);
+		enforceNoRepeatedSyllableRuns(cs, role.phraseId + 311, out.curSyl);
+		enforceLegacySyllableAssembly(cs, out.curSyl, role.phraseId + 419);
 		cs[landingIdx] = 'Thom';
 		for (let c = landingIdx + 1; c < out.curSyl; c++) cs[c] = KARVAI_TOKEN;
 		out.cellSyllables = cs;
@@ -1883,17 +2298,16 @@ const tihaiOperator: MutationOperator = (parent, role, intensity, rng) => {
 	// Контракт: первый такт формулы tihai всегда цельная фраза (без скрытых karvai).
 	if (s === 0) {
 		const out = cloneBarGenome(src);
+		out.curSyl = targetPulseLen;
 		delete out.deadStart;
-		const g = Math.max(1, Math.min(9, out.curSyl)) as Gati;
-		const base = getSyllablesForGati(g, 'slow');
-		const cs: Record<number, string> = {};
-		for (let c = 0; c < out.curSyl; c++) cs[c] = base[c] ?? 'Ta';
-		out.cellSyllables = cs;
+		out.subdivisions = {};
+		out.cellSyllables = buildContextualTihaiFormula(role.phraseId, out.curSyl);
 		return out;
 	}
 
 	if (s < prefixBars) {
 		const out = cloneBarGenome(src);
+		out.curSyl = targetPulseLen;
 		delete out.deadStart;
 		out.accents = new Set();
 		out.subdivisions = {};
@@ -1906,16 +2320,24 @@ const tihaiOperator: MutationOperator = (parent, role, intensity, rng) => {
 	const coreStep = s - prefixBars;
 	const phrase2Start = 1 + gapBars;
 	const phrase3Start = phrase2Start + 1 + gapBars;
+	const energy = Math.max(0, Math.min(1, role.intensityTarget ?? intensity ?? 0.5));
+	const arc = role.emotionalProfile ?? 'tandava';
 	const inGap =
 		(coreStep > 0 && coreStep < phrase2Start) ||
 		(coreStep > phrase2Start && coreStep < phrase3Start);
 	if (inGap) {
 		const out = cloneBarGenome(src);
+		out.curSyl = targetPulseLen;
 		delete out.deadStart;
 		out.accents = new Set();
 		out.subdivisions = {};
 		const cs: Record<number, string> = {};
-		const fade = Math.max(0, Math.min(out.curSyl, gapPulses));
+		const densePrefix = energy >= 0.72;
+		const arcSparseBoost = arc === 'lasya' ? 2 : arc === 'yati' ? 1 : 0;
+		const baseFade = Math.max(0, Math.min(out.curSyl, gapPulses));
+		const fade = densePrefix
+			? Math.max(baseFade, Math.min(out.curSyl, Math.ceil(out.curSyl * 0.7) + arcSparseBoost))
+			: baseFade;
 		for (let c = 0; c < out.curSyl; c++) {
 			cs[c] = c < fade ? KARVAI_TOKEN : 'Ta';
 		}
@@ -1924,8 +2346,29 @@ const tihaiOperator: MutationOperator = (parent, role, intensity, rng) => {
 	}
 
 	const out = cloneBarGenome(src);
+	out.curSyl = targetPulseLen;
 	delete out.deadStart;
-	delete out.cellSyllables;
+	out.subdivisions = {};
+	const lockedFormulaCells = buildContextualTihaiFormula(role.phraseId, out.curSyl);
+	out.cellSyllables = lockedFormulaCells;
+	const formulaReplicaStep = coreStep === 0 || coreStep === phrase2Start || coreStep === phrase3Start;
+	if (formulaReplicaStep) {
+		// Micro-variation: keep syllable identity, allow tiny accent/karvai arc on A2/A3.
+		if (coreStep === phrase2Start || coreStep === phrase3Start) {
+			const live = Math.max(1, out.curSyl);
+			const shift = coreStep === phrase2Start ? 1 : -1;
+			const shifted = new Set<number>();
+			for (const a of out.accents) shifted.add((a + shift + live) % live);
+			if (shifted.size > 0) out.accents = shifted;
+			const canKarvai = energy <= 0.62 || arc === 'lasya' || coreStep === phrase3Start;
+			if (canKarvai && out.cellSyllables) {
+				const pivot = Math.max(1, Math.min(live - 2, ((role.phraseId + coreStep * 3) % Math.max(2, live - 1))));
+				const tok = out.cellSyllables[pivot];
+				if (typeof tok === 'string' && tok !== 'Thom') out.cellSyllables[pivot] = KARVAI_TOKEN;
+			}
+		}
+		return out;
+	}
 	if (!role.densityFreeze && coreStep >= phrase2Start && intensity >= 0.7) {
 		const heavy = intensity >= 0.7;
 		const superTihai = intensity >= 1.0;
@@ -2168,6 +2611,27 @@ function ensureAccentPolicy(genome: BarGenome, role: PhraseRole): void {
 	}
 }
 
+function enforceTihaiSubdivisionContract(genome: BarGenome, role: Extract<PhraseRole, { type: MutationType }>): void {
+	// Hard contract for tihai block (A-A-A + inter-segment pauses):
+	// no mutator may leave subdivisions in tihai cells.
+	if (role.type !== 'tihai') return;
+	genome.subdivisions = {};
+}
+
+function enforceTihaiLandingTailContract(genome: BarGenome, role: Extract<PhraseRole, { type: MutationType }>): void {
+	if (role.type !== 'tihai') return;
+	// Dead-tail must never cut tihai timing; keep full physical bar.
+	delete genome.deadStart;
+	if (role.phraseStep !== role.phraseLength - 1) return;
+	if (!genome.cellSyllables) genome.cellSyllables = {};
+	const landingIdx = resolveFinalTihaiLandingIndex(genome.curSyl, role.tihaiLandingIndex);
+	genome.accents.add(landingIdx);
+	genome.cellSyllables[landingIdx] = 'Thom';
+	for (let c = landingIdx + 1; c < genome.curSyl; c++) {
+		genome.cellSyllables[c] = KARVAI_TOKEN;
+	}
+}
+
 function applyDeSyncWholeJatiPattern(genome: BarGenome, role: Extract<PhraseRole, { type: MutationType }>, rng: RNG): void {
 	if (role.deSyncJati !== true) return;
 	if (role.type === 'tihai') return;
@@ -2336,6 +2800,30 @@ function applyIntensityPhonetics(
 	}
 }
 
+function softenPhoneticHardJunctions(
+	genome: BarGenome,
+	role: Extract<PhraseRole, { type: MutationType }>,
+	intensityTarget: number | undefined,
+): void {
+	if (role.type === 'tihai') return;
+	if (!genome.cellSyllables) return;
+	const live = liveLen(genome);
+	if (live < 2) return;
+	const intensity = Math.max(0, Math.min(1, intensityTarget ?? 0.5));
+	// Mid-section aggressive smoothing: reduce hard-hard collisions before culmination.
+	const active = intensity >= 0.45 && intensity <= 0.86;
+	if (!active) return;
+	for (let c = 0; c < live - 1; c++) {
+		const left = genome.cellSyllables[c];
+		const right = genome.cellSyllables[c + 1];
+		if (typeof left !== 'string' || typeof right !== 'string') continue;
+		if (!isHardToken(left) || !isHardToken(right)) continue;
+		const accentProtected = genome.accents.has(c + 1);
+		if (accentProtected) continue;
+		genome.cellSyllables[c + 1] = pickSoftToken(c + 1);
+	}
+}
+
 function applyPrasaContinuity(
 	barIdx: number,
 	genome: BarGenome,
@@ -2343,8 +2831,12 @@ function applyPrasaContinuity(
 	syllablesDefault: number,
 	m: BarRandomizerMutable,
 ): void {
-	if (role.type === 'tihai') return;
 	if (role.phraseStep <= 0 || barIdx <= 0) return;
+	if (role.type === 'tihai') {
+		// Для tihai допускаем prasa-правку только на чистых karvai-барах,
+		// чтобы формула A-A-A оставалась неизменной без жесткой индексации.
+		if (!isTihaiKarvaiOnlyStep(role) || isTihaiFormulaReplicaStep(role)) return;
+	}
 	const prev = snapshotBarGenome(barIdx - 1, syllablesDefault, {
 		customSyllables: m.customSyllables,
 		accents: m.accents,
@@ -2358,7 +2850,8 @@ function applyPrasaContinuity(
 	if (live < 1) return;
 	if (!genome.cellSyllables) genome.cellSyllables = {};
 	let diffs = 0;
-	const maxDiffs = Math.max(1, Math.min(live - 1, role.prasaMaxEditDistance ?? Math.floor(live * 0.25)));
+	const defaultCap = role.type === 'tihai' ? 1 : Math.floor(live * 0.25);
+	const maxDiffs = Math.max(1, Math.min(live - 1, role.prasaMaxEditDistance ?? defaultCap));
 	for (let c = 0; c < live; c++) {
 		const prevTok = prev.cellSyllables?.[c];
 		if (typeof prevTok !== 'string' || prevTok.length === 0) continue;
@@ -2462,6 +2955,20 @@ export function applyParentModeBar(args: ApplyParentModeArgs): boolean {
 	const { barIdx, parent, schedule, chaos, syllablesDefault, m, rng, freeAxes } = args;
 	const role = schedule[barIdx];
 	if (!role) return false;
+	const physicalPulseBeforeBar = computePhysicalPulseOffsetBeforeBar(barIdx, syllablesDefault, m);
+	const canAssertPulseHistory = hasContinuousMaterializedHistory(barIdx, m);
+	if (
+		canAssertPulseHistory &&
+		role.type === 'tihai' &&
+		role.phraseStep === 0 &&
+		typeof role.pulseOffsetBeforeBar === 'number'
+	) {
+		if (physicalPulseBeforeBar !== role.pulseOffsetBeforeBar) {
+			const msg = `CRITICAL: tihai start pulse mismatch. planned=${role.pulseOffsetBeforeBar}, actual=${physicalPulseBeforeBar}, bar=${barIdx}`;
+			if (process.env.KONNAKOL_STRICT_PULSE_ASSERT === '1') throw new Error(msg);
+			console.warn(msg);
+		}
+	}
 
 	if (role.type === 'free') {
 		const didChange = applyRandomizerEffectsToBar(
@@ -2491,10 +2998,16 @@ export function applyParentModeBar(args: ApplyParentModeArgs): boolean {
 	if (role.type === 'resync_bridge') {
 		const src = parent.bars[role.parentBarIdx] ?? parent.bars[0]!;
 		const bridge = cloneBarGenome(src);
-		if (role.bridgeKind === 'gati_prep' && typeof role.localCycleLength === 'number' && role.localCycleLength > 0) {
+		if (
+			(role.bridgeKind === 'gati_prep' || role.bridgeKind === 'resync' || role.bridgeKind === 'de_sync_prep') &&
+			typeof role.localCycleLength === 'number' &&
+			role.localCycleLength > 0
+		) {
 			bridge.curSyl = Math.max(1, Math.min(9, Math.round(role.localCycleLength)));
 		}
-		if (role.bridgeKind === 'de_sync_prep') bridge.curSyl = Math.max(4, bridge.curSyl);
+		if (role.bridgeKind === 'de_sync_prep' && !(typeof role.localCycleLength === 'number' && role.localCycleLength > 0)) {
+			bridge.curSyl = Math.max(4, bridge.curSyl);
+		}
 		delete bridge.deadStart;
 		bridge.accents = new Set<number>();
 		bridge.subdivisions = {};
@@ -2502,6 +3015,33 @@ export function applyParentModeBar(args: ApplyParentModeArgs): boolean {
 		for (let c = 0; c < bridge.curSyl; c++) bridge.cellSyllables[c] = KARVAI_TOKEN;
 		assertBridgePulseConsistency(role, bridge.curSyl);
 		applyGenomeToBar(barIdx, bridge, m);
+		for (let c = 0; c < bridge.curSyl; c++) {
+			const key = `${barIdx}-${c}`;
+			const tok = m.customCellSyllables[key];
+			if (tok !== KARVAI_TOKEN) {
+				throw new Error(`CRITICAL: bridge karvai materialization failed at bar=${barIdx} cell=${c}`);
+			}
+			if (m.accents.has(key)) {
+				throw new Error(`CRITICAL: bridge accent leak at bar=${barIdx} cell=${c}`);
+			}
+			if (typeof m.customSubdivisions[key] === 'number') {
+				throw new Error(`CRITICAL: bridge subdivision leak at bar=${barIdx} cell=${c}`);
+			}
+		}
+		const nextRole = schedule[barIdx + 1];
+		if (
+			canAssertPulseHistory &&
+			nextRole?.type === 'tihai' &&
+			nextRole.phraseStep === 0 &&
+			typeof nextRole.pulseOffsetBeforeBar === 'number'
+		) {
+			const actualNextPulse = physicalPulseBeforeBar + bridge.curSyl;
+			if (actualNextPulse !== nextRole.pulseOffsetBeforeBar) {
+				const msg = `CRITICAL: bridge->tihai pulse mismatch. planned=${nextRole.pulseOffsetBeforeBar}, actual=${actualNextPulse}, bridgeBar=${barIdx}`;
+				if (process.env.KONNAKOL_STRICT_PULSE_ASSERT === '1') throw new Error(msg);
+				console.warn(msg);
+			}
+		}
 		return true;
 	}
 
@@ -2519,9 +3059,12 @@ export function applyParentModeBar(args: ApplyParentModeArgs): boolean {
 		applyProgressiveGatiFlow(nextGenome, role, rng);
 		applyPrasaContinuity(barIdx, nextGenome, role, syllablesDefault, m);
 		applyIntensityPhonetics(nextGenome, role, role.intensityTarget);
+		softenPhoneticHardJunctions(nextGenome, role, role.intensityTarget);
 		enforceThomRule(nextGenome, role);
 		applyStrongBeatPhonetics(nextGenome, role);
 		ensureAccentPolicy(nextGenome, role);
+		enforceTihaiSubdivisionContract(nextGenome, role);
+		enforceTihaiLandingTailContract(nextGenome, role);
 		// Финальное приземление тихая: последний слог обязательно акцентирован.
 		if (role.type === 'tihai' && role.phraseStep === role.phraseLength - 1 && nextGenome.curSyl > 0) {
 			const landingIdx = resolveFinalTihaiLandingIndex(nextGenome.curSyl, role.tihaiLandingIndex);
