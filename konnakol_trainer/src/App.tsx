@@ -3174,9 +3174,13 @@ const playBarFirstHighClick = (
   playSharpClick(ctx, time, true, soundType, false, 'accent', voiceGainMul);
 };
 
-/** Long-press на рукоятке слайдера: только время `holdMs` (движение по дорожке не отменяет). */
+/** Long-press на рукоятке: `holdMs` до `onArm`; до срабатывания можно отменить жест (slop / смена value). */
 type StructuralSliderThumbIdleArm = {
   holdMs: number;
+  /** Пока ждём hold: смещение указателя > slop px — отмена arm (не активировать matrix вместе с движением). */
+  slopPx?: number;
+  /** Пока ждём hold: значение range изменилось — отмена (тянут ползунок, а не удерживают). */
+  cancelArmOnValueChange?: boolean;
   onArm: () => void;
 };
 
@@ -3218,6 +3222,8 @@ function StructuralSlider({
   const pointerActiveRef = useRef(false);
   const localValueRef = useRef(value);
   const thumbArmTimerRef = useRef<number | null>(null);
+  const thumbArmStartRef = useRef<{ x: number; y: number } | null>(null);
+  const thumbArmValueAtDownRef = useRef<number | null>(null);
   const thumbIdleArmRef = useRef(thumbIdleArm);
   thumbIdleArmRef.current = thumbIdleArm;
   const onThumbPointerSessionEndRef = useRef(onThumbPointerSessionEnd);
@@ -3300,9 +3306,13 @@ function StructuralSlider({
         const cfg = thumbIdleArmRef.current;
         if (cfg) {
           clearThumbArmTimer();
+          thumbArmStartRef.current = { x: e.clientX, y: e.clientY };
+          thumbArmValueAtDownRef.current = localValueRef.current;
           const holdMs = cfg.holdMs;
           thumbArmTimerRef.current = window.setTimeout(() => {
             thumbArmTimerRef.current = null;
+            thumbArmStartRef.current = null;
+            thumbArmValueAtDownRef.current = null;
             thumbIdleArmRef.current?.onArm();
           }, holdMs);
           try {
@@ -3313,8 +3323,23 @@ function StructuralSlider({
         }
         onBeginDrag?.();
       }}
+      onPointerMove={(e) => {
+        const cfg = thumbIdleArmRef.current;
+        const sp = cfg?.slopPx;
+        if (typeof sp !== 'number' || thumbArmTimerRef.current === null || !thumbArmStartRef.current) return;
+        const { x, y } = thumbArmStartRef.current;
+        const dx = e.clientX - x;
+        const dy = e.clientY - y;
+        if (dx * dx + dy * dy > sp * sp) {
+          clearThumbArmTimer();
+          thumbArmStartRef.current = null;
+          thumbArmValueAtDownRef.current = null;
+        }
+      }}
       onPointerUp={(e) => {
         clearThumbArmTimer();
+        thumbArmStartRef.current = null;
+        thumbArmValueAtDownRef.current = null;
         try {
           if (e.currentTarget.hasPointerCapture(e.pointerId)) {
             e.currentTarget.releasePointerCapture(e.pointerId);
@@ -3327,6 +3352,8 @@ function StructuralSlider({
         onThumbPointerSessionEndRef.current?.();
       }}
       onPointerCancel={(e) => {
+        thumbArmStartRef.current = null;
+        thumbArmValueAtDownRef.current = null;
         /* С thumbIdleArm не гасим таймер arm: лёгкий сдвиг часто даёт pointercancel без отпускания. */
         if (!thumbIdleArmRef.current) {
           clearThumbArmTimer();
@@ -3342,16 +3369,42 @@ function StructuralSlider({
         commitLocalValue(localValue);
       }}
       onBlur={() => {
+        thumbArmStartRef.current = null;
+        thumbArmValueAtDownRef.current = null;
         if (!thumbIdleArmRef.current) {
           clearThumbArmTimer();
         }
         commitLocalValue(localValue);
       }}
       onInput={(e) => {
-        applyLiveValue(normalizeValue(e.currentTarget.value));
+        const cfg = thumbIdleArmRef.current;
+        const next = normalizeValue(e.currentTarget.value);
+        if (
+          cfg?.cancelArmOnValueChange &&
+          thumbArmTimerRef.current !== null &&
+          thumbArmValueAtDownRef.current !== null &&
+          next !== thumbArmValueAtDownRef.current
+        ) {
+          clearThumbArmTimer();
+          thumbArmStartRef.current = null;
+          thumbArmValueAtDownRef.current = null;
+        }
+        applyLiveValue(next);
       }}
       onChange={(e) => {
-        applyLiveValue(normalizeValue(e.currentTarget.value));
+        const cfg = thumbIdleArmRef.current;
+        const next = normalizeValue(e.currentTarget.value);
+        if (
+          cfg?.cancelArmOnValueChange &&
+          thumbArmTimerRef.current !== null &&
+          thumbArmValueAtDownRef.current !== null &&
+          next !== thumbArmValueAtDownRef.current
+        ) {
+          clearThumbArmTimer();
+          thumbArmStartRef.current = null;
+          thumbArmValueAtDownRef.current = null;
+        }
+        applyLiveValue(next);
       }}
       className={`flex-1 h-3 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 ${colorClass} [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110`}
     />
@@ -4741,12 +4794,15 @@ export default function App() {
    * Press Matrix (источник в `pressMatrixCoordinator` `PressArmSource`):
    * - Снежинка: arm с `'star'` — выход только повторным long-press по снежинке.
    * - Bars thumb: arm с `'slider'` — выход при отпускании рукоятки (session end).
+   *   До arm: движение > slop или смена value — отмена (не matrix «вместе с движением»).
    * - На `(pointer: coarse)` дополнительно: любой следующий `pointerdown` снимает `'slider'`-сессию.
    * Eraser сбрасывает оба. Snapshot непустой — arm как `'star'` (выход как у звезды).
    */
   const PRESS_LONG_PRESS_MS = 600;
   /** Снежинка: slop отмены long-press при съезде пальца до истечения hold. */
   const PRESS_STAR_ARM_SLOP_PX = 8;
+  /** Bars: до срабатывания long-press arm — порог смещения указателя (px). */
+  const PRESS_BARS_SLIDER_ARM_SLOP_PX = 6;
   /** UI: источник arm (star|slider) — фиолет thumb Bars только со слайдера; снежинка «matrix glow» при любом primed (и со слайдера тоже). */
   const [pressMatrixArmSourceUi, setPressMatrixArmSourceUi] = useState<PressArmSource | null>(null);
   const pressStarLongPressTimerRef = useRef<number | null>(null);
@@ -9660,6 +9716,8 @@ export default function App() {
                 }
                 thumbIdleArm={{
                   holdMs: PRESS_LONG_PRESS_MS,
+                  slopPx: PRESS_BARS_SLIDER_ARM_SLOP_PX,
+                  cancelArmOnValueChange: true,
                   onArm: handleBarsSliderThumbIdleArm,
                 }}
                 onThumbPointerSessionEnd={handleBarsSliderThumbSessionEnd}
