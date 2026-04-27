@@ -4746,14 +4746,20 @@ export default function App() {
   }, [getPressState, applyPressPatch]);
 
   /**
-   * Press Matrix: long-press на рукоятке слайдера Bars (см. `StructuralSlider` thumbIdleArm).
-   * Любое смещение указателя больше `PRESS_BARS_SLIDER_ARM_SLOP_PX` до истечения hold — отмена arm для этого жеста; новая попытка только после отпускания.
-   * Short path: снежинка — только freeze row height; matrix arm/disarm — слайдер или Eraser / клик по снежинке при primed без freeze.
+   * Press Matrix:
+   * - Bars: long-press на рукоятке (`StructuralSlider` thumbIdleArm), slop → сброс жеста; при отпускании — disarm.
+   * - Снежинка: long-press — вход в режим; повторный long-press — выход (toggle). Короткий клик — только freeze, без снятия matrix.
    */
   const PRESS_LONG_PRESS_MS = 600;
   /** ~1mm на типичном DPI: порог отмены long-press arm при дрожании / съезде с рукоятки. */
   const PRESS_BARS_SLIDER_ARM_SLOP_PX = 4;
+  /** Снежинка чуть крупнее hit-area — чуть больший slop отмены long-press. */
+  const PRESS_STAR_ARM_SLOP_PX = 8;
   const [isPressMatrixPrimedUi, setIsPressMatrixPrimedUi] = useState(false);
+  const pressStarLongPressTimerRef = useRef<number | null>(null);
+  const pressStarLongPressFiredRef = useRef(false);
+  const pressStarArmStartRef = useRef<{ x: number; y: number } | null>(null);
+  const [isPressStarLongPressing, setIsPressStarLongPressing] = useState(false);
 
   const armPressFromCurrentMatrix = useCallback(() => {
     armPressFromState(getPressState());
@@ -4774,6 +4780,76 @@ export default function App() {
   const handleBarsSliderThumbSessionEnd = useCallback(() => {
     if (isPressPrimed()) disarmPressMatrixMode();
   }, [disarmPressMatrixMode]);
+
+  const clearPressStarLongPressTimer = useCallback(() => {
+    if (pressStarLongPressTimerRef.current !== null) {
+      window.clearTimeout(pressStarLongPressTimerRef.current);
+      pressStarLongPressTimerRef.current = null;
+    }
+  }, []);
+
+  const handlePressStarPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      pressStarLongPressFiredRef.current = false;
+      pressStarArmStartRef.current = { x: e.clientX, y: e.clientY };
+      clearPressStarLongPressTimer();
+      pressStarLongPressTimerRef.current = window.setTimeout(() => {
+        pressStarLongPressTimerRef.current = null;
+        pressStarArmStartRef.current = null;
+        pressStarLongPressFiredRef.current = true;
+        setIsPressStarLongPressing(true);
+        if (isPressPrimed()) disarmPressMatrixMode();
+        else armPressFromCurrentMatrix();
+      }, PRESS_LONG_PRESS_MS);
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+    },
+    [clearPressStarLongPressTimer, armPressFromCurrentMatrix, disarmPressMatrixMode],
+  );
+
+  const handlePressStarPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      if (pressStarLongPressTimerRef.current === null || !pressStarArmStartRef.current) return;
+      const { x, y } = pressStarArmStartRef.current;
+      const dx = e.clientX - x;
+      const dy = e.clientY - y;
+      const sp = PRESS_STAR_ARM_SLOP_PX;
+      if (dx * dx + dy * dy > sp * sp) {
+        clearPressStarLongPressTimer();
+        pressStarArmStartRef.current = null;
+      }
+    },
+    [clearPressStarLongPressTimer],
+  );
+
+  const cancelPressStarLongPress = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      setIsPressStarLongPressing(false);
+      clearPressStarLongPressTimer();
+      pressStarArmStartRef.current = null;
+      try {
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        }
+      } catch {
+        /* ignore */
+      }
+    },
+    [clearPressStarLongPressTimer],
+  );
+
+  /** Long-press по снежинке уже сработал — не трогать freeze в этом click. */
+  const consumePressStarLongPress = useCallback((): boolean => {
+    if (pressStarLongPressFiredRef.current) {
+      pressStarLongPressFiredRef.current = false;
+      setIsPressStarLongPressing(false);
+      return true;
+    }
+    return false;
+  }, []);
 
   const getLaneAccentsSetRef = useCallback((r: number): Set<string> => {
     if (!polyModeRef.current) return accentsRef.current;
@@ -9474,12 +9550,13 @@ export default function App() {
                 <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold">Bars</span>
                 <button 
                   type="button"
+                  onPointerDown={handlePressStarPointerDown}
+                  onPointerMove={handlePressStarPointerMove}
+                  onPointerUp={cancelPressStarLongPress}
+                  onPointerLeave={cancelPressStarLongPress}
+                  onPointerCancel={cancelPressStarLongPress}
                   onClick={() => {
-                    if (isPressMatrixPrimedUi && frozenScale === null) {
-                      // Single click exits matrix mode only when regular freeze is not active.
-                      notifyPressErased();
-                      setIsPressMatrixPrimedUi(false);
-                    }
+                    if (consumePressStarLongPress()) return;
                     setFrozenScale((prev) => {
                       const next = prev !== null ? null : bars;
                       const firstRowHeight = rowRefs.current[0]?.getBoundingClientRect().height ?? null;
@@ -9503,13 +9580,15 @@ export default function App() {
                     });
                   }}
                   className={`flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-all duration-300 ${
-                    isPressMatrixPrimedUi && frozenScale !== null
+                    isPressStarLongPressing
                       ? `bg-violet-500/25 text-violet-300 ring-1 ring-violet-500/60 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(167,139,250,0.35)]'}`
-                      : isPressMatrixPrimedUi
+                      : isPressMatrixPrimedUi && frozenScale !== null
                         ? `bg-violet-500/25 text-violet-300 ring-1 ring-violet-500/60 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(167,139,250,0.35)]'}`
-                        : frozenScale !== null 
-                          ? `bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/50 ${lowPerfMode ? '' : 'shadow-[0_0_8px_rgba(59,130,246,0.3)]'}` 
-                          : 'bg-[#1e2a45]/40 text-slate-400 hover:text-slate-200 hover:bg-[#1e2a45] ring-1 ring-[#2f4066]/30'
+                        : isPressMatrixPrimedUi
+                          ? `bg-violet-500/25 text-violet-300 ring-1 ring-violet-500/60 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(167,139,250,0.35)]'}`
+                          : frozenScale !== null 
+                            ? `bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/50 ${lowPerfMode ? '' : 'shadow-[0_0_8px_rgba(59,130,246,0.3)]'}` 
+                            : 'bg-[#1e2a45]/40 text-slate-400 hover:text-slate-200 hover:bg-[#1e2a45] ring-1 ring-[#2f4066]/30'
                   }`}
                   aria-label={frozenScale !== null ? 'Unfreeze row height' : 'Freeze row scale'}
                 >

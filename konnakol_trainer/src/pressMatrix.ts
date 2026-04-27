@@ -4,7 +4,8 @@
  * Pure module. No React, no DOM, no setState calls. Returns mutation patches
  * that App.tsx applies atomically.
  *
- * Activation contract: arming is explicit (long-press on the Bars slider thumb in App.tsx).
+ * Activation contract: arming is explicit in App.tsx (Bars slider thumb long-press
+ * or snowflake long-press toggle).
  * In the moment of arming, App.tsx calls `armPressFromState` (in coordinator)
  * which freezes the current `PressState` as `baselineState` together with
  * `baselineBars`. Subsequent edits to live state do NOT mutate the baseline.

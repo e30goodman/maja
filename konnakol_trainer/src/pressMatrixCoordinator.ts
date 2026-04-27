@@ -6,8 +6,9 @@
  *  - `baselineState` — frozen `PressState` snapshot captured at arm time.
  *  - `baselineBars` — bar count at arm time. Tile uses this as the cylinder size.
  *
- * Activation contract: arming is explicit (long-press on the Bars slider thumb
- * in `App.tsx`, without pointer slop before hold completes). After arming,
+ * Activation contract: arming is explicit in `App.tsx` — long-press on the Bars
+ * slider thumb (tiling until finger release) or long-press on the snowflake
+ * (toggle arm / repeat long-press to disarm; slop before hold completes). After arming,
  * edits to the live state DO NOT mutate the
  * baseline — only a re-arm replaces it.
  *
