@@ -231,6 +231,9 @@ type SequencerGridRowProps = {
 	rowCellLabels: string[][];
 	effectiveUseFixedFlex: boolean;
 	displayScaleBars: number;
+	useFrozenRowHeight: boolean;
+	frozenRowHeightPx: number | null;
+	frozenRowHeightsByRIdx: Record<number, number>;
 	syllables: number;
 	lowPerfMode: boolean;
 	/** In flat poly mode: visual separator between steps (does not affect audio). */
@@ -269,6 +272,9 @@ function sequencerGridRowPropsEqual(a: SequencerGridRowProps, b: SequencerGridRo
 		a.rowCellLabels === b.rowCellLabels &&
 		a.effectiveUseFixedFlex === b.effectiveUseFixedFlex &&
 		a.displayScaleBars === b.displayScaleBars &&
+		a.useFrozenRowHeight === b.useFrozenRowHeight &&
+		a.frozenRowHeightPx === b.frozenRowHeightPx &&
+		a.frozenRowHeightsByRIdx === b.frozenRowHeightsByRIdx &&
 		a.syllables === b.syllables &&
 		a.lowPerfMode === b.lowPerfMode &&
 		(a.polyStepTopRule ?? false) === (b.polyStepTopRule ?? false) &&
@@ -308,6 +314,9 @@ const SequencerGridRow = React.memo(
 			rowCellLabels,
 			effectiveUseFixedFlex,
 			displayScaleBars,
+			useFrozenRowHeight,
+			frozenRowHeightPx,
+			frozenRowHeightsByRIdx,
 			syllables,
 			lowPerfMode,
 			polyStepTopRule = false,
@@ -341,7 +350,9 @@ const SequencerGridRow = React.memo(
 				} ${!effectiveUseFixedFlex ? 'flex-1' : ''}`}
 				style={{
 					flex: effectiveUseFixedFlex
-						? `0 0 calc((100% - ${(displayScaleBars - 1) * 6}px) / ${displayScaleBars})`
+						? `0 0 ${(useFrozenRowHeight && Math.max(1, (frozenRowHeightsByRIdx[rIdx] ?? frozenRowHeightPx ?? 0)) > 1)
+							? `${Math.max(1, (frozenRowHeightsByRIdx[rIdx] ?? frozenRowHeightPx ?? 0))}px`
+							: `calc((100% - ${(displayScaleBars - 1) * 6}px) / ${displayScaleBars})`}`
 						: undefined,
 				}}
 			>
@@ -786,6 +797,9 @@ export type SequencerGridProps = {
 	polyVoices: 2 | 3 | 4;
 	displayScaleBars: number;
 	useFixedFlex: boolean;
+	useFrozenRowHeight: boolean;
+	frozenRowHeightPx: number | null;
+	frozenRowHeightsByRIdx: Record<number, number>;
 	allBarsFitViewport: boolean;
 	lowPerfMode: boolean;
 	isTaEditorMode: boolean;
@@ -821,6 +835,9 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	polyVoices,
 	displayScaleBars,
 	useFixedFlex,
+	useFrozenRowHeight,
+	frozenRowHeightPx,
+	frozenRowHeightsByRIdx,
 	allBarsFitViewport,
 	lowPerfMode,
 	isTaEditorMode,
@@ -856,20 +873,27 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	}, [polyMode, isPlaying, allBarsFitViewport, bars, displayScaleBars, activePos.absR]);
 
 	return (
-		<div
-			ref={gridRef}
-			className={`relative flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto overflow-x-hidden ${
-				isPlaying
-					? 'scrollbar-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]'
-					: '[&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[#2f4066] [&::-webkit-scrollbar-thumb]:rounded-full'
-			}`}
-		>
+		<div className="relative flex min-h-0 flex-1">
+			<div
+				ref={gridRef}
+				className={`relative z-10 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto overflow-x-hidden ${
+					isPlaying
+						? 'scrollbar-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]'
+						: '[&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[#2f4066] [&::-webkit-scrollbar-thumb]:rounded-full'
+				}`}
+				style={{
+					scrollbarGutter: 'stable',
+					width: 'calc(100% + 2px)',
+					paddingRight: '2px',
+					marginRight: '-2px',
+				}}
+			>
 			{Array.from({ length: virtualRowCount }).map((_, absR) => {
 				const rIdx = absR % bars;
 				const rowSylls = customSyllables[rIdx] !== undefined ? customSyllables[rIdx] : syllables;
 				const rowCellLabels = rowCellLabelsCache[rIdx] ?? [];
 				const rowMult = customMultipliers[rIdx] || 1;
-				const effectiveUseFixedFlex = useFixedFlex || (isPlaying && !allBarsFitViewport);
+				const effectiveUseFixedFlex = useFrozenRowHeight || useFixedFlex || (isPlaying && !allBarsFitViewport);
 				const subdivSig = Array.from({ length: rowSylls }, (_, c) =>
 					String(customSubdivisions[`${rIdx}-${c}`] ?? 1),
 				).join(',');
@@ -939,6 +963,9 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 						rowCellLabels={rowCellLabels}
 						effectiveUseFixedFlex={effectiveUseFixedFlex}
 						displayScaleBars={displayScaleBars}
+						useFrozenRowHeight={useFrozenRowHeight}
+						frozenRowHeightPx={frozenRowHeightPx}
+						frozenRowHeightsByRIdx={frozenRowHeightsByRIdx}
 						syllables={syllables}
 						lowPerfMode={lowPerfMode}
 						polyStepTopRule={polyStepTopRule}
@@ -949,6 +976,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 					/>
 				);
 			})}
+			</div>
 		</div>
 	);
 });

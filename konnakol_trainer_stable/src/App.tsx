@@ -3379,6 +3379,8 @@ export default function App() {
   const [frozenScale, setFrozenScale] = useState<number | null>(() =>
     typeof seed.frozenScale === 'number' && seed.frozenScale >= 1 ? seed.frozenScale : null,
   );
+  const [frozenRowHeightPx, setFrozenRowHeightPx] = useState<number | null>(null);
+  const [frozenRowHeightsByRIdx, setFrozenRowHeightsByRIdx] = useState<Record<number, number>>({});
   const [isPanelExpanded, setIsPanelExpanded] = useState(() => seed.panelExpanded === true);
   const isPanelExpandedRef = useRef(seed.panelExpanded === true);
   isPanelExpandedRef.current = isPanelExpanded;
@@ -3496,6 +3498,15 @@ export default function App() {
     (raw: number) => snapBarsToPolyGrid(raw, polyModeRef.current, polyVoicesRef.current),
     [],
   );
+  useEffect(() => {
+    if (frozenScale === null && frozenRowHeightPx !== null) {
+      setFrozenRowHeightPx(null);
+    }
+    if (frozenScale === null && Object.keys(frozenRowHeightsByRIdx).length > 0) {
+      setFrozenRowHeightsByRIdx({});
+    }
+  }, [frozenScale, frozenRowHeightPx, frozenRowHeightsByRIdx]);
+
   useEffect(() => {
     const prev = prevLowPerfModeRef.current;
     prevLowPerfModeRef.current = lowPerfMode;
@@ -5629,7 +5640,8 @@ export default function App() {
   }, [isPlaying, polyMode, bars, polyVoices]);
 
   // Display metrics (displayScaleBars / allBarsFitViewport объявлены выше — общая шкала для сетки и скролла)
-  const useFixedFlex = frozenScale !== null || bars > 10;
+  const baseScaleBars = Math.min(bars, 10);
+  const useFixedFlex = bars >= 10 || displayScaleBars !== baseScaleBars;
   
   // Create a scroll stride that overlaps by 1 row
   const scrollStride = Math.max(1, displayScaleBars - 1);
@@ -8113,6 +8125,19 @@ export default function App() {
                   onClick={() => {
                     setFrozenScale((prev) => {
                       const next = prev !== null ? null : bars;
+                      const firstRowHeight = rowRefs.current[0]?.getBoundingClientRect().height ?? null;
+                      if (next !== null) setFrozenRowHeightPx(firstRowHeight);
+                      else setFrozenRowHeightPx(null);
+                      if (next !== null) {
+                        const byRow: Record<number, number> = {};
+                        for (let i = 0; i < bars; i++) {
+                          const h = rowRefs.current[i]?.getBoundingClientRect().height;
+                          if (typeof h === 'number' && Number.isFinite(h) && h > 0) byRow[i] = h;
+                        }
+                        setFrozenRowHeightsByRIdx(byRow);
+                      } else {
+                        setFrozenRowHeightsByRIdx({});
+                      }
                       if (lowPerfMode) {
                         if (bars >= 6) potatoAutoFreezeArmedRef.current = next !== null;
                         if (bars <= 5) potatoAutoFreezeArmedRef.current = true;
@@ -8373,6 +8398,9 @@ export default function App() {
           polyVoices={polyVoices}
           displayScaleBars={displayScaleBars}
           useFixedFlex={useFixedFlex}
+          useFrozenRowHeight={frozenScale !== null && bars !== frozenScale}
+          frozenRowHeightPx={frozenRowHeightPx}
+          frozenRowHeightsByRIdx={frozenRowHeightsByRIdx}
           allBarsFitViewport={allBarsFitViewport}
           activeEditRow={activeEditRow}
           activeEditCell={activeEditCell}
