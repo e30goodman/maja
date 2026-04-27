@@ -61,7 +61,6 @@ import {
 	PRESET_TARGET_BARS,
 } from './parentModeUi';
 import {
-	buildGridLessonLogMarkdown,
 	buildBarLogForParentRow,
 	downloadAestheticScore,
 	formatParentGenomeHumanLine,
@@ -8690,31 +8689,8 @@ export default function App() {
                     </button>
                     <button
                       type="button"
-                      title="Скачать markdown-лог урока (Parent mode)"
-                      onClick={() => {
-                        const hasParentLog = lessonLogger.getMeta() !== null && lessonLogger.getBars().length > 0;
-                        if (hasParentLog) {
-                          downloadAestheticScore();
-                          return;
-                        }
-                        const fallbackMd = buildGridLessonLogMarkdown({
-                          tempoBpm: tempoRef.current,
-                          bars: barsRef.current,
-                          syllablesDefault: syllablesRef.current,
-                          customSyllables: customSyllablesRef.current,
-                          accentsByLane: accentsByLaneRef.current,
-                          taDingKeysByLane: taDingKeysByLaneRef.current,
-                          customSubdivisions: customSubdivisionsRef.current,
-                          customMultipliers: customMultipliersRef.current,
-                          deadCells: deadCellsRef.current,
-                          polyMode: polyModeRef.current,
-                          polyVoices: polyVoicesRef.current,
-                          progressiveDensityMode: progressiveDensityModeRef.current,
-                          deSyncJatiActive: deSyncJatiActiveRef.current,
-                          deSyncCycleLength: deSyncCycleLengthRef.current,
-                        });
-                        downloadAestheticScore({ text: fallbackMd, seed: 0 });
-                      }}
+                      title="Скачать текстовый лог урока (Parent mode)"
+                      onClick={() => downloadAestheticScore()}
                       className="w-8 h-8 rounded-md border bg-[#1a253c]/60 border-[#2a385b] text-slate-300 hover:text-white hover:bg-[#1a243b] transition-colors flex items-center justify-center"
                     >
                       <span className="text-[7px] font-semibold tracking-wide">LOG</span>
