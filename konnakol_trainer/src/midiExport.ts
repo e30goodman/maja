@@ -118,6 +118,10 @@ export interface MidiExportInput {
 	maxNoteEvents?: number;
 	maxWallSeconds?: number;
 	patternRevolutions?: number;
+	/** Long-press MIDI mode: for 2-voice poly export until first exact re-align by first notes. */
+	twoVoiceAutoAlignByFirstNotes?: boolean;
+	/** Safety cap for auto-align mode, measured by crossed bar boundaries. */
+	twoVoiceAutoAlignMaxBars?: number;
 	squarePlaybackMode?:
 		| 'passive_no_alt'
 		| 'full_mix'
@@ -621,25 +625,21 @@ function buildPendingNotes(input: MidiExportInput): {
 
 	const V: PolyVoicesCount = input.polyVoices === 3 ? 3 : 2;
 	const laneCount = input.polyMode ? (V === 3 ? 3 : 2) : 1;
+	const autoAlignTwoVoice =
+		input.polyMode === true && laneCount === 2 && input.twoVoiceAutoAlignByFirstNotes === true;
+	const autoAlignMaxBars = Math.max(
+		1,
+		Math.floor(
+			typeof input.twoVoiceAutoAlignMaxBars === 'number' && Number.isFinite(input.twoVoiceAutoAlignMaxBars)
+				? input.twoVoiceAutoAlignMaxBars
+				: 100,
+		),
+	);
 	const drumDurTicks = Math.max(1, Math.round(ppq / 4)); // 1/16 note
 	const masterPreset = typeof input.clickSound === 'string' && input.clickSound.length > 0 ? input.clickSound : 'classic';
-	const resolvePreset = (lane: number): string =>
-		typeof input.clickSoundByPolyVoice?.[lane as 0 | 1 | 2] === 'string'
-			? (input.clickSoundByPolyVoice?.[lane as 0 | 1 | 2] as string)
-			: masterPreset;
-	const laneProfiles: MidiLaneProfile[] = Array.from({ length: laneCount }, () => 'base');
-	if (laneCount > 1) {
-		const p2 = resolvePreset(1);
-		const p3 = laneCount > 2 ? resolvePreset(2) : masterPreset;
-		const v2Alt = p2 !== masterPreset;
-		const v3Alt = p3 !== masterPreset;
-		laneProfiles[1] = v2Alt ? 'contrast' : 'base';
-		if (laneCount > 2) {
-			if (!v3Alt) laneProfiles[2] = 'base';
-			else if (v2Alt && p2 === p3) laneProfiles[2] = 'contrast';
-			else laneProfiles[2] = 'ring';
-		}
-	}
+	const laneProfiles: MidiLaneProfile[] = Array.from({ length: laneCount }, (_, lane) =>
+		lane <= 0 ? 'base' : lane === 1 ? 'contrast' : 'ring',
+	);
 	const kalamMap: KalamMap = new Map();
 	const pending: PendingNote[] = [];
 	let noteCount = 0;
@@ -660,8 +660,15 @@ function buildPendingNotes(input: MidiExportInput): {
 		if (noteCount >= maxNotes) return;
 		const pitch = resolveMidiNoteForProfileRole(laneProfiles[lane] ?? 'base', role);
 		const velBase = computeVelocity(role, colIdx, mainAccent, shouldPlayFirstBeatTa, headSyl, humanize, rng);
-		// TEMP: keep export velocity independent from runtime metronome faders.
-		const vel = velBase;
+		const laneIdx = (lane <= 0 ? 0 : lane === 1 ? 1 : 2) as 0 | 1 | 2;
+		const roleGain =
+			role === 'accent' || role === 'taHigh'
+				? input.laneRoleGains?.[laneIdx]?.accent
+				: role === 'alt'
+					? input.laneRoleGains?.[laneIdx]?.alt
+					: input.laneRoleGains?.[laneIdx]?.passive;
+		const gain = Number.isFinite(roleGain as number) ? Math.max(0, roleGain as number) : 1;
+		const vel = Math.max(1, Math.min(127, Math.round(velBase * gain)));
 		// Keep note lengths proportional to bar-speed multipliers (x2/x3/x4 => shorter notes).
 		const scaledDurTicks = Math.max(1, Math.round(drumDurTicks / Math.max(1, rowMultiplier)));
 		pushNote(
@@ -895,6 +902,12 @@ function buildPendingNotes(input: MidiExportInput): {
 		const slowest = Math.max(1e-6, ...lanePatternSec);
 		const horizon = Math.min(maxWall, slowest * revolutions);
 		const polyClickSlots = new Set<string>();
+		const laneFirstBar = lanes.map((L) => (L.barIndices.length > 0 ? L.barIndices[0]! : -1));
+		const laneFirstStartTick: Array<number | null> = Array.from({ length: laneCount }, () => null);
+		const laneLastStartTick: Array<number | null> = Array.from({ length: laneCount }, () => null);
+		const laneRepeatedCycles: number[] = Array.from({ length: laneCount }, () => 0);
+		let crossedBars = 0;
+		let autoAlignDone = false;
 		let guard = 0;
 		while (guard < 500_000) {
 			guard++;
@@ -907,7 +920,8 @@ function buildPendingNotes(input: MidiExportInput): {
 					best = L;
 				}
 			}
-			if (best === null || bestT > horizon) break;
+			if (best === null) break;
+			if (!autoAlignTwoVoice && bestT > horizon) break;
 			const bar = best.barIndices[best.barCursor]!;
 			const rowSyl = getRowSyl(bar, input.baseSyllables, input.customSyllables);
 			const dBar =
@@ -923,16 +937,38 @@ function buildPendingNotes(input: MidiExportInput): {
 					bpm,
 				) / Math.max(1, rowSyl);
 			const deadStart = deadMap[bar]?.deadStart;
+			const laneId = best.laneId;
+			const isLaneStartAnchor = best.cellCursor === 0 && bar === laneFirstBar[laneId];
+			if (autoAlignTwoVoice && isLaneStartAnchor) {
+				const startTick = Math.round(wallSecToTick(bestT, bpm, ppq));
+				const first = laneFirstStartTick[laneId];
+				if (first === null) {
+					laneFirstStartTick[laneId] = startTick;
+				} else if (startTick > first) {
+					laneRepeatedCycles[laneId] = laneRepeatedCycles[laneId]! + 1;
+				}
+				laneLastStartTick[laneId] = startTick;
+			}
 			emitCell(bar, best.cellCursor, best.laneId, bestT, true, best.laneId, polyClickSlots);
 			const { nextC, advanceBar } = advancePolyLaneAfterEmit(best.cellCursor, rowSyl, deadStart);
 			const advanceLaneBar = advanceBar || (!advanceBar && nextC === 0);
 			if (advanceLaneBar) {
+				crossedBars += 1;
 				best.barCursor = (best.barCursor + 1) % best.barIndices.length;
 				best.cellCursor = 0;
 			} else {
 				best.cellCursor = nextC;
 			}
 			best.nextWall += dBar;
+			if (autoAlignTwoVoice) {
+				const lane0Tick = laneLastStartTick[0];
+				const lane1Tick = laneLastStartTick[1];
+				const bothRepeated = laneRepeatedCycles[0]! >= 1 && laneRepeatedCycles[1]! >= 1;
+				if (bothRepeated && lane0Tick !== null && lane1Tick !== null && lane0Tick === lane1Tick) {
+					autoAlignDone = true;
+				}
+				if (autoAlignDone || crossedBars >= autoAlignMaxBars) break;
+			}
 			if (noteCount >= maxNotes) break;
 		}
 	}
@@ -1042,39 +1078,12 @@ export function generateMidi(input: MidiExportInput): Uint8Array {
 	}
 
 	const labels = ['Accent', 'Alt', 'Passive', 'TaHigh'] as const;
-	const polyGroupByLane: number[] = [];
-	const polyGroupRepLane: number[] = [];
-	if (laneCount > 1) {
-		const masterPreset =
-			typeof input.clickSound === 'string' && input.clickSound.length > 0
-				? input.clickSound
-				: 'classic';
-		const resolvePresetName = (lane: number): string =>
-			typeof input.clickSoundByPolyVoice?.[lane as 0 | 1 | 2] === 'string'
-				? (input.clickSoundByPolyVoice?.[lane as 0 | 1 | 2] as string)
-				: masterPreset;
-		const byPresetName = new Map<string, number>();
-		for (let lane = 0; lane < laneCount; lane++) {
-			const presetName = resolvePresetName(lane);
-			let g = byPresetName.get(presetName);
-			if (g === undefined) {
-				g = byPresetName.size;
-				byPresetName.set(presetName, g);
-				polyGroupRepLane[g] = lane;
-			}
-			polyGroupByLane[lane] = g;
-		}
-	}
 	const normalizeTrackIndex = (trackIndex: number): number => {
 		// Legacy export keeps only 3 tracks: Accent/Alt/Passive.
 		// TaHigh events are merged into Accent track.
 		if (laneCount === 1 && trackIndex === 3) return 0;
-		// Poly export: one instrument track per preset-name group.
-		if (laneCount > 1) {
-			const lane = Math.floor(trackIndex / 4);
-			const g = polyGroupByLane[lane] ?? lane;
-			return g;
-		}
+		// Poly export: one instrument track per lane.
+		if (laneCount > 1) return Math.floor(trackIndex / 4);
 		return trackIndex;
 	};
 	const usedTrackIndices = Array.from(new Set(pending.map((n) => normalizeTrackIndex(n.trackIndex)))).sort((a, b) => a - b);
@@ -1084,8 +1093,7 @@ export function generateMidi(input: MidiExportInput): Uint8Array {
 	for (let dense = 0; dense < usedTrackIndices.length; dense++) {
 		const rawTrackIdx = usedTrackIndices[dense];
 		trackIndexToDense.set(rawTrackIdx, dense);
-		const laneRaw = rawTrackIdx;
-		const lane = laneCount > 1 ? (polyGroupRepLane[laneRaw] ?? laneRaw) : laneRaw;
+		const lane = rawTrackIdx;
 		const t = new MidiWriter.Track();
 		const prefix = laneCount > 1 ? `V${lane + 1}` : 'Tempo';
 		t.addTrackName(prefix);
