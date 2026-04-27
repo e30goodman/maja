@@ -407,7 +407,11 @@ const POLY_MODE_STORAGE_KEY = 'konnakol_poly_mode';
 const POLY_VOICES_STORAGE_KEY = 'konnakol_poly_voices';
 const POLY_VOICE_GAINS_STORAGE_KEY = 'konnakol_poly_voice_gains';
 const CLICK_PRESET_BUS_GAINS_STORAGE_KEY = 'konnakol_click_preset_bus_gains';
-const DEFAULT_POLY_VOICE_GAINS: PolyVoiceGainMap = { 0: 1, 1: 1, 2: 1 };
+/**
+ * Project-wide hardcoded default from user-calibrated backup.
+ * Neutral UI "vol" baseline is still 1.0, but startup default for V1 uses 0.76.
+ */
+const DEFAULT_POLY_VOICE_GAINS: PolyVoiceGainMap = { 0: 0.76, 1: 1, 2: 1 };
 /** Debounce `playTwoBarsPreviewFromGrid` after bus 1/2/3 slider moves. */
 const CLICK_PRESET_BUS_TWO_BARS_PREVIEW_DEBOUNCE_MS = 120;
 const APP_COMMIT_VERSION = (() => {
@@ -700,6 +704,51 @@ type ClickPresetBusGainsStorageV2 = {
 };
 
 const DEFAULT_CLICK_PRESET_BUS_GAINS: ClickPresetBusGains = { accent: 1, alt: 1, passive: 1 };
+const HARDCODED_DEFAULT_CLICK_PRESET_BUS_GAINS_BY_PRESET: ClickPresetBusGainsMap = {
+	classic: { accent: 1, alt: 1, passive: 1 },
+	oldschool: { accent: 0, alt: 0.98, passive: 1.12 },
+	standard: { accent: 0.99, alt: 0.78, passive: 0.81 },
+	sharp_digital: { accent: 1, alt: 1, passive: 1 },
+	hi_hat: { accent: 0.87, alt: 0.23, passive: 0.32 },
+	plastic_knock: { accent: 1, alt: 1, passive: 1 },
+	metallic: { accent: 1, alt: 1, passive: 1 },
+	clock_tick: { accent: 1, alt: 1, passive: 1 },
+	vinyl_crackle: { accent: 1, alt: 1, passive: 0.68 },
+};
+const HARDCODED_DEFAULT_CLICK_PRESET_BUS_GAINS_BY_VOICE: ClickPresetBusGainsByVoiceMap = {
+	0: {
+		plastic_knock: { accent: 1, alt: 1, passive: 1 },
+		vinyl_crackle: { accent: 1.24, alt: 0.84, passive: 0.54 },
+		dry_click: { accent: 1, alt: 0.44, passive: 0.28 },
+		noise_burst: { accent: 0.7, alt: 0.36, passive: 0.76 },
+		hi_hat: { accent: 0.87, alt: 0.4, passive: 0.56 },
+		woodblock: { accent: 1.24, alt: 0.7, passive: 0.28 },
+		oldschool: { accent: 1.1, alt: 0.52, passive: 0.32 },
+		eight_bit: { accent: 0.4, alt: 0.22, passive: 0.74 },
+		metallic: { accent: 0.86, alt: 0.68, passive: 0.4 },
+		deep_sub: { accent: 1, alt: 0.28, passive: 0.4 },
+		cowbell: { accent: 0.92, alt: 0.24, passive: 0.48 },
+		glass_drop: { accent: 1, alt: 0.22, passive: 0.38 },
+		modern_daw: { accent: 0.58, alt: 0.24, passive: 0.42 },
+		classic: { accent: 1.46, alt: 1.1, passive: 0.74 },
+		sharp_digital: { accent: 0.88, alt: 0.64, passive: 0.4 },
+		soft_ping: { accent: 1.08, alt: 0.72, passive: 0.3 },
+		analog_synth: { accent: 1, alt: 0.48, passive: 0.7 },
+		punchy: { accent: 1.1, alt: 0.74, passive: 0.3 },
+		clock_tick: { accent: 1, alt: 0.46, passive: 0.76 },
+	},
+	1: {
+		classic: { accent: 1, alt: 1, passive: 1 },
+		oldschool: { accent: 0.58, alt: 0.98, passive: 1.12 },
+		hi_hat: { accent: 0.63, alt: 0.52, passive: 0.59 },
+		clock_tick: { accent: 0, alt: 0, passive: 0.67 },
+		vinyl_crackle: { accent: 1, alt: 1, passive: 1 },
+	},
+	2: {
+		classic: { accent: 1, alt: 1, passive: 1 },
+		hi_hat: { accent: 0.87, alt: 0.23, passive: 0.32 },
+	},
+};
 
 function clampClickPresetBusGain(n: number): number {
 	if (!Number.isFinite(n)) return 1;
@@ -3564,26 +3613,34 @@ export default function App() {
     const fromStorage = parseClickPresetBusGainsStorage(
       typeof localStorage !== 'undefined' ? localStorage.getItem(CLICK_PRESET_BUS_GAINS_STORAGE_KEY) : null,
     );
+    const seeded = {
+      ...HARDCODED_DEFAULT_CLICK_PRESET_BUS_GAINS_BY_PRESET,
+      ...fromStorage.byPreset,
+    };
     const seedSnap = initialBoot.snapshots[initialBoot.activeSnapshot] as AppSnapshot;
     const fromSnapshotMap = parseClickBusBalanceByPresetFromUnknown(seedSnap.clickBusBalanceByPreset);
     if (fromSnapshotMap) {
-      return { ...fromStorage.byPreset, ...fromSnapshotMap };
+      return { ...seeded, ...fromSnapshotMap };
     }
     const legacySingle = seedSnap.clickBusBalance;
     if (legacySingle) {
       const pk = isClickSoundPreset(seedSnap.clickSound) ? seedSnap.clickSound : 'classic';
-      return { ...fromStorage.byPreset, [pk]: legacySingle };
+      return { ...seeded, [pk]: legacySingle };
     }
-    return fromStorage.byPreset;
+    return seeded;
   });
   const [clickPresetBusGainsByVoice, setClickPresetBusGainsByVoice] = useState<ClickPresetBusGainsByVoiceMap>(() => {
     const fromStorage = parseClickPresetBusGainsStorage(
       typeof localStorage !== 'undefined' ? localStorage.getItem(CLICK_PRESET_BUS_GAINS_STORAGE_KEY) : null,
     );
+    const seeded = {
+      ...HARDCODED_DEFAULT_CLICK_PRESET_BUS_GAINS_BY_VOICE,
+      ...fromStorage.byVoice,
+    };
     const seedSnap = initialBoot.snapshots[initialBoot.activeSnapshot] as AppSnapshot;
     const fromSnapshot = parseClickBusBalanceByVoicePresetFromUnknown(seedSnap.clickBusBalanceByVoicePreset);
-    if (fromSnapshot) return { ...fromStorage.byVoice, ...fromSnapshot };
-    return fromStorage.byVoice;
+    if (fromSnapshot) return { ...seeded, ...fromSnapshot };
+    return seeded;
   });
   const [activeClickVoiceTarget, setActiveClickVoiceTarget] = useState<0 | 1 | 2>(0);
   const activeClickVoiceTargetRef = useRef<0 | 1 | 2>(0);
@@ -3912,7 +3969,6 @@ export default function App() {
   };
   const eraserHoldTimerRef = useRef<number | null>(null);
   const eraserHoldAteClickRef = useRef(false);
-  const polyVoiceGainHoldTimerRef = useRef<number | null>(null);
   const clickPresetBusTwoBarsPreviewDebounceRef = useRef<number | null>(null);
   const clickPresetBusTwoBarsPreviewRetryTimerRef = useRef<number | null>(null);
   const [randomDiceMintFlash, setRandomDiceMintFlash] = useState(false);
@@ -6843,10 +6899,6 @@ export default function App() {
         window.clearTimeout(squareHoldTimerRef.current);
         squareHoldTimerRef.current = null;
       }
-      if (polyVoiceGainHoldTimerRef.current !== null) {
-        window.clearTimeout(polyVoiceGainHoldTimerRef.current);
-        polyVoiceGainHoldTimerRef.current = null;
-      }
       if (clickPresetBusTwoBarsPreviewDebounceRef.current !== null) {
         window.clearTimeout(clickPresetBusTwoBarsPreviewDebounceRef.current);
         clickPresetBusTwoBarsPreviewDebounceRef.current = null;
@@ -7973,10 +8025,6 @@ export default function App() {
         window.clearTimeout(squareHoldTimerRef.current);
         squareHoldTimerRef.current = null;
       }
-      if (polyVoiceGainHoldTimerRef.current !== null) {
-        window.clearTimeout(polyVoiceGainHoldTimerRef.current);
-        polyVoiceGainHoldTimerRef.current = null;
-      }
       if (clickPresetBusTwoBarsPreviewDebounceRef.current !== null) {
         window.clearTimeout(clickPresetBusTwoBarsPreviewDebounceRef.current);
         clickPresetBusTwoBarsPreviewDebounceRef.current = null;
@@ -8726,13 +8774,19 @@ export default function App() {
                                       beginLiveControlWindow();
                                       setClickPresetBusGainsByVoice((prev) => {
                                         const voiceMap = { ...(prev[busVoice] ?? {}) };
+                                        const defaultRow = getClickPresetBusGainsForVoicePreset(
+                                          HARDCODED_DEFAULT_CLICK_PRESET_BUS_GAINS_BY_VOICE,
+                                          HARDCODED_DEFAULT_CLICK_PRESET_BUS_GAINS_BY_PRESET,
+                                          busVoice,
+                                          busPreset,
+                                        );
                                         const cur = getClickPresetBusGainsForVoicePreset(
                                           prev,
                                           clickPresetBusGainsRef.current,
                                           busVoice,
                                           busPreset,
                                         );
-                                        const row: ClickPresetBusGains = { ...cur, [key]: 1 };
+                                        const row: ClickPresetBusGains = { ...cur, [key]: defaultRow[key] };
                                         const updatedVoice = { ...voiceMap, [busPreset]: row };
                                         const updated = { ...prev, [busVoice]: updatedVoice };
                                         clickPresetBusGainsByVoiceRef.current = updated;
@@ -8778,7 +8832,7 @@ export default function App() {
                                     setPolyVoiceGains((prev) => {
                                       const updated: PolyVoiceGainMap = {
                                         ...prev,
-                                        [volVoiceIdx]: 1,
+                                        [volVoiceIdx]: DEFAULT_POLY_VOICE_GAINS[volVoiceIdx] ?? 1,
                                       };
                                       polyVoiceGainsRef.current = { ...updated };
                                       return updated;
@@ -8786,42 +8840,15 @@ export default function App() {
                                   }}
                                   onPointerDown={() => {
                                     beginLiveControlWindow();
-                                    if (polyVoiceGainHoldTimerRef.current !== null) {
-                                      window.clearTimeout(polyVoiceGainHoldTimerRef.current);
-                                      polyVoiceGainHoldTimerRef.current = null;
-                                    }
-                                    polyVoiceGainHoldTimerRef.current = window.setTimeout(() => {
-                                      polyVoiceGainHoldTimerRef.current = null;
-                                      const target = polyModeRef.current
-                                        ? activeClickVoiceTargetRef.current
-                                        : (0 as const);
-                                      setPolyVoiceGains((prev) => {
-                                        const updated: PolyVoiceGainMap = { ...prev, [target]: 1 };
-                                        polyVoiceGainsRef.current = { ...updated };
-                                        return updated;
-                                      });
-                                    }, 2000);
                                   }}
                                   onPointerUp={() => {
                                     endLiveControlWindow();
-                                    if (polyVoiceGainHoldTimerRef.current !== null) {
-                                      window.clearTimeout(polyVoiceGainHoldTimerRef.current);
-                                      polyVoiceGainHoldTimerRef.current = null;
-                                    }
                                   }}
                                   onPointerLeave={() => {
                                     endLiveControlWindow();
-                                    if (polyVoiceGainHoldTimerRef.current !== null) {
-                                      window.clearTimeout(polyVoiceGainHoldTimerRef.current);
-                                      polyVoiceGainHoldTimerRef.current = null;
-                                    }
                                   }}
                                   onPointerCancel={() => {
                                     endLiveControlWindow();
-                                    if (polyVoiceGainHoldTimerRef.current !== null) {
-                                      window.clearTimeout(polyVoiceGainHoldTimerRef.current);
-                                      polyVoiceGainHoldTimerRef.current = null;
-                                    }
                                   }}
                                   className={busRowSliderClass}
                                 />
