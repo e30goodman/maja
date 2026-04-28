@@ -54,34 +54,6 @@ export const KONNAKOL_DICTIONARY: Record<Gati, Record<Kalam, string[]>> = {
 };
 
 export type KalamMap = Map<string, Kalam>;
-export type SyllableLabel = { syl: string; accent: boolean };
-export type RowRuntimeContext = {
-	localJati?: number;
-	gatiTargetSub?: number;
-	effectiveBpm?: number;
-	rowMultiplier?: number;
-	roleType?: string;
-};
-export type LabelTraceEvent = {
-	rowIdx: number;
-	cellIdx: number;
-	key: string;
-	subdivs: number;
-	nps: number;
-	prevKalam?: Kalam;
-	nextKalam: Kalam;
-	localJati?: number;
-	gatiTargetSub?: number;
-	roleType?: string;
-};
-
-function shouldEnableFastFourChunkAlternation(runtimeCtx?: RowRuntimeContext): boolean {
-	const mult = runtimeCtx?.rowMultiplier ?? 1;
-	const isDivContext =
-		runtimeCtx?.roleType === 'substitution' ||
-		(typeof runtimeCtx?.gatiTargetSub === 'number' && runtimeCtx.gatiTargetSub > 1);
-	return mult > 1 && isDivContext;
-}
 
 /** Notes per second = BPM × phraseLen / 60. `phraseLen` is Gati (inside cell) or segment length (bar-level). */
 export function computeNps(bpm: number, phraseLen: number): number {
@@ -101,19 +73,15 @@ export function pickKalam(nps: number, prev: Kalam | undefined): Kalam {
 		return 'fast';
 	}
 	const T = KALAM_THRESHOLDS;
-	if (prev === 'slow') return nps > T.slowToMedium ? 'medium' : 'slow';
-	if (prev === 'fast') return nps < T.fastToMedium ? 'medium' : 'fast';
+	if (prev === 'slow') {
+		return nps > T.slowToMedium ? 'medium' : 'slow';
+	}
+	if (prev === 'fast') {
+		return nps < T.fastToMedium ? 'medium' : 'fast';
+	}
 	if (nps < T.mediumToSlow) return 'slow';
 	if (nps > T.mediumToFast) return 'fast';
 	return 'medium';
-}
-
-function delayFastJuNu(kalam: Kalam, runtimeCtx?: RowRuntimeContext): Kalam {
-	if (kalam !== 'fast') return kalam;
-	const mult = runtimeCtx?.rowMultiplier ?? 1;
-	const effBpm = runtimeCtx?.effectiveBpm ?? 0;
-	if (mult >= 2 && effBpm <= 200) return 'medium';
-	return kalam;
 }
 
 /** Fetch syllables array for a given Gati/Kalam; `gati` clamped to [1..9]. */
@@ -123,52 +91,41 @@ export function getSyllablesForGati(gati: number, kalam: Kalam): string[] {
 }
 
 /**
- * Build a syllable array for a bar-level segment longer than 9 cells.
- * Strategy:
- * 1) Prefer exact equal-group factorization in musical priority 4 -> 3 -> 5 (groups > 1).
- * 2) Fallback to greedy decomposition into blocks of size <=9 (9 + ... + remainder).
- * Example: segLen=12, kalam=slow -> Dict[4] + Dict[4] + Dict[4].
+ * Build a syllable array for a bar-level segment longer than 9 cells by greedy decomposition
+ * into blocks of size ≤9 (priority 9→8→7→6→5→4→3→2→1). Blocks use the same Kalam.
+ * Example: segLen=12, kalam=slow → Dict[9] + Dict[3] = 9+3 = 12 syllables.
  */
-export function composeLongBar(
-	segLen: number,
-	kalam: Kalam,
-	opts?: { enableFastFourChunkAlternation?: boolean },
-): string[] {
+export function composeLongBar(segLen: number, kalam: Kalam): string[] {
 	if (!Number.isFinite(segLen) || segLen <= 0) return [];
 	if (segLen <= 9) return getSyllablesForGati(segLen, kalam);
-
-	const wholeLen = Math.floor(segLen);
-	const allowFastFourChunkAlternation = opts?.enableFastFourChunkAlternation === true;
-	const pickChunk = (chunk: Gati, chunkIndex: number): string[] => {
-		if (allowFastFourChunkAlternation && kalam === 'fast' && chunk === 4 && chunkIndex % 2 === 1) {
-			return KONNAKOL_DICTIONARY[4].medium;
-		}
-		return KONNAKOL_DICTIONARY[chunk][kalam];
-	};
-	const factorPriority: Array<4 | 3 | 5> = [4, 3, 5];
-	for (const factor of factorPriority) {
-		if (wholeLen % factor !== 0) continue;
-		const groups = wholeLen / factor;
-		if (groups <= 1) continue;
-		const out: string[] = [];
-		for (let i = 0; i < groups; i++) out.push(...pickChunk(factor, i));
-		return out;
-	}
-
 	const out: string[] = [];
-	let remaining = wholeLen;
-	let chunkIndex = 0;
+	let remaining = Math.floor(segLen);
 	while (remaining > 0) {
 		const chunk = Math.min(9, remaining) as Gati;
-		out.push(...pickChunk(chunk, chunkIndex));
+		out.push(...KONNAKOL_DICTIONARY[chunk][kalam]);
 		remaining -= chunk;
-		chunkIndex++;
 	}
 	return out;
 }
 
 /**
- * Per-cell bar labels (row-level). Stable algorithm with optional accent wrapping.
+ * Подписи по клеткам такта (row-level).
+ *
+ * Input:
+ * - `rowSyllCount`: общее число клеток в ряду (визуальная длина).
+ * - `customSubdivs`: per-cell Gati (поддолей) по ключу `${rowIdx}-${cellIdx}`.
+ * - `rowIdx`: индекс ряда (используется только для построения ключей `customSubdivs` и `kalamMap`).
+ * - `opts.bpm`: BPM доли для расчёта NPS и выбора Kalam (default 60).
+ * - `opts.deadStart`: индекс первой мёртвой клетки (1..rowSyllCount). Мёртвые клетки хвоста
+ *   получают пустой массив меток; инвариант `labels.length === rowSyllCount`.
+ * - `opts.kalamMap`: состояние хистерезиса Kalam per-cell/per-segment; мутируется in-place
+ *   (новые ключи добавляются, старые caller подчищает по нужде).
+ *
+ * Правила:
+ * - Клетка с `subdivs > 1` — локальная фраза, Gati=subdivs, Kalam по BPM × subdivs / 60.
+ * - Смежные клетки с `subdivs === 1` — Sarva Laghu сегмент, виртуальный Gati = segLen,
+ *   Kalam по BPM × segLen / 60. При segLen > 9 — композиция {@link composeLongBar}.
+ * - Sandhi на стыках клеток не применяется (streaming-form словарь уже фонетически чист).
  */
 export function buildRowCellSyllableLabels(
 	rowSyllCount: number,
@@ -178,20 +135,11 @@ export function buildRowCellSyllableLabels(
 		bpm?: number;
 		deadStart?: number;
 		kalamMap?: KalamMap;
-		rowRuntimeContext?: RowRuntimeContext;
+		/** Optional collector: функция пишет сюда каждый touched key, caller может GC-нуть стейл. */
 		touchedKeys?: Set<string>;
-		debugTrace?: (event: LabelTraceEvent) => void;
-		cellSyllableOverrides?: Record<string, string>;
-		accentCells?: Set<number>;
-		isLessonLastRow?: boolean;
-		strictByManual?: boolean;
 	},
-): SyllableLabel[][] {
-	const fallbackBpm = typeof opts?.bpm === 'number' && opts.bpm > 0 ? opts.bpm : 60;
-	const bpm =
-		typeof opts?.rowRuntimeContext?.effectiveBpm === 'number' && opts.rowRuntimeContext.effectiveBpm > 0
-			? opts.rowRuntimeContext.effectiveBpm
-			: fallbackBpm;
+): string[][] {
+	const bpm = typeof opts?.bpm === 'number' && opts.bpm > 0 ? opts.bpm : 60;
 	const rawDead = opts?.deadStart;
 	const dead =
 		typeof rawDead === 'number' && rawDead >= 0 && rawDead <= rowSyllCount
@@ -199,11 +147,8 @@ export function buildRowCellSyllableLabels(
 			: rowSyllCount;
 	const kalamMap = opts?.kalamMap;
 	const touched = opts?.touchedKeys;
-	const accentCells = opts?.accentCells;
-	const runtimeCtx = opts?.rowRuntimeContext;
-	const debugTrace = opts?.debugTrace;
 
-	const out: SyllableLabel[][] = [];
+	const out: string[][] = [];
 	if (rowSyllCount <= 0) return out;
 
 	const normalizedSubdivs: number[] = [];
@@ -213,29 +158,11 @@ export function buildRowCellSyllableLabels(
 		normalizedSubdivs.push(sd);
 	}
 
-	const withAccent = (cellIdx: number, phrase: string[]): SyllableLabel[] => {
-		const accent = accentCells?.has(cellIdx) === true;
-		return phrase.map((s) => ({ syl: s, accent }));
-	};
-
-	const pickAndRemember = (key: string, nps: number, cellIdx: number, subdivs: number): Kalam => {
+	const pickAndRemember = (key: string, nps: number): Kalam => {
 		const prev = kalamMap?.get(key);
-		const picked = pickKalam(nps, prev);
-		const next = delayFastJuNu(picked, runtimeCtx);
+		const next = pickKalam(nps, prev);
 		kalamMap?.set(key, next);
 		touched?.add(key);
-		debugTrace?.({
-			rowIdx,
-			cellIdx,
-			key,
-			subdivs,
-			nps,
-			prevKalam: prev,
-			nextKalam: next,
-			localJati: runtimeCtx?.localJati,
-			gatiTargetSub: runtimeCtx?.gatiTargetSub,
-			roleType: runtimeCtx?.roleType,
-		});
 		return next;
 	};
 
@@ -251,8 +178,8 @@ export function buildRowCellSyllableLabels(
 
 		if (subdivs > 1) {
 			const key = `${rowIdx}-c${cIdx}`;
-			const kalam = pickAndRemember(key, computeNps(bpm, subdivs), cIdx, subdivs);
-			out.push(withAccent(cIdx, getSyllablesForGati(subdivs, kalam).slice()));
+			const kalam = pickAndRemember(key, computeNps(bpm, subdivs));
+			out.push(getSyllablesForGati(subdivs, kalam).slice());
 			cIdx++;
 			continue;
 		}
@@ -261,15 +188,10 @@ export function buildRowCellSyllableLabels(
 		while (cIdx < dead && (normalizedSubdivs[cIdx] ?? 1) === 1) cIdx++;
 		const segLen = cIdx - segStart;
 		const key = `${rowIdx}-seg${segStart}`;
-		const kalam = pickAndRemember(key, computeNps(bpm, segLen), segStart, segLen);
-		const phrase =
-			segLen <= 9
-				? getSyllablesForGati(segLen, kalam)
-				: composeLongBar(segLen, kalam, {
-						enableFastFourChunkAlternation: shouldEnableFastFourChunkAlternation(runtimeCtx),
-				  });
+		const kalam = pickAndRemember(key, computeNps(bpm, segLen));
+		const phrase = segLen <= 9 ? getSyllablesForGati(segLen, kalam) : composeLongBar(segLen, kalam);
 		for (let i = 0; i < segLen; i++) {
-			out.push(withAccent(segStart + i, [phrase[i] ?? 'Ta']));
+			out.push([phrase[i] ?? 'Ta']);
 		}
 	}
 

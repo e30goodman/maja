@@ -1,22 +1,22 @@
 /**
- * Random logic for the konnakol trainer: chaos curves, Markov bias, per-bar application.
+ * Рандом-логика konnakol тренажёра: кривые chaos, Markov-bias, применение к такту.
  *
- * Extracted from App.tsx for isolation and unit testing without React tree
- * (see `randomCurves.test.ts`). All functions are pure - RNG is injected as a parameter.
+ * Извлечено из App.tsx для изоляции и возможности unit-тестов без React-дерева
+ * (см. `randomCurves.test.ts`). Все функции чистые — RNG инжектируется параметром.
  *
- * Architecture:
- * - `*ChangeProbFromChaos`: probability of re-randomizing an axis at bar boundary (gate).
- * - `pick*`: sample a concrete value with Markov bias to previous value (smoothness).
- * - `applyRandomizerEffectsToBar`: orchestrator: gate -> mutate, in order
- *   pulsation -> barSpeed -> pattern -> speed (dead-cells before pattern/speed).
+ * Архитектура:
+ * - `*ChangeProbFromChaos` — вероятность re-randomize axis на границе такта (gate).
+ * - `pick*` — выборка конкретного значения с Markov-bias к prev (плавность).
+ * - `applyRandomizerEffectsToBar` — оркестратор: gate → mutate, в порядке
+ *   pulsation → barSpeed → pattern → speed (dead-cells до pattern/speed).
  */
 
 export const CHAOS_SLIDER_MAX = 100;
 
-/** RNG compatible with Math.random. Seed injection for bar replay (see mulberry32). */
+/** RNG compatible with Math.random. Seed-инжекция для replay такта (см. mulberry32). */
 export type RNG = () => number;
 
-/** mulberry32: deterministic PRNG from 32-bit seed. */
+/** mulberry32: детерминированный PRNG от 32-битного seed. */
 export function mulberry32(seed: number): RNG {
 	let s = seed | 0;
 	return () => {
@@ -28,37 +28,37 @@ export function mulberry32(seed: number): RNG {
 	};
 }
 
-/** Cubic smoothstep 3t^2-2t^3, clamped to [0, 1]. Base for all chaos curves. */
+/** Кубический smoothstep 3t²−2t³, clamped к [0, 1]. База для всех chaos-кривых. */
 export function smoothstep01(t: number): number {
 	const x = t <= 0 ? 0 : t >= 1 ? 1 : t;
 	return x * x * (3 - 2 * x);
 }
 
-/** Probability of pulsation change at bar boundary: 0 <= chaos <= 5 -> 0; >=80 -> 1. */
+/** Вероятность смены пульсации на границе такта: 0 ≤ chaos ≤ 5 → 0; ≥80 → 1. */
 export function pulsationChangeProbFromChaos(chaos: number): number {
 	const c = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
 	return smoothstep01((c - 5) / 75);
 }
-/** Probability of accent-pattern change: base 0.15 + smoothstep -> 1.0 at chaos=100. */
+/** Вероятность смены акцентного паттерна: база 0.15 + smoothstep → 1.0 на chaos=100. */
 export function patternChangeProbFromChaos(chaos: number): number {
 	const c = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
 	return 0.15 + 0.85 * smoothstep01(c / 100);
 }
-/** Probability to re-randomize cell speed in bar: base 0.1 + smoothstep -> 1 near chaos=60. */
+/** Вероятность re-randomize cell-speed в такте: база 0.1 + smoothstep → 1 к chaos≈60. */
 export function speedChangeProbFromChaos(chaos: number): number {
 	const c = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
 	return Math.min(1, 0.1 + 0.9 * smoothstep01(c / 60));
 }
-/** Probability of dead-cells update: 0 at chaos<=30; -> 1 near chaos=80. */
+/** Вероятность обновления dead-cells: 0 при chaos≤30; → 1 к chaos≈80. */
 export function barSpeedChangeProbFromChaos(chaos: number): number {
 	const c = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
 	return smoothstep01((c - 30) / 50);
 }
 
 /**
- * Random pulsation: pool by chaos. Pulsations 1 and 2 are excluded as full meters:
- * in Tala Shastra there are no standalone Anga of 1 or 2 beats; minimum is Tisra (3).
- * Ones/twos exist only as phrase parts (2+3=5), but not as a full bar.
+ * Random pulsation: пул по chaos. Пульсации 1 и 2 исключены как целые метры —
+ * в Тала Шастре самостоятельных Anga длиной 1 или 2 удара нет, минимум Tisra (3).
+ * Единицы/двойки существуют только как составные части фраз (2+3=5), но не как такт.
  */
 export const RANDOM_PULSE_POOL_LE_30 = [3, 4, 5] as const;
 export const RANDOM_PULSE_POOL_LE_70 = [3, 4, 5, 6, 7] as const;
@@ -69,16 +69,16 @@ export function pulsationPoolForChaos(chaos: number): readonly number[] {
 	return c <= 30 ? RANDOM_PULSE_POOL_LE_30 : c <= 70 ? RANDOM_PULSE_POOL_LE_70 : RANDOM_PULSE_POOL_FULL;
 }
 
-/** Uniform sampling of pulsation from pool (without Markov). */
+/** Uniform выборка пульсации из пула (без Markov). */
 function pickPulsationWeighted(chaos: number, rng: RNG): number {
 	const pool = pulsationPoolForChaos(chaos);
 	return pool[Math.floor(rng() * pool.length)]!;
 }
 
 /**
- * Random pulsation: Markov bias to prevMeter at low chaos, otherwise weighted pool.
- * In stick branch delta can be {-1, 0, +1}; out-of-pool values fall back to previous.
- * stickProb decreases linearly 0.6 -> 0.1 as chaos goes 0 -> 100 (beginner avoids 2->9->4 jumps).
+ * Random pulsation: Markov-bias к prevMeter на низком chaos, иначе weighted-pool.
+ * При stick-branch возможна delta ∈ {−1, 0, +1}; значения вне пула откатываются в prev.
+ * stickProb линейно падает 0.6 → 0.1 при chaos 0 → 100 (новичок не прыгает 2→9→4).
  */
 export function pickRandomPulsationMeter(
 	chaos: number,
@@ -109,67 +109,42 @@ export function accentFillRatioFromChaos(c: number): number {
 
 export const CELL_SPEED_RANDOM_POOL = [2, 3, 4] as const;
 
-/** Полный набор подделений (совпадает с KONNAKOL_DICTIONARY / Ta-редактором). */
-export const CELL_SPEED_FULL_POOL = [2, 3, 4, 5, 6, 7, 8, 9] as const;
-
 /**
- * Веса базового пула (chaos≤50): 2 (Chatusra) и 4 — основа, 3 (Tisra) — специя.
- * 5–9 получают вес 0 до начала смешивания с равномеркой (см. `cellSpeedExtendedBlendFromChaos`).
+ * Веса подделений: 2 (Chatusra) и 4 — основа (четные деления), 3 (Tisra) — специя/синкопа.
+ * Равномерный пул делает грув "рваным" и нехарактерным для Востока; при этих весах
+ * триоли остаются заметным, но не доминирующим цветом.
  */
-const BASE_CELL_SPEED_WEIGHT: Record<(typeof CELL_SPEED_FULL_POOL)[number], number> = {
-	2: 0.5,
-	3: 0.15,
-	4: 0.35,
-	5: 0,
-	6: 0,
-	7: 0,
-	8: 0,
-	9: 0,
-};
+const CELL_SPEED_WEIGHTS: readonly (readonly [number, number])[] = [
+	[2, 0.5],
+	[4, 0.35],
+	[3, 0.15],
+];
 
 /**
- * 50→0, 90→1: между базовыми весами на {2..4} и равномерным распределением по {2..9}.
- * При chaos≥90 (и 100) все подделения участвуют с равной долей.
- */
-export function cellSpeedExtendedBlendFromChaos(chaos: number): number {
-	const c = Math.max(0, Math.min(CHAOS_SLIDER_MAX, chaos));
-	if (c <= 50) return 0;
-	if (c >= 90) return 1;
-	return smoothstep01((c - 50) / 40);
-}
-
-/**
- * Random Speed: при низком хаосе — только {2,3,4} с базовыми весами; с chaos>50 плавно
- * подмешивается равномерка по {2..9}; с 90 — полная равномерка. При наличии prev —
- * Markov-bias (stickProb = 1 − chaos/100) для любого допустимого подделения из полного пула.
+ * Random Speed: {2, 3, 4} с весами 0.5/0.35/0.15. При наличии prev — Markov-bias
+ * сохранять предыдущее подделение, stickProb = 1 − chaos/100 (пробежки одинаковой
+ * микроритмики — учебно ценно).
  */
 export function pickRandomCellSpeedSubdiv(
 	rng: RNG = Math.random,
 	prev?: number,
 	chaos: number = 100,
 ): number {
-	const blend = cellSpeedExtendedBlendFromChaos(chaos);
-	const uniform = 1 / CELL_SPEED_FULL_POOL.length;
-
-	if (typeof prev === 'number' && (CELL_SPEED_FULL_POOL as readonly number[]).includes(prev)) {
+	if (
+		typeof prev === 'number' &&
+		CELL_SPEED_RANDOM_POOL.includes(prev as (typeof CELL_SPEED_RANDOM_POOL)[number])
+	) {
 		const stickProb = Math.max(0, 1 - chaos / 100);
 		if (rng() < stickProb) return prev;
 	}
-
 	let sum = 0;
-	const weights: number[] = [];
-	for (const v of CELL_SPEED_FULL_POOL) {
-		const base = BASE_CELL_SPEED_WEIGHT[v];
-		const w = (1 - blend) * base + blend * uniform;
-		weights.push(w);
-		sum += w;
-	}
+	for (const [, w] of CELL_SPEED_WEIGHTS) sum += w;
 	let r = rng() * sum;
-	for (let i = 0; i < CELL_SPEED_FULL_POOL.length; i++) {
-		r -= weights[i]!;
-		if (r <= 0) return CELL_SPEED_FULL_POOL[i]!;
+	for (const [v, w] of CELL_SPEED_WEIGHTS) {
+		r -= w;
+		if (r <= 0) return v;
 	}
-	return CELL_SPEED_FULL_POOL[CELL_SPEED_FULL_POOL.length - 1]!;
+	return CELL_SPEED_WEIGHTS[CELL_SPEED_WEIGHTS.length - 1]![0];
 }
 
 /**
@@ -204,8 +179,6 @@ export type BarRandomizerMutable = {
 	customSyllables: Record<number, number>;
 	accents: Set<string>;
 	customSubdivisions: Record<string, number>;
-	/** Переопределение отображаемого/логируемого слога по ключу `${row}-${cell}` (parent mode). */
-	customCellSyllables: Record<string, string>;
 	customMultipliers: Record<number, number>;
 	deadCells: DeadCellsMap;
 };
@@ -221,10 +194,7 @@ export function buildLegacyPlaybackSequence(
 	customSyllables: Record<number, number>,
 	baseSyllables: number,
 	deadCells: DeadCellsMap,
-	/** kept for call-site compatibility; ignored by stable algorithm */
-	customCellSyllables?: Record<string, string>,
 ): SequencerSeqItem[] {
-	void customCellSyllables;
 	const seq: SequencerSeqItem[] = [];
 	for (let r = 0; r < barCount; r++) {
 		const syls = customSyllables[r] !== undefined ? customSyllables[r] : baseSyllables;

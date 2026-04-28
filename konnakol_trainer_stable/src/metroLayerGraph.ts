@@ -5,8 +5,6 @@
  * Filter cutoff scheduling uses setValueAtTime at `scheduleTime` like the reference.
  */
 
-import { fillChannelDeterministicWhiteNoise } from './deterministicWhiteNoiseFill';
-
 export type MetroLayerGraphType = OscillatorType | 'noise' | 'none';
 
 export type MetroLayerGraphConfig = {
@@ -37,7 +35,7 @@ function getSharedNoiseBuffer(ctx: AudioContext): AudioBuffer {
 	const frameCount = Math.max(1, Math.floor(ctx.sampleRate * SHARED_NOISE_BUFFER_SEC));
 	const buf = ctx.createBuffer(1, frameCount, ctx.sampleRate);
 	const output = buf.getChannelData(0);
-	fillChannelDeterministicWhiteNoise(output);
+	for (let i = 0; i < output.length; i++) output[i] = Math.random() * 2 - 1;
 	sharedNoiseBufferByContext.set(ctx, buf);
 	return buf;
 }

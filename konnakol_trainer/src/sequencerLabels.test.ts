@@ -145,7 +145,7 @@ function testBuildRow4BpmSlow() {
 
 function testBuildRow4BpmFast() {
 	const out = buildRowCellSyllableLabels(4, {}, 0, { bpm: 150 });
-	assert.deepEqual(out, plain([['Ta'], ['Ka'], ['Ju'], ['Nu']]));
+	assert.deepEqual(out, plain([['Ta'], ['Ka'], ['Dhi'], ['Mi']]));
 }
 
 function testBuildRow5Bpm60() {
@@ -195,13 +195,18 @@ function testBuildRowMixedCellThenOnes() {
 }
 
 function testSubdiv4AlwaysDictionaryPerKalamAndNonUniform() {
-	const cases: Array<{ bpm: number; kalam: Kalam }> = [
+	const cases: Array<{ bpm: number; kalam: Kalam; ctx?: { roleType?: string; rowMultiplier?: number; gatiTargetSub?: number; effectiveBpm?: number } }> = [
 		{ bpm: 60, kalam: 'slow' },
 		{ bpm: 120, kalam: 'medium' },
-		{ bpm: 150, kalam: 'fast' },
+		{ bpm: 150, kalam: 'medium' },
+		{
+			bpm: 150,
+			kalam: 'fast',
+			ctx: { roleType: 'substitution', rowMultiplier: 2, gatiTargetSub: 4, effectiveBpm: 220 },
+		},
 	];
-	for (const { bpm, kalam } of cases) {
-		const out = buildRowCellSyllableLabels(1, { '0-0': 4 }, 0, { bpm });
+	for (const { bpm, kalam, ctx } of cases) {
+		const out = buildRowCellSyllableLabels(1, { '0-0': 4 }, 0, { bpm, rowRuntimeContext: ctx });
 		assert.deepEqual(out[0].map((x) => x.syl), KONNAKOL_DICTIONARY[4][kalam], `subdivs=4 must follow dictionary (${kalam})`);
 		assert.equal(new Set(out[0].map((x) => x.syl)).size, 4, `subdivs=4 (${kalam}) must produce 4 different syllables`);
 	}
@@ -222,7 +227,8 @@ function testAllSubdivs2to9StrictDictionaryMapping() {
 	for (let subdiv = 2; subdiv <= 9; subdiv++) {
 		const out = buildRowCellSyllableLabels(1, { '0-0': subdiv }, 0, { bpm: 60 });
 		const sylls = out[0].map((x) => x.syl);
-		const kalam = pickKalam(computeNps(60, subdiv), undefined);
+		const pickedKalam = pickKalam(computeNps(60, subdiv), undefined);
+		const kalam = pickedKalam === 'fast' ? 'medium' : pickedKalam;
 		assert.equal(sylls.length, subdiv, `subdiv=${subdiv}: length must equal subdiv`);
 		assert.deepEqual(
 			sylls,
@@ -278,13 +284,13 @@ function testHysteresisStickyAroundBoundary() {
 	buildRowCellSyllableLabels(5, {}, 0, { bpm: 88, kalamMap: km });
 	assert.equal(km.get('0-seg0'), 'medium', 'return to 7.33 still medium (no thrash)');
 
-	/** BPM 102 → NPS=8.5 > 8.4 → fast. */
+	/** BPM 102 → NPS=8.5 > 8.4 picks fast, but default flow gates it back to medium. */
 	buildRowCellSyllableLabels(5, {}, 0, { bpm: 102, kalamMap: km });
-	assert.equal(km.get('0-seg0'), 'fast', 'crossing 8.4 goes fast');
+	assert.equal(km.get('0-seg0'), 'medium', 'default flow keeps DhiMi even after fast threshold');
 
-	/** BPM 96 → NPS=8.0 (above fastToMedium=7.6) → fast sticks. */
+	/** BPM 96 → still medium in default flow. */
 	buildRowCellSyllableLabels(5, {}, 0, { bpm: 96, kalamMap: km });
-	assert.equal(km.get('0-seg0'), 'fast', 'fast holds until below 7.6');
+	assert.equal(km.get('0-seg0'), 'medium', 'default flow remains medium');
 
 	/** BPM 90 → NPS=7.5 < 7.6 → medium. */
 	buildRowCellSyllableLabels(5, {}, 0, { bpm: 90, kalamMap: km });
@@ -338,7 +344,7 @@ function testNps833StaysMediumUntil84WhenSticky() {
 		kalamMap: km,
 		rowRuntimeContext: { effectiveBpm: 127 },
 	});
-	assert.equal(km.get('0-c0'), 'fast', 'crossing 8.4 transitions to fast');
+	assert.equal(km.get('0-c0'), 'medium', 'default flow keeps medium even past 8.4');
 }
 
 function testJuNuDelayedForX2UntilVeryHighTempo() {
@@ -346,24 +352,24 @@ function testJuNuDelayedForX2UntilVeryHighTempo() {
 	buildRowCellSyllableLabels(1, { '0-0': 4 }, 0, {
 		bpm: 120,
 		kalamMap: km,
-		rowRuntimeContext: { effectiveBpm: 180, rowMultiplier: 2 },
+		rowRuntimeContext: { effectiveBpm: 180, rowMultiplier: 2, roleType: 'substitution', gatiTargetSub: 4 },
 	});
 	assert.equal(km.get('0-c0'), 'medium', 'x2 should delay JuNu below/equal 200 BPM');
 	const low = buildRowCellSyllableLabels(1, { '0-0': 4 }, 0, {
 		bpm: 120,
-		rowRuntimeContext: { effectiveBpm: 180, rowMultiplier: 2 },
+		rowRuntimeContext: { effectiveBpm: 180, rowMultiplier: 2, roleType: 'substitution', gatiTargetSub: 4 },
 	});
 	assert.deepEqual(low[0]?.map((x) => x.syl), KONNAKOL_DICTIONARY[4].medium, 'below 200 BPM on x2 keep DhiMi');
 
 	buildRowCellSyllableLabels(1, { '0-0': 4 }, 0, {
 		bpm: 120,
 		kalamMap: km,
-		rowRuntimeContext: { effectiveBpm: 205, rowMultiplier: 2 },
+		rowRuntimeContext: { effectiveBpm: 205, rowMultiplier: 2, roleType: 'substitution', gatiTargetSub: 4 },
 	});
 	assert.equal(km.get('0-c0'), 'fast', 'x2 allows JuNu only after 200 BPM');
 	const high = buildRowCellSyllableLabels(1, { '0-0': 4 }, 0, {
 		bpm: 120,
-		rowRuntimeContext: { effectiveBpm: 205, rowMultiplier: 2 },
+		rowRuntimeContext: { effectiveBpm: 205, rowMultiplier: 2, roleType: 'substitution', gatiTargetSub: 4 },
 	});
 	assert.deepEqual(high[0]?.map((x) => x.syl), KONNAKOL_DICTIONARY[4].fast, 'after 200 BPM on x2 switch to JuNu');
 }
@@ -384,9 +390,9 @@ function testLongBarAlternationGatedByDivAndMultiplier() {
 	assert.deepEqual(
 		base.map((x) => x[0]?.syl),
 		[
-			'Ta', 'Ka', 'Ju', 'Nu',
-			'Ta', 'Ka', 'Ju', 'Nu',
-			'Ta', 'Ka', 'Ju', 'Nu',
+			'Ta', 'Ka', 'Dhi', 'Mi',
+			'Ta', 'Ka', 'Dhi', 'Mi',
+			'Ta', 'Ka', 'Dhi', 'Mi',
 		],
 		'no multiplier/div -> no alternation',
 	);
@@ -398,9 +404,9 @@ function testLongBarAlternationGatedByDivAndMultiplier() {
 	assert.deepEqual(
 		divNoMult.map((x) => x[0]?.syl),
 		[
-			'Ta', 'Ka', 'Ju', 'Nu',
-			'Ta', 'Ka', 'Ju', 'Nu',
-			'Ta', 'Ka', 'Ju', 'Nu',
+			'Ta', 'Ka', 'Dhi', 'Mi',
+			'Ta', 'Ka', 'Dhi', 'Mi',
+			'Ta', 'Ka', 'Dhi', 'Mi',
 		],
 		'div without multiplier -> no alternation',
 	);

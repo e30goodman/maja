@@ -1,4 +1,3 @@
-import { fillChannelDeterministicWhiteNoise } from '../../../src/deterministicWhiteNoiseFill';
 import { SoundConfig } from './sounds';
 import { getMetronomeSummingInput } from 'trainer-src/metraAudioBus';
 
@@ -140,7 +139,9 @@ class AudioEngine {
       const noiseLen = (ctx.sampleRate * currentDecay) || 1;
       const noiseBuf = ctx.createBuffer(1, noiseLen, ctx.sampleRate);
       const output = noiseBuf.getChannelData(0);
-      fillChannelDeterministicWhiteNoise(output);
+      for (let i = 0; i < output.length; i++) {
+        output[i] = Math.random() * 2 - 1;
+      }
 
       const noiseSrc = ctx.createBufferSource();
       noiseSrc.buffer = noiseBuf;

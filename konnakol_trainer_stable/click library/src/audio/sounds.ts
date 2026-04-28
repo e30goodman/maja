@@ -253,8 +253,8 @@ export const MOVEMENT_SOUNDS: SoundConfig[] = [
   },
   {
     id: "cowbell",
-    name: "808 Cowbell",
-    description: "Legendary TR-808 Phonk style Cowbell",
+    name: "Cowbell",
+    description: "Imitation of a cowbell sound",
     oscType: "square",
     baseFreq: 540,
     accentFreq: 800,

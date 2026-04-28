@@ -1,9 +1,8 @@
 /**
- * Run: `npx tsx src/midiExport.test.ts` from the `konnakol_trainer` directory.
+ * Запуск: `npx tsx src/midiExport.test.ts` из каталога konnakol_trainer.
  */
 import assert from 'node:assert/strict';
 import {
-	buildMidiParityEvents,
 	classifyGridCellHits,
 	computeVelocity,
 	generateMidi,
@@ -30,11 +29,11 @@ function testSyllableToDrumNote() {
 function testComputeVelocity() {
 	const rng = mulberry32(1);
 	const vAcc = computeVelocity('accent', 1, true, false, 'Ta', false, rng);
-	assert.equal(vAcc, 120);
+	assert.equal(vAcc, 115);
 	const v0 = computeVelocity('accent', 0, true, true, 'Ta', false, mulberry32(2));
-	assert.equal(v0, 120);
+	assert.equal(v0, 127);
 	const vPass = computeVelocity('passive', 2, false, false, 'Ka', false, mulberry32(3));
-	assert.equal(vPass, 70);
+	assert.equal(vPass, 80);
 }
 
 function testTicksPerCell() {
@@ -69,15 +68,14 @@ function testClassifyAccentPlusTaDing() {
 		polyMode: false,
 		polyDedupKey: 'x',
 		polyClickSlots: slots,
-		mixerLayerMode: 'full_mix',
-		trainerMode: 'normal',
+		playbackMode: 'all_beats',
 		muteMode: 'off',
 		dictantActive: false,
 	});
 	assert.equal(hits.taHigh, true);
 	assert.equal(hits.accent, true);
 	assert.equal(hits.altShadow, false);
-	assert.equal(hits.passive, true);
+	assert.equal(hits.passive, false);
 }
 
 function testClassifyAccentShadow() {
@@ -94,15 +92,14 @@ function testClassifyAccentShadow() {
 		polyMode: false,
 		polyDedupKey: 'x',
 		polyClickSlots: slots,
-		mixerLayerMode: 'full_mix',
-		trainerMode: 'normal',
+		playbackMode: 'all_beats',
 		muteMode: 'off',
 		dictantActive: false,
 	});
 	assert.equal(hits.taHigh, false);
 	assert.equal(hits.accent, true);
 	assert.equal(hits.altShadow, true);
-	assert.equal(hits.passive, true);
+	assert.equal(hits.passive, false);
 }
 
 function testClassifyPolyDedup() {
@@ -120,8 +117,7 @@ function testClassifyPolyDedup() {
 		polyMode: true,
 		polyDedupKey: key,
 		polyClickSlots: slots,
-		mixerLayerMode: 'full_mix',
-		trainerMode: 'normal',
+		playbackMode: 'all_beats',
 		muteMode: 'off',
 		dictantActive: false,
 	});
@@ -141,8 +137,7 @@ function testClassifyPolyFirstBeatSafeNoBleed() {
 		polyMode: true,
 		polyDedupKey: '1:1:0',
 		polyClickSlots: new Set<string>(),
-		mixerLayerMode: 'full_mix',
-		trainerMode: 'normal',
+		playbackMode: 'all_beats',
 		muteMode: 'off',
 		dictantActive: false,
 		firstBeatRequiresExplicitMark: true,
@@ -163,8 +158,7 @@ function testClassifyPolyLane1AccentOnlyNoTa() {
 		polyMode: true,
 		polyDedupKey: '1:0',
 		polyClickSlots: new Set<string>(),
-		mixerLayerMode: 'full_mix',
-		trainerMode: 'normal',
+		playbackMode: 'all_beats',
 		muteMode: 'off',
 		dictantActive: false,
 		firstBeatHitPolicy: 'explicit_ta_only',
@@ -186,37 +180,12 @@ function testClassifyLane0LegacyDefaultFirstBeat() {
 		polyMode: true,
 		polyDedupKey: '0:0',
 		polyClickSlots: new Set<string>(),
-		mixerLayerMode: 'full_mix',
-		trainerMode: 'normal',
+		playbackMode: 'all_beats',
 		muteMode: 'off',
 		dictantActive: false,
 		firstBeatHitPolicy: 'legacy',
 	});
 	assert.equal(hits.taHigh, true);
-	assert.equal(hits.altShadow, false);
-}
-
-function testClassifyFirstBeatTaNeverAltShadow() {
-	const hits = classifyGridCellHits({
-		rowIdx: 0,
-		colIdx: 0,
-		subdivs: 1,
-		isAccent: true,
-		taDingKeys: new Set<string>(),
-		accents: new Set(['0-0']),
-		firstBeatAccent: true,
-		suppressedRow: false,
-		polyMode: false,
-		polyDedupKey: '0:0:ta',
-		polyClickSlots: new Set<string>(),
-		mixerLayerMode: 'full_mix',
-		trainerMode: 'normal',
-		muteMode: 'off',
-		dictantActive: false,
-		firstBeatHitPolicy: 'legacy',
-	});
-	assert.equal(hits.taHigh, true);
-	assert.equal(hits.altShadow, false);
 }
 
 function testFirstBeatPolicyParityRuntimeVsMidi() {
@@ -268,62 +237,12 @@ function testGenerateMidiSmoke() {
 	assert.equal(bytes[3], 0x64);
 }
 
-function testParityNoAltOnFirstBeatTaCell() {
-	const { events } = buildMidiParityEvents({
-		bpm: 100,
-		bars: 1,
-		baseSyllables: 4,
-		customSyllables: {},
-		customSubdivisions: {},
-		accents: new Set<string>(),
-		taDingKeys: new Set<string>(),
-		firstBeatAccent: true,
-		firstBeatDingSuppressedRows: new Set<number>(),
-		deadCells: {},
-		polyMode: false,
-		polyVoices: 2,
-		humanize: false,
-		seed: 1,
-		ppq: 960,
-	});
-	const taCellEvents = events.filter((e) => e.row === 1 && e.cell === 1);
-	assert.ok(taCellEvents.some((e) => e.role === 'taHigh'));
-	assert.ok(!taCellEvents.some((e) => e.role === 'alt'));
-}
-
-function testParityNoAltOnExplicitTaDingCell() {
-	const { events } = buildMidiParityEvents({
-		bpm: 100,
-		bars: 1,
-		baseSyllables: 4,
-		customSyllables: {},
-		customSubdivisions: {},
-		accents: new Set<string>(['0-2']),
-		taDingKeys: new Set<string>(['0-2']),
-		firstBeatAccent: true,
-		firstBeatDingSuppressedRows: new Set<number>(),
-		deadCells: {},
-		polyMode: false,
-		polyVoices: 2,
-		humanize: false,
-		seed: 1,
-		ppq: 960,
-	});
-	const taDingCellEvents = events.filter((e) => e.row === 1 && e.cell === 3);
-	assert.ok(taDingCellEvents.some((e) => e.role === 'taHigh'));
-	assert.ok(!taDingCellEvents.some((e) => e.role === 'alt'));
-}
-
 function testLaneRoleMidiNotes() {
-	assert.equal(resolveMidiNoteForLaneRole(0, 'accent'), 36); // V1 C1 bass drum (GM)
-	assert.equal(resolveMidiNoteForLaneRole(0, 'alt'), 38); // V1 D1 acoustic snare (GM)
-	assert.equal(resolveMidiNoteForLaneRole(0, 'passive'), 42); // V1 F#1 closed HH (GM)
-	assert.equal(resolveMidiNoteForLaneRole(1, 'accent'), 47); // V2 low-mid tom (GM)
-	assert.equal(resolveMidiNoteForLaneRole(1, 'alt'), 39); // V2 hand clap (GM)
-	assert.equal(resolveMidiNoteForLaneRole(1, 'passive'), 37); // V2 side stick (GM)
-	assert.equal(resolveMidiNoteForLaneRole(2, 'accent'), 56); // V3 cowbell (GM)
-	assert.equal(resolveMidiNoteForLaneRole(2, 'alt'), 53); // V3 ride bell (GM)
-	assert.equal(resolveMidiNoteForLaneRole(2, 'passive'), 76); // V3 high wood block (GM)
+	assert.equal(resolveMidiNoteForLaneRole(0, 'passive'), 50); // V1/legacy D3
+	assert.equal(resolveMidiNoteForLaneRole(0, 'accent'), 23); // V1/legacy B0
+	assert.equal(resolveMidiNoteForLaneRole(1, 'accent'), 34); // V2 A#1
+	assert.equal(resolveMidiNoteForLaneRole(1, 'alt'), 21); // V2 A0
+	assert.equal(resolveMidiNoteForLaneRole(1, 'passive'), 51); // V2 D#3
 	assert.equal(resolveMidiNoteForLaneRole(1, 'taHigh'), 29); // V2 F1
 }
 
@@ -337,12 +256,9 @@ function run() {
 	testClassifyPolyFirstBeatSafeNoBleed();
 	testClassifyPolyLane1AccentOnlyNoTa();
 	testClassifyLane0LegacyDefaultFirstBeat();
-	testClassifyFirstBeatTaNeverAltShadow();
 	testFirstBeatPolicyParityRuntimeVsMidi();
 	testBuildLaneBarIndices();
 	testGenerateMidiSmoke();
-	testParityNoAltOnFirstBeatTaCell();
-	testParityNoAltOnExplicitTaDingCell();
 	testLaneRoleMidiNotes();
 	console.log('midiExport.test.ts: all passed');
 }
