@@ -8708,7 +8708,7 @@ export default function App() {
           : 'Mode: normal';
 
   return (
-    <div className="min-h-screen bg-[#0b101e] sm:bg-black/95 text-slate-200 p-0 sm:p-6 font-sans flex flex-col items-center justify-center">
+    <div className="h-[100dvh] bg-[#0b101e] sm:bg-black/95 text-slate-200 p-0 sm:p-6 font-sans flex flex-col items-center justify-center">
       {/* Phone emulator container */}
       <div className="relative flex h-[100dvh] min-h-0 w-full max-w-[390px] shrink-0 flex-col gap-2 overflow-hidden bg-[#0b101e] px-3 pb-3 pt-1.5 shadow-2xl sm:h-[844px] sm:rounded-[2.5rem] sm:border-[6px] border-[#1e2a45]">
         
