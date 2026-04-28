@@ -7,9 +7,6 @@ body,
 	height: 100%;
 	min-height: 100dvh;
 	margin: 0;
-	overflow: hidden;
-	overscroll-behavior: none;
-	touch-action: none;
 }
 
 * {
