@@ -10,7 +10,7 @@ import type { PlayheadPosition } from './playheadTypes';
 
 /** Keep long-press pulse switching consistent with collapsed behavior. */
 function allowedSubdivisions(_panelExpanded: boolean): number[] {
-	return [1, 2, 3, 4];
+	return [2, 3, 4];
 }
 
 /** Next value in the available subdivision cycle. */
