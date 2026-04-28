@@ -46,7 +46,7 @@ const CELL_SUBDIV_ARM_SLOP_Y_PX = 10;
 const PULSE_ROULETTE_SLOP_Y_PX = 0;
 const PULSE_MODE_TOGGLE_CANCEL_SLOP_Y_PX = 8;
 const PULSE_HOLD_MS = 450;
-const CELL_HOLD_MS = 150;
+const CELL_HOLD_MS = 100;
 
 /** Poly playback: voice 0 = emerald; 1 = sky; 2 = violet; 3+ = amber. */
 function playheadHighlightCellClasses(
