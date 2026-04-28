@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useRef } from 'react';
+import React, { useMemo, useCallback, useRef, useEffect } from 'react';
 import {
 	buildRowCellSyllableLabels,
 	getSyllableStyles,
@@ -386,6 +386,23 @@ const SequencerGridRow = React.memo(
 			basePulse: number;
 			lastDeltaSteps: number;
 		} | null>(null);
+		const nativeTouchScrollBlockActiveRef = useRef(false);
+		const nativeTouchMoveBlockerRef = useRef<(e: TouchEvent) => void>(() => {});
+		const lockNativeTouchScroll = useCallback(() => {
+			if (nativeTouchScrollBlockActiveRef.current) return;
+			const blocker = (e: TouchEvent) => {
+				e.preventDefault();
+			};
+			nativeTouchMoveBlockerRef.current = blocker;
+			window.addEventListener('touchmove', blocker, { passive: false, capture: true });
+			nativeTouchScrollBlockActiveRef.current = true;
+		}, []);
+		const unlockNativeTouchScroll = useCallback(() => {
+			if (!nativeTouchScrollBlockActiveRef.current) return;
+			window.removeEventListener('touchmove', nativeTouchMoveBlockerRef.current, true);
+			nativeTouchScrollBlockActiveRef.current = false;
+		}, []);
+		useEffect(() => () => unlockNativeTouchScroll(), [unlockNativeTouchScroll]);
 		return (
 			<div
 				ref={(el) => setRowEl(absR, el)}
@@ -475,6 +492,7 @@ const SequencerGridRow = React.memo(
 							a.pulseUnlinkHoldTimerRef.current = window.setTimeout(() => {
 								a.isHoldingRef.current = true;
 								/* Long-press: сразу включаем/выключаем gati-jati, пока палец ещё зажат (видна индикация). */
+								lockNativeTouchScroll();
 								a.pulseUnlinkJustFiredRef.current = true;
 								a.setPulseMeterUnlinked((prev) => {
 									const nextVal = !prev[rIdx];
@@ -541,6 +559,7 @@ const SequencerGridRow = React.memo(
 							pulseHoldReadyRef.current = false;
 							pulseRouletteSessionRef.current = null;
 							a.isHoldingRef.current = false;
+							unlockNativeTouchScroll();
 						}}
 						onPointerLeave={(e) => {
 							const a = actionsRef.current;
@@ -555,6 +574,7 @@ const SequencerGridRow = React.memo(
 							pulsePointerLatestYRef.current = null;
 							pulseHoldReadyRef.current = false;
 							pulseRouletteSessionRef.current = null;
+							unlockNativeTouchScroll();
 						}}
 						onPointerCancel={(e) => {
 							const a = actionsRef.current;
@@ -574,6 +594,7 @@ const SequencerGridRow = React.memo(
 							pulseHoldReadyRef.current = false;
 							pulseRouletteSessionRef.current = null;
 							a.isHoldingRef.current = false;
+							unlockNativeTouchScroll();
 						}}
 						onClick={() => {
 							const a = actionsRef.current;
@@ -719,6 +740,7 @@ const SequencerGridRow = React.memo(
 									a.holdTimerRef.current = window.setTimeout(() => {
 										a.isHoldingRef.current = true;
 										triggerHapticPulse(50);
+										lockNativeTouchScroll();
 										const armedStartY = Number(btn.dataset.subdivArmLatestY ?? btn.dataset.subdivArmStartY ?? e.clientY);
 										const panelExpanded = a.isPanelExpandedRef.current;
 										a.setCustomSubdivisions((prev) => {
@@ -780,6 +802,7 @@ const SequencerGridRow = React.memo(
 									a.deadSwipeSessionRef.current = null;
 									a.subdivHoldSessionRef.current = null;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
+									unlockNativeTouchScroll();
 								}}
 								onPointerCancel={(e) => {
 									const a = actionsRef.current;
@@ -792,6 +815,7 @@ const SequencerGridRow = React.memo(
 									a.deadSwipeSessionRef.current = null;
 									a.subdivHoldSessionRef.current = null;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
+									unlockNativeTouchScroll();
 								}}
 								onPointerLeave={(e) => {
 									const a = actionsRef.current;
@@ -803,6 +827,7 @@ const SequencerGridRow = React.memo(
 									delete btn.dataset.subdivArmActive;
 									a.subdivHoldSessionRef.current = null;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
+									unlockNativeTouchScroll();
 								}}
 								onClick={() => {
 									const a = actionsRef.current;
