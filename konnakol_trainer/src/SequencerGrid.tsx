@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useRef, useEffect } from 'react';
+import React, { useMemo, useCallback, useRef } from 'react';
 import {
 	buildRowCellSyllableLabels,
 	getSyllableStyles,
@@ -388,42 +388,12 @@ const SequencerGridRow = React.memo(
 			basePulse: number;
 			lastDeltaSteps: number;
 		} | null>(null);
-		const nativeTouchScrollBlockActiveRef = useRef(false);
-		const nativeTouchMoveBlockerRef = useRef<(e: TouchEvent) => void>(() => {});
-		const nativeTouchReleaseHandlerRef = useRef<(e: Event) => void>(() => {});
-		const lockNativeTouchScroll = useCallback(() => {
-			if (nativeTouchScrollBlockActiveRef.current) return;
-			const blocker = (e: TouchEvent) => {
-				e.preventDefault();
-			};
-			const releaseHandler = (_e: Event) => {
-				if (!nativeTouchScrollBlockActiveRef.current) return;
-				window.removeEventListener('touchmove', nativeTouchMoveBlockerRef.current, true);
-				window.removeEventListener('pointerup', nativeTouchReleaseHandlerRef.current, true);
-				window.removeEventListener('pointercancel', nativeTouchReleaseHandlerRef.current, true);
-				window.removeEventListener('touchend', nativeTouchReleaseHandlerRef.current, true);
-				window.removeEventListener('touchcancel', nativeTouchReleaseHandlerRef.current, true);
-				nativeTouchScrollBlockActiveRef.current = false;
-			};
-			nativeTouchMoveBlockerRef.current = blocker;
-			nativeTouchReleaseHandlerRef.current = releaseHandler;
-			window.addEventListener('touchmove', blocker, { passive: false, capture: true });
-			window.addEventListener('pointerup', releaseHandler, true);
-			window.addEventListener('pointercancel', releaseHandler, true);
-			window.addEventListener('touchend', releaseHandler, true);
-			window.addEventListener('touchcancel', releaseHandler, true);
-			nativeTouchScrollBlockActiveRef.current = true;
+		const lockElementTouchScroll = useCallback((el: HTMLElement) => {
+			el.style.touchAction = 'none';
 		}, []);
-		const unlockNativeTouchScroll = useCallback(() => {
-			if (!nativeTouchScrollBlockActiveRef.current) return;
-			window.removeEventListener('touchmove', nativeTouchMoveBlockerRef.current, true);
-			window.removeEventListener('pointerup', nativeTouchReleaseHandlerRef.current, true);
-			window.removeEventListener('pointercancel', nativeTouchReleaseHandlerRef.current, true);
-			window.removeEventListener('touchend', nativeTouchReleaseHandlerRef.current, true);
-			window.removeEventListener('touchcancel', nativeTouchReleaseHandlerRef.current, true);
-			nativeTouchScrollBlockActiveRef.current = false;
+		const unlockElementTouchScroll = useCallback((el: HTMLElement) => {
+			el.style.removeProperty('touch-action');
 		}, []);
-		useEffect(() => () => unlockNativeTouchScroll(), [unlockNativeTouchScroll]);
 		return (
 			<div
 				ref={(el) => setRowEl(absR, el)}
@@ -498,6 +468,7 @@ const SequencerGridRow = React.memo(
 						onPointerDown={(e) => {
 							const a = actionsRef.current;
 							if (!a) return;
+							const el = e.currentTarget as HTMLButtonElement;
 							a.pulseUnlinkJustFiredRef.current = false;
 							a.isHoldingRef.current = false;
 							pulsePointerStartYRef.current = e.clientY;
@@ -506,15 +477,18 @@ const SequencerGridRow = React.memo(
 							pulseHoldReadyRef.current = false;
 							pulseRouletteSessionRef.current = null;
 							if (a.pulseUnlinkHoldTimerRef.current) clearTimeout(a.pulseUnlinkHoldTimerRef.current);
-							try {
-								(e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
-							} catch {
-								/* duplicate capture */
-							}
 							a.pulseUnlinkHoldTimerRef.current = window.setTimeout(() => {
+								let captureOk = false;
+								try {
+									el.setPointerCapture(e.pointerId);
+									captureOk = typeof el.hasPointerCapture === 'function' && el.hasPointerCapture(e.pointerId);
+								} catch {
+									/* pointer may already be released */
+								}
+								if (!captureOk) return;
 								a.isHoldingRef.current = true;
 								/* Long-press + no pre-move: включаем/выключаем gati-jati сразу под удержанием. */
-								lockNativeTouchScroll();
+								lockElementTouchScroll(el);
 								if (!pulseMovedBeforeHoldRef.current) {
 									a.pulseUnlinkJustFiredRef.current = true;
 									a.setPulseMeterUnlinked((prev) => {
@@ -587,7 +561,7 @@ const SequencerGridRow = React.memo(
 							pulseHoldReadyRef.current = false;
 							pulseRouletteSessionRef.current = null;
 							a.isHoldingRef.current = false;
-							unlockNativeTouchScroll();
+							unlockElementTouchScroll(e.currentTarget as HTMLButtonElement);
 						}}
 						onPointerLeave={(e) => {
 							const a = actionsRef.current;
@@ -603,7 +577,7 @@ const SequencerGridRow = React.memo(
 							pulseMovedBeforeHoldRef.current = false;
 							pulseHoldReadyRef.current = false;
 							pulseRouletteSessionRef.current = null;
-							unlockNativeTouchScroll();
+							unlockElementTouchScroll(e.currentTarget as HTMLButtonElement);
 						}}
 						onPointerCancel={(e) => {
 							const a = actionsRef.current;
@@ -624,7 +598,7 @@ const SequencerGridRow = React.memo(
 							pulseHoldReadyRef.current = false;
 							pulseRouletteSessionRef.current = null;
 							a.isHoldingRef.current = false;
-							unlockNativeTouchScroll();
+							unlockElementTouchScroll(e.currentTarget as HTMLButtonElement);
 						}}
 						onClick={() => {
 							const a = actionsRef.current;
@@ -646,7 +620,7 @@ const SequencerGridRow = React.memo(
 							});
 						}}
 						onContextMenu={(e) => e.preventDefault()}
-						className={`flex-1 rounded-md border flex items-center justify-center text-[12px] font-extrabold leading-none ${lowPerfMode ? '' : 'shadow-[inset_0_1px_3px_rgba(0,0,0,0.1)]'} min-h-[50%] transition-colors select-none ${
+						className={`flex-1 rounded-md border flex items-center justify-center text-[12px] font-extrabold leading-none ${lowPerfMode ? '' : 'shadow-[inset_0_1px_3px_rgba(0,0,0,0.1)]'} min-h-[50%] transition-colors select-none touch-pan-y ${
 							activeEditRow === rIdx
 								? `ring-2 ring-purple-500 ${lowPerfMode ? '' : 'shadow-purple-500/30'} bg-[#1e2a45] border-[#2f4066] text-slate-400`
 								: jatiPulseActiveRow
@@ -777,7 +751,7 @@ const SequencerGridRow = React.memo(
 										if (!captureOk) return;
 										a.isHoldingRef.current = true;
 										triggerHapticPulse(50);
-										lockNativeTouchScroll();
+										lockElementTouchScroll(btn);
 										const armedStartY = Number(btn.dataset.subdivArmLatestY ?? btn.dataset.subdivArmStartY ?? e.clientY);
 										const panelExpanded = a.isPanelExpandedRef.current;
 										a.setCustomSubdivisions((prev) => {
@@ -839,7 +813,7 @@ const SequencerGridRow = React.memo(
 									a.deadSwipeSessionRef.current = null;
 									a.subdivHoldSessionRef.current = null;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
-									unlockNativeTouchScroll();
+									unlockElementTouchScroll(btn);
 								}}
 								onPointerCancel={(e) => {
 									const a = actionsRef.current;
@@ -852,7 +826,7 @@ const SequencerGridRow = React.memo(
 									a.deadSwipeSessionRef.current = null;
 									a.subdivHoldSessionRef.current = null;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
-									unlockNativeTouchScroll();
+									unlockElementTouchScroll(btn);
 								}}
 								onPointerLeave={(e) => {
 									const a = actionsRef.current;
@@ -864,7 +838,7 @@ const SequencerGridRow = React.memo(
 									delete btn.dataset.subdivArmActive;
 									a.subdivHoldSessionRef.current = null;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
-									unlockNativeTouchScroll();
+									unlockElementTouchScroll(btn);
 								}}
 								onClick={() => {
 									const a = actionsRef.current;
@@ -894,7 +868,7 @@ const SequencerGridRow = React.memo(
 									a.toggleAccent(rIdx, cIdx);
 								}}
 								onContextMenu={(e) => e.preventDefault()}
-								className={`flex-1 flex flex-col items-center justify-center min-w-0 ${lowPerfMode ? '' : 'transition-all duration-75'} ${
+								className={`flex-1 flex flex-col items-center justify-center min-w-0 touch-pan-y ${lowPerfMode ? '' : 'transition-all duration-75'} ${
 									rowSylls > 7 ? 'rounded-md' : 'rounded-xl'
 								} ${cellClasses} ${activeEditCell === checkKey ? `ring-2 ring-inset ring-purple-500 z-20 ${lowPerfMode ? '' : 'shadow-purple-500/30'}` : ''}`}
 							>
