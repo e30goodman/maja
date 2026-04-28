@@ -954,13 +954,21 @@ function buildPendingNotes(input: MidiExportInput): {
 				emitCell(bar, best.cellCursor, best.laneId, bestT, true, best.laneId, polyClickSlots);
 			}
 			const { nextC, advanceBar } = advancePolyLaneAfterEmit(best.cellCursor, rowSyl, deadStart);
-			const advanceLaneBar = advanceBar || (!advanceBar && nextC === 0);
+			const laneHeadSingleLiveHold =
+				best.barCursor === 0 &&
+				best.cellCursor === 0 &&
+				typeof deadStart === 'number' &&
+				deadStart === 1 &&
+				rowSyl >= 2;
+			const nextCWithHeadHold = laneHeadSingleLiveHold ? 1 : nextC;
+			const advanceLaneBar =
+				!laneHeadSingleLiveHold && (advanceBar || (!advanceBar && nextCWithHeadHold === 0));
 			if (advanceLaneBar) {
 				crossedBars += 1;
 				best.barCursor = (best.barCursor + 1) % best.barIndices.length;
 				best.cellCursor = 0;
 			} else {
-				best.cellCursor = nextC;
+				best.cellCursor = nextCWithHeadHold;
 			}
 			best.nextWall += dBar;
 			if (autoAlignTwoVoice) {

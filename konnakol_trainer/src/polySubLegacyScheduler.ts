@@ -211,7 +211,15 @@ export function createPolySubLegacyScheduler(deps: PolySubLegacyDeps): PolySubLe
 			}
 
 			const { nextC, advanceBar } = advancePolyLaneAfterEmit(c, rowSyl, deadStart);
-			const advanceLaneBar = advanceBar || (!advanceBar && nextC === 0);
+			const laneHeadSingleLiveHold =
+				best.barCursor === 0 &&
+				c === 0 &&
+				typeof deadStart === 'number' &&
+				deadStart === 1 &&
+				rowSyl >= 2;
+			const nextCWithHeadHold = laneHeadSingleLiveHold ? 1 : nextC;
+			const advanceLaneBar =
+				!laneHeadSingleLiveHold && (advanceBar || (!advanceBar && nextCWithHeadHold === 0));
 			if (advanceLaneBar) {
 				const prevBar = bar;
 				const prevCursor = best.barCursor;
@@ -221,7 +229,7 @@ export function createPolySubLegacyScheduler(deps: PolySubLegacyDeps): PolySubLe
 					best.barCursor === 0 && prevCursor === best.barIndices.length - 1;
 				deps.onLaneBarBoundary?.(prevBar, best.laneId, wrappedPattern);
 			} else {
-				best.cellCursor = nextC;
+				best.cellCursor = nextCWithHeadHold;
 			}
 			best.nextTime += dBar;
 		}

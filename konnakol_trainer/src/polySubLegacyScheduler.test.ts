@@ -79,7 +79,31 @@ function testFillLookaheadSingleLiveCellNotStuck() {
 		events.some((e) => e.voice === 0 && e.bar === 2),
 		'lane0 must reach bar 2 after single-live-cell bars, not stuck on bar 0',
 	);
-	assert.ok(events.every((e) => e.c === 0), 'only live column is 0');
+	assert.ok(events.some((e) => e.c === 0), 'single-live pattern must still emit c0');
+}
+
+/** Lane-head bar with single live cell: emit c0, then phantom c1 (silent downstream), then advance. */
+function testLaneHeadSingleLiveCellInsertsPhantomSecondCell() {
+	const events: { bar: number; c: number; voice: number }[] = [];
+	const sch = createPolySubLegacyScheduler({
+		polyVoices: () => 2,
+		barCount: () => 4,
+		getBarTimeWindowSeconds: () => 4,
+		getRowSyllables: () => 4,
+		getDeadStart: (bar) => (bar === 0 ? 1 : undefined),
+		emit: (bar, c, _absR, _t, voice) => {
+			events.push({ bar, c, voice });
+		},
+	});
+	sch.reset(0);
+	sch.fillLookahead(12);
+	const lane0Bar0 = events.filter((e) => e.voice === 0 && e.bar === 0).map((e) => e.c);
+	assert.ok(lane0Bar0.includes(0), 'lane-head single-live row must still emit c0');
+	assert.ok(lane0Bar0.includes(1), 'lane-head single-live row must insert phantom c1 before advancing');
+	assert.ok(
+		events.some((e) => e.voice === 0 && e.bar === 2),
+		'lane0 must advance to next bar after phantom step',
+	);
 }
 
 /** Fully dead row: `deadStart === 0` means no emits for that bar, lane must still advance. */
@@ -156,6 +180,7 @@ testBuildLaneBarIndices();
 testAdvancePolyLaneAfterEmit();
 testFillLookaheadMonotone();
 testFillLookaheadSingleLiveCellNotStuck();
+testLaneHeadSingleLiveCellInsertsPhantomSecondCell();
 testFillLookaheadFullyDeadRowAdvancesWithoutEmit();
 testMixedBarLengthsProduceInterleaving();
 testLaneBoundaryCallbackPerVoice();
