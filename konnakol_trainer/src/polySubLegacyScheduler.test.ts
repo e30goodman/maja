@@ -42,7 +42,7 @@ function testFillLookaheadMonotone() {
 		},
 	});
 	sch.reset(100);
-	sch.fillLookahead(100.85);
+	sch.fillLookahead(101.15);
 	const byBar = new Map<number, number[]>();
 	for (const e of events) {
 		const arr = byBar.get(e.bar) ?? [];
@@ -106,7 +106,7 @@ function testLaneHeadSingleLiveCellInsertsPhantomSecondCell() {
 	);
 }
 
-/** Lane second bar fully dead: it must be skipped with zero time spent and jump directly to next lane bar. */
+/** Keep Grid: partial-dead tail and fully-dead bar both consume their physical bar/cell time. */
 function testSecondLaneBarFullyDeadSkipsWithZeroTime() {
 	const events: { bar: number; c: number; voice: number; t: number }[] = [];
 	const sch = createPolySubLegacyScheduler({
@@ -133,8 +133,8 @@ function testSecondLaneBarFullyDeadSkipsWithZeroTime() {
 	assert.ok(lane1Bar1BeforeBar5, 'lane1 first bar must emit before first bar5 hit');
 	assert.equal(
 		lane1Bar5First.t,
-		lane1Bar1BeforeBar5.t + 1, // after last emitted step on bar1, next tick must jump directly to bar5
-		'fully-dead second lane bar must consume zero extra time',
+		lane1Bar1BeforeBar5.t + 7, // +3 (tail of bar1) +4 (full bar3 dead)
+		'keep-grid policy: dead tail + fully-dead bar must consume full physical time',
 	);
 	assert.ok(!events.some((e) => e.voice === 1 && e.bar === 3), 'fully-dead bar must be fully skipped');
 }

@@ -937,8 +937,9 @@ function buildPendingNotes(input: MidiExportInput): {
 					bpm,
 				) / Math.max(1, rowSyl);
 			const deadStart = deadMap[bar]?.deadStart;
+			const currentCell = best.cellCursor;
 			const laneId = best.laneId;
-			const isLaneStartAnchor = best.cellCursor === 0 && bar === laneFirstBar[laneId];
+			const isLaneStartAnchor = currentCell === 0 && bar === laneFirstBar[laneId];
 			if (autoAlignTwoVoice && isLaneStartAnchor) {
 				const startTick = Math.round(wallSecToTick(bestT, bpm, ppq));
 				const first = laneFirstStartTick[laneId];
@@ -951,18 +952,20 @@ function buildPendingNotes(input: MidiExportInput): {
 			}
 			const rowFullyDead = typeof deadStart === 'number' && deadStart <= 0;
 			if (!rowFullyDead) {
-				emitCell(bar, best.cellCursor, best.laneId, bestT, true, best.laneId, polyClickSlots);
+				emitCell(bar, currentCell, best.laneId, bestT, true, best.laneId, polyClickSlots);
 			}
 			if (rowFullyDead) {
 				crossedBars += 1;
 				best.barCursor = (best.barCursor + 1) % best.barIndices.length;
 				best.cellCursor = 0;
+				// Keep Grid policy: fully-dead bar still consumes full bar physical time.
+				best.nextWall += rowSyl * dBar;
 				continue;
 			}
-			const { nextC, advanceBar } = advancePolyLaneAfterEmit(best.cellCursor, rowSyl, deadStart);
+			const { nextC, advanceBar } = advancePolyLaneAfterEmit(currentCell, rowSyl, deadStart);
 			const laneHeadSingleLiveHold =
 				best.barCursor === 0 &&
-				best.cellCursor === 0 &&
+				currentCell === 0 &&
 				typeof deadStart === 'number' &&
 				deadStart === 1 &&
 				rowSyl >= 2;
@@ -976,7 +979,15 @@ function buildPendingNotes(input: MidiExportInput): {
 			} else {
 				best.cellCursor = nextCWithHeadHold;
 			}
-			best.nextWall += dBar;
+			const isLastLiveCell =
+				typeof deadStart === 'number' &&
+				deadStart > 0 &&
+				currentCell === deadStart - 1;
+			const stepDelta =
+				isLastLiveCell
+					? (1 + Math.max(0, rowSyl - deadStart)) * dBar
+					: dBar;
+			best.nextWall += stepDelta;
 			if (autoAlignTwoVoice) {
 				const lane0Tick = laneLastStartTick[0];
 				const lane1Tick = laneLastStartTick[1];
