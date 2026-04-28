@@ -391,7 +391,7 @@ const SequencerGridRow = React.memo(
 				ref={(el) => setRowEl(absR, el)}
 				className={`z-[12] flex items-stretch bg-[#161f33] border border-[#23314f] min-h-0 relative ${
 					displayScaleBars > 7 ? 'gap-1 p-1 rounded-lg' : 'gap-1.5 p-1 rounded-xl'
-				} ${isPolyRow ? 'border-l-4 border-l-blue-500/45' : ''} ${
+				} md:w-[calc(100%+8px)] md:-mr-2 ${isPolyRow ? 'border-l-4 border-l-blue-500/45' : ''} ${
 					polyStepTopRule ? 'mt-1.5 border-t border-[#2a3d66]/90 pt-1.5' : ''
 				} ${!effectiveUseFixedFlex ? 'flex-1' : ''}`}
 				style={{
