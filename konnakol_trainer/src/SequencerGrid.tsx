@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useRef } from 'react';
+import React, { useMemo, useCallback, useRef, useEffect } from 'react';
 import {
 	buildRowCellSyllableLabels,
 	getSyllableStyles,
@@ -388,12 +388,6 @@ const SequencerGridRow = React.memo(
 			basePulse: number;
 			lastDeltaSteps: number;
 		} | null>(null);
-		const lockElementTouchScroll = useCallback((el: HTMLElement) => {
-			el.style.touchAction = 'none';
-		}, []);
-		const unlockElementTouchScroll = useCallback((el: HTMLElement) => {
-			el.style.removeProperty('touch-action');
-		}, []);
 		return (
 			<div
 				ref={(el) => setRowEl(absR, el)}
@@ -488,7 +482,6 @@ const SequencerGridRow = React.memo(
 								if (!captureOk) return;
 								a.isHoldingRef.current = true;
 								/* Long-press + no pre-move: включаем/выключаем gati-jati сразу под удержанием. */
-								lockElementTouchScroll(el);
 								if (!pulseMovedBeforeHoldRef.current) {
 									a.pulseUnlinkJustFiredRef.current = true;
 									a.setPulseMeterUnlinked((prev) => {
@@ -561,7 +554,6 @@ const SequencerGridRow = React.memo(
 							pulseHoldReadyRef.current = false;
 							pulseRouletteSessionRef.current = null;
 							a.isHoldingRef.current = false;
-							unlockElementTouchScroll(e.currentTarget as HTMLButtonElement);
 						}}
 						onPointerLeave={(e) => {
 							const a = actionsRef.current;
@@ -577,7 +569,6 @@ const SequencerGridRow = React.memo(
 							pulseMovedBeforeHoldRef.current = false;
 							pulseHoldReadyRef.current = false;
 							pulseRouletteSessionRef.current = null;
-							unlockElementTouchScroll(e.currentTarget as HTMLButtonElement);
 						}}
 						onPointerCancel={(e) => {
 							const a = actionsRef.current;
@@ -598,7 +589,6 @@ const SequencerGridRow = React.memo(
 							pulseHoldReadyRef.current = false;
 							pulseRouletteSessionRef.current = null;
 							a.isHoldingRef.current = false;
-							unlockElementTouchScroll(e.currentTarget as HTMLButtonElement);
 						}}
 						onClick={() => {
 							const a = actionsRef.current;
@@ -751,7 +741,6 @@ const SequencerGridRow = React.memo(
 										if (!captureOk) return;
 										a.isHoldingRef.current = true;
 										triggerHapticPulse(50);
-										lockElementTouchScroll(btn);
 										const armedStartY = Number(btn.dataset.subdivArmLatestY ?? btn.dataset.subdivArmStartY ?? e.clientY);
 										const panelExpanded = a.isPanelExpandedRef.current;
 										a.setCustomSubdivisions((prev) => {
@@ -813,7 +802,6 @@ const SequencerGridRow = React.memo(
 									a.deadSwipeSessionRef.current = null;
 									a.subdivHoldSessionRef.current = null;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
-									unlockElementTouchScroll(btn);
 								}}
 								onPointerCancel={(e) => {
 									const a = actionsRef.current;
@@ -826,7 +814,6 @@ const SequencerGridRow = React.memo(
 									a.deadSwipeSessionRef.current = null;
 									a.subdivHoldSessionRef.current = null;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
-									unlockElementTouchScroll(btn);
 								}}
 								onPointerLeave={(e) => {
 									const a = actionsRef.current;
@@ -838,7 +825,6 @@ const SequencerGridRow = React.memo(
 									delete btn.dataset.subdivArmActive;
 									a.subdivHoldSessionRef.current = null;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
-									unlockElementTouchScroll(btn);
 								}}
 								onClick={() => {
 									const a = actionsRef.current;
@@ -1014,6 +1000,19 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 		deadStartByRow,
 		bpm,
 	);
+	useEffect(() => {
+		const gridEl = gridRef.current;
+		if (!gridEl) return;
+		const handleTouchMove = (e: TouchEvent) => {
+			if (sequencerGridRowActionsRef.current?.isHoldingRef.current) {
+				e.preventDefault();
+			}
+		};
+		gridEl.addEventListener('touchmove', handleTouchMove, { passive: false });
+		return () => {
+			gridEl.removeEventListener('touchmove', handleTouchMove);
+		};
+	}, [gridRef, sequencerGridRowActionsRef]);
 
 	/**
 	 * Legacy: while playing with a long strip, duplicate rows for scrolling (playAbsBar grows).
