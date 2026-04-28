@@ -1,5 +1,7 @@
 const SW_CACHE = 'konnakol-pwa-v1';
-const APP_SHELL = ['/', '/index.html', '/manifest.json'];
+const SCOPE_URL = new URL(self.registration.scope);
+const BASE_PATH = SCOPE_URL.pathname.endsWith('/') ? SCOPE_URL.pathname : `${SCOPE_URL.pathname}/`;
+const APP_SHELL = [BASE_PATH, `${BASE_PATH}index.html`, `${BASE_PATH}manifest.json`];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -29,7 +31,7 @@ self.addEventListener('fetch', (event) => {
           caches.open(SW_CACHE).then((cache) => cache.put(event.request, copy));
           return response;
         })
-        .catch(() => caches.match('/index.html'));
+        .catch(() => caches.match(`${BASE_PATH}index.html`));
     }),
   );
 });

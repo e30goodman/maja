@@ -26,7 +26,7 @@ if (typeof window !== 'undefined') {
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js').catch(() => {
+      navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {
         /* ignore registration errors in unsupported contexts */
       });
     });
