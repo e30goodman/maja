@@ -390,18 +390,37 @@ const SequencerGridRow = React.memo(
 		} | null>(null);
 		const nativeTouchScrollBlockActiveRef = useRef(false);
 		const nativeTouchMoveBlockerRef = useRef<(e: TouchEvent) => void>(() => {});
+		const nativeTouchReleaseHandlerRef = useRef<(e: Event) => void>(() => {});
 		const lockNativeTouchScroll = useCallback(() => {
 			if (nativeTouchScrollBlockActiveRef.current) return;
 			const blocker = (e: TouchEvent) => {
 				e.preventDefault();
 			};
+			const releaseHandler = (_e: Event) => {
+				if (!nativeTouchScrollBlockActiveRef.current) return;
+				window.removeEventListener('touchmove', nativeTouchMoveBlockerRef.current, true);
+				window.removeEventListener('pointerup', nativeTouchReleaseHandlerRef.current, true);
+				window.removeEventListener('pointercancel', nativeTouchReleaseHandlerRef.current, true);
+				window.removeEventListener('touchend', nativeTouchReleaseHandlerRef.current, true);
+				window.removeEventListener('touchcancel', nativeTouchReleaseHandlerRef.current, true);
+				nativeTouchScrollBlockActiveRef.current = false;
+			};
 			nativeTouchMoveBlockerRef.current = blocker;
+			nativeTouchReleaseHandlerRef.current = releaseHandler;
 			window.addEventListener('touchmove', blocker, { passive: false, capture: true });
+			window.addEventListener('pointerup', releaseHandler, true);
+			window.addEventListener('pointercancel', releaseHandler, true);
+			window.addEventListener('touchend', releaseHandler, true);
+			window.addEventListener('touchcancel', releaseHandler, true);
 			nativeTouchScrollBlockActiveRef.current = true;
 		}, []);
 		const unlockNativeTouchScroll = useCallback(() => {
 			if (!nativeTouchScrollBlockActiveRef.current) return;
 			window.removeEventListener('touchmove', nativeTouchMoveBlockerRef.current, true);
+			window.removeEventListener('pointerup', nativeTouchReleaseHandlerRef.current, true);
+			window.removeEventListener('pointercancel', nativeTouchReleaseHandlerRef.current, true);
+			window.removeEventListener('touchend', nativeTouchReleaseHandlerRef.current, true);
+			window.removeEventListener('touchcancel', nativeTouchReleaseHandlerRef.current, true);
 			nativeTouchScrollBlockActiveRef.current = false;
 		}, []);
 		useEffect(() => () => unlockNativeTouchScroll(), [unlockNativeTouchScroll]);
@@ -748,11 +767,14 @@ const SequencerGridRow = React.memo(
 									a.subdivHoldSessionRef.current = null;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
 									a.holdTimerRef.current = window.setTimeout(() => {
+										let captureOk = false;
 										try {
 											btn.setPointerCapture(e.pointerId);
+											captureOk = typeof btn.hasPointerCapture === 'function' && btn.hasPointerCapture(e.pointerId);
 										} catch {
 											/* pointer may already be released */
 										}
+										if (!captureOk) return;
 										a.isHoldingRef.current = true;
 										triggerHapticPulse(50);
 										lockNativeTouchScroll();
