@@ -32,6 +32,16 @@ function stepSubdivByDelta(base: number, delta: number, panelExpanded: boolean):
 	return allowed[idx]!;
 }
 
+function triggerHapticPulse(durationMs = 50): void {
+	try {
+		if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+			navigator.vibrate(durationMs);
+		}
+	} catch {
+		/* ignore */
+	}
+}
+
 /** Poly playback: voice 0 = emerald; 1 = sky; 2 = violet; 3+ = amber. */
 function playheadHighlightCellClasses(
 	isDead: boolean,
@@ -451,6 +461,7 @@ const SequencerGridRow = React.memo(
 							a.pulseUnlinkHoldTimerRef.current = window.setTimeout(() => {
 								a.pulseUnlinkJustFiredRef.current = true;
 								a.isHoldingRef.current = true;
+								triggerHapticPulse(50);
 								a.setPulseMeterUnlinked((prev) => {
 									const nextVal = !prev[rIdx];
 									a.onPulseLongPressModeSwitch?.(rIdx, rowSylls, nextVal);
@@ -625,6 +636,7 @@ const SequencerGridRow = React.memo(
 										a.deadSwipeSessionRef.current = null;
 										a.holdTimerRef.current = window.setTimeout(() => {
 											a.isHoldingRef.current = true;
+											triggerHapticPulse(50);
 											a.restoreDeadRow(rIdx);
 										}, 360);
 										return;
@@ -640,6 +652,7 @@ const SequencerGridRow = React.memo(
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
 									a.holdTimerRef.current = window.setTimeout(() => {
 										a.isHoldingRef.current = true;
+										triggerHapticPulse(50);
 										const panelExpanded = a.isPanelExpandedRef.current;
 										a.setCustomSubdivisions((prev) => {
 											const current = prev[checkKey] || 1;

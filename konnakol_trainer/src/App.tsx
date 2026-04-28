@@ -3448,6 +3448,15 @@ function TempoSliderTrack({
 	className = '',
 }: TempoSliderTrackProps) {
 	const inlineInputRef = useRef<HTMLInputElement>(null);
+	const triggerHapticPulse = useCallback((durationMs = 50) => {
+		try {
+			if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+				navigator.vibrate(durationMs);
+			}
+		} catch {
+			/* ignore */
+		}
+	}, []);
 	const isInlineThumb = tempoInlineEditing && tempoInlineFocusSlot === tempoSliderSlot;
 	useLayoutEffect(() => {
 		if (!isInlineThumb) return;
@@ -3519,6 +3528,7 @@ function TempoSliderTrack({
 						holdTimer = null;
 						if (finished) return;
 						finished = true;
+						triggerHapticPulse(50);
 						flushTempoCommit();
 						detachListeners();
 						onBeginInlineEdit(tempoSliderSlot);
@@ -4870,18 +4880,22 @@ export default function App() {
     attachMobileSliderCoarseDisarm();
   }, [getPressState, attachMobileSliderCoarseDisarm]);
 
+  const triggerHapticPulse = useCallback((durationMs = 50) => {
+    try {
+      if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+        navigator.vibrate(durationMs);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const handleBarsSliderThumbIdleArm = useCallback(() => {
     if (!isPressPrimed()) {
       armPressMatrixFromSlider();
-      try {
-        if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
-          navigator.vibrate(50);
-        }
-      } catch {
-        /* ignore */
-      }
+      triggerHapticPulse(50);
     }
-  }, [armPressMatrixFromSlider]);
+  }, [armPressMatrixFromSlider, triggerHapticPulse]);
 
   /** Disarm только для сессии, заармленной с рукоятки Bars (`'slider'`). */
   const handleBarsSliderThumbSessionEnd = useCallback(() => {
@@ -4906,6 +4920,7 @@ export default function App() {
         pressStarArmStartRef.current = null;
         pressStarLongPressFiredRef.current = true;
         setIsPressStarLongPressing(true);
+        triggerHapticPulse(50);
         if (isPressPrimed() && getPressArmSource() === 'star') disarmPressMatrixMode();
         else if (!isPressPrimed()) armPressMatrixFromStar();
       }, PRESS_LONG_PRESS_MS);
@@ -4915,7 +4930,7 @@ export default function App() {
         /* ignore */
       }
     },
-    [clearPressStarLongPressTimer, armPressMatrixFromStar, disarmPressMatrixMode],
+    [clearPressStarLongPressTimer, armPressMatrixFromStar, disarmPressMatrixMode, triggerHapticPulse],
   );
 
   const handlePressStarPointerMove = useCallback(
