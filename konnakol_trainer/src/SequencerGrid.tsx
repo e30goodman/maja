@@ -42,6 +42,8 @@ function triggerHapticPulse(durationMs = 50): void {
 	}
 }
 
+const CELL_SUBDIV_ARM_SLOP_Y_PX = 10;
+
 /** Poly playback: voice 0 = emerald; 1 = sky; 2 = violet; 3+ = amber. */
 function playheadHighlightCellClasses(
 	isDead: boolean,
@@ -682,6 +684,9 @@ const SequencerGridRow = React.memo(
 									if (!a) return;
 									const btn = e.currentTarget as HTMLButtonElement;
 									btn.setPointerCapture(e.pointerId);
+									btn.dataset.subdivArmStartY = String(e.clientY);
+									btn.dataset.subdivArmLatestY = String(e.clientY);
+									btn.dataset.subdivArmActive = '1';
 									if (isDead) {
 										if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
 										a.deadSwipeSessionRef.current = null;
@@ -704,6 +709,7 @@ const SequencerGridRow = React.memo(
 									a.holdTimerRef.current = window.setTimeout(() => {
 										a.isHoldingRef.current = true;
 										triggerHapticPulse(50);
+										const armedStartY = Number(btn.dataset.subdivArmLatestY ?? btn.dataset.subdivArmStartY ?? e.clientY);
 										const panelExpanded = a.isPanelExpandedRef.current;
 										a.setCustomSubdivisions((prev) => {
 											const current = prev[checkKey] || 1;
@@ -711,7 +717,7 @@ const SequencerGridRow = React.memo(
 											const out = { ...prev, [checkKey]: next };
 											a.subdivHoldSessionRef.current = {
 												key: checkKey,
-												startY: e.clientY,
+												startY: Number.isFinite(armedStartY) ? armedStartY : e.clientY,
 												baseSubdiv: next,
 												lastDeltaSteps: 0,
 												panelExpanded,
@@ -723,11 +729,22 @@ const SequencerGridRow = React.memo(
 											a.setActiveEditCell(checkKey);
 											a.setIsPanelExpanded(true);
 										}
+										btn.dataset.subdivArmActive = '0';
 									}, 400);
 								}}
 								onPointerMove={(e) => {
 									const a = actionsRef.current;
 									if (!a) return;
+									const btn = e.currentTarget as HTMLButtonElement;
+									btn.dataset.subdivArmLatestY = String(e.clientY);
+									if (btn.dataset.subdivArmActive === '1' && a.holdTimerRef.current) {
+										const startY = Number(btn.dataset.subdivArmStartY ?? e.clientY);
+										if (Number.isFinite(startY) && Math.abs(e.clientY - startY) > CELL_SUBDIV_ARM_SLOP_Y_PX) {
+											clearTimeout(a.holdTimerRef.current);
+											a.holdTimerRef.current = null;
+											btn.dataset.subdivArmActive = '0';
+										}
+									}
 									const s = a.subdivHoldSessionRef.current;
 									if (!s || !a.isHoldingRef.current) return;
 									if (s.key !== checkKey) return;
@@ -747,6 +764,9 @@ const SequencerGridRow = React.memo(
 									if (!a) return;
 									const btn = e.currentTarget as HTMLButtonElement;
 									if (btn.hasPointerCapture(e.pointerId)) btn.releasePointerCapture(e.pointerId);
+									delete btn.dataset.subdivArmStartY;
+									delete btn.dataset.subdivArmLatestY;
+									delete btn.dataset.subdivArmActive;
 									a.deadSwipeSessionRef.current = null;
 									a.subdivHoldSessionRef.current = null;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
@@ -756,13 +776,21 @@ const SequencerGridRow = React.memo(
 									if (!a) return;
 									const btn = e.currentTarget as HTMLButtonElement;
 									if (btn.hasPointerCapture(e.pointerId)) btn.releasePointerCapture(e.pointerId);
+									delete btn.dataset.subdivArmStartY;
+									delete btn.dataset.subdivArmLatestY;
+									delete btn.dataset.subdivArmActive;
 									a.deadSwipeSessionRef.current = null;
 									a.subdivHoldSessionRef.current = null;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
 								}}
-								onPointerLeave={() => {
+								onPointerLeave={(e) => {
 									const a = actionsRef.current;
 									if (!a) return;
+									const btn = e.currentTarget as HTMLButtonElement;
+									if (typeof btn.hasPointerCapture === 'function' && btn.hasPointerCapture(e.pointerId)) return;
+									delete btn.dataset.subdivArmStartY;
+									delete btn.dataset.subdivArmLatestY;
+									delete btn.dataset.subdivArmActive;
 									a.subdivHoldSessionRef.current = null;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
 								}}
