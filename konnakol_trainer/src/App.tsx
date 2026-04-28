@@ -2373,6 +2373,8 @@ function createEmptySnapshot() {
 		enabledMutations: [...PRESET_ENABLED_MUTATIONS.random],
 		/** Form preset for scheduler. */
 		formPresetId: 'random' as FormPresetId,
+		/** Press Matrix state for this snapshot: null=off, 'star'/'slider'=armed source. */
+		pressMatrixArmSource: null as PressArmSource | null,
 	};
 }
 
@@ -2611,6 +2613,11 @@ function parseSnapshotRow(raw: unknown) {
 		d.enabledMutations = out;
 	}
 	if (isFormPresetId(o.formPresetId)) d.formPresetId = o.formPresetId;
+	if (o.pressMatrixArmSource === 'star' || o.pressMatrixArmSource === 'slider') {
+		d.pressMatrixArmSource = o.pressMatrixArmSource;
+	} else {
+		d.pressMatrixArmSource = null;
+	}
 	const tdkIn = o.taDingKeys;
 	if (Array.isArray(tdkIn)) {
 		const next = new Set<string>();
@@ -2764,6 +2771,7 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		parentLength: s.parentLength,
 		enabledMutations: [...s.enabledMutations],
 		formPresetId: s.formPresetId,
+		pressMatrixArmSource: s.pressMatrixArmSource === 'slider' ? 'slider' : s.pressMatrixArmSource === 'star' ? 'star' : null,
 		...(snap.clickBusBalance
 			? { clickBusBalance: snap.clickBusBalance }
 			: {
@@ -5402,6 +5410,7 @@ export default function App() {
     parentLength: parentLengthRef.current,
     enabledMutations: [...enabledMutationsRef.current],
     formPresetId: formPresetIdRef.current,
+    pressMatrixArmSource: getPressArmSource(),
   });
 
   const prefillAllTactsRandomizer = useCallback((compositionSeedOverride?: number) => {
@@ -6389,6 +6398,7 @@ export default function App() {
           accentMapVersion,
           syllableReadMuteMode,
           dictantMode,
+          pressMatrixArmSource: pressMatrixArmSourceUi,
         },
       }));
     });
@@ -6429,6 +6439,7 @@ export default function App() {
     accentMapVersion,
     syllableReadMuteMode,
     dictantMode,
+    pressMatrixArmSourceUi,
   ]);
 
   useEffect(() => {
@@ -6682,11 +6693,9 @@ export default function App() {
       setIsPanelExpanded(snap.panelExpanded === true);
     }
     /**
-     * Press Matrix: snapshot load is treated as the "freshly loaded press template".
-     * Build PressState directly from the snapshot (refs may not yet be in sync —
-     * setState is async, ref-syncing useEffects haven't run).
-     * If everything's empty → disarm. Otherwise → arm with snap as baseline so
-     * subsequent expand reproduces the loaded pattern via mod-N tiling.
+     * Press Matrix: snapshot owns matrix state explicitly.
+     * We only arm when snapshot stores `pressMatrixArmSource`; no implicit
+     * "non-empty snapshot => matrix on" behavior.
      */
     {
       const snapSuppressed = normalizeSuppressedRows(
@@ -6710,13 +6719,18 @@ export default function App() {
         pulseMeterUnlinked: { ...nextPulseUnlinked },
         deadCells: { ...((snap as { deadCells?: DeadCellsMap }).deadCells || {}) },
       };
-      detachMobileSliderCoarseDisarmRef.current();
-      if (isPressStateEmpty(snapPressState)) {
+      const snapArmSourceRaw = (snap as { pressMatrixArmSource?: unknown }).pressMatrixArmSource;
+      const snapArmSource: PressArmSource | null =
+        snapArmSourceRaw === 'slider' || snapArmSourceRaw === 'star' ? snapArmSourceRaw : null;
+      if (snapArmSource === null || isPressStateEmpty(snapPressState)) {
+        detachMobileSliderCoarseDisarmRef.current();
         notifyPressErased();
         setPressMatrixArmSourceUi(null);
       } else {
-        armPressFromState(snapPressState, 'star');
-        setPressMatrixArmSourceUi('star');
+        armPressFromState(snapPressState, snapArmSource);
+        setPressMatrixArmSourceUi(snapArmSource);
+        if (snapArmSource === 'slider') attachMobileSliderCoarseDisarm();
+        else detachMobileSliderCoarseDisarmRef.current();
       }
     }
   };
@@ -6724,6 +6738,7 @@ export default function App() {
   const loadSnapshot = (id: number) => {
     onWindowPointerEndCaptureRef.current();
     flushChaosToActiveSnapshot();
+    activeSnapshotRef.current = id;
     setActiveSnapshot(id);
     const snap = snapshots[id] ?? createEmptySnapshot();
     applySnapshotDataToUi(snap, { preservePanel: true });
@@ -6920,8 +6935,15 @@ export default function App() {
     }
     try {
       const stored = normalizeSnapshotForStorage(parsed);
+      // Clipboard paste must not carry armed Press Matrix state.
+      stored.pressMatrixArmSource = null;
       onWindowPointerEndCaptureRef.current();
       flushChaosToActiveSnapshot();
+      setSnapshots((prev) => ({
+        ...prev,
+        [slot]: stored,
+      }));
+      activeSnapshotRef.current = slot;
       setActiveSnapshot(slot);
       applySnapshotDataToUi(stored, { preservePanel: true });
       showClipboardToast('Preset applied!');
