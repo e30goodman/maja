@@ -390,9 +390,6 @@ const SequencerGridRow = React.memo(
 					polyStepTopRule ? 'mt-1.5 border-t border-[#2a3d66]/90 pt-1.5' : ''
 				} ${!effectiveUseFixedFlex ? 'flex-1' : ''}`}
 				style={{
-					// Stretch outer bar frame toward scrollbar without changing inner syllable grid geometry.
-					width: 'calc(100% + 8px)',
-					marginRight: '-8px',
 					flex: effectiveUseFixedFlex
 						? `0 0 ${(useFrozenRowHeight && Math.max(1, (frozenRowHeightsByRIdx[rIdx] ?? frozenRowHeightPx ?? 0)) > 1)
 							? `${Math.max(1, (frozenRowHeightsByRIdx[rIdx] ?? frozenRowHeightPx ?? 0))}px`
