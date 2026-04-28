@@ -3352,12 +3352,9 @@ function StructuralSlider({
         onThumbPointerSessionEndRef.current?.();
       }}
       onPointerCancel={(e) => {
+        clearThumbArmTimer();
         thumbArmStartRef.current = null;
         thumbArmValueAtDownRef.current = null;
-        /* С thumbIdleArm не гасим таймер arm: лёгкий сдвиг часто даёт pointercancel без отпускания. */
-        if (!thumbIdleArmRef.current) {
-          clearThumbArmTimer();
-        }
         try {
           if (e.currentTarget.hasPointerCapture(e.pointerId)) {
             e.currentTarget.releasePointerCapture(e.pointerId);
@@ -3406,7 +3403,8 @@ function StructuralSlider({
         }
         applyLiveValue(next);
       }}
-      className={`flex-1 h-3 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 ${colorClass} [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110`}
+      onContextMenu={(e) => e.preventDefault()}
+      className={`flex-1 h-3 bg-[#0b101e] rounded-lg appearance-none cursor-pointer touch-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 ${colorClass} [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110`}
     />
   );
 }
@@ -4802,7 +4800,7 @@ export default function App() {
   /** Снежинка: slop отмены long-press при съезде пальца до истечения hold. */
   const PRESS_STAR_ARM_SLOP_PX = 8;
   /** Bars: до срабатывания long-press arm — порог смещения указателя (px). */
-  const PRESS_BARS_SLIDER_ARM_SLOP_PX = 6;
+  const PRESS_BARS_SLIDER_ARM_SLOP_PX = 10;
   /** UI: источник arm (star|slider) — фиолет thumb Bars при любом primed; снежинка glow тоже при любом primed. */
   const [pressMatrixArmSourceUi, setPressMatrixArmSourceUi] = useState<PressArmSource | null>(null);
   const pressStarLongPressTimerRef = useRef<number | null>(null);
@@ -4869,7 +4867,16 @@ export default function App() {
   }, [getPressState, attachMobileSliderCoarseDisarm]);
 
   const handleBarsSliderThumbIdleArm = useCallback(() => {
-    if (!isPressPrimed()) armPressMatrixFromSlider();
+    if (!isPressPrimed()) {
+      armPressMatrixFromSlider();
+      try {
+        if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+          navigator.vibrate(50);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
   }, [armPressMatrixFromSlider]);
 
   /** Disarm только для сессии, заармленной с рукоятки Bars (`'slider'`). */
