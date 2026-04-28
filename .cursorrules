@@ -1,0 +1,10 @@
+# UI & Layout Debugging
+TRIGGER: User reports layout issues, alignment bugs, overlapping, or elements not stretching properly.
+ACTION: DO NOT guess. DO NOT use `translateX`, `absolute` offsets, or fake layers.
+1. Read the guide at `docs/UI_DEBUG_GUIDE.md` (or equivalent location).
+1.1 Read confession + distilled protocol at `docs/UI_DEBUG_CONFESSION_AND_SUMMARY.md`.
+1.2 UI hard rule (always): never patch visual symptoms first; localize geometry source top-down, keep native flow, one variable per experiment.
+1.3 Micro-protocol (mandatory): per iteration change only ONE geometry factor (margin OR padding OR width).
+1.4 Guardrails: forbidden patterns for UI layout fixes — translateX/translateY, negative right offsets, fake absolute overlays.
+2. Ask the user to apply "The Traffic Light Method" (colored borders).
+3. Wait for the screenshot before writing the CSS fix.

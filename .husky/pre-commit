@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+
+echo "[pre-commit] UI geometry guard"
+npm --prefix konnakol_trainer run ui:guard:staged

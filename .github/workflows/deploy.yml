@@ -27,6 +27,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -38,6 +40,10 @@ jobs:
       - name: Install dependencies
         working-directory: ./konnakol_trainer
         run: npm ci
+
+      - name: UI geometry anti-cycle guard
+        working-directory: ./konnakol_trainer
+        run: npm run ui:guard -- --range "${{ github.event.before }}..${{ github.sha }}"
       
       - name: Build
         working-directory: ./konnakol_trainer
