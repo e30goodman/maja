@@ -392,9 +392,9 @@ const SequencerGridRow = React.memo(
 		return (
 			<div
 				ref={(el) => setRowEl(absR, el)}
-				className={`z-[12] flex items-stretch bg-[#161f33] border border-[#23314f] min-h-0 relative ${
+				className={`z-[12] flex w-full items-stretch bg-[#161f33] border border-[#23314f] min-h-0 relative ${
 					displayScaleBars > 7 ? 'gap-1 p-1 rounded-lg' : 'gap-1.5 p-1 rounded-xl'
-				} ${isPolyRow ? 'border-l-4 border-l-blue-500/45' : ''} ${
+				} pr-[10px] ${isPolyRow ? 'border-l-4 border-l-blue-500/45' : ''} ${
 					polyStepTopRule ? 'mt-1.5 border-t border-[#2a3d66]/90 pt-1.5' : ''
 				} ${!effectiveUseFixedFlex ? 'flex-1' : ''}`}
 				style={{
@@ -405,6 +405,15 @@ const SequencerGridRow = React.memo(
 						: undefined,
 				}}
 			>
+				{/* IMPORTANT FIX POINT #2 (BAR): BAR растягивается на всю ширину родителя через w-full.
+				    Правый зазор перенесен ВНУТРЬ BAR (pr-[10px]), чтобы фон/рамка доходили до правой линии,
+				    но внутренние CELLS не "расползались". Не компенсировать это translate/right-хаками.
+				    ЧЕРНЫЙ СПИСОК ИЗ ПЕРВЫХ ИТЕРАЦИЙ (НЕ ПОВТОРЯТЬ):
+				    - h-full/self-stretch/negative-margin-y+padding-y на правом CELLS-блоке как "фикс выравнивания";
+				    - relative + top/bottom offset для "подтяжки" блока;
+				    - translateX/translateY/right:-Npx для сдвига контента;
+				    - fake extension-layer для дорисовки правого края.
+				    Все это маскирует причину, но ломает layout/flow в других состояниях. */}
 				<div className={`flex flex-col gap-1 justify-center ${isPolyRow ? 'w-14' : 'w-8'} shrink-0`}>
 					<button
 						type="button"
@@ -646,7 +655,10 @@ const SequencerGridRow = React.memo(
 						{rowSylls}
 					</button>
 				</div>
-				<div className="flex flex-1 gap-1 items-stretch min-w-0">
+				{/* СТРОГО-НАСТРОГО НЕ ТРОГАТЬ ЭТО МЕСТО: ЭТО CELLS. Их не двигать и не растягивать для калибровки правой стенки.
+				    По "первому сообщению" сюда НЕ применять: h-full/-my-1/py-1/top-bottom offsets/translate/right-shift. */}
+				<div className="relative flex-1 self-stretch min-w-0">
+					<div className="absolute inset-x-0 -top-[2px] -bottom-[2px] flex gap-1 items-stretch">
 					{Array.from({ length: Math.max(rowSylls, deadDisplayByRow[rIdx] ?? rowSylls) }).map((_, cIdx) => {
 						const checkKey = `${rIdx}-${cIdx}`;
 						const deadStart = deadStartByRow[rIdx];
@@ -877,7 +889,10 @@ const SequencerGridRow = React.memo(
 									a.toggleAccent(rIdx, cIdx);
 								}}
 								onContextMenu={(e) => e.preventDefault()}
-								className={`flex-1 flex flex-col items-center justify-center min-w-0 touch-pan-y ${lowPerfMode ? '' : 'transition-all duration-75'} ${
+								/* IMPORTANT FIX POINT #3 (CELLS): flex-1/self-stretch тут ОСОЗНАННО оставлены.
+								   Если убрать flex-1, клетки схлопнутся и сломают деление такта.
+								   Правим только геометрию внешних контейнеров (scroll/BAR), не клетки. */
+								className={`flex-1 h-full self-stretch flex flex-col items-center justify-center min-w-0 touch-pan-y ${lowPerfMode ? '' : 'transition-all duration-75'} ${
 									rowSylls > 7 ? 'rounded-md' : 'rounded-xl'
 								} ${cellClasses} ${activeEditCell === checkKey ? `ring-2 ring-inset ring-purple-500 z-20 ${lowPerfMode ? '' : 'shadow-purple-500/30'}` : ''}`}
 							>
@@ -920,6 +935,7 @@ const SequencerGridRow = React.memo(
 							</button>
 						);
 					})}
+					</div>
 				</div>
 			</div>
 		);
@@ -1051,18 +1067,20 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	}, [polyMode, isPlaying, allBarsFitViewport, bars, displayScaleBars, activePos.absR, autoscrollVirtualRowsEnabled]);
 	return (
 		<div className="relative flex min-h-0 flex-1">
+			{/* IMPORTANT FIX POINT #1 (ROOT SCROLL): здесь была "собака зарыта".
+			    Раньше внешний правый gutter (paddingRight/marginRight/width-calc) и прочие костыли
+			    обрывали реальную правую границу grid относительно хедера (ластика).
+			    Текущий нативный фикс: только небольшой -mr-2 для точного совмещения вертикалей,
+			    без fake-layers/translate/right-offset-хаков. */}
 			<div
 				ref={gridRef}
-				className="relative z-10 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[#2f4066] [&::-webkit-scrollbar-thumb]:rounded-full"
+				className="relative z-10 -mr-2 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[#2f4066] [&::-webkit-scrollbar-thumb]:rounded-full"
 				style={{
 					overscrollBehaviorY: 'contain',
 					touchAction: 'pan-y',
 					scrollbarGutter: 'stable',
 					scrollbarColor: '#2f4066 transparent',
 					scrollbarWidth: 'thin',
-					width: 'calc(100% + 10px)',
-					paddingRight: '10px',
-					marginRight: '-10px',
 				}}
 			>
 				{Array.from({ length: virtualRowCount }).map((_, absR) => {
