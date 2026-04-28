@@ -579,12 +579,12 @@ const SequencerGridRow = React.memo(
 						onClick={() => {
 							const a = actionsRef.current;
 							if (!a) return;
+							if (a.pulseUnlinkJustFiredRef.current) {
+								a.pulseUnlinkJustFiredRef.current = false;
+								return;
+							}
 							if (a.isHoldingRef.current) {
 								a.isHoldingRef.current = false;
-								if (a.pulseUnlinkJustFiredRef.current) {
-									a.pulseUnlinkJustFiredRef.current = false;
-									return;
-								}
 								/* Click arrived without pulse pointerdown (captured from cell): still run syllable cycle based on grid long-press isHoldingRef. */
 							}
 							a.setCustomSyllables((prev) => {
