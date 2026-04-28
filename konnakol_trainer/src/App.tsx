@@ -3404,6 +3404,10 @@ function StructuralSlider({
         applyLiveValue(next);
       }}
       onContextMenu={(e) => e.preventDefault()}
+      style={{
+        WebkitTouchCallout: 'none',
+        userSelect: 'none',
+      }}
       className={`flex-1 h-3 bg-[#0b101e] rounded-lg appearance-none cursor-pointer touch-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 ${colorClass} [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110`}
     />
   );
