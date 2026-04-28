@@ -472,14 +472,11 @@ const SequencerGridRow = React.memo(
 							pulseRouletteSessionRef.current = null;
 							if (a.pulseUnlinkHoldTimerRef.current) clearTimeout(a.pulseUnlinkHoldTimerRef.current);
 							a.pulseUnlinkHoldTimerRef.current = window.setTimeout(() => {
-								let captureOk = false;
 								try {
 									el.setPointerCapture(e.pointerId);
-									captureOk = typeof el.hasPointerCapture === 'function' && el.hasPointerCapture(e.pointerId);
 								} catch {
-									/* pointer may already be released */
+									/* best effort capture */
 								}
-								if (!captureOk) return;
 								a.isHoldingRef.current = true;
 								/* Long-press + no pre-move: включаем/выключаем gati-jati сразу под удержанием. */
 								if (!pulseMovedBeforeHoldRef.current) {
@@ -514,14 +511,11 @@ const SequencerGridRow = React.memo(
 										clearTimeout(a.pulseUnlinkHoldTimerRef.current);
 										a.pulseUnlinkHoldTimerRef.current = null;
 									}
-									let captureOk = false;
 									try {
 										el.setPointerCapture(e.pointerId);
-										captureOk = typeof el.hasPointerCapture === 'function' && el.hasPointerCapture(e.pointerId);
 									} catch {
-										/* pointer may already be released */
+										/* best effort capture */
 									}
-									if (!captureOk) return;
 									a.isHoldingRef.current = true;
 									const basePulse =
 										a.customSyllablesRef.current[rIdx] !== undefined ? a.customSyllablesRef.current[rIdx]! : a.syllables;
