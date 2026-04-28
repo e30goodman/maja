@@ -1,9 +1,18 @@
 @import "tailwindcss";
 
-/* No text selection in trainer UI */
-html,
-body,
-#root {
-	user-select: none;
+* {
+	/* Запрещаем выделение текста везде, кроме инпутов */
 	-webkit-user-select: none;
+	user-select: none;
+	/* Запрещаем системное меню при долгом нажатии на iOS/Android */
+	-webkit-touch-callout: none;
+	/* Убираем синий прямоугольник при нажатии в мобильном Chrome */
+	-webkit-tap-highlight-color: transparent;
+}
+
+input,
+textarea {
+	/* Возвращаем выделение текста в полях ввода */
+	-webkit-user-select: text;
+	user-select: text;
 }
