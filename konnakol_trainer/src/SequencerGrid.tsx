@@ -583,7 +583,7 @@ const SequencerGridRow = React.memo(
 							});
 						}}
 						onContextMenu={(e) => e.preventDefault()}
-						className={`flex-1 rounded-md border flex items-center justify-center text-[12px] font-extrabold leading-none ${lowPerfMode ? '' : 'shadow-[inset_0_1px_3px_rgba(0,0,0,0.1)]'} min-h-[50%] transition-colors select-none ${
+						className={`flex-1 rounded-md border flex items-center justify-center text-[12px] font-extrabold leading-none ${lowPerfMode ? '' : 'shadow-[inset_0_1px_3px_rgba(0,0,0,0.1)]'} min-h-[50%] transition-colors select-none touch-none ${
 							activeEditRow === rIdx
 								? `ring-2 ring-purple-500 ${lowPerfMode ? '' : 'shadow-purple-500/30'} bg-[#1e2a45] border-[#2f4066] text-slate-400`
 								: jatiPulseActiveRow
@@ -793,9 +793,10 @@ const SequencerGridRow = React.memo(
 									}
 									a.toggleAccent(rIdx, cIdx);
 								}}
+								onContextMenu={(e) => e.preventDefault()}
 								className={`flex-1 flex flex-col items-center justify-center min-w-0 ${lowPerfMode ? '' : 'transition-all duration-75'} ${
 									rowSylls > 7 ? 'rounded-md' : 'rounded-xl'
-								} ${cellClasses} ${activeEditCell === checkKey ? `ring-2 ring-inset ring-purple-500 z-20 ${lowPerfMode ? '' : 'shadow-purple-500/30'}` : ''}`}
+								} ${cellClasses} touch-none ${activeEditCell === checkKey ? `ring-2 ring-inset ring-purple-500 z-20 ${lowPerfMode ? '' : 'shadow-purple-500/30'}` : ''}`}
 							>
 								<div
 									className={`w-full h-full rounded-[inherit] overflow-hidden ${
