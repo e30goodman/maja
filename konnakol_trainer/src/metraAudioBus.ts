@@ -70,7 +70,8 @@ export function getMetronomeSummingInput(ctx: AudioContext): GainNode {
 	let entry = masterBusByContext.get(ctx);
 	if (!entry) {
 		const summing = ctx.createGain();
-		summing.gain.value = 1;
+		// Global loudness trim before limiter. Keep moderate boost to avoid aggressive pumping.
+		summing.gain.value = 1.2;
 		const masterLimiter = createMasterPeakLimiter(ctx);
 		summing.connect(masterLimiter);
 		masterLimiter.connect(ctx.destination);
