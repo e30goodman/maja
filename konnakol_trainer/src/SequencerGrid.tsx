@@ -43,7 +43,7 @@ function triggerHapticPulse(durationMs = 50): void {
 }
 
 const CELL_SUBDIV_ARM_SLOP_Y_PX = 10;
-const PULSE_ROULETTE_SLOP_Y_PX = 10;
+const PULSE_ROULETTE_SLOP_Y_PX = 0;
 const PULSE_HOLD_MS = 0;
 const CELL_HOLD_MS = 200;
 
