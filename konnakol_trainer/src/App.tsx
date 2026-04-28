@@ -7892,42 +7892,39 @@ export default function App() {
           }
           return;
         }
-        // Additive routing: layer marks do not mute each other.
-        const passiveGain = gainMulForRole('base');
-        if (passiveGain > 0) {
-          playSharpClick(
-            ctx,
-            subTime,
-            sharpAsChecked,
-            soundPreset,
-            accentOnlyPlayback,
-            'base',
-            passiveGain,
-          );
-        }
-        if (hasUserPurpleAltAccent && !hasUserWhiteAccent) {
-          const altGain = gainMulForRole('alt');
-          if (altGain > 0) {
-            playSharpClick(
-              ctx,
-              subTime,
-              sharpAsChecked,
-              soundPreset,
-              accentOnlyPlayback,
-              'alt',
-              altGain,
-            );
+        // Mixer button controls only base/alt buses; Ta/first-beat accent bus stays independent.
+        const mixerAllowsBase = mixerMode === 'full_mix' || mixerMode === 'no_alt';
+        const mixerAllowsAlt = mixerMode === 'full_mix' || mixerMode === 'alt_only';
+        // Stable-style single-role routing per sub-hit.
+        // In no_alt, purple-marked cells intentionally fall back to base(passive) timbre.
+        const voiceRole: 'accent' | 'base' | 'alt' | null =
+          hasUserWhiteAccent
+            ? 'accent'
+            : hasUserPurpleAltAccent
+              ? (mixerAllowsAlt ? 'alt' : mixerAllowsBase ? 'base' : null)
+              : (mixerAllowsBase ? 'base' : null);
+        if (voiceRole === null) {
+          if (polyModeRef.current) {
+            polyClickSlotsRef.current.add(polySlotKey);
           }
+          return;
         }
-        if (hasUserWhiteAccent && mainAccentClick && accentGain > 0) {
+        if (voiceRole === 'accent' && (!mainAccentClick || accentGain <= 0)) {
+          if (polyModeRef.current) {
+            polyClickSlotsRef.current.add(polySlotKey);
+          }
+          return;
+        }
+        const voiceGain = gainMulForRole(voiceRole);
+        if (voiceGain > 0) {
           playSharpClick(
             ctx,
             subTime,
             sharpAsChecked,
             soundPreset,
             accentOnlyPlayback,
-            'accent',
-            accentGain,
+            voiceRole,
+            voiceGain,
           );
         }
         // USER-SOURCE-OF-TRUTH:
