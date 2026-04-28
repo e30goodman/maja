@@ -1844,16 +1844,20 @@ function decodePulseUnlinkedRowsToken(token: string): Record<number, boolean> {
 	return out;
 }
 
-function canRowUseZeroDeadStart(polyMode: boolean, row: number): boolean {
-	return polyMode && row > 0;
+function canRowUseZeroDeadStart(polyMode: boolean, polyVoices: number, row: number): boolean {
+	if (!polyMode) return false;
+	const voices = polyVoices === 3 ? 3 : 2;
+	// For each lane, keep bar #1 anchor (lane head row) alive at c0.
+	// Zero-live dead rows are allowed only from the second bar within lane.
+	return row >= voices;
 }
 
-function encodeDeadCellsToken(deadCells: DeadCellsMap, bars: number, polyMode: boolean): string {
+function encodeDeadCellsToken(deadCells: DeadCellsMap, bars: number, polyMode: boolean, polyVoices: number): string {
 	const parts: string[] = [];
 	for (const [rk, meta] of Object.entries(deadCells || {})) {
 		const row = parseInt(rk, 10);
 		if (!Number.isFinite(row) || row < 0 || row >= bars) continue;
-		const minDeadStart = canRowUseZeroDeadStart(polyMode, row) ? 0 : 1;
+		const minDeadStart = canRowUseZeroDeadStart(polyMode, polyVoices, row) ? 0 : 1;
 		const deadStart = Math.max(minDeadStart, Math.min(9, Math.floor(meta.deadStart)));
 		const displayLen = Math.max(1, Math.min(9, Math.floor(meta.displayLen)));
 		const baseLen = Math.max(1, Math.min(9, Math.floor(meta.baseLen)));
@@ -1864,7 +1868,7 @@ function encodeDeadCellsToken(deadCells: DeadCellsMap, bars: number, polyMode: b
 	return parts.join('_');
 }
 
-function decodeDeadCellsToken(token: string, bars: number, polyMode: boolean): DeadCellsMap {
+function decodeDeadCellsToken(token: string, bars: number, polyMode: boolean, polyVoices: number): DeadCellsMap {
 	if (!token || token === '0') return {};
 	const out: DeadCellsMap = {};
 	for (const chunk of token.split('_')) {
@@ -1876,7 +1880,7 @@ function decodeDeadCellsToken(token: string, bars: number, polyMode: boolean): D
 		const displayLen = parseInt(packed[1]!, 36);
 		const baseLen = parseInt(packed[2]!, 36);
 		if (!Number.isFinite(deadStart) || !Number.isFinite(displayLen) || !Number.isFinite(baseLen)) continue;
-		const minDeadStart = canRowUseZeroDeadStart(polyMode, row) ? 0 : 1;
+		const minDeadStart = canRowUseZeroDeadStart(polyMode, polyVoices, row) ? 0 : 1;
 		out[row] = {
 			deadStart: Math.max(minDeadStart, Math.min(9, deadStart)),
 			displayLen: Math.max(1, Math.min(9, displayLen)),
@@ -2586,7 +2590,7 @@ function parseSnapshotRow(raw: unknown) {
 			const displayLen = parseInt(String(robj.displayLen), 10);
 			const baseLen = parseInt(String(robj.baseLen), 10);
 			if (!Number.isFinite(deadStart) || !Number.isFinite(displayLen) || !Number.isFinite(baseLen)) continue;
-			const minDeadStart = canRowUseZeroDeadStart(d.polyMode, r) ? 0 : 1;
+			const minDeadStart = canRowUseZeroDeadStart(d.polyMode, d.polyVoices, r) ? 0 : 1;
 			if (deadStart < minDeadStart || displayLen < 1 || baseLen < 1) continue;
 			nextDead[r] = {
 				deadStart: Math.min(deadStart, 9),
@@ -2807,6 +2811,7 @@ function encodeSnapshotClipboard(s: ReturnType<typeof createEmptySnapshot>): str
 		(s as { deadCells?: DeadCellsMap }).deadCells ?? {},
 		s.bars,
 		Boolean((s as { polyMode?: boolean }).polyMode),
+		parsePolyVoices((s as { polyVoices?: unknown }).polyVoices),
 	);
 	const flags = buildSnapshotFlags(s);
 	const soundId = buildSnapshotSoundId(s);
@@ -2923,7 +2928,7 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 			} else {
 				hydrateSnapshotAccentsFromGridToken(gridTokenRaw, bars, syllables, d);
 			}
-			d.deadCells = decodeDeadCellsToken(deadCellsRaw, d.bars, d.polyMode);
+			d.deadCells = decodeDeadCellsToken(deadCellsRaw, d.bars, d.polyMode, d.polyVoices);
 			return d;
 		}
 		if (compactParts.length === 7) {
@@ -6085,7 +6090,7 @@ export default function App() {
       const meta = prevDead[r];
       if (!Number.isFinite(r) || r < 0 || r >= nBars || !meta) continue;
       const oldRowSyl = Math.max(1, prevCustom[r] !== undefined ? prevCustom[r]! : prevSyllables);
-      const minLive = canRowUseZeroDeadStart(polyModeRef.current, r) ? 0 : 1;
+      const minLive = canRowUseZeroDeadStart(polyModeRef.current, polyVoicesRef.current, r) ? 0 : 1;
       const live = Math.max(minLive, Math.min(oldRowSyl, meta.deadStart));
       const newLive = Math.max(minLive, Math.min(next, Math.round((live * next) / oldRowSyl)));
       if (newLive >= next) continue;
@@ -7512,7 +7517,7 @@ export default function App() {
     const baseNow = customSyllablesRef.current[barIndex] !== undefined
       ? customSyllablesRef.current[barIndex]
       : syllablesRef.current;
-    const minLive = canRowUseZeroDeadStart(polyModeRef.current, barIndex) ? 0 : 1;
+    const minLive = canRowUseZeroDeadStart(polyModeRef.current, polyVoicesRef.current, barIndex) ? 0 : 1;
     const activeCount = Math.max(minLive, Math.min(baseNow, startCell));
     const prevDead = deadCellsRef.current[barIndex];
     const displayLen = prevDead?.displayLen ?? baseNow;
