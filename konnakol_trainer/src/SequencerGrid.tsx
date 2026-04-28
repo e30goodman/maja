@@ -394,7 +394,7 @@ const SequencerGridRow = React.memo(
 				ref={(el) => setRowEl(absR, el)}
 				className={`z-[12] flex w-full items-stretch bg-[#161f33] border border-[#23314f] min-h-0 relative ${
 					displayScaleBars > 7 ? 'gap-1 p-1 rounded-lg' : 'gap-1.5 p-1 rounded-xl'
-				} pr-[10px] ${isPolyRow ? 'border-l-4 border-l-blue-500/45' : ''} ${
+				} ${isPolyRow ? 'border-l-4 border-l-blue-500/45' : ''} ${
 					polyStepTopRule ? 'mt-1.5 border-t border-[#2a3d66]/90 pt-1.5' : ''
 				} ${!effectiveUseFixedFlex ? 'flex-1' : ''}`}
 				style={{
@@ -406,8 +406,8 @@ const SequencerGridRow = React.memo(
 				}}
 			>
 				{/* IMPORTANT FIX POINT #2 (BAR): BAR растягивается на всю ширину родителя через w-full.
-				    Правый зазор перенесен ВНУТРЬ BAR (pr-[10px]), чтобы фон/рамка доходили до правой линии,
-				    но внутренние CELLS не "расползались". Не компенсировать это translate/right-хаками.
+				    ВНУТРЕННИЙ правый padding здесь НЕ использовать, иначе появляется "черная дыра"
+				    и CELLS не доходят до правой границы фона.
 				    ЧЕРНЫЙ СПИСОК ИЗ ПЕРВЫХ ИТЕРАЦИЙ (НЕ ПОВТОРЯТЬ):
 				    - h-full/self-stretch/negative-margin-y+padding-y на правом CELLS-блоке как "фикс выравнивания";
 				    - relative + top/bottom offset для "подтяжки" блока;
@@ -658,7 +658,7 @@ const SequencerGridRow = React.memo(
 				{/* СТРОГО-НАСТРОГО НЕ ТРОГАТЬ ЭТО МЕСТО: ЭТО CELLS. Их не двигать и не растягивать для калибровки правой стенки.
 				    По "первому сообщению" сюда НЕ применять: h-full/-my-1/py-1/top-bottom offsets/translate/right-shift. */}
 				<div className="relative flex-1 self-stretch min-w-0">
-					<div className="absolute inset-x-0 -top-[2px] -bottom-[2px] flex gap-1 items-stretch">
+					<div className="absolute inset-x-0 -top-[2px] -bottom-[2px] w-full flex gap-1 items-stretch">
 					{Array.from({ length: Math.max(rowSylls, deadDisplayByRow[rIdx] ?? rowSylls) }).map((_, cIdx) => {
 						const checkKey = `${rIdx}-${cIdx}`;
 						const deadStart = deadStartByRow[rIdx];
