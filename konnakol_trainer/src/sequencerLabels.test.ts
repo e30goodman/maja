@@ -120,10 +120,21 @@ function testComposeLongBar() {
 		twelveFast,
 		[
 			...KONNAKOL_DICTIONARY[4].fast,
+			...KONNAKOL_DICTIONARY[4].fast,
+			...KONNAKOL_DICTIONARY[4].fast,
+		],
+		'default flow must not alternate 4-chunks',
+	);
+
+	const twelveFastDivX2 = composeLongBar(12, 'fast', { enableFastFourChunkAlternation: true });
+	assert.deepEqual(
+		twelveFastDivX2,
+		[
+			...KONNAKOL_DICTIONARY[4].fast,
 			...KONNAKOL_DICTIONARY[4].medium,
 			...KONNAKOL_DICTIONARY[4].fast,
 		],
-		'fast 4-chunks should alternate JuNu with DhiMi to reduce articulation fatigue',
+		'div+x2 flow alternates JuNu and DhiMi for repeating 4-chunks',
 	);
 }
 
@@ -368,6 +379,61 @@ function testDebugTraceIncludesRuntimeContext() {
 	assert.deepEqual(trace[0], { localJati: 7, gatiTargetSub: 8, roleType: 'tihai' });
 }
 
+function testLongBarAlternationGatedByDivAndMultiplier() {
+	const base = buildRowCellSyllableLabels(12, {}, 0, { bpm: 45 });
+	assert.deepEqual(
+		base.map((x) => x[0]?.syl),
+		[
+			'Ta', 'Ka', 'Ju', 'Nu',
+			'Ta', 'Ka', 'Ju', 'Nu',
+			'Ta', 'Ka', 'Ju', 'Nu',
+		],
+		'no multiplier/div -> no alternation',
+	);
+
+	const divNoMult = buildRowCellSyllableLabels(12, {}, 0, {
+		bpm: 45,
+		rowRuntimeContext: { roleType: 'substitution', rowMultiplier: 1 },
+	});
+	assert.deepEqual(
+		divNoMult.map((x) => x[0]?.syl),
+		[
+			'Ta', 'Ka', 'Ju', 'Nu',
+			'Ta', 'Ka', 'Ju', 'Nu',
+			'Ta', 'Ka', 'Ju', 'Nu',
+		],
+		'div without multiplier -> no alternation',
+	);
+
+	const x2NoDiv = buildRowCellSyllableLabels(12, {}, 0, {
+		bpm: 45,
+		rowRuntimeContext: { rowMultiplier: 2, roleType: 'parent' },
+	});
+	assert.deepEqual(
+		x2NoDiv.map((x) => x[0]?.syl),
+		[
+			'Ta', 'Ka', 'Dhi', 'Mi',
+			'Ta', 'Ka', 'Dhi', 'Mi',
+			'Ta', 'Ka', 'Dhi', 'Mi',
+		],
+		'x2 without div -> no alternation',
+	);
+
+	const divX2 = buildRowCellSyllableLabels(12, {}, 0, {
+		bpm: 45,
+		rowRuntimeContext: { roleType: 'substitution', rowMultiplier: 2, gatiTargetSub: 4, effectiveBpm: 220 },
+	});
+	assert.deepEqual(
+		divX2.map((x) => x[0]?.syl),
+		[
+			'Ta', 'Ka', 'Ju', 'Nu',
+			'Ta', 'Ka', 'Dhi', 'Mi',
+			'Ta', 'Ka', 'Ju', 'Nu',
+		],
+		'div+x2 -> alternation enabled',
+	);
+}
+
 function testRowSyllCountZero() {
 	assert.deepEqual(buildRowCellSyllableLabels(0, {}, 0, { bpm: 60 }), []);
 }
@@ -399,4 +465,5 @@ testTerminalSyllableOnLessonEnd();
 testNps833StaysMediumUntil84WhenSticky();
 testJuNuDelayedForX2UntilVeryHighTempo();
 testDebugTraceIncludesRuntimeContext();
+testLongBarAlternationGatedByDivAndMultiplier();
 console.log('sequencerLabels.test.ts: ok');

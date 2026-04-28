@@ -75,6 +75,14 @@ export type LabelTraceEvent = {
 	roleType?: string;
 };
 
+function shouldEnableFastFourChunkAlternation(runtimeCtx?: RowRuntimeContext): boolean {
+	const mult = runtimeCtx?.rowMultiplier ?? 1;
+	const isDivContext =
+		runtimeCtx?.roleType === 'substitution' ||
+		(typeof runtimeCtx?.gatiTargetSub === 'number' && runtimeCtx.gatiTargetSub > 1);
+	return mult > 1 && isDivContext;
+}
+
 /** Notes per second = BPM × phraseLen / 60. `phraseLen` is Gati (inside cell) or segment length (bar-level). */
 export function computeNps(bpm: number, phraseLen: number): number {
 	if (!Number.isFinite(bpm) || !Number.isFinite(phraseLen) || bpm <= 0 || phraseLen <= 0) return 0;
@@ -121,13 +129,18 @@ export function getSyllablesForGati(gati: number, kalam: Kalam): string[] {
  * 2) Fallback to greedy decomposition into blocks of size <=9 (9 + ... + remainder).
  * Example: segLen=12, kalam=slow -> Dict[4] + Dict[4] + Dict[4].
  */
-export function composeLongBar(segLen: number, kalam: Kalam): string[] {
+export function composeLongBar(
+	segLen: number,
+	kalam: Kalam,
+	opts?: { enableFastFourChunkAlternation?: boolean },
+): string[] {
 	if (!Number.isFinite(segLen) || segLen <= 0) return [];
 	if (segLen <= 9) return getSyllablesForGati(segLen, kalam);
 
 	const wholeLen = Math.floor(segLen);
+	const allowFastFourChunkAlternation = opts?.enableFastFourChunkAlternation === true;
 	const pickChunk = (chunk: Gati, chunkIndex: number): string[] => {
-		if (kalam === 'fast' && chunk === 4 && chunkIndex % 2 === 1) {
+		if (allowFastFourChunkAlternation && kalam === 'fast' && chunk === 4 && chunkIndex % 2 === 1) {
 			return KONNAKOL_DICTIONARY[4].medium;
 		}
 		return KONNAKOL_DICTIONARY[chunk][kalam];
@@ -249,7 +262,12 @@ export function buildRowCellSyllableLabels(
 		const segLen = cIdx - segStart;
 		const key = `${rowIdx}-seg${segStart}`;
 		const kalam = pickAndRemember(key, computeNps(bpm, segLen), segStart, segLen);
-		const phrase = segLen <= 9 ? getSyllablesForGati(segLen, kalam) : composeLongBar(segLen, kalam);
+		const phrase =
+			segLen <= 9
+				? getSyllablesForGati(segLen, kalam)
+				: composeLongBar(segLen, kalam, {
+						enableFastFourChunkAlternation: shouldEnableFastFourChunkAlternation(runtimeCtx),
+				  });
 		for (let i = 0; i < segLen; i++) {
 			out.push(withAccent(segStart + i, [phrase[i] ?? 'Ta']));
 		}

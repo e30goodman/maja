@@ -8542,6 +8542,7 @@ export default function App() {
         gatiTargetSub: role?.gatiTargetSub,
         roleType: role?.type,
         effectiveBpm,
+        rowMultiplier: mult,
       };
     }
     return out;
