@@ -44,6 +44,7 @@ function triggerHapticPulse(durationMs = 50): void {
 
 const CELL_SUBDIV_ARM_SLOP_Y_PX = 10;
 const PULSE_ROULETTE_SLOP_Y_PX = 0;
+const PULSE_MODE_TOGGLE_CANCEL_SLOP_Y_PX = 8;
 const PULSE_HOLD_MS = 200;
 const CELL_HOLD_MS = 200;
 
@@ -380,6 +381,7 @@ const SequencerGridRow = React.memo(
 		const polyVoiceIdx = polyMode ? rIdx % polyVoices : 0;
 		const pulsePointerStartYRef = useRef<number | null>(null);
 		const pulsePointerLatestYRef = useRef<number | null>(null);
+		const pulseMovedBeforeHoldRef = useRef(false);
 		const pulseHoldReadyRef = useRef(false);
 		const pulseRouletteSessionRef = useRef<{
 			startY: number;
@@ -481,6 +483,7 @@ const SequencerGridRow = React.memo(
 							a.isHoldingRef.current = false;
 							pulsePointerStartYRef.current = e.clientY;
 							pulsePointerLatestYRef.current = e.clientY;
+							pulseMovedBeforeHoldRef.current = false;
 							pulseHoldReadyRef.current = false;
 							pulseRouletteSessionRef.current = null;
 							if (a.pulseUnlinkHoldTimerRef.current) clearTimeout(a.pulseUnlinkHoldTimerRef.current);
@@ -491,16 +494,18 @@ const SequencerGridRow = React.memo(
 							}
 							a.pulseUnlinkHoldTimerRef.current = window.setTimeout(() => {
 								a.isHoldingRef.current = true;
-								/* Long-press: сразу включаем/выключаем gati-jati, пока палец ещё зажат (видна индикация). */
+								/* Long-press + no pre-move: включаем/выключаем gati-jati сразу под удержанием. */
 								lockNativeTouchScroll();
-								a.pulseUnlinkJustFiredRef.current = true;
-								a.setPulseMeterUnlinked((prev) => {
-									const nextVal = !prev[rIdx];
-									a.onPulseLongPressModeSwitch?.(rIdx, rowSylls, nextVal);
-									const next = { ...prev, [rIdx]: nextVal };
-									a.pulseMeterUnlinkedRef.current = { ...next };
-									return next;
-								});
+								if (!pulseMovedBeforeHoldRef.current) {
+									a.pulseUnlinkJustFiredRef.current = true;
+									a.setPulseMeterUnlinked((prev) => {
+										const nextVal = !prev[rIdx];
+										a.onPulseLongPressModeSwitch?.(rIdx, rowSylls, nextVal);
+										const next = { ...prev, [rIdx]: nextVal };
+										a.pulseMeterUnlinkedRef.current = { ...next };
+										return next;
+									});
+								}
 								/* После hold: можно перейти в Y-roulette без ожидания pointerup. */
 								pulseHoldReadyRef.current = true;
 								triggerHapticPulse(50);
@@ -513,6 +518,9 @@ const SequencerGridRow = React.memo(
 							const startY = pulsePointerStartYRef.current;
 							if (startY === null) return;
 							pulsePointerLatestYRef.current = e.clientY;
+							if (!a.isHoldingRef.current && Math.abs(e.clientY - startY) > PULSE_MODE_TOGGLE_CANCEL_SLOP_Y_PX) {
+								pulseMovedBeforeHoldRef.current = true;
+							}
 							if (!a.isHoldingRef.current) return;
 							if (pulseHoldReadyRef.current && !pulseRouletteSessionRef.current) {
 								if (Math.abs(e.clientY - startY) <= PULSE_ROULETTE_SLOP_Y_PX) return;
@@ -556,6 +564,7 @@ const SequencerGridRow = React.memo(
 							}
 							pulsePointerStartYRef.current = null;
 							pulsePointerLatestYRef.current = null;
+							pulseMovedBeforeHoldRef.current = false;
 							pulseHoldReadyRef.current = false;
 							pulseRouletteSessionRef.current = null;
 							a.isHoldingRef.current = false;
@@ -572,6 +581,7 @@ const SequencerGridRow = React.memo(
 							}
 							pulsePointerStartYRef.current = null;
 							pulsePointerLatestYRef.current = null;
+							pulseMovedBeforeHoldRef.current = false;
 							pulseHoldReadyRef.current = false;
 							pulseRouletteSessionRef.current = null;
 							unlockNativeTouchScroll();
@@ -591,6 +601,7 @@ const SequencerGridRow = React.memo(
 							}
 							pulsePointerStartYRef.current = null;
 							pulsePointerLatestYRef.current = null;
+							pulseMovedBeforeHoldRef.current = false;
 							pulseHoldReadyRef.current = false;
 							pulseRouletteSessionRef.current = null;
 							a.isHoldingRef.current = false;
