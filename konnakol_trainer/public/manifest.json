@@ -1,6 +1,7 @@
 {
   "name": "Konnakol Machine",
   "short_name": "Machine",
+  "id": "/maja/konnakol/trainer/",
   "description": "Polyrhythm and konnakol training sequencer",
   "start_url": "./",
   "scope": "./",
@@ -9,6 +10,18 @@
   "theme_color": "#161f33",
   "orientation": "portrait",
   "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
     {
       "src": "icons/icon-192.svg",
       "sizes": "192x192",
@@ -20,6 +33,22 @@
       "sizes": "512x512",
       "type": "image/svg+xml",
       "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "screenshots/mobile.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Mobile interface"
+    },
+    {
+      "src": "screenshots/desktop.png",
+      "sizes": "1920x1080",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Desktop interface"
     }
   ]
 }
