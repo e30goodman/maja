@@ -373,6 +373,14 @@ const SequencerGridRow = React.memo(
 			);
 		}, [firstBeatEditorSuppressedSig]);
 		const polyVoiceIdx = polyMode ? rIdx % polyVoices : 0;
+		const pulsePointerStartYRef = useRef<number | null>(null);
+		const pulsePointerLatestYRef = useRef<number | null>(null);
+		const pulseHoldMovedRef = useRef(false);
+		const pulseRouletteSessionRef = useRef<{
+			startY: number;
+			basePulse: number;
+			lastDeltaSteps: number;
+		} | null>(null);
 		return (
 			<div
 				ref={(el) => setRowEl(absR, el)}
@@ -452,6 +460,10 @@ const SequencerGridRow = React.memo(
 							if (!a) return;
 							a.pulseUnlinkJustFiredRef.current = false;
 							a.isHoldingRef.current = false;
+							pulsePointerStartYRef.current = e.clientY;
+							pulsePointerLatestYRef.current = e.clientY;
+							pulseHoldMovedRef.current = false;
+							pulseRouletteSessionRef.current = null;
 							if (a.pulseUnlinkHoldTimerRef.current) clearTimeout(a.pulseUnlinkHoldTimerRef.current);
 							try {
 								(e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
@@ -459,20 +471,54 @@ const SequencerGridRow = React.memo(
 								/* duplicate capture */
 							}
 							a.pulseUnlinkHoldTimerRef.current = window.setTimeout(() => {
-								a.pulseUnlinkJustFiredRef.current = true;
 								a.isHoldingRef.current = true;
+								/* Hold + move: pulse roulette mode (up=more, down=less). */
+								if (pulseHoldMovedRef.current) {
+									const startY = pulsePointerLatestYRef.current ?? pulsePointerStartYRef.current ?? 0;
+									pulseRouletteSessionRef.current = {
+										startY,
+										basePulse: rowSylls,
+										lastDeltaSteps: 0,
+									};
+									a.pulseUnlinkJustFiredRef.current = true;
+									triggerHapticPulse(50);
+									a.pulseUnlinkHoldTimerRef.current = null;
+									return;
+								}
+								/* Hold without movement: toggle gati/jati (pulse-unlinked). */
+								a.pulseUnlinkJustFiredRef.current = true;
 								triggerHapticPulse(50);
 								a.setPulseMeterUnlinked((prev) => {
 									const nextVal = !prev[rIdx];
 									a.onPulseLongPressModeSwitch?.(rIdx, rowSylls, nextVal);
 									const next = { ...prev, [rIdx]: nextVal };
 									a.pulseMeterUnlinkedRef.current = { ...next };
-									// Keep row multiplier active in pulse-unlinked mode:
-									// runtime speed remains tempo * (pulse/4) * multiplier.
 									return next;
 								});
 								a.pulseUnlinkHoldTimerRef.current = null;
 							}, 400);
+						}}
+						onPointerMove={(e) => {
+							const a = actionsRef.current;
+							if (!a) return;
+							const startY = pulsePointerStartYRef.current;
+							if (startY === null) return;
+							pulsePointerLatestYRef.current = e.clientY;
+							if (Math.abs(e.clientY - startY) > 10) pulseHoldMovedRef.current = true;
+							const s = pulseRouletteSessionRef.current;
+							if (!s || !a.isHoldingRef.current) return;
+							const pxPerStep = 16;
+							const deltaSteps = -Math.trunc((e.clientY - s.startY) / pxPerStep);
+							if (deltaSteps === s.lastDeltaSteps) return;
+							s.lastDeltaSteps = deltaSteps;
+							a.setCustomSyllables((prev) => {
+								const next = Math.max(1, Math.min(9, s.basePulse + deltaSteps));
+								const cur = prev[rIdx] !== undefined ? prev[rIdx] : a.syllables;
+								if (cur === next) return prev;
+								const out = { ...prev, [rIdx]: next };
+								a.customSyllablesRef.current = { ...out };
+								return out;
+							});
 						}}
 						onPointerUp={(e) => {
 							const a = actionsRef.current;
@@ -487,6 +533,10 @@ const SequencerGridRow = React.memo(
 							} catch {
 								/* */
 							}
+							pulsePointerStartYRef.current = null;
+							pulsePointerLatestYRef.current = null;
+							pulseHoldMovedRef.current = false;
+							pulseRouletteSessionRef.current = null;
 						}}
 						onPointerLeave={(e) => {
 							const a = actionsRef.current;
@@ -511,6 +561,10 @@ const SequencerGridRow = React.memo(
 							} catch {
 								/* */
 							}
+							pulsePointerStartYRef.current = null;
+							pulsePointerLatestYRef.current = null;
+							pulseHoldMovedRef.current = false;
+							pulseRouletteSessionRef.current = null;
 						}}
 						onClick={() => {
 							const a = actionsRef.current;
