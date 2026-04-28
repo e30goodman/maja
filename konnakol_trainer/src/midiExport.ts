@@ -958,8 +958,7 @@ function buildPendingNotes(input: MidiExportInput): {
 				crossedBars += 1;
 				best.barCursor = (best.barCursor + 1) % best.barIndices.length;
 				best.cellCursor = 0;
-				// Keep Grid policy: fully-dead bar still consumes full bar physical time.
-				best.nextWall += rowSyl * dBar;
+				// Truncation policy: fully-dead bar consumes zero physical time.
 				continue;
 			}
 			const { nextC, advanceBar } = advancePolyLaneAfterEmit(currentCell, rowSyl, deadStart);
@@ -979,15 +978,8 @@ function buildPendingNotes(input: MidiExportInput): {
 			} else {
 				best.cellCursor = nextCWithHeadHold;
 			}
-			const isLastLiveCell =
-				typeof deadStart === 'number' &&
-				deadStart > 0 &&
-				currentCell === deadStart - 1;
-			const stepDelta =
-				isLastLiveCell
-					? (1 + Math.max(0, rowSyl - deadStart)) * dBar
-					: dBar;
-			best.nextWall += stepDelta;
+			// Truncation policy: one emitted cell always advances by one cell duration.
+			best.nextWall += dBar;
 			if (autoAlignTwoVoice) {
 				const lane0Tick = laneLastStartTick[0];
 				const lane1Tick = laneLastStartTick[1];

@@ -217,8 +217,7 @@ export function createPolySubLegacyScheduler(deps: PolySubLegacyDeps): PolySubLe
 				const wrappedPattern =
 					best.barCursor === 0 && prevCursor === best.barIndices.length - 1;
 				deps.onLaneBarBoundary?.(prevBar, best.laneId, wrappedPattern);
-				// Keep Grid policy: fully-dead bar still consumes full bar physical time.
-				best.nextTime += rowSyl * dBar;
+				// Truncation policy: fully-dead bar consumes zero physical time.
 				continue;
 			}
 
@@ -243,15 +242,8 @@ export function createPolySubLegacyScheduler(deps: PolySubLegacyDeps): PolySubLe
 			} else {
 				best.cellCursor = nextCWithHeadHold;
 			}
-			const isLastLiveCell =
-				typeof deadStart === 'number' &&
-				deadStart > 0 &&
-				c === deadStart - 1;
-			const stepDelta =
-				isLastLiveCell
-					? (1 + Math.max(0, rowSyl - deadStart)) * dBar
-					: dBar;
-			best.nextTime += stepDelta;
+			// Truncation policy: one emitted cell always advances by one cell duration.
+			best.nextTime += dBar;
 		}
 	};
 

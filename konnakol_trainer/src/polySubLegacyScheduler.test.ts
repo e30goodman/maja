@@ -106,7 +106,7 @@ function testLaneHeadSingleLiveCellInsertsPhantomSecondCell() {
 	);
 }
 
-/** Keep Grid: partial-dead tail and fully-dead bar both consume their physical bar/cell time. */
+/** Truncation: partial-dead tail is dropped; fully-dead bar is skipped with zero time. */
 function testSecondLaneBarFullyDeadSkipsWithZeroTime() {
 	const events: { bar: number; c: number; voice: number; t: number }[] = [];
 	const sch = createPolySubLegacyScheduler({
@@ -133,8 +133,8 @@ function testSecondLaneBarFullyDeadSkipsWithZeroTime() {
 	assert.ok(lane1Bar1BeforeBar5, 'lane1 first bar must emit before first bar5 hit');
 	assert.equal(
 		lane1Bar5First.t,
-		lane1Bar1BeforeBar5.t + 7, // +3 (tail of bar1) +4 (full bar3 dead)
-		'keep-grid policy: dead tail + fully-dead bar must consume full physical time',
+		lane1Bar1BeforeBar5.t + 1, // after last emitted step, scheduler jumps directly to next live bar
+		'truncation policy: dead tail + fully-dead bar consume zero extra time',
 	);
 	assert.ok(!events.some((e) => e.voice === 1 && e.bar === 3), 'fully-dead bar must be fully skipped');
 }
