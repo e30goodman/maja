@@ -3585,22 +3585,6 @@ export default function App() {
   const initialBoot = useMemo(() => loadSnapshotStorage(), []);
   const seed = initialBoot.snapshots[initialBoot.activeSnapshot];
 
-  useEffect(() => {
-    let lastTouchY = 0;
-    const preventRefresh = (e: TouchEvent) => {
-      if (!e.touches || e.touches.length === 0) return;
-      const touchY = e.touches[0]?.pageY ?? 0;
-      if (window.scrollY === 0 && touchY > lastTouchY) {
-        if (e.cancelable) e.preventDefault();
-      }
-      lastTouchY = touchY;
-    };
-    document.addEventListener('touchmove', preventRefresh, { passive: false });
-    return () => {
-      document.removeEventListener('touchmove', preventRefresh);
-    };
-  }, []);
-
   const [tempo, setTempo] = useState(seed.tempo);
   const [tempoUi, setTempoUi] = useState(seed.tempo);
   const [tempoInlineEditing, setTempoInlineEditing] = useState(false);

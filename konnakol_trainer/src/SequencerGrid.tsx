@@ -1033,6 +1033,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 				className="relative z-10 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[#2f4066] [&::-webkit-scrollbar-thumb]:rounded-full"
 				style={{
 					overscrollBehaviorY: 'contain',
+					touchAction: 'pan-y',
 					scrollbarGutter: 'stable',
 					scrollbarColor: '#2f4066 transparent',
 					scrollbarWidth: 'thin',
