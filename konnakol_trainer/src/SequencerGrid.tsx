@@ -725,7 +725,6 @@ const SequencerGridRow = React.memo(
 									const a = actionsRef.current;
 									if (!a) return;
 									const btn = e.currentTarget as HTMLButtonElement;
-									btn.setPointerCapture(e.pointerId);
 									btn.dataset.subdivArmStartY = String(e.clientY);
 									btn.dataset.subdivArmLatestY = String(e.clientY);
 									btn.dataset.subdivArmActive = '1';
@@ -749,6 +748,11 @@ const SequencerGridRow = React.memo(
 									a.subdivHoldSessionRef.current = null;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
 									a.holdTimerRef.current = window.setTimeout(() => {
+										try {
+											btn.setPointerCapture(e.pointerId);
+										} catch {
+											/* pointer may already be released */
+										}
 										a.isHoldingRef.current = true;
 										triggerHapticPulse(50);
 										lockNativeTouchScroll();
