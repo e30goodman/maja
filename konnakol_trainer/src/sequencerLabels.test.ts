@@ -78,8 +78,53 @@ function testComposeLongBar() {
 	assert.equal(composeLongBar(16, 'slow').length, 16);
 	assert.deepEqual(composeLongBar(9, 'slow'), getSyllablesForGati(9, 'slow'), 'segLen=9 is plain');
 	const ten = composeLongBar(10, 'slow');
-	assert.deepEqual(ten.slice(0, 9), getSyllablesForGati(9, 'slow'), '10 uses 9+1 split');
-	assert.deepEqual(ten.slice(9), getSyllablesForGati(1, 'slow'), '10 uses 9+1 split');
+	assert.deepEqual(
+		ten,
+		[
+			...getSyllablesForGati(5, 'slow'),
+			...getSyllablesForGati(5, 'slow'),
+		],
+		'10 prefers exact factorization 5+5 over greedy',
+	);
+
+	const twelve = composeLongBar(12, 'slow');
+	assert.deepEqual(
+		twelve,
+		[
+			...getSyllablesForGati(4, 'slow'),
+			...getSyllablesForGati(4, 'slow'),
+			...getSyllablesForGati(4, 'slow'),
+		],
+		'12 prefers factorization 4+4+4 over greedy 9+3',
+	);
+
+	const fifteen = composeLongBar(15, 'slow');
+	assert.deepEqual(
+		fifteen,
+		[
+			...getSyllablesForGati(3, 'slow'),
+			...getSyllablesForGati(3, 'slow'),
+			...getSyllablesForGati(3, 'slow'),
+			...getSyllablesForGati(3, 'slow'),
+			...getSyllablesForGati(3, 'slow'),
+		],
+		'15 prefers factorization 3x5 groups before greedy',
+	);
+
+	const eleven = composeLongBar(11, 'slow');
+	assert.deepEqual(eleven.slice(0, 9), getSyllablesForGati(9, 'slow'), '11 falls back to greedy 9+2');
+	assert.deepEqual(eleven.slice(9), getSyllablesForGati(2, 'slow'), '11 falls back to greedy 9+2');
+
+	const twelveFast = composeLongBar(12, 'fast');
+	assert.deepEqual(
+		twelveFast,
+		[
+			...KONNAKOL_DICTIONARY[4].fast,
+			...KONNAKOL_DICTIONARY[4].medium,
+			...KONNAKOL_DICTIONARY[4].fast,
+		],
+		'fast 4-chunks should alternate JuNu with DhiMi to reduce articulation fatigue',
+	);
 }
 
 function testBuildRow4BpmSlow() {
@@ -285,6 +330,33 @@ function testNps833StaysMediumUntil84WhenSticky() {
 	assert.equal(km.get('0-c0'), 'fast', 'crossing 8.4 transitions to fast');
 }
 
+function testJuNuDelayedForX2UntilVeryHighTempo() {
+	const km: KalamMap = new Map();
+	buildRowCellSyllableLabels(1, { '0-0': 4 }, 0, {
+		bpm: 120,
+		kalamMap: km,
+		rowRuntimeContext: { effectiveBpm: 180, rowMultiplier: 2 },
+	});
+	assert.equal(km.get('0-c0'), 'medium', 'x2 should delay JuNu below/equal 200 BPM');
+	const low = buildRowCellSyllableLabels(1, { '0-0': 4 }, 0, {
+		bpm: 120,
+		rowRuntimeContext: { effectiveBpm: 180, rowMultiplier: 2 },
+	});
+	assert.deepEqual(low[0]?.map((x) => x.syl), KONNAKOL_DICTIONARY[4].medium, 'below 200 BPM on x2 keep DhiMi');
+
+	buildRowCellSyllableLabels(1, { '0-0': 4 }, 0, {
+		bpm: 120,
+		kalamMap: km,
+		rowRuntimeContext: { effectiveBpm: 205, rowMultiplier: 2 },
+	});
+	assert.equal(km.get('0-c0'), 'fast', 'x2 allows JuNu only after 200 BPM');
+	const high = buildRowCellSyllableLabels(1, { '0-0': 4 }, 0, {
+		bpm: 120,
+		rowRuntimeContext: { effectiveBpm: 205, rowMultiplier: 2 },
+	});
+	assert.deepEqual(high[0]?.map((x) => x.syl), KONNAKOL_DICTIONARY[4].fast, 'after 200 BPM on x2 switch to JuNu');
+}
+
 function testDebugTraceIncludesRuntimeContext() {
 	const trace: Array<{ localJati?: number; gatiTargetSub?: number; roleType?: string }> = [];
 	buildRowCellSyllableLabels(1, { '0-0': 4 }, 0, {
@@ -325,5 +397,6 @@ testRowSyllCountZero();
 testAccentObjectsIntegrated();
 testTerminalSyllableOnLessonEnd();
 testNps833StaysMediumUntil84WhenSticky();
+testJuNuDelayedForX2UntilVeryHighTempo();
 testDebugTraceIncludesRuntimeContext();
 console.log('sequencerLabels.test.ts: ok');

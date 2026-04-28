@@ -59,6 +59,7 @@ export type RowRuntimeContext = {
 	localJati?: number;
 	gatiTargetSub?: number;
 	effectiveBpm?: number;
+	rowMultiplier?: number;
 	roleType?: string;
 };
 export type LabelTraceEvent = {
@@ -99,6 +100,14 @@ export function pickKalam(nps: number, prev: Kalam | undefined): Kalam {
 	return 'medium';
 }
 
+function delayFastJuNu(kalam: Kalam, runtimeCtx?: RowRuntimeContext): Kalam {
+	if (kalam !== 'fast') return kalam;
+	const mult = runtimeCtx?.rowMultiplier ?? 1;
+	const effBpm = runtimeCtx?.effectiveBpm ?? 0;
+	if (mult >= 2 && effBpm <= 200) return 'medium';
+	return kalam;
+}
+
 /** Fetch syllables array for a given Gati/Kalam; `gati` clamped to [1..9]. */
 export function getSyllablesForGati(gati: number, kalam: Kalam): string[] {
 	const g = Math.min(9, Math.max(1, Math.floor(gati))) as Gati;
@@ -106,19 +115,41 @@ export function getSyllablesForGati(gati: number, kalam: Kalam): string[] {
 }
 
 /**
- * Build a syllable array for a bar-level segment longer than 9 cells by greedy decomposition
- * into blocks of size ≤9 (priority 9→...→1). Blocks use the same Kalam.
- * Example: segLen=12, kalam=slow → Dict[9] + Dict[3].
+ * Build a syllable array for a bar-level segment longer than 9 cells.
+ * Strategy:
+ * 1) Prefer exact equal-group factorization in musical priority 4 -> 3 -> 5 (groups > 1).
+ * 2) Fallback to greedy decomposition into blocks of size <=9 (9 + ... + remainder).
+ * Example: segLen=12, kalam=slow -> Dict[4] + Dict[4] + Dict[4].
  */
 export function composeLongBar(segLen: number, kalam: Kalam): string[] {
 	if (!Number.isFinite(segLen) || segLen <= 0) return [];
 	if (segLen <= 9) return getSyllablesForGati(segLen, kalam);
+
+	const wholeLen = Math.floor(segLen);
+	const pickChunk = (chunk: Gati, chunkIndex: number): string[] => {
+		if (kalam === 'fast' && chunk === 4 && chunkIndex % 2 === 1) {
+			return KONNAKOL_DICTIONARY[4].medium;
+		}
+		return KONNAKOL_DICTIONARY[chunk][kalam];
+	};
+	const factorPriority: Array<4 | 3 | 5> = [4, 3, 5];
+	for (const factor of factorPriority) {
+		if (wholeLen % factor !== 0) continue;
+		const groups = wholeLen / factor;
+		if (groups <= 1) continue;
+		const out: string[] = [];
+		for (let i = 0; i < groups; i++) out.push(...pickChunk(factor, i));
+		return out;
+	}
+
 	const out: string[] = [];
-	let remaining = Math.floor(segLen);
+	let remaining = wholeLen;
+	let chunkIndex = 0;
 	while (remaining > 0) {
 		const chunk = Math.min(9, remaining) as Gati;
-		out.push(...KONNAKOL_DICTIONARY[chunk][kalam]);
+		out.push(...pickChunk(chunk, chunkIndex));
 		remaining -= chunk;
+		chunkIndex++;
 	}
 	return out;
 }
@@ -176,7 +207,8 @@ export function buildRowCellSyllableLabels(
 
 	const pickAndRemember = (key: string, nps: number, cellIdx: number, subdivs: number): Kalam => {
 		const prev = kalamMap?.get(key);
-		const next = pickKalam(nps, prev);
+		const picked = pickKalam(nps, prev);
+		const next = delayFastJuNu(picked, runtimeCtx);
 		kalamMap?.set(key, next);
 		touched?.add(key);
 		debugTrace?.({

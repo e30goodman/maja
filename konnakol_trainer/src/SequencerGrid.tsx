@@ -147,6 +147,7 @@ function useStableRowCellLabelsCache(
 				touchedKeys: touched,
 				rowRuntimeContext: {
 					...(rowRuntimeContexts[r] ?? {}),
+					rowMultiplier: customMultipliers[r] ?? 1,
 					effectiveBpm: effectiveBpmForGridRow(
 						bpm,
 						r,
