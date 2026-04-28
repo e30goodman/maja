@@ -12,3 +12,4 @@ priority: 100
 - Перед push: при изменении кода тренера — `npm run build` в `konnakol_trainer` по необходимости → `git push`.
 
 Related: `core-workflow-high-priority.mdc`
+обновляй последним коммитом лейбл в запушенной версии в settings

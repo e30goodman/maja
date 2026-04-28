@@ -12,14 +12,22 @@ function gitSha7(): string {
 	}
 }
 
+function normalizeSha7(value: string | undefined): string {
+	if (typeof value !== 'string') return '';
+	const trimmed = value.trim();
+	if (trimmed.length === 0) return '';
+	return trimmed.slice(0, 7);
+}
+
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
+  const buildCommit = normalizeSha7(env.VITE_APP_COMMIT) || gitSha7();
   return {
     base: mode === 'production' ? '/maja/konnakol/trainer/' : '/',
     plugins: [react(), tailwindcss()],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-      __GIT_SHA7__: JSON.stringify(gitSha7()),
+      __APP_BUILD_COMMIT__: JSON.stringify(buildCommit),
     },
     resolve: {
       alias: {

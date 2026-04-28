@@ -1,2 +1,2 @@
-/** Подставляется Vite `define` из `git rev-parse --short=7 HEAD` при сборке. */
-declare const __GIT_SHA7__: string;
+/** Injected by Vite `define`; prefers CI `VITE_APP_COMMIT`, falls back to git sha. */
+declare const __APP_BUILD_COMMIT__: string;

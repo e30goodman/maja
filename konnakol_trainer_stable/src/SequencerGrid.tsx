@@ -1,47 +1,12 @@
-import React, { useMemo, useCallback, useRef } from 'react';
-import { buildRowCellSyllableLabels, getSyllableStyles, type KalamMap } from './sequencerLabels';
+import React, { useMemo, useCallback, useRef, useEffect } from 'react';
+import {
+	buildRowCellSyllableLabels,
+	getSyllableStyles,
+	type KalamMap,
+	type RowRuntimeContext,
+	type SyllableLabel,
+} from './sequencerLabels';
 import type { PlayheadPosition } from './playheadTypes';
-
-function postTaDebugLog(
-	runId: string,
-	hypothesisId: string,
-	location: string,
-	message: string,
-	data: Record<string, unknown>,
-): void {
-	// #region agent log
-	const payload = {
-		sessionId: 'e2d5fc',
-		runId,
-		hypothesisId,
-		location,
-		message,
-		data,
-		timestamp: Date.now(),
-	};
-	try {
-		if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
-			navigator.sendBeacon(
-				'http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805',
-				new Blob([JSON.stringify(payload)], { type: 'application/json' }),
-			);
-		}
-	} catch {
-		/* no-op */
-	}
-	fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805', {
-		method: 'POST',
-		mode: 'no-cors',
-		headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-		body: JSON.stringify(payload),
-	}).catch(() => {});
-	fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'e2d5fc' },
-		body: JSON.stringify(payload),
-	}).catch(() => {});
-	// #endregion
-}
 
 /** Keep long-press pulse switching consistent with collapsed behavior. */
 function allowedSubdivisions(_panelExpanded: boolean): number[] {
@@ -66,6 +31,22 @@ function stepSubdivByDelta(base: number, delta: number, panelExpanded: boolean):
 	const idx = ((baseIdx + delta) % len + len) % len;
 	return allowed[idx]!;
 }
+
+function triggerHapticPulse(durationMs = 50): void {
+	try {
+		if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+			navigator.vibrate(durationMs);
+		}
+	} catch {
+		/* ignore */
+	}
+}
+
+const CELL_SUBDIV_ARM_SLOP_Y_PX = 10;
+const PULSE_ROULETTE_SLOP_Y_PX = 0;
+const PULSE_MODE_TOGGLE_CANCEL_SLOP_Y_PX = 8;
+const PULSE_HOLD_MS = 450;
+const CELL_HOLD_MS = 120;
 
 /** Poly playback: voice 0 = emerald; 1 = sky; 2 = violet; 3+ = amber. */
 function playheadHighlightCellClasses(
@@ -101,7 +82,7 @@ function playheadHighlightCellClasses(
 		: 'bg-amber-500/20 border-2 box-border border-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.26)] z-10 text-amber-100';
 }
 
-function rowCellLabelsEqual(a: string[][], b: string[][]): boolean {
+function rowCellLabelsEqual(a: SyllableLabel[][], b: SyllableLabel[][]): boolean {
 	if (a === b) return true;
 	if (a.length !== b.length) return false;
 	for (let i = 0; i < a.length; i++) {
@@ -110,10 +91,26 @@ function rowCellLabelsEqual(a: string[][], b: string[][]): boolean {
 		if (ra === rb) continue;
 		if (!ra || !rb || ra.length !== rb.length) return false;
 		for (let j = 0; j < ra.length; j++) {
-			if (ra[j] !== rb[j]) return false;
+			if (ra[j]?.syl !== rb[j]?.syl || Boolean(ra[j]?.accent) !== Boolean(rb[j]?.accent)) return false;
 		}
 	}
 	return true;
+}
+
+const PULSE_METER_BASE_SYLLABLES = 4;
+
+function effectiveBpmForGridRow(
+	bpm: number,
+	rowIdx: number,
+	baseSyllables: number,
+	customSyllables: Record<number, number>,
+	pulseMeterUnlinked: Record<number, boolean>,
+	customMultipliers: Record<number, number>,
+): number {
+	const rowSyllables = customSyllables[rowIdx] !== undefined ? customSyllables[rowIdx]! : baseSyllables;
+	const pulseSyllables = pulseMeterUnlinked[rowIdx] ? PULSE_METER_BASE_SYLLABLES : rowSyllables;
+	const mult = customMultipliers[rowIdx] ?? 1;
+	return bpm * (pulseSyllables / 4) * mult;
 }
 
 function useStableRowCellLabelsCache(
@@ -121,22 +118,48 @@ function useStableRowCellLabelsCache(
 	syllables: number,
 	customSyllables: Record<number, number>,
 	customSubdivisions: Record<string, number>,
+	customCellSyllables: Record<string, string>,
+	pulseMeterUnlinked: Record<number, boolean>,
+	customMultipliers: Record<number, number>,
+	rowRuntimeContexts: Record<number, RowRuntimeContext>,
+	accents: Set<string>,
 	deadStartByRow: Record<number, number>,
 	bpm: number,
-): string[][][] {
-	const prevRef = useRef<string[][][]>([]);
+): SyllableLabel[][][] {
+	const prevRef = useRef<SyllableLabel[][][]>([]);
 	const kalamMapRef = useRef<KalamMap>(new Map());
 	return useMemo(() => {
 		const prev = prevRef.current;
-		const next: string[][][] = [];
+		const next: SyllableLabel[][][] = [];
 		const touched = new Set<string>();
 		for (let r = 0; r < bars; r++) {
 			const rowSylls = customSyllables[r] !== undefined ? customSyllables[r] : syllables;
+			const cellOv: Record<string, string> = {};
+			for (let c = 0; c < rowSylls; c++) {
+				const k = `${r}-${c}`;
+				const t = customCellSyllables[k];
+				if (typeof t === 'string' && t.length > 0) cellOv[k] = t;
+			}
 			const built = buildRowCellSyllableLabels(rowSylls, customSubdivisions, r, {
 				bpm,
 				deadStart: deadStartByRow[r],
 				kalamMap: kalamMapRef.current,
 				touchedKeys: touched,
+				rowRuntimeContext: {
+					...(rowRuntimeContexts[r] ?? {}),
+					rowMultiplier: customMultipliers[r] ?? 1,
+					effectiveBpm: effectiveBpmForGridRow(
+						bpm,
+						r,
+						syllables,
+						customSyllables,
+						pulseMeterUnlinked,
+						customMultipliers,
+					),
+				},
+				cellSyllableOverrides: Object.keys(cellOv).length > 0 ? cellOv : undefined,
+				accentCells: new Set(Array.from({ length: rowSylls }, (_, c) => c).filter((c) => accents.has(`${r}-${c}`))),
+				isLessonLastRow: r === bars - 1,
 			});
 			const oldRow = prev[r];
 			if (oldRow !== undefined && rowCellLabelsEqual(oldRow, built)) {
@@ -154,7 +177,19 @@ function useStableRowCellLabelsCache(
 		for (const key of stale) km.delete(key);
 		prevRef.current = next;
 		return next;
-	}, [bars, syllables, customSyllables, customSubdivisions, deadStartByRow, bpm]);
+	}, [
+		bars,
+		syllables,
+		customSyllables,
+		customSubdivisions,
+		customCellSyllables,
+		pulseMeterUnlinked,
+		customMultipliers,
+		rowRuntimeContexts,
+		accents,
+		deadStartByRow,
+		bpm,
+	]);
 }
 
 /** Ref-filled each App render — stable identity for memoized grid row. */
@@ -199,6 +234,8 @@ export type SequencerGridRowActions = {
 		lastDeltaSteps: number;
 		panelExpanded: boolean;
 	} | null>;
+	/** Long-press on Pulse: switch progressive mode to jati/de-sync mode. */
+	onPulseLongPressModeSwitch?: (rowIdx: number, rowSylls: number, nextPulseUnlinked: boolean) => void;
 };
 
 type SequencerGridRowProps = {
@@ -215,6 +252,7 @@ type SequencerGridRowProps = {
 	accentSig: string;
 	taDingSig: string;
 	pulseUnlinkedRow: boolean;
+	jatiPulseActiveRow: boolean;
 	activeEditRow: number | null;
 	activeEditCell: string | null;
 	highlightCol: number | null;
@@ -228,7 +266,7 @@ type SequencerGridRowProps = {
 	firstBeatEditorSuppressedSig: string;
 	deadStartByRow: Record<number, number>;
 	deadDisplayByRow: Record<number, number>;
-	rowCellLabels: string[][];
+	rowCellLabels: SyllableLabel[][];
 	effectiveUseFixedFlex: boolean;
 	displayScaleBars: number;
 	useFrozenRowHeight: boolean;
@@ -257,6 +295,7 @@ function sequencerGridRowPropsEqual(a: SequencerGridRowProps, b: SequencerGridRo
 		a.accentSig === b.accentSig &&
 		a.taDingSig === b.taDingSig &&
 		a.pulseUnlinkedRow === b.pulseUnlinkedRow &&
+		a.jatiPulseActiveRow === b.jatiPulseActiveRow &&
 		a.activeEditRow === b.activeEditRow &&
 		a.activeEditCell === b.activeEditCell &&
 		a.highlightCol === b.highlightCol &&
@@ -299,6 +338,7 @@ const SequencerGridRow = React.memo(
 			accentSig,
 			taDingSig,
 			pulseUnlinkedRow,
+			jatiPulseActiveRow,
 			activeEditRow,
 			activeEditCell,
 			highlightCol,
@@ -340,17 +380,24 @@ const SequencerGridRow = React.memo(
 			);
 		}, [firstBeatEditorSuppressedSig]);
 		const polyVoiceIdx = polyMode ? rIdx % polyVoices : 0;
+		const pulsePointerStartYRef = useRef<number | null>(null);
+		const pulsePointerLatestYRef = useRef<number | null>(null);
+		const pulseMovedBeforeHoldRef = useRef(false);
+		const pulseHoldReadyRef = useRef(false);
+		const pulseRouletteSessionRef = useRef<{
+			startY: number;
+			basePulse: number;
+			lastDeltaSteps: number;
+		} | null>(null);
 		return (
 			<div
 				ref={(el) => setRowEl(absR, el)}
-				className={`z-[12] flex items-stretch bg-[#161f33] border border-[#23314f] min-h-0 relative ${
+				className={`z-[12] flex w-full items-stretch bg-[#161f33] border border-[#23314f] min-h-0 relative ${
 					displayScaleBars > 7 ? 'gap-1 p-1 rounded-lg' : 'gap-1.5 p-1 rounded-xl'
 				} ${isPolyRow ? 'border-l-4 border-l-blue-500/45' : ''} ${
 					polyStepTopRule ? 'mt-1.5 border-t border-[#2a3d66]/90 pt-1.5' : ''
 				} ${!effectiveUseFixedFlex ? 'flex-1' : ''}`}
 				style={{
-					width: 'calc(100% + 8px)',
-					marginRight: '-8px',
 					flex: effectiveUseFixedFlex
 						? `0 0 ${(useFrozenRowHeight && Math.max(1, (frozenRowHeightsByRIdx[rIdx] ?? frozenRowHeightPx ?? 0)) > 1)
 							? `${Math.max(1, (frozenRowHeightsByRIdx[rIdx] ?? frozenRowHeightPx ?? 0))}px`
@@ -358,6 +405,15 @@ const SequencerGridRow = React.memo(
 						: undefined,
 				}}
 			>
+				{/* IMPORTANT FIX POINT #2 (BAR): BAR растягивается на всю ширину родителя через w-full.
+				    ВНУТРЕННИЙ правый padding здесь НЕ использовать, иначе появляется "черная дыра"
+				    и CELLS не доходят до правой границы фона.
+				    ЧЕРНЫЙ СПИСОК ИЗ ПЕРВЫХ ИТЕРАЦИЙ (НЕ ПОВТОРЯТЬ):
+				    - h-full/self-stretch/negative-margin-y+padding-y на правом CELLS-блоке как "фикс выравнивания";
+				    - relative + top/bottom offset для "подтяжки" блока;
+				    - translateX/translateY/right:-Npx для сдвига контента;
+				    - fake extension-layer для дорисовки правого края.
+				    Все это маскирует причину, но ломает layout/flow в других состояниях. */}
 				<div className={`flex flex-col gap-1 justify-center ${isPolyRow ? 'w-14' : 'w-8'} shrink-0`}>
 					<button
 						type="button"
@@ -416,35 +472,100 @@ const SequencerGridRow = React.memo(
 						onPointerDown={(e) => {
 							const a = actionsRef.current;
 							if (!a) return;
+							const el = e.currentTarget as HTMLButtonElement;
 							a.pulseUnlinkJustFiredRef.current = false;
 							a.isHoldingRef.current = false;
+							pulsePointerStartYRef.current = e.clientY;
+							pulsePointerLatestYRef.current = e.clientY;
+							pulseMovedBeforeHoldRef.current = false;
+							pulseHoldReadyRef.current = false;
+							pulseRouletteSessionRef.current = null;
 							if (a.pulseUnlinkHoldTimerRef.current) clearTimeout(a.pulseUnlinkHoldTimerRef.current);
-							try {
-								(e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
-							} catch {
-								/* duplicate capture */
-							}
 							a.pulseUnlinkHoldTimerRef.current = window.setTimeout(() => {
-								a.pulseUnlinkJustFiredRef.current = true;
+								try {
+									el.setPointerCapture(e.pointerId);
+								} catch {
+									/* best effort capture */
+								}
 								a.isHoldingRef.current = true;
-								a.setPulseMeterUnlinked((prev) => {
-									const nextVal = !prev[rIdx];
-									const next = { ...prev, [rIdx]: nextVal };
-									a.pulseMeterUnlinkedRef.current = { ...next };
-									/* Enable pulse unlink from bar syllable count -> reset bar speed multiplier (x2..x4), otherwise it remains in poly visually and in audio. */
-									if (nextVal) {
-										a.setCustomMultipliers((pm) => {
-											if (pm[rIdx] === undefined) return pm;
-											const copy = { ...pm };
-											delete copy[rIdx];
-											a.customMultipliersRef.current = { ...copy };
-											return copy;
-										});
-									}
-									return next;
-								});
+								/* Long-press + no pre-move: включаем/выключаем gati-jati сразу под удержанием. */
+								if (!pulseMovedBeforeHoldRef.current) {
+									a.pulseUnlinkJustFiredRef.current = true;
+									a.setPulseMeterUnlinked((prev) => {
+										const nextVal = !prev[rIdx];
+										a.onPulseLongPressModeSwitch?.(rIdx, rowSylls, nextVal);
+										const next = { ...prev, [rIdx]: nextVal };
+										a.pulseMeterUnlinkedRef.current = { ...next };
+										return next;
+									});
+								}
+								/* После hold: можно перейти в Y-roulette без ожидания pointerup. */
+								pulseHoldReadyRef.current = true;
+								triggerHapticPulse(50);
 								a.pulseUnlinkHoldTimerRef.current = null;
-							}, 400);
+							}, PULSE_HOLD_MS);
+						}}
+						onPointerMove={(e) => {
+							const a = actionsRef.current;
+							if (!a) return;
+							const el = e.currentTarget as HTMLButtonElement;
+							const startY = pulsePointerStartYRef.current;
+							if (startY === null) return;
+							pulsePointerLatestYRef.current = e.clientY;
+							if (!a.isHoldingRef.current && Math.abs(e.clientY - startY) > PULSE_MODE_TOGGLE_CANCEL_SLOP_Y_PX) {
+								pulseMovedBeforeHoldRef.current = true;
+								// Fast path: if user already slides, enter roulette immediately (like Bars slider),
+								// skip waiting long-press timer for gati/jati mode toggle.
+								if (pulseRouletteSessionRef.current === null) {
+									if (a.pulseUnlinkHoldTimerRef.current) {
+										clearTimeout(a.pulseUnlinkHoldTimerRef.current);
+										a.pulseUnlinkHoldTimerRef.current = null;
+									}
+									try {
+										el.setPointerCapture(e.pointerId);
+									} catch {
+										/* best effort capture */
+									}
+									a.isHoldingRef.current = true;
+									const basePulse =
+										a.customSyllablesRef.current[rIdx] !== undefined ? a.customSyllablesRef.current[rIdx]! : a.syllables;
+									pulseRouletteSessionRef.current = {
+										startY: e.clientY,
+										basePulse,
+										lastDeltaSteps: 0,
+									};
+									pulseHoldReadyRef.current = false;
+									a.pulseUnlinkJustFiredRef.current = true;
+									triggerHapticPulse(50);
+								}
+							}
+							if (!a.isHoldingRef.current) return;
+							if (pulseHoldReadyRef.current && !pulseRouletteSessionRef.current) {
+								if (Math.abs(e.clientY - startY) <= PULSE_ROULETTE_SLOP_Y_PX) return;
+								const basePulse =
+									a.customSyllablesRef.current[rIdx] !== undefined ? a.customSyllablesRef.current[rIdx]! : a.syllables;
+								pulseRouletteSessionRef.current = {
+									startY: e.clientY,
+									basePulse,
+									lastDeltaSteps: 0,
+								};
+								pulseHoldReadyRef.current = false;
+								a.pulseUnlinkJustFiredRef.current = true;
+							}
+							const s = pulseRouletteSessionRef.current;
+							if (!s) return;
+							const pxPerStep = 16;
+							const deltaSteps = -Math.trunc((e.clientY - s.startY) / pxPerStep);
+							if (deltaSteps === s.lastDeltaSteps) return;
+							s.lastDeltaSteps = deltaSteps;
+							a.setCustomSyllables((prev) => {
+								const next = Math.max(1, Math.min(9, s.basePulse + deltaSteps));
+								const cur = prev[rIdx] !== undefined ? prev[rIdx] : a.syllables;
+								if (cur === next) return prev;
+								const out = { ...prev, [rIdx]: next };
+								a.customSyllablesRef.current = { ...out };
+								return out;
+							});
 						}}
 						onPointerUp={(e) => {
 							const a = actionsRef.current;
@@ -459,6 +580,12 @@ const SequencerGridRow = React.memo(
 							} catch {
 								/* */
 							}
+							pulsePointerStartYRef.current = null;
+							pulsePointerLatestYRef.current = null;
+							pulseMovedBeforeHoldRef.current = false;
+							pulseHoldReadyRef.current = false;
+							pulseRouletteSessionRef.current = null;
+							a.isHoldingRef.current = false;
 						}}
 						onPointerLeave={(e) => {
 							const a = actionsRef.current;
@@ -469,6 +596,11 @@ const SequencerGridRow = React.memo(
 								clearTimeout(a.pulseUnlinkHoldTimerRef.current);
 								a.pulseUnlinkHoldTimerRef.current = null;
 							}
+							pulsePointerStartYRef.current = null;
+							pulsePointerLatestYRef.current = null;
+							pulseMovedBeforeHoldRef.current = false;
+							pulseHoldReadyRef.current = false;
+							pulseRouletteSessionRef.current = null;
 						}}
 						onPointerCancel={(e) => {
 							const a = actionsRef.current;
@@ -483,16 +615,22 @@ const SequencerGridRow = React.memo(
 							} catch {
 								/* */
 							}
+							pulsePointerStartYRef.current = null;
+							pulsePointerLatestYRef.current = null;
+							pulseMovedBeforeHoldRef.current = false;
+							pulseHoldReadyRef.current = false;
+							pulseRouletteSessionRef.current = null;
+							a.isHoldingRef.current = false;
 						}}
 						onClick={() => {
 							const a = actionsRef.current;
 							if (!a) return;
+							if (a.pulseUnlinkJustFiredRef.current) {
+								a.pulseUnlinkJustFiredRef.current = false;
+								return;
+							}
 							if (a.isHoldingRef.current) {
 								a.isHoldingRef.current = false;
-								if (a.pulseUnlinkJustFiredRef.current) {
-									a.pulseUnlinkJustFiredRef.current = false;
-									return;
-								}
 								/* Click arrived without pulse pointerdown (captured from cell): still run syllable cycle based on grid long-press isHoldingRef. */
 							}
 							a.setCustomSyllables((prev) => {
@@ -504,9 +642,11 @@ const SequencerGridRow = React.memo(
 							});
 						}}
 						onContextMenu={(e) => e.preventDefault()}
-						className={`flex-1 rounded-md border flex items-center justify-center text-[12px] font-extrabold leading-none ${lowPerfMode ? '' : 'shadow-[inset_0_1px_3px_rgba(0,0,0,0.1)]'} min-h-[50%] transition-colors select-none ${
+						className={`flex-1 rounded-md border flex items-center justify-center text-[12px] font-extrabold leading-none ${lowPerfMode ? '' : 'shadow-[inset_0_1px_3px_rgba(0,0,0,0.1)]'} min-h-[50%] transition-colors select-none touch-pan-y ${
 							activeEditRow === rIdx
 								? `ring-2 ring-purple-500 ${lowPerfMode ? '' : 'shadow-purple-500/30'} bg-[#1e2a45] border-[#2f4066] text-slate-400`
+								: jatiPulseActiveRow
+									? `bg-teal-500/25 border-teal-400/70 text-teal-50 ring-1 ring-teal-400/80 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_8px_rgba(20,184,166,0.25),0_0_12px_rgba(45,212,191,0.2)]'}`
 								: pulseUnlinkedRow
 									? `bg-teal-500/25 border-teal-400/70 text-teal-50 ring-1 ring-teal-400/80 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_8px_rgba(20,184,166,0.25),0_0_12px_rgba(45,212,191,0.2)]'}`
 									: 'bg-[#1e2a45] border-[#2f4066] text-slate-400 hover:bg-[#253353] active:bg-[#1e2a45]'
@@ -515,7 +655,10 @@ const SequencerGridRow = React.memo(
 						{rowSylls}
 					</button>
 				</div>
-				<div className="flex flex-1 gap-1 items-stretch min-w-0">
+				{/* СТРОГО-НАСТРОГО НЕ ТРОГАТЬ ЭТО МЕСТО: ЭТО CELLS. Их не двигать и не растягивать для калибровки правой стенки.
+				    По "первому сообщению" сюда НЕ применять: h-full/-my-1/py-1/top-bottom offsets/translate/right-shift. */}
+				<div className="relative flex-1 self-stretch min-w-0">
+					<div className="absolute inset-x-0 -top-[2px] -bottom-[2px] w-full flex gap-1 items-stretch">
 					{Array.from({ length: Math.max(rowSylls, deadDisplayByRow[rIdx] ?? rowSylls) }).map((_, cIdx) => {
 						const checkKey = `${rIdx}-${cIdx}`;
 						const deadStart = deadStartByRow[rIdx];
@@ -529,7 +672,7 @@ const SequencerGridRow = React.memo(
 						//   only after default pattern was changed (there is at least one suppressed row).
 						// - Never derive white-frame visibility from purple accent map.
 						// - White Ta and purple accent are independent layers and must not be merged.
-						/** В Ta-редакторе legacy должен показывать дефолт Ta на 1-й доле (если не подавлено явно). */
+						/** In Ta editor, legacy mode must show default Ta on beat 1 (unless explicitly suppressed). */
 						const showEditorDing =
 							isTaDing ||
 							(cIdx === 0 &&
@@ -539,66 +682,44 @@ const SequencerGridRow = React.memo(
 						const showLegacyDefaultInNormal =
 							cIdx === 0 &&
 							!isDead &&
-							accentMapVersion === 0 &&
 							forceFirstBeatEditorFrames &&
 							canShowDefaultTaInNormal &&
 							!firstBeatRowSuppressed.has(rIdx);
 						const showNonEditorDing = !isDead && isTaDing;
 						const showNonEditorDingWithLegacy = showNonEditorDing || showLegacyDefaultInNormal;
-						if (!isTaEditorMode && isTaDing && !showNonEditorDingWithLegacy) {
-							// #region agent log
-							postTaDebugLog(
-								'pre-fix',
-								'H4',
-								'SequencerGrid.tsx:cell-visibility',
-								'explicit Ta hidden in normal mode',
-								{
-									row: rIdx,
-									col: cIdx,
-									isDead,
-									accentMapVersion,
-									canShowDefaultTaInNormal,
-									showLegacyDefaultInNormal,
-									showNonEditorDing,
-									forceFirstBeatEditorFrames,
-									firstBeatSuppressed: firstBeatRowSuppressed.has(rIdx),
-								},
-							);
-							// #endregion
-						}
 						const isActive = highlightCol === cIdx;
 						const subdivs = isDead ? 1 : (rowSubdivs[cIdx] ?? 1);
 						const cellBorder2 = 'border-2 box-border border-[#2f4066]';
+						const taPressedOverlayClasses =
+							'relative overflow-hidden active:after:content-[\'\'] active:after:absolute active:after:inset-0 active:after:bg-white/30 active:after:pointer-events-none';
 						const purpleAccentCell =
 							`bg-purple-900/40 border-2 box-border border-purple-500/50 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_4px_rgba(168,85,247,0.2)]'} hover:bg-purple-900/50 text-purple-100`;
 						let cellClasses = `bg-[#1e2a45] ${cellBorder2} ${lowPerfMode ? '' : 'shadow-[0_2px_4px_rgba(0,0,0,0.2)]'} hover:bg-[#253353] text-slate-300`;
+						const taBaseCell = lowPerfMode
+							? `bg-[#1e2a45] border-2 box-border border-white text-white z-[1] ${taPressedOverlayClasses}`
+							: `bg-[#1e2a45] border-2 box-border border-white/95 text-white shadow-[0_0_14px_rgba(255,255,255,0.2)] z-[1] hover:bg-[#253353] ${taPressedOverlayClasses}`;
+						const taAccentOverlapCell = lowPerfMode
+							? `bg-purple-900/40 border-2 box-border border-white text-white z-[1] ${taPressedOverlayClasses}`
+							: `bg-purple-900/45 border-2 box-border border-white/95 text-white shadow-[0_0_14px_rgba(255,255,255,0.2),inset_0_1px_4px_rgba(168,85,247,0.2)] z-[1] hover:bg-purple-900/50 ${taPressedOverlayClasses}`;
 						if (isDead) {
 							cellClasses = lowPerfMode
 								? 'bg-slate-800/60 border-2 box-border border-slate-700 text-slate-500'
 								: 'bg-slate-800/60 border-2 box-border border-slate-700 text-slate-500';
 						} else if (isTaEditorMode) {
 							if (isAccent && showEditorDing) {
-								cellClasses = lowPerfMode
-									? `${purpleAccentCell} z-[1] ring-2 ring-inset ring-white`
-									: `${purpleAccentCell} z-[1] ring-2 ring-inset ring-white/95 shadow-[0_0_12px_rgba(255,255,255,0.18)]`;
+								cellClasses = taAccentOverlapCell;
 							} else if (showEditorDing) {
-								cellClasses = lowPerfMode
-									? 'bg-[#1e2a45] border-2 box-border border-white text-white z-[1]'
-									: 'bg-[#1e2a45] border-2 box-border border-white/95 text-white shadow-[0_0_14px_rgba(255,255,255,0.2)] z-[1] hover:bg-[#253353]';
+								cellClasses = taBaseCell;
 							} else if (isAccent) {
 								cellClasses = purpleAccentCell;
 							}
 						} else if (isAccent && showNonEditorDingWithLegacy) {
-							cellClasses = lowPerfMode
-								? `${purpleAccentCell} z-[1] ring-2 ring-inset ring-white`
-								: `${purpleAccentCell} z-[1] ring-2 ring-inset ring-white/95 shadow-[0_0_12px_rgba(255,255,255,0.18)]`;
+							cellClasses = taAccentOverlapCell;
 						} else if (isAccent) {
 							cellClasses = purpleAccentCell;
 						} else if (showNonEditorDingWithLegacy) {
 							// In normal mode keep white frame visibility if user made a custom Ta-frame offset.
-							cellClasses = lowPerfMode
-								? 'bg-[#1e2a45] border-2 box-border border-white text-white z-[1]'
-								: 'bg-[#1e2a45] border-2 box-border border-white/95 text-white shadow-[0_0_14px_rgba(255,255,255,0.2)] z-[1] hover:bg-[#253353]';
+							cellClasses = taBaseCell;
 						}
 						const accentForGlyph =
 							isAccent ||
@@ -622,12 +743,15 @@ const SequencerGridRow = React.memo(
 									const a = actionsRef.current;
 									if (!a) return;
 									const btn = e.currentTarget as HTMLButtonElement;
-									btn.setPointerCapture(e.pointerId);
+									btn.dataset.subdivArmStartY = String(e.clientY);
+									btn.dataset.subdivArmLatestY = String(e.clientY);
+									btn.dataset.subdivArmActive = '1';
 									if (isDead) {
 										if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
 										a.deadSwipeSessionRef.current = null;
 										a.holdTimerRef.current = window.setTimeout(() => {
 											a.isHoldingRef.current = true;
+											triggerHapticPulse(50);
 											a.restoreDeadRow(rIdx);
 										}, 360);
 										return;
@@ -642,7 +766,17 @@ const SequencerGridRow = React.memo(
 									a.subdivHoldSessionRef.current = null;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
 									a.holdTimerRef.current = window.setTimeout(() => {
+										let captureOk = false;
+										try {
+											btn.setPointerCapture(e.pointerId);
+											captureOk = typeof btn.hasPointerCapture === 'function' && btn.hasPointerCapture(e.pointerId);
+										} catch {
+											/* pointer may already be released */
+										}
+										if (!captureOk) return;
 										a.isHoldingRef.current = true;
+										triggerHapticPulse(50);
+										const armedStartY = Number(btn.dataset.subdivArmLatestY ?? btn.dataset.subdivArmStartY ?? e.clientY);
 										const panelExpanded = a.isPanelExpandedRef.current;
 										a.setCustomSubdivisions((prev) => {
 											const current = prev[checkKey] || 1;
@@ -650,7 +784,7 @@ const SequencerGridRow = React.memo(
 											const out = { ...prev, [checkKey]: next };
 											a.subdivHoldSessionRef.current = {
 												key: checkKey,
-												startY: e.clientY,
+												startY: Number.isFinite(armedStartY) ? armedStartY : e.clientY,
 												baseSubdiv: next,
 												lastDeltaSteps: 0,
 												panelExpanded,
@@ -662,11 +796,22 @@ const SequencerGridRow = React.memo(
 											a.setActiveEditCell(checkKey);
 											a.setIsPanelExpanded(true);
 										}
-									}, 400);
+										btn.dataset.subdivArmActive = '0';
+									}, CELL_HOLD_MS);
 								}}
 								onPointerMove={(e) => {
 									const a = actionsRef.current;
 									if (!a) return;
+									const btn = e.currentTarget as HTMLButtonElement;
+									btn.dataset.subdivArmLatestY = String(e.clientY);
+									if (btn.dataset.subdivArmActive === '1' && a.holdTimerRef.current) {
+										const startY = Number(btn.dataset.subdivArmStartY ?? e.clientY);
+										if (Number.isFinite(startY) && Math.abs(e.clientY - startY) > CELL_SUBDIV_ARM_SLOP_Y_PX) {
+											clearTimeout(a.holdTimerRef.current);
+											a.holdTimerRef.current = null;
+											btn.dataset.subdivArmActive = '0';
+										}
+									}
 									const s = a.subdivHoldSessionRef.current;
 									if (!s || !a.isHoldingRef.current) return;
 									if (s.key !== checkKey) return;
@@ -686,6 +831,9 @@ const SequencerGridRow = React.memo(
 									if (!a) return;
 									const btn = e.currentTarget as HTMLButtonElement;
 									if (btn.hasPointerCapture(e.pointerId)) btn.releasePointerCapture(e.pointerId);
+									delete btn.dataset.subdivArmStartY;
+									delete btn.dataset.subdivArmLatestY;
+									delete btn.dataset.subdivArmActive;
 									a.deadSwipeSessionRef.current = null;
 									a.subdivHoldSessionRef.current = null;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
@@ -695,13 +843,21 @@ const SequencerGridRow = React.memo(
 									if (!a) return;
 									const btn = e.currentTarget as HTMLButtonElement;
 									if (btn.hasPointerCapture(e.pointerId)) btn.releasePointerCapture(e.pointerId);
+									delete btn.dataset.subdivArmStartY;
+									delete btn.dataset.subdivArmLatestY;
+									delete btn.dataset.subdivArmActive;
 									a.deadSwipeSessionRef.current = null;
 									a.subdivHoldSessionRef.current = null;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
 								}}
-								onPointerLeave={() => {
+								onPointerLeave={(e) => {
 									const a = actionsRef.current;
 									if (!a) return;
+									const btn = e.currentTarget as HTMLButtonElement;
+									if (typeof btn.hasPointerCapture === 'function' && btn.hasPointerCapture(e.pointerId)) return;
+									delete btn.dataset.subdivArmStartY;
+									delete btn.dataset.subdivArmLatestY;
+									delete btn.dataset.subdivArmActive;
 									a.subdivHoldSessionRef.current = null;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
 								}}
@@ -732,7 +888,11 @@ const SequencerGridRow = React.memo(
 									}
 									a.toggleAccent(rIdx, cIdx);
 								}}
-								className={`flex-1 flex flex-col items-center justify-center min-w-0 ${lowPerfMode ? '' : 'transition-all duration-75'} ${
+								onContextMenu={(e) => e.preventDefault()}
+								/* IMPORTANT FIX POINT #3 (CELLS): flex-1/self-stretch тут ОСОЗНАННО оставлены.
+								   Если убрать flex-1, клетки схлопнутся и сломают деление такта.
+								   Правим только геометрию внешних контейнеров (scroll/BAR), не клетки. */
+								className={`flex-1 h-full self-stretch flex flex-col items-center justify-center min-w-0 touch-pan-y ${lowPerfMode ? '' : 'transition-all duration-75'} ${
 									rowSylls > 7 ? 'rounded-md' : 'rounded-xl'
 								} ${cellClasses} ${activeEditCell === checkKey ? `ring-2 ring-inset ring-purple-500 z-20 ${lowPerfMode ? '' : 'shadow-purple-500/30'}` : ''}`}
 							>
@@ -761,20 +921,21 @@ const SequencerGridRow = React.memo(
 														? lowPerfMode
 															? 'text-inherit'
 															: 'text-inherit drop-shadow-md'
-														: accentForGlyph
+														: (accentForGlyph || rowCellLabels[cIdx]?.[i]?.accent === true)
 															? (lowPerfMode ? 'text-white' : 'drop-shadow-md')
 															: 'text-slate-300'
 											} ${subdivs > 1 ? 'border-[0.5px] border-[#2f4066]/50' : ''}`}
 										>
 											{isDead
 												? ''
-												: (rowCellLabels[cIdx]?.[i] ?? 'Ta')}
+												: (rowCellLabels[cIdx]?.[i]?.syl ?? '')}
 										</span>
 									))}
 								</div>
 							</button>
 						);
 					})}
+					</div>
 				</div>
 			</div>
 		);
@@ -787,12 +948,17 @@ export type SequencerGridProps = {
 	bars: number;
 	syllables: number;
 	customSyllables: Record<number, number>;
+	/** Parent / Karvai: syllable override by `${row}-${cell}` key on top of gati dictionary. */
+	customCellSyllables: Record<string, string>;
 	customSubdivisions: Record<string, number>;
 	customMultipliers: Record<number, number>;
 	accents: Set<string>;
 	taDingKeys: Set<string>;
 	pulseMeterUnlinked: Record<number, boolean>;
+	rowRuntimeContexts: Record<number, RowRuntimeContext>;
+	jatiPulseActiveByRow: Record<number, boolean>;
 	isPlaying: boolean;
+	autoscrollVirtualRowsEnabled: boolean;
 	activePos: { r: number; c: number; absR: number };
 	activePositions: PlayheadPosition[];
 	polyMode: boolean;
@@ -825,12 +991,16 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	bars,
 	syllables,
 	customSyllables,
+	customCellSyllables,
 	customSubdivisions,
 	customMultipliers,
 	accents,
 	taDingKeys,
 	pulseMeterUnlinked,
+	rowRuntimeContexts,
+	jatiPulseActiveByRow,
 	isPlaying,
+	autoscrollVirtualRowsEnabled,
 	activePos,
 	activePositions,
 	polyMode,
@@ -861,9 +1031,27 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 		syllables,
 		customSyllables,
 		customSubdivisions,
+		customCellSyllables,
+		pulseMeterUnlinked,
+		customMultipliers,
+		rowRuntimeContexts,
+		accents,
 		deadStartByRow,
 		bpm,
 	);
+	useEffect(() => {
+		const gridEl = gridRef.current;
+		if (!gridEl) return;
+		const handleTouchMove = (e: TouchEvent) => {
+			if (sequencerGridRowActionsRef.current?.isHoldingRef.current) {
+				e.preventDefault();
+			}
+		};
+		gridEl.addEventListener('touchmove', handleTouchMove, { passive: false });
+		return () => {
+			gridEl.removeEventListener('touchmove', handleTouchMove);
+		};
+	}, [gridRef, sequencerGridRowActionsRef]);
 
 	/**
 	 * Legacy: while playing with a long strip, duplicate rows for scrolling (playAbsBar grows).
@@ -871,26 +1059,31 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	 */
 	const virtualRowCount = useMemo(() => {
 		if (polyMode || !isPlaying || allBarsFitViewport) return bars;
-		return Math.max(bars, activePos.absR + displayScaleBars * 2);
-	}, [polyMode, isPlaying, allBarsFitViewport, bars, displayScaleBars, activePos.absR]);
-
+		if (autoscrollVirtualRowsEnabled) {
+			return Math.max(bars, activePos.absR + displayScaleBars * 2);
+		}
+		const limitedCycles = 3;
+		return bars * limitedCycles;
+	}, [polyMode, isPlaying, allBarsFitViewport, bars, displayScaleBars, activePos.absR, autoscrollVirtualRowsEnabled]);
 	return (
 		<div className="relative flex min-h-0 flex-1">
+			{/* IMPORTANT FIX POINT #1 (ROOT SCROLL): здесь была "собака зарыта".
+			    Раньше внешний правый gutter (paddingRight/marginRight/width-calc) и прочие костыли
+			    обрывали реальную правую границу grid относительно хедера (ластика).
+			    Текущий нативный фикс: только небольшой -mr-2 для точного совмещения вертикалей,
+			    без fake-layers/translate/right-offset-хаков. */}
 			<div
 				ref={gridRef}
-				className={`relative z-10 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto overflow-x-hidden ${
-					isPlaying
-						? 'scrollbar-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]'
-						: '[&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[#2f4066] [&::-webkit-scrollbar-thumb]:rounded-full'
-				}`}
+				className="relative z-10 -mr-2 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[#2f4066] [&::-webkit-scrollbar-thumb]:rounded-full"
 				style={{
+					overscrollBehaviorY: 'contain',
+					touchAction: 'pan-y',
 					scrollbarGutter: 'stable',
-					width: 'calc(100% + 10px)',
-					paddingRight: '10px',
-					marginRight: '-10px',
+					scrollbarColor: '#2f4066 transparent',
+					scrollbarWidth: 'thin',
 				}}
 			>
-			{Array.from({ length: virtualRowCount }).map((_, absR) => {
+				{Array.from({ length: virtualRowCount }).map((_, absR) => {
 				const rIdx = absR % bars;
 				const rowSylls = customSyllables[rIdx] !== undefined ? customSyllables[rIdx] : syllables;
 				const rowCellLabels = rowCellLabelsCache[rIdx] ?? [];
@@ -906,6 +1099,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 					taDingKeys.has(`${rIdx}-${c}`) ? '1' : '0',
 				).join('');
 				const pulseUnlinkedRow = Boolean(pulseMeterUnlinked[rIdx]);
+				const jatiPulseActiveRow = Boolean(jatiPulseActiveByRow[rIdx]);
 
 				let highlightCol: number | null;
 				let stepLabel: string | undefined;
@@ -950,6 +1144,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 						accentSig={accentSig}
 						taDingSig={taDingSig}
 						pulseUnlinkedRow={pulseUnlinkedRow}
+						jatiPulseActiveRow={jatiPulseActiveRow}
 						activeEditRow={activeEditRow}
 						activeEditCell={activeEditCell}
 						highlightCol={highlightCol}
@@ -977,7 +1172,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 						setRowEl={setRowElStable}
 					/>
 				);
-			})}
+				})}
 			</div>
 		</div>
 	);

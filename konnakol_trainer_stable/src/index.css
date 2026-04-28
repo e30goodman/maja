@@ -1,9 +1,42 @@
 @import "tailwindcss";
 
-/* No text selection in trainer UI */
 html,
-body,
+body {
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	padding: 0;
+	overflow: hidden;
+	background-color: #0b101e;
+	overscroll-behavior-y: none;
+}
+
 #root {
-	user-select: none;
+	width: 100%;
+	overflow: hidden;
+	height: 100dvh;
+	min-height: 100dvh;
+}
+
+* {
+	scrollbar-width: none;
+	-ms-overflow-style: none;
+	/* Запрещаем выделение текста везде, кроме инпутов */
 	-webkit-user-select: none;
+	user-select: none;
+	/* Запрещаем системное меню при долгом нажатии на iOS/Android */
+	-webkit-touch-callout: none;
+	/* Убираем синий прямоугольник при нажатии в мобильном Chrome */
+	-webkit-tap-highlight-color: transparent;
+}
+
+*::-webkit-scrollbar {
+	display: none;
+}
+
+input,
+textarea {
+	/* Возвращаем выделение текста в полях ввода */
+	-webkit-user-select: text;
+	user-select: text;
 }

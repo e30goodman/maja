@@ -110,7 +110,6 @@ export function pickKalam(nps: number, prev: Kalam | undefined): Kalam {
 
 function delayFastJuNu(kalam: Kalam, runtimeCtx?: RowRuntimeContext): Kalam {
 	if (kalam !== 'fast') return kalam;
-	if (!shouldEnableFastFourChunkAlternation(runtimeCtx)) return 'medium';
 	const mult = runtimeCtx?.rowMultiplier ?? 1;
 	const effBpm = runtimeCtx?.effectiveBpm ?? 0;
 	if (mult >= 2 && effBpm <= 200) return 'medium';
