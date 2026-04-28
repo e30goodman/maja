@@ -6,21 +6,21 @@
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#161f33",
-  "theme_color": "#161f33",
   "orientation": "portrait",
+  "background_color": "#000000",
+  "theme_color": "#000000",
   "icons": [
     {
       "src": "icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
       "src": "icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     }
   ],
   "screenshots": [
@@ -29,14 +29,14 @@
       "sizes": "1080x1920",
       "type": "image/png",
       "form_factor": "narrow",
-      "label": "Sequencer Grid on Mobile"
+      "label": "Konnakol Machine on Mobile"
     },
     {
       "src": "screenshots/desktop.png",
       "sizes": "1920x1080",
       "type": "image/png",
       "form_factor": "wide",
-      "label": "Sequencer Grid on Desktop"
+      "label": "Konnakol Machine on Desktop"
     }
   ]
 }
