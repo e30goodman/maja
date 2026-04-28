@@ -44,6 +44,7 @@ function triggerHapticPulse(durationMs = 50): void {
 
 const CELL_SUBDIV_ARM_SLOP_Y_PX = 10;
 const PULSE_ROULETTE_SLOP_Y_PX = 10;
+const CELL_AND_PULSE_HOLD_MS = 280;
 
 /** Poly playback: voice 0 = emerald; 1 = sky; 2 = violet; 3+ = amber. */
 function playheadHighlightCellClasses(
@@ -476,7 +477,7 @@ const SequencerGridRow = React.memo(
 								pulseHoldReadyRef.current = true;
 								triggerHapticPulse(50);
 								a.pulseUnlinkHoldTimerRef.current = null;
-							}, 400);
+							}, CELL_AND_PULSE_HOLD_MS);
 						}}
 						onPointerMove={(e) => {
 							const a = actionsRef.current;
@@ -739,7 +740,7 @@ const SequencerGridRow = React.memo(
 											a.setIsPanelExpanded(true);
 										}
 										btn.dataset.subdivArmActive = '0';
-									}, 400);
+									}, CELL_AND_PULSE_HOLD_MS);
 								}}
 								onPointerMove={(e) => {
 									const a = actionsRef.current;
