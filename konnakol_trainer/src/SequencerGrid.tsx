@@ -45,7 +45,7 @@ function triggerHapticPulse(durationMs = 50): void {
 const CELL_SUBDIV_ARM_SLOP_Y_PX = 10;
 const PULSE_ROULETTE_SLOP_Y_PX = 10;
 const PULSE_HOLD_MS = 0;
-const CELL_HOLD_MS = 20;
+const CELL_HOLD_MS = 100;
 
 /** Poly playback: voice 0 = emerald; 1 = sky; 2 = violet; 3+ = amber. */
 function playheadHighlightCellClasses(
