@@ -3217,7 +3217,6 @@ function StructuralSlider({
   onThumbPointerSessionEnd,
 }: StructuralSliderProps) {
   const [localValue, setLocalValue] = useState(value);
-  const [dynamicTouchAction, setDynamicTouchAction] = useState<'pan-y' | 'none'>('pan-y');
   const committedValueRef = useRef(value);
   const lastLiveValueRef = useRef(value);
   const pointerActiveRef = useRef(false);
@@ -3298,7 +3297,6 @@ function StructuralSlider({
       step={String(step)}
       value={localValue}
       onPointerDown={(e) => {
-        setDynamicTouchAction('pan-y');
         if (!isPointerDownOnThumb(e.clientX, e.currentTarget)) {
           e.preventDefault();
           e.stopPropagation();
@@ -3315,7 +3313,6 @@ function StructuralSlider({
             thumbArmTimerRef.current = null;
             thumbArmStartRef.current = null;
             thumbArmValueAtDownRef.current = null;
-            setDynamicTouchAction('none');
             thumbIdleArmRef.current?.onArm();
           }, holdMs);
           try {
@@ -3341,7 +3338,6 @@ function StructuralSlider({
       }}
       onPointerUp={(e) => {
         clearThumbArmTimer();
-        setDynamicTouchAction('pan-y');
         thumbArmStartRef.current = null;
         thumbArmValueAtDownRef.current = null;
         try {
@@ -3357,7 +3353,6 @@ function StructuralSlider({
       }}
       onPointerCancel={(e) => {
         clearThumbArmTimer();
-        setDynamicTouchAction('pan-y');
         thumbArmStartRef.current = null;
         thumbArmValueAtDownRef.current = null;
         try {
@@ -3371,7 +3366,6 @@ function StructuralSlider({
         commitLocalValue(localValue);
       }}
       onBlur={() => {
-        setDynamicTouchAction('pan-y');
         thumbArmStartRef.current = null;
         thumbArmValueAtDownRef.current = null;
         if (!thumbIdleArmRef.current) {
@@ -3413,9 +3407,8 @@ function StructuralSlider({
       style={{
         WebkitTouchCallout: 'none',
         userSelect: 'none',
-        touchAction: dynamicTouchAction,
       }}
-      className={`flex-1 h-3 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 ${colorClass} [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110`}
+      className={`flex-1 h-3 bg-[#0b101e] rounded-lg appearance-none cursor-pointer touch-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 ${colorClass} [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110`}
     />
   );
 }
@@ -3591,6 +3584,22 @@ function TempoSliderTrack({
 export default function App() {
   const initialBoot = useMemo(() => loadSnapshotStorage(), []);
   const seed = initialBoot.snapshots[initialBoot.activeSnapshot];
+
+  useEffect(() => {
+    let lastTouchY = 0;
+    const preventRefresh = (e: TouchEvent) => {
+      if (!e.touches || e.touches.length === 0) return;
+      const touchY = e.touches[0]?.pageY ?? 0;
+      if (window.scrollY === 0 && touchY > lastTouchY) {
+        if (e.cancelable) e.preventDefault();
+      }
+      lastTouchY = touchY;
+    };
+    document.addEventListener('touchmove', preventRefresh, { passive: false });
+    return () => {
+      document.removeEventListener('touchmove', preventRefresh);
+    };
+  }, []);
 
   const [tempo, setTempo] = useState(seed.tempo);
   const [tempoUi, setTempoUi] = useState(seed.tempo);
