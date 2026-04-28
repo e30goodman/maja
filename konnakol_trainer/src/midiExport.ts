@@ -953,6 +953,12 @@ function buildPendingNotes(input: MidiExportInput): {
 			if (!rowFullyDead) {
 				emitCell(bar, best.cellCursor, best.laneId, bestT, true, best.laneId, polyClickSlots);
 			}
+			if (rowFullyDead) {
+				crossedBars += 1;
+				best.barCursor = (best.barCursor + 1) % best.barIndices.length;
+				best.cellCursor = 0;
+				continue;
+			}
 			const { nextC, advanceBar } = advancePolyLaneAfterEmit(best.cellCursor, rowSyl, deadStart);
 			const laneHeadSingleLiveHold =
 				best.barCursor === 0 &&

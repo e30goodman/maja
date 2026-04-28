@@ -106,6 +106,39 @@ function testLaneHeadSingleLiveCellInsertsPhantomSecondCell() {
 	);
 }
 
+/** Lane second bar fully dead: it must be skipped with zero time spent and jump directly to next lane bar. */
+function testSecondLaneBarFullyDeadSkipsWithZeroTime() {
+	const events: { bar: number; c: number; voice: number; t: number }[] = [];
+	const sch = createPolySubLegacyScheduler({
+		polyVoices: () => 2,
+		barCount: () => 6, // lane1 bars: 1,3,5
+		getBarTimeWindowSeconds: () => 4,
+		getRowSyllables: () => 4,
+		getDeadStart: (bar) => {
+			if (bar === 1) return 2; // first lane bar: partial dead
+			if (bar === 3) return 0; // second lane bar: fully dead
+			return undefined;
+		},
+		emit: (bar, c, _absR, t, voice) => {
+			events.push({ bar, c, voice, t });
+		},
+	});
+	sch.reset(0);
+	sch.fillLookahead(40);
+	const lane1Bar5First = events.find((e) => e.voice === 1 && e.bar === 5);
+	assert.ok(lane1Bar5First, 'lane1 must jump to third lane bar (bar 5)');
+	const lane1Bar1BeforeBar5 = events
+		.filter((e) => e.voice === 1 && e.bar === 1 && e.t < lane1Bar5First.t)
+		.at(-1);
+	assert.ok(lane1Bar1BeforeBar5, 'lane1 first bar must emit before first bar5 hit');
+	assert.equal(
+		lane1Bar5First.t,
+		lane1Bar1BeforeBar5.t + 1, // after last emitted step on bar1, next tick must jump directly to bar5
+		'fully-dead second lane bar must consume zero extra time',
+	);
+	assert.ok(!events.some((e) => e.voice === 1 && e.bar === 3), 'fully-dead bar must be fully skipped');
+}
+
 /** Fully dead row: `deadStart === 0` means no emits for that bar, lane must still advance. */
 function testFillLookaheadFullyDeadRowAdvancesWithoutEmit() {
 	const events: { bar: number; c: number; voice: number }[] = [];
@@ -181,6 +214,7 @@ testAdvancePolyLaneAfterEmit();
 testFillLookaheadMonotone();
 testFillLookaheadSingleLiveCellNotStuck();
 testLaneHeadSingleLiveCellInsertsPhantomSecondCell();
+testSecondLaneBarFullyDeadSkipsWithZeroTime();
 testFillLookaheadFullyDeadRowAdvancesWithoutEmit();
 testMixedBarLengthsProduceInterleaving();
 testLaneBoundaryCallbackPerVoice();

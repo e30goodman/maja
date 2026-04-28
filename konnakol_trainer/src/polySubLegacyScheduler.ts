@@ -209,6 +209,16 @@ export function createPolySubLegacyScheduler(deps: PolySubLegacyDeps): PolySubLe
 			if (!rowFullyDead) {
 				deps.emit(bar, c, bar, bestT, voice, chunkStep, dBar);
 			}
+			if (rowFullyDead) {
+				const prevBar = bar;
+				const prevCursor = best.barCursor;
+				best.barCursor = (best.barCursor + 1) % best.barIndices.length;
+				best.cellCursor = 0;
+				const wrappedPattern =
+					best.barCursor === 0 && prevCursor === best.barIndices.length - 1;
+				deps.onLaneBarBoundary?.(prevBar, best.laneId, wrappedPattern);
+				continue;
+			}
 
 			const { nextC, advanceBar } = advancePolyLaneAfterEmit(c, rowSyl, deadStart);
 			const laneHeadSingleLiveHold =
