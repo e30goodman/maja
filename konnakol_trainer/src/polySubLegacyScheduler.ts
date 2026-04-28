@@ -205,7 +205,10 @@ export function createPolySubLegacyScheduler(deps: PolySubLegacyDeps): PolySubLe
 			const V = deps.polyVoices() === 3 ? 3 : 2;
 			const chunkStep = Math.floor(bar / V);
 
-			deps.emit(bar, c, bar, bestT, voice, chunkStep, dBar);
+			const rowFullyDead = typeof deadStart === 'number' && deadStart <= 0;
+			if (!rowFullyDead) {
+				deps.emit(bar, c, bar, bestT, voice, chunkStep, dBar);
+			}
 
 			const { nextC, advanceBar } = advancePolyLaneAfterEmit(c, rowSyl, deadStart);
 			const advanceLaneBar = advanceBar || (!advanceBar && nextC === 0);

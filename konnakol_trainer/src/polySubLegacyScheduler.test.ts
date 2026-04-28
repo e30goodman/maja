@@ -82,6 +82,28 @@ function testFillLookaheadSingleLiveCellNotStuck() {
 	assert.ok(events.every((e) => e.c === 0), 'only live column is 0');
 }
 
+/** Fully dead row: `deadStart === 0` means no emits for that bar, lane must still advance. */
+function testFillLookaheadFullyDeadRowAdvancesWithoutEmit() {
+	const events: { bar: number; c: number; voice: number }[] = [];
+	const sch = createPolySubLegacyScheduler({
+		polyVoices: () => 2,
+		barCount: () => 4,
+		getBarTimeWindowSeconds: () => 4,
+		getRowSyllables: () => 4,
+		getDeadStart: (bar) => (bar === 1 ? 0 : undefined),
+		emit: (bar, c, _absR, _t, voice) => {
+			events.push({ bar, c, voice });
+		},
+	});
+	sch.reset(0);
+	sch.fillLookahead(80);
+	assert.ok(
+		events.some((e) => e.voice === 1 && e.bar === 3),
+		'lane1 must advance past fully-dead bar 1 to bar 3',
+	);
+	assert.ok(!events.some((e) => e.bar === 1), 'fully-dead bar must not emit events');
+}
+
 function testMixedBarLengthsProduceInterleaving() {
 	const events: { bar: number; voice: number; t: number }[] = [];
 	const sch = createPolySubLegacyScheduler({
@@ -134,6 +156,7 @@ testBuildLaneBarIndices();
 testAdvancePolyLaneAfterEmit();
 testFillLookaheadMonotone();
 testFillLookaheadSingleLiveCellNotStuck();
+testFillLookaheadFullyDeadRowAdvancesWithoutEmit();
 testMixedBarLengthsProduceInterleaving();
 testLaneBoundaryCallbackPerVoice();
 console.log('polySubLegacyScheduler.test.ts: ok');

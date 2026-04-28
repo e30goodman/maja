@@ -949,7 +949,10 @@ function buildPendingNotes(input: MidiExportInput): {
 				}
 				laneLastStartTick[laneId] = startTick;
 			}
-			emitCell(bar, best.cellCursor, best.laneId, bestT, true, best.laneId, polyClickSlots);
+			const rowFullyDead = typeof deadStart === 'number' && deadStart <= 0;
+			if (!rowFullyDead) {
+				emitCell(bar, best.cellCursor, best.laneId, bestT, true, best.laneId, polyClickSlots);
+			}
 			const { nextC, advanceBar } = advancePolyLaneAfterEmit(best.cellCursor, rowSyl, deadStart);
 			const advanceLaneBar = advanceBar || (!advanceBar && nextC === 0);
 			if (advanceLaneBar) {
