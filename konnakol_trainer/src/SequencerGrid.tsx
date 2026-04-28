@@ -501,11 +501,39 @@ const SequencerGridRow = React.memo(
 						onPointerMove={(e) => {
 							const a = actionsRef.current;
 							if (!a) return;
+							const el = e.currentTarget as HTMLButtonElement;
 							const startY = pulsePointerStartYRef.current;
 							if (startY === null) return;
 							pulsePointerLatestYRef.current = e.clientY;
 							if (!a.isHoldingRef.current && Math.abs(e.clientY - startY) > PULSE_MODE_TOGGLE_CANCEL_SLOP_Y_PX) {
 								pulseMovedBeforeHoldRef.current = true;
+								// Fast path: if user already slides, enter roulette immediately (like Bars slider),
+								// skip waiting long-press timer for gati/jati mode toggle.
+								if (pulseRouletteSessionRef.current === null) {
+									if (a.pulseUnlinkHoldTimerRef.current) {
+										clearTimeout(a.pulseUnlinkHoldTimerRef.current);
+										a.pulseUnlinkHoldTimerRef.current = null;
+									}
+									let captureOk = false;
+									try {
+										el.setPointerCapture(e.pointerId);
+										captureOk = typeof el.hasPointerCapture === 'function' && el.hasPointerCapture(e.pointerId);
+									} catch {
+										/* pointer may already be released */
+									}
+									if (!captureOk) return;
+									a.isHoldingRef.current = true;
+									const basePulse =
+										a.customSyllablesRef.current[rIdx] !== undefined ? a.customSyllablesRef.current[rIdx]! : a.syllables;
+									pulseRouletteSessionRef.current = {
+										startY: e.clientY,
+										basePulse,
+										lastDeltaSteps: 0,
+									};
+									pulseHoldReadyRef.current = false;
+									a.pulseUnlinkJustFiredRef.current = true;
+									triggerHapticPulse(50);
+								}
 							}
 							if (!a.isHoldingRef.current) return;
 							if (pulseHoldReadyRef.current && !pulseRouletteSessionRef.current) {
