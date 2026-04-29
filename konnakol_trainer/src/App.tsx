@@ -4610,28 +4610,18 @@ export default function App() {
   );
 
   const toggleRandomFeature = (feature: 'pulsation' | 'pattern' | 'speed' | 'barSpeed') => {
-    let willBeEnabled = false;
     if (feature === 'pulsation') {
-      willBeEnabled = !randomPulsation;
       const next = !randomPulsation;
       randomPulsationRef.current = next;
       setRandomPulsation(next);
     } else if (feature === 'pattern') {
-      willBeEnabled = !randomPattern;
       setRandomPattern(!randomPattern);
     } else if (feature === 'speed') {
-      willBeEnabled = !randomSpeed;
       setRandomSpeed(!randomSpeed);
     } else if (feature === 'barSpeed') {
-      willBeEnabled = !randomBarSpeed;
       const next = !randomBarSpeed;
       randomBarSpeedRef.current = next;
       setRandomBarSpeed(next);
-    }
-    
-    if (willBeEnabled && !randomModeEnabledRef.current) {
-      randomModeEnabledRef.current = true;
-      setRandomModeEnabled(true);
     }
   };
 
