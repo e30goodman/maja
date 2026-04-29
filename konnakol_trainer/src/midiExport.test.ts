@@ -322,7 +322,7 @@ function testLaneRoleMidiNotes() {
 	assert.equal(resolveMidiNoteForLaneRole(1, 'accent'), 47); // V2 low-mid tom (GM)
 	assert.equal(resolveMidiNoteForLaneRole(1, 'alt'), 39); // V2 hand clap (GM)
 	assert.equal(resolveMidiNoteForLaneRole(1, 'passive'), 37); // V2 side stick (GM)
-	assert.equal(resolveMidiNoteForLaneRole(2, 'accent'), 56); // V3 cowbell (GM)
+	assert.equal(resolveMidiNoteForLaneRole(2, 'accent'), 29); // V3 F1
 	assert.equal(resolveMidiNoteForLaneRole(2, 'alt'), 53); // V3 ride bell (GM)
 	assert.equal(resolveMidiNoteForLaneRole(2, 'passive'), 76); // V3 high wood block (GM)
 	assert.equal(resolveMidiNoteForLaneRole(1, 'taHigh'), 29); // V2 F1

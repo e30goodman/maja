@@ -61,7 +61,7 @@ export const MIDI_V2_PASSIVE_NOTE = 37; // C#1 (Side Stick / Rimshot, GM)
 export const MIDI_V2_TA_HIGH_NOTE = 29; // F1
 
 /** Lane 3 (poly V3). */
-export const MIDI_V3_ACCENT_NOTE = 56; // G#2 (Cowbell, GM)
+export const MIDI_V3_ACCENT_NOTE = 29; // F1
 export const MIDI_V3_ALT_NOTE = 53; // F3 (Ride Bell, GM)
 export const MIDI_V3_PASSIVE_NOTE = 76; // E5 (Hi Wood Block, GM)
 export const MIDI_V3_TA_HIGH_NOTE = 57; // A2 (Crash Cymbal 2)
