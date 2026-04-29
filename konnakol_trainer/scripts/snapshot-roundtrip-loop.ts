@@ -986,7 +986,7 @@ function deriveCustomSubdivisionsFromMidi(args: {
         linearCell += 1;
         continue;
       }
-      const MIN_TICKS = 1;
+      const EPSILON_TICKS = 2;
       let bestDiv = 1;
       let bestScore = Number.NEGATIVE_INFINITY;
       let fallbackDiv = 1;
@@ -994,7 +994,7 @@ function deriveCustomSubdivisionsFromMidi(args: {
       let fallbackError = Number.POSITIVE_INFINITY;
       for (let div = 2; div <= 9; div++) {
         const step = cellTicks / div;
-        const strictTolerance = Math.max(MIN_TICKS, step * 0.05);
+        const strictTolerance = EPSILON_TICKS;
         const matchedSteps = new Set<number>();
         let totalError = 0;
         let fatalHits = 0;
