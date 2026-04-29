@@ -20,7 +20,11 @@ function clampSubdivs(subdivs: number): number {
 function normalizeMaskForSubdivs(mask: boolean[] | undefined, safeSubdivs: number): boolean[] {
 	const base = Array.isArray(mask) ? mask.map((v) => Boolean(v)).slice(0, 9) : [];
 	if (base.length >= safeSubdivs) return base.slice(0, safeSubdivs);
-	return base.concat(Array.from({ length: safeSubdivs - base.length }, () => true));
+	// Safety-critical mute invariant:
+	// if stored mask is explicitly all-false but shorter than subdivs,
+	// keep the whole cell muted after resize/load instead of unmuting padded tails.
+	const padValue = base.length > 0 && base.every((v) => v === false) ? false : true;
+	return base.concat(Array.from({ length: safeSubdivs - base.length }, () => padValue));
 }
 
 export function normalizeCellConfig(config: CellConfig): CellConfig {

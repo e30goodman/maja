@@ -6448,6 +6448,9 @@ export default function App() {
       customSyllables: raw.customSyllables,
       customMultipliers: raw.customMultipliers,
       customSubdivisions: raw.customSubdivisions,
+      // Critical for clipboard round-trip from non-active snapshot slots:
+      // without explicit masks, muted cells (Divs=0) collapse to plain subdiv values.
+      cellStepMasks: (raw as { cellStepMasks?: CellStepMasks }).cellStepMasks,
       customCellSyllables: (raw as { customCellSyllables?: Record<string, string> }).customCellSyllables,
       randomModeEnabled: raw.randomModeEnabled,
       randomPulsation: raw.randomPulsation,
