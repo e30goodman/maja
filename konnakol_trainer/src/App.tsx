@@ -372,7 +372,8 @@ function resolveFirstBeatHitRow(
 
 function resolveRuntimeFirstBeatPolicy(isPoly: boolean, laneId: LaneId): FirstBeatHitPolicy {
 	if (!isPoly) return 'legacy';
-	return laneId === 0 ? 'legacy' : 'explicit_ta_only';
+	// Keep default first-beat Ta on V1/V2; only extra lanes require explicit taDing on beat 0.
+	return laneId === 2 ? 'explicit_ta_only' : 'legacy';
 }
 
 function normalizeSuppressedRows(raw: unknown, bars: number): Set<number> {
