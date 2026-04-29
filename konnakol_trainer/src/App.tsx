@@ -415,6 +415,7 @@ function snapBarsToPolyGrid(raw: number, polyActive: boolean, voices: 2 | 3 | 4)
 
 const SNAPSHOT_SLOT_COUNT = 7;
 const SNAPSHOT_STORAGE_KEY = 'konnakolTrainerSnapshotsV1';
+const SNAPSHOT_STORAGE_COMPACT_KEY = 'konnakolTrainerSnapshotsCompactV1';
 const LITE_UI_STORAGE_KEY = 'konnakol_lite_ui';
 const POLY_MODE_STORAGE_KEY = 'konnakol_poly_mode';
 const POLY_VOICES_STORAGE_KEY = 'konnakol_poly_voices';
@@ -3091,6 +3092,12 @@ export function decodeSnapshotClipboardForReport(text: string) {
   return tryDecodeSnapshotClipboard(text);
 }
 
+type CompactSnapshotStoragePayload = {
+	v: 1;
+	activeSnapshot?: number;
+	slots?: Record<string, string>;
+};
+
 function loadSnapshotStorage(): {
 	activeSnapshot: number;
 	snapshots: Record<number, ReturnType<typeof createEmptySnapshot>>;
@@ -3098,13 +3105,40 @@ function loadSnapshotStorage(): {
 	const snapshots: Record<number, ReturnType<typeof createEmptySnapshot>> = {};
 	for (let i = 1; i <= SNAPSHOT_SLOT_COUNT; i++) snapshots[i] = createEmptySnapshot();
 	let activeSnapshot = 1;
+	let restoredAny = false;
+	const applyDefaultSnapshotModes = () => {
+		for (let i = 1; i <= SNAPSHOT_SLOT_COUNT; i++) {
+			snapshots[i].randomModeEnabled = false;
+			snapshots[i].squarePlaybackMode = DEFAULT_SQUARE_PLAYBACK_MODE;
+		}
+	};
 	try {
+		const rawCompact = localStorage.getItem(SNAPSHOT_STORAGE_COMPACT_KEY);
+		if (rawCompact) {
+			const compactData = JSON.parse(rawCompact) as CompactSnapshotStoragePayload;
+			if (
+				typeof compactData.activeSnapshot === 'number' &&
+				compactData.activeSnapshot >= 1 &&
+				compactData.activeSnapshot <= SNAPSHOT_SLOT_COUNT
+			) {
+				activeSnapshot = Math.floor(compactData.activeSnapshot);
+			}
+			const bag = compactData.slots;
+			if (bag && typeof bag === 'object') {
+				for (let i = 1; i <= SNAPSHOT_SLOT_COUNT; i++) {
+					const encoded = bag[String(i)] ?? (bag as any)[i];
+					if (typeof encoded !== 'string' || !encoded.trim()) continue;
+					const parsed = tryDecodeSnapshotClipboard(encoded);
+					if (!parsed) continue;
+					snapshots[i] = parsed;
+					restoredAny = true;
+				}
+				if (restoredAny) return { activeSnapshot, snapshots };
+			}
+		}
 		const raw = localStorage.getItem(SNAPSHOT_STORAGE_KEY);
 		if (!raw) {
-			for (let i = 1; i <= SNAPSHOT_SLOT_COUNT; i++) {
-				snapshots[i].randomModeEnabled = false;
-				snapshots[i].squarePlaybackMode = DEFAULT_SQUARE_PLAYBACK_MODE;
-			}
+			applyDefaultSnapshotModes();
 			return { activeSnapshot, snapshots };
 		}
 		const data = JSON.parse(raw) as { activeSnapshot?: number; snapshots?: Record<string, unknown> };
@@ -3115,12 +3149,16 @@ function loadSnapshotStorage(): {
 		if (bag && typeof bag === 'object') {
 			for (let i = 1; i <= SNAPSHOT_SLOT_COUNT; i++) {
 				const row = bag[String(i)] ?? (bag as any)[i];
-				if (row) snapshots[i] = parseSnapshotRow(row);
+				if (row) {
+					snapshots[i] = parseSnapshotRow(row);
+					restoredAny = true;
+				}
 			}
 		}
 	} catch {
 		/* keep defaults */
 	}
+	if (!restoredAny) applyDefaultSnapshotModes();
 	return { activeSnapshot, snapshots };
 }
 
@@ -6281,7 +6319,15 @@ export default function App() {
       return prev;
     });
 
-    const newSeq = buildLegacyPlaybackSequence(nBars, {}, next, nextDc, nextCellSyl);
+    const newSeq = buildLegacyPlaybackSequence(
+      nBars,
+      {},
+      next,
+      nextDc,
+      nextCellSyl,
+      customSubdivisionsRef.current,
+      cellStepMasksRef.current,
+    );
 
     if (sequenceRef.current.length > 0 && newSeq.length > 0) {
       const oldItem = sequenceRef.current[currentStepRef.current];
@@ -6474,8 +6520,17 @@ export default function App() {
   const disableMenuSmoothing = lowPerfMode || bars > 8 || syllables >= 9;
 
   const sequence = React.useMemo(
-    () => buildLegacyPlaybackSequence(bars, customSyllables, syllables, deadCells, customCellSyllables),
-    [bars, syllables, customSyllables, deadCells, customCellSyllables],
+    () =>
+      buildLegacyPlaybackSequence(
+        bars,
+        customSyllables,
+        syllables,
+        deadCells,
+        customCellSyllables,
+        customSubdivisions,
+        cellStepMasks,
+      ),
+    [bars, syllables, customSyllables, deadCells, customCellSyllables, customSubdivisions, cellStepMasks],
   );
 
   const sequenceRef = useRef(sequence);
@@ -6629,6 +6684,21 @@ export default function App() {
           SNAPSHOT_STORAGE_KEY,
           JSON.stringify({ activeSnapshot, snapshots: out }),
         );
+        const compactSlots: Record<string, string> = {};
+        for (let i = 1; i <= SNAPSHOT_SLOT_COUNT; i++) {
+          let s = snapshots[i];
+          if (i === activeSnapshot && s) {
+            s = { ...s, chaosLevel: chaosLevelRef.current };
+          }
+          if (!s) continue;
+          compactSlots[String(i)] = encodeSnapshotClipboard(s);
+        }
+        const compactPayload: CompactSnapshotStoragePayload = {
+          v: 1,
+          activeSnapshot,
+          slots: compactSlots,
+        };
+        localStorage.setItem(SNAPSHOT_STORAGE_COMPACT_KEY, JSON.stringify(compactPayload));
       } catch (e) {
         console.warn('[konnakol_trainer] snapshot persist failed', e);
       }
@@ -7823,6 +7893,8 @@ export default function App() {
               syllablesRef.current,
               deadCellsRef.current,
               customCellSyllablesRef.current,
+              customSubdivisionsRef.current,
+              cellStepMasksRef.current,
             );
             
             const targetStepIndex = sequenceRef.current.findIndex(item => item.r === targetR && item.c === 0);
