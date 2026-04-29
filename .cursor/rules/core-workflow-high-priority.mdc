@@ -1,18 +1,27 @@
 ---
-description: "Core workflow rules for this project"
+description: "Core workflow rules: UI protection, Snapshots, and Git labeling"
 alwaysApply: true
 priority: 90
 ---
 
-# Core Workflow
+# Core Workflow & Safety
 
-Important rules:
-- Follow project-specific audio behavior requirements first.
-- Keep backward compatibility for snapshots when changing playback modes.
-- Keep snapshot coding system untouchible, don't change the pricipe of  hashing. You can add but not re-build
-- Before push: см. `git-push-commit-label.mdc` (SHA в UI — из Vite при build, не хардкод под HEAD коммита).
-- UI Safety Rule (strict): any UI/UX/layout/visual behavior changes in Cursor project files are forbidden by default unless the user explicitly approves that exact UI change in the current chat. If approval is missing, do not modify UI at all.
-- UI Geometry Lock (strict): even "minor" visual tweaks are forbidden without explicit user approval. Prohibited without approval: width/height/min/max constraints, padding/margin/gap, font-size/line-height, whitespace/wrapping behavior, border/radius/shadow changes that alter perceived element size, and any style edits that can shift or resize UI blocks.
+## 1. UI & Geometry Lock (STRICT)
+- **Default:** ALL UI/UX/Visual changes are FORBIDDEN.
+- **Explicit Approval:** You must get user consent for ANY change in:
+    - Geometry: `width/height`, `padding/margin/gap`, `min/max` constraints.
+    - Typography & Flow: `font-size`, `line-height`, `whitespace`, `wrapping`.
+    - Borders & Effects: `border`, `radius`, `shadow` (if they alter element size/perception).
+- **Goal:** Zero layout shifts or resize behaviors without a direct command.
 
-Related:
-- `git-push-commit-label.mdc`
+## 2. Snapshots & Playback
+- **Backward Compatibility:** Maintain legacy support when changing playback modes.
+- **Hashing Integrity:** NEVER rebuild the snapshot hashing principle. 
+    - *Policy:* You can **append/add** features, but the core hashing logic is **untouchable**.
+
+## 3. Build & Git (Pre-push)
+- **Labels:** Follow instructions in `git-push-commit-label.mdc`.
+- **SHA Policy:** UI version SHA must come from **Vite build metadata**, not hardcoded from Git HEAD.
+
+## 4. Audio Engine
+- **Priority:** Project-specific audio behavior requirements override generic logic.

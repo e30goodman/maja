@@ -7,6 +7,7 @@ import MidiWriter from 'midi-writer-js';
 import { buildLegacyPlaybackSequence, type DeadCellsMap } from './randomLogic';
 import { advancePolyLaneAfterEmit, buildLaneBarIndices, type PolyVoicesCount } from './polySubLegacyScheduler';
 import { buildRowCellSyllableLabels, type KalamMap, type RowRuntimeContext } from './sequencerLabels';
+import { resolveEffectiveStepMask, type CellStepMasks } from './stepMask';
 
 const PULSE_METER_BASE_SYLLABLES = 4;
 
@@ -100,6 +101,7 @@ export interface MidiExportInput {
 	baseSyllables: number;
 	customSyllables: Record<number, number>;
 	customSubdivisions: Record<string, number>;
+	cellStepMasks?: CellStepMasks;
 	pulseMeterUnlinked?: Record<number, boolean>;
 	customMultipliers?: Record<number, number>;
 	accents: Set<string> | Iterable<string>;
@@ -226,11 +228,13 @@ function headSyllableForCell(
 	effectiveBpm: number,
 	kalamMap: KalamMap,
 	rowRuntimeContext?: RowRuntimeContext,
+	cellStepMasks?: CellStepMasks,
 ): string {
 	const labels = buildRowCellSyllableLabels(rowSyllCount, customSubdivs, rowIdx, {
 		bpm: baseBpm,
 		rowRuntimeContext: { ...(rowRuntimeContext ?? {}), effectiveBpm },
 		kalamMap,
+		cellStepMasks,
 		isLessonLastRow: false,
 	});
 	const cell = labels[colIdx];
@@ -775,14 +779,17 @@ function buildPendingNotes(input: MidiExportInput): {
 			rowEffBpm,
 			kalamMap,
 			input.rowRuntimeContexts?.[rowIdx],
+			input.cellStepMasks,
 		);
 		const baseTick = wallSecToTick(wallSec, bpm, ppq);
 		const subCount = Math.max(1, Math.floor(subdivs));
 		const subCellTicks = cellTicks / subCount;
+		const stepMask = resolveEffectiveStepMask(`${rowIdx}-${colIdx}`, subdivs, input.cellStepMasks);
 		if (hits.taHigh) tryPush(lane, 'taHigh', baseTick, subCellTicks, rowMultiplier, rowIdx, colIdx, subdivs, headSyl, mainAccent, shouldPlayFirstBeatTa);
 		if (hits.accent) tryPush(lane, 'accent', baseTick, subCellTicks, rowMultiplier, rowIdx, colIdx, subdivs, headSyl, mainAccent, shouldPlayFirstBeatTa);
 		if (hits.altShadow) {
 			for (let subIdx = 0; subIdx < subCount; subIdx++) {
+				if (stepMask[subIdx] === false) continue;
 				const subTick = baseTick + subIdx * subCellTicks;
 				tryPush(
 					lane,
@@ -801,6 +808,7 @@ function buildPendingNotes(input: MidiExportInput): {
 		}
 		if (hits.passive) {
 			for (let subIdx = 0; subIdx < subCount; subIdx++) {
+				if (stepMask[subIdx] === false) continue;
 				const subTick = baseTick + subIdx * subCellTicks;
 				tryPush(
 					lane,
@@ -819,6 +827,7 @@ function buildPendingNotes(input: MidiExportInput): {
 		} else if (subCount > 1 && (hits.taHigh || hits.accent || hits.altShadow)) {
 			// Keep DIVS audible on accented/alt cells: inner subdivisions are emitted as passive tails.
 			for (let subIdx = 1; subIdx < subCount; subIdx++) {
+				if (stepMask[subIdx] === false) continue;
 				const subTick = baseTick + subIdx * subCellTicks;
 				tryPush(
 					lane,

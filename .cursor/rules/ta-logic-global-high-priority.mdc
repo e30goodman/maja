@@ -1,38 +1,22 @@
 ---
-description: "Global guardrails for Ta logic based on TA_LOGIC_GUIDE"
-alwaysApply: true
-priority: 95
+description: "Global guardrails for Ta/Audio/Gati-Jati logic"
+alwaysApply: false
 ---
+# Ta & Gati-Jati Guardrails
 
-# Ta Logic Global Rule
+## 1. Ta Logic Essentials
+- **Source of Truth:** `TA_LOGIC_GUIDE.md`. 
+- **Layers:** Keep White Ta layer independent from Purple Accent layer.
+- **Poly Mode:** Lane containers (`accentsByLane`, etc.) are TRUTH. Flat sets are derived only.
+- **C0 (First Beat):** Toggle suppression only. Do NOT convert to regular key flow.
+- **Runtime Audio:** Use `resolveRuntimeFirstBeatPolicy()` and `resolveFirstBeatHitRow()`. Never bind to `accentMapVersion`.
+- **Bars:** `totalBars` is the ONLY truth. `visible/virtualBars` are UI-only.
 
-Source of truth: `konnakol_trainer_stable/TA_LOGIC_GUIDE.md`.
+## 2. Gati/Jati Terminology (STRICT)
+- **Gati Mutation:** Density/subdivisions change ONLY. Cycle size stays fixed.
+- **Jati Mutation:** Cycle-size change (pulse count 5/7/9) / `curSyl` rewrite.
+- **FORBIDDEN:** Tagging "Jati" if cycle size is unchanged.
+- **CRITICAL:** If Jati doesn't exit ADI-8 frame behavior, it's NOT Jati. 
 
-Apply these constraints whenever Ta/accent/audio/snapshot/bars logic is touched:
-
-- Keep white Ta layer independent from purple accent layer.
-- In poly mode, lane containers are source of truth (`accentsByLane`, `taDingKeysByLane`, `firstBeatAccentByLane`); flat sets are derived only.
-- For `c0` in Ta editor: when default first-beat is enabled, toggle suppression; do not convert to regular explicit key flow.
-- Runtime first-beat audio policy must be computed via `resolveRuntimeFirstBeatPolicy(...)` and `resolveFirstBeatHitRow(...)`; never bind policy directly to `accentMapVersion`.
-- `totalBars` is data-domain source of truth for Ta/snapshot/audio decisions. `visibleBars`/`virtualBars` must not affect Ta-derived truth.
-- In square playback gating (including `passive_only`), do not early-return away valid Ta/first-beat events.
-
-Before finalizing Ta-related changes, verify:
-
-- mono + poly parity (no lane bleed / no ghost Ta),
-- `bars = 1` stability for `c0`,
-- snapshot save/load preserves suppression and lane maps,
-- UI/audio parity for `c0` and explicit `c>0`.
-
-## Gati/Jati Definition Gate (strict)
-
-- Terminology lock:
-  - `Gati Mutation` = density change inside fixed cells (subdivisions only).
-  - `Jati Mutation` = cycle-size change (bar cell count / `curSyl` rewrite).
-- Forbidden mapping:
-  - Never tag `Jati Mode` when only subdivisions changed and cycle size stayed unchanged.
-- True Jati condition:
-  - Jati mode is valid only if the bar exits ADI-8 frame behavior and runs with its own local cell/pulse count (e.g. 5/7/9).
-- Logging gate:
-  - Before writing mode tags in lesson logs, check the above invariants.
-  - If violated, emit `CRITICAL: False Jati Mapping Detected`.
+## 3. Pre-flight Check
+Before finishing: Verify mono/poly parity, `c0` stability at `bars=1`, and snapshot integrity.

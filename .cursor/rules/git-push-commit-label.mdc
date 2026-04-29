@@ -1,14 +1,24 @@
 ---
-description: "Git push: версия в UI — только Vite, не уроборос в Git"
+description: "Git & Versioning: Prevent SHA recursion (Ouroboros) and enforce Vite build flow"
 alwaysApply: true
 priority: 100
 ---
 
-# Git push — commit label
+# Git Push & Versioning (SHA-7)
 
-- **Не** подгонять `return '…'` в `APP_COMMIT_VERSION` под `git rev-parse --short=7 HEAD` в том же коммите: хеш коммита зависит от дерева, строка в `App.tsx` меняет дерево → новый хеш → бесконечная гонка (уроборос).
-- Источник правды для **сборки**: `konnakol_trainer/vite.config.ts` → `__GIT_SHA7__` (`git rev-parse --short=7 HEAD` на момент **vite build**). В UI уходит он.
-- Fallback в `App.tsx` (`return 'dev'` или устаревший плейсхолдер) — только для dev без define; **не** пытаться совпасть с HEAD коммита вручную.
-- Перед push: при изменении кода тренера — `npm run build` в `konnakol_trainer` по необходимости → `git push`.
+## ⛔ ANTI-RECURSION (Ouroboros)
+- **FORBIDDEN:** Manually updating `APP_COMMIT_VERSION` or any hardcoded SHA in `App.tsx` to match the current `git rev-parse HEAD`. 
+- **REASON:** Changing the file changes the Hash → the hash becomes invalid → infinite loop.
 
-Related: `core-workflow-high-priority.mdc`
+## ✅ SOURCE OF TRUTH
+- **Production/Build:** Use `__GIT_SHA7__` defined in `konnakol_trainer/vite.config.ts`. 
+- **Mechanism:** The SHA is injected dynamically **during `vite build`** via `git rev-parse --short=7 HEAD`.
+- **UI Display:** The UI must only consume the value provided by the build tool.
+
+## 🛠️ DEV WORKFLOW
+- **Fallback:** Use `'dev'` or a static placeholder in `App.tsx`. 
+- **Sync:** Never attempt to sync the dev-placeholder with the Git HEAD manually.
+- **Pre-push:** Run `npm run build` inside `konnakol_trainer` to verify SHA injection before `git push`.
+
+## 🔗 RELATED
+- `core-workflow.mdc`
