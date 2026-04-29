@@ -8333,6 +8333,36 @@ export default function App() {
         const mixerAllowsAlt = mixerMode === 'full_mix' || mixerMode === 'alt_only';
         // Stable-style single-role routing per sub-hit.
         // In no_alt, purple-marked cells intentionally fall back to base(passive) timbre.
+        const hasExplicitDualAccentAlt = hasUserWhiteAccent && hasUserPurpleAltAccent && mixerAllowsAlt;
+        if (hasExplicitDualAccentAlt) {
+          const altGain = gainMulForRole('alt');
+          if (mainAccentClick && accentGain > 0) {
+            playSharpClick(
+              ctx,
+              subTime,
+              sharpAsChecked,
+              soundPreset,
+              accentOnlyPlayback,
+              'accent',
+              accentGain,
+            );
+          }
+          if (altGain > 0) {
+            playSharpClick(
+              ctx,
+              subTime,
+              false,
+              soundPreset,
+              accentOnlyPlayback,
+              'alt',
+              altGain,
+            );
+          }
+          if (polyModeRef.current) {
+            polyClickSlotsRef.current.add(polySlotKey);
+          }
+          return;
+        }
         const voiceRole: 'accent' | 'base' | 'alt' | null =
           hasUserWhiteAccent
             ? 'accent'
