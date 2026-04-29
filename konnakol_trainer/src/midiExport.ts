@@ -592,7 +592,9 @@ function buildPendingNotes(input: MidiExportInput): {
 	const seed = input.seed ?? 0x9e3779b9;
 	const rng = mulberry32(seed);
 	const maxNotes = input.maxNoteEvents ?? 200_000;
-	const maxWall = input.maxWallSeconds ?? 48;
+	const maxWallBase = input.maxWallSeconds ?? 48;
+	const barsSafetyWall = Math.max(1, Math.floor(input.bars ?? 1)) * 8;
+	const maxWall = Math.max(maxWallBase, barsSafetyWall);
 	const revolutions = Math.max(1, Math.floor(input.patternRevolutions ?? 1));
 	const playbackMode = normalizeSquarePlaybackModeForExport(input.squarePlaybackMode);
 	const passiveLayerMuted = input.squarePassiveLayerMuted === true;
@@ -922,7 +924,21 @@ function buildPendingNotes(input: MidiExportInput): {
 			return s;
 		});
 		const slowest = Math.max(1e-6, ...lanePatternSec);
-		const horizon = Math.min(maxWall, slowest * revolutions);
+		let totalGridSec = 0;
+		for (let b = 0; b < barCount; b++) {
+			totalGridSec += getBarTimeWindowSeconds(
+				b,
+				input.baseSyllables,
+				input.customSyllables,
+				pulseU,
+				mult,
+				input.progressiveDensityMode,
+				input.deSyncJatiActive,
+				input.deSyncCycleLength,
+				bpm,
+			);
+		}
+		const horizon = Math.min(maxWall, Math.max(slowest, totalGridSec * revolutions));
 		const polyClickSlots = new Set<string>();
 		const laneFirstBar = lanes.map((L) => (L.barIndices.length > 0 ? L.barIndices[0]! : -1));
 		const laneFirstStartTick: Array<number | null> = Array.from({ length: laneCount }, () => null);
@@ -1000,6 +1016,7 @@ function buildPendingNotes(input: MidiExportInput): {
 			} else {
 				best.cellCursor = nextCWithHeadHold;
 			}
+			if (!autoAlignTwoVoice && crossedBars >= Math.max(1, barCount * revolutions)) break;
 			// Truncation policy: one emitted cell always advances by one cell duration.
 			best.nextWall += dBar;
 			if (autoAlignTwoVoice) {
@@ -1172,6 +1189,18 @@ export function buildMidiWriterNoteTuples(input: MidiExportInput): {
 			notesOut = notesOut.filter((n) => !(n.tick === 0 && n.role === 'passive' && tracksWithAccentAtStart.has(n.trackIndex)));
 		}
 	}
+	const anchorBars = Math.max(1, Math.floor(input.bars ?? 1));
+	const anchorSyllables = Math.max(1, Math.floor(input.baseSyllables ?? 1));
+	const anchorTick = Math.max(0, Math.round((anchorBars - 1) * anchorSyllables * ppq));
+	notesOut.push({
+		trackIndex: 0,
+		lane: 0,
+		role: 'passive',
+		tick: anchorTick,
+		note: resolveMidiNoteForProfileRole('base', 'passive'),
+		velocity: toWriterVelocity(1),
+		durationTicks: 1,
+	});
 	notesOut = notesOut.sort(
 		(a, b) => a.tick - b.tick || a.trackIndex - b.trackIndex || a.note - b.note || a.velocity - b.velocity,
 	);
@@ -1194,7 +1223,28 @@ export type MidiWriterEvent = {
 };
 
 function canonicalizeWriterNotes(notes: MidiWriterNoteTuple[]): MidiWriterNoteTuple[] {
-	const sorted = [...notes].sort(
+	const rolePriority = (role: MidiExportRole): number =>
+		role === 'taHigh' ? 0 : role === 'accent' ? 1 : role === 'alt' ? 2 : 3;
+	const mergedByStart = new Map<string, MidiWriterNoteTuple>();
+	for (const n of notes) {
+		const startKey = `${n.trackIndex}:${n.tick}:${n.note}`;
+		const prev = mergedByStart.get(startKey);
+		if (!prev) {
+			mergedByStart.set(startKey, { ...n });
+			continue;
+		}
+		const useNextRole = rolePriority(n.role) < rolePriority(prev.role);
+		mergedByStart.set(startKey, {
+			...(useNextRole ? n : prev),
+			trackIndex: prev.trackIndex,
+			lane: prev.lane,
+			tick: prev.tick,
+			note: prev.note,
+			velocity: Math.max(prev.velocity, n.velocity),
+			durationTicks: Math.max(prev.durationTicks, n.durationTicks),
+		});
+	}
+	const sorted = [...mergedByStart.values()].sort(
 		(a, b) =>
 			a.trackIndex - b.trackIndex ||
 			a.tick - b.tick ||
@@ -1392,10 +1442,12 @@ export function generateMidi(input: MidiExportInput): Uint8Array {
 	}
 	if (drumTracks.length > 0) {
 		drumTracks[0].setTempo(bpm, 0);
+		drumTracks[0].setTimeSignature(Math.max(1, Math.floor(input.baseSyllables ?? 4)), 4);
 	} else {
 		const t = new MidiWriter.Track();
 		t.addTrackName('Tempo');
 		t.setTempo(bpm, 0);
+		t.setTimeSignature(Math.max(1, Math.floor(input.baseSyllables ?? 4)), 4);
 		drumTracks.push(t);
 	}
 
