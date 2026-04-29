@@ -933,7 +933,11 @@ const SequencerGridRow = React.memo(
 											a.holdTimerRef.current = null;
 										}
 										a.isHoldingRef.current = false;
-										a.handleCellDivUpdate(checkKey, 1);
+										// Keep true Divs=0 state on muted cells:
+										// opening editor is safer than implicit unmute-to-1.
+										a.setActiveEditRow(null);
+										a.setActiveEditCell(checkKey);
+										a.setIsPanelExpanded(true);
 										a.cellGestureMutexRef.current = null;
 										return;
 									}

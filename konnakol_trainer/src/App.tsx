@@ -5559,6 +5559,7 @@ export default function App() {
     customSyllables: { ...customSyllablesRef.current },
     customMultipliers: { ...customMultipliersRef.current },
     customSubdivisions: { ...customSubdivisionsRef.current },
+    cellStepMasks: { ...cellStepMasksRef.current },
     customCellSyllables: { ...customCellSyllablesRef.current },
     randomModeEnabled: randomModeEnabledRef.current,
     randomPulsation: randomPulsationRef.current,
