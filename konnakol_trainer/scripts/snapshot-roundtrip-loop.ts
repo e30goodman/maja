@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import MidiWriter from 'midi-writer-js';
+import { buildWriterEvents, generateMidi, type MidiExportInput, type MidiWriterEvent } from '../src/midiExport';
 
 type CompactSnapshot = {
   marker: string;
@@ -29,6 +29,23 @@ type MidiAnalysis = {
   inferredPolyRhythm: boolean;
   averageVelocityMidi: number;
   derivedNonNoteGainToken: string;
+  noteTruth: {
+    strictExpectedEvents: number;
+    strictActualEvents: number;
+    strictMismatches: number;
+    strictExactMatch: boolean;
+    strictFirstMismatch?: string;
+    expectedEvents: number;
+    actualNoteOns: number;
+    mismatches: number;
+    firstMismatch?: string;
+    exactMatch: boolean;
+    velocityMismatches: number;
+    firstVelocityMismatch?: string;
+    velocityExactMatch: boolean;
+    debugExpectedHead?: string[];
+    debugParsedHead?: string[];
+  };
 };
 
 type DeadCellMeta = {
@@ -45,6 +62,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
 const defaultOutDir = path.join(projectRoot, 'logs', 'snapshot-roundtrip-loop');
+const SNAPSHOT_FLAG_FIRST_BEAT_ACCENT = 1 << 7;
+const SNAPSHOT_FLAG_POLY_MODE = 1 << 8;
+const SNAPSHOT_FLAG_POLY_VOICES_3 = 1 << 9;
 
 function pickArg(flag: string): string | undefined {
   const idx = process.argv.findIndex((arg) => arg === flag);
@@ -161,9 +181,9 @@ function parseBarMultipliersFromGridToken(gridToken: string, bars: number): Reco
     return out;
   }
 
-  // Binary packed p1/p2/p3 token decode (multiplier section only).
+  // Binary packed p1/p2/p3/p4 token decode (multiplier section only).
   let b64 = gridToken;
-  if (gridToken.startsWith('p1') || gridToken.startsWith('p2') || gridToken.startsWith('p3')) {
+  if (gridToken.startsWith('p1') || gridToken.startsWith('p2') || gridToken.startsWith('p3') || gridToken.startsWith('p4')) {
     b64 = gridToken.slice(2);
   } else {
     return out;
@@ -173,7 +193,7 @@ function parseBarMultipliersFromGridToken(gridToken: string, bars: number): Reco
   let off = 0;
   const magic = bytes[off++]!;
   const version = bytes[off++]!;
-  if (magic !== 0x50 || (version !== 0x01 && version !== 0x02 && version !== 0x03)) return out;
+  if (magic !== 0x50 || (version !== 0x01 && version !== 0x02 && version !== 0x03 && version !== 0x04)) return out;
   const packedBars = bytes[off++]!;
   const packedSyllables = bytes[off++]!;
   if (packedBars < 1 || packedSyllables < 1) return out;
@@ -216,68 +236,155 @@ function parseBarMultipliersFromGridToken(gridToken: string, bars: number): Reco
   return out;
 }
 
-function generateMidiFromSnapshot(snapshot: CompactSnapshot): Uint8Array {
-  const ppq = 960;
-  const track = new MidiWriter.Track();
-  track.setTempo(snapshot.tempo, 0);
-  const deadCells = parseDeadCellsToken(snapshot.deadToken, snapshot.bars);
-  const barMultipliers = parseBarMultipliersFromGridToken(snapshot.gridToken, snapshot.bars);
-  const gainValue = parseGainToken(snapshot.deadToken);
-  if (gainValue !== null) {
-    const msb = (gainValue >> 4) & 0x0f;
-    const lsb = gainValue & 0x0f;
-    track.addEvent(
-      new MidiWriter.ControllerChangeEvent({
-        controllerNumber: GAIN_CC_MSB,
-        controllerValue: msb,
-        channel: 10,
-        tick: 0,
-      }),
-    );
-    track.addEvent(
-      new MidiWriter.ControllerChangeEvent({
-        controllerNumber: GAIN_CC_LSB,
-        controllerValue: lsb,
-        channel: 10,
-        tick: 0,
-      }),
-    );
+function buildCellIndexMap(bars: number, syllables: number, customSyllables: Record<number, number>): Array<{ key: string }> {
+  const cells: Array<{ key: string }> = [];
+  for (let r = 0; r < bars; r++) {
+    const rowSylls = customSyllables[r] ?? syllables;
+    for (let c = 0; c < rowSylls; c++) cells.push({ key: `${r}-${c}` });
   }
+  return cells;
+}
 
-  // Meter-aware decoder model:
-  // - nominal beats are from bar base length (dead token) or header syllables;
-  // - dead tail shortens the effective meter in that bar;
-  // - bar multiplier scales local tick spacing (faster bar => shorter ticks).
-  let tick = 0;
-  const velocity =
-    gainValue === null
-      ? 55
-      : Math.max(1, Math.min(127, Math.round((gainValue / 255) * 127)));
-  for (let bar = 0; bar < snapshot.bars; bar++) {
-    const dead = deadCells[bar];
-    const nominalBeats =
-      dead?.baseLen !== undefined ? Math.max(1, Math.floor(dead.baseLen)) : Math.max(1, Math.floor(snapshot.syllables));
-    const effectiveBeats =
-      dead?.deadStart !== undefined
-        ? Math.max(1, Math.min(nominalBeats, Math.floor(dead.deadStart) - 1))
-        : nominalBeats;
-    const barMul = Math.max(1, Math.min(4, Math.floor(barMultipliers[bar] ?? 1)));
-    const cellTicks = Math.max(1, Math.floor(ppq / barMul));
-    for (let cell = 0; cell < effectiveBeats; cell++) {
-      track.addEvent(
-        new MidiWriter.NoteEvent({
-          pitch: 42,
-          startTick: tick,
-          duration: `T${Math.max(1, Math.floor(cellTicks / 4))}`,
-          velocity,
-          channel: 10,
-        }),
-      );
-      tick += cellTicks;
+function decodePackedGridToken(gridToken: string, bars: number, syllables: number): {
+  customSyllables: Record<number, number>;
+  accents: Set<string>;
+  taDingKeys: Set<string>;
+  customSubdivisions: Record<string, number>;
+  customMultipliers: Record<number, number>;
+  pulseMeterUnlinked: Record<number, boolean>;
+  cellStepMasks: Record<string, boolean[]>;
+} {
+  const empty = {
+    customSyllables: {} as Record<number, number>,
+    accents: new Set<string>(),
+    taDingKeys: new Set<string>(),
+    customSubdivisions: {} as Record<string, number>,
+    customMultipliers: {} as Record<number, number>,
+    pulseMeterUnlinked: {} as Record<number, boolean>,
+    cellStepMasks: {} as Record<string, boolean[]>,
+  };
+  let b64 = gridToken;
+  if (gridToken.startsWith('p1') || gridToken.startsWith('p2') || gridToken.startsWith('p3') || gridToken.startsWith('p4')) b64 = gridToken.slice(2);
+  else return empty;
+  const bytes = fromBase64Url(b64);
+  if (!bytes || bytes.length < 6) return empty;
+  let off = 0;
+  const magic = bytes[off++]!;
+  const version = bytes[off++]!;
+  if (magic !== 0x50 || (version !== 0x01 && version !== 0x02 && version !== 0x03 && version !== 0x04)) return empty;
+  const packedBars = bytes[off++]!;
+  const packedSyllables = bytes[off++]!;
+  if (packedBars < 1 || packedSyllables < 1) return empty;
+  const rowCount = bytes[off++]!;
+  for (let i = 0; i < rowCount; i++) {
+    if (off + 1 >= bytes.length) return empty;
+    const r = bytes[off++]!;
+    const v = bytes[off++]!;
+    if (r < bars && v >= 1 && v <= 9) empty.customSyllables[r] = v;
+  }
+  const cells = buildCellIndexMap(bars, syllables, empty.customSyllables);
+  const cellCount = readU16(bytes, off);
+  if (cellCount === null) return empty;
+  off += 2;
+  const cappedCellCount = Math.min(cellCount, cells.length);
+  const accBytesLen = Math.ceil(cappedCellCount / 8);
+  if (off + accBytesLen > bytes.length) return empty;
+  for (let i = 0; i < cappedCellCount; i++) {
+    const byte = bytes[off + (i >> 3)]!;
+    if (((byte >> (i & 7)) & 1) === 1) empty.accents.add(cells[i]!.key);
+  }
+  off += accBytesLen;
+  if (version >= 0x03) {
+    const taBytesLen = Math.ceil(cappedCellCount / 8);
+    if (off + taBytesLen > bytes.length) return empty;
+    for (let i = 0; i < cappedCellCount; i++) {
+      const byte = bytes[off + (i >> 3)]!;
+      if (((byte >> (i & 7)) & 1) === 1) empty.taDingKeys.add(cells[i]!.key);
+    }
+    off += taBytesLen;
+  }
+  const subCount = readU16(bytes, off);
+  if (subCount === null) return empty;
+  off += 2;
+  for (let i = 0; i < subCount; i++) {
+    const idx = readU16(bytes, off);
+    if (idx === null) return empty;
+    off += 2;
+    if (off >= bytes.length) return empty;
+    const v = bytes[off++]!;
+    if (idx < cells.length && v >= 2 && v <= 9) empty.customSubdivisions[cells[idx]!.key] = v;
+  }
+  if (off >= bytes.length) return empty;
+  const multCount = bytes[off++]!;
+  for (let i = 0; i < multCount; i++) {
+    if (off + 1 >= bytes.length) return empty;
+    const r = bytes[off++]!;
+    const v = bytes[off++]!;
+    if (r < bars && v >= 2 && v <= 4) empty.customMultipliers[r] = v;
+  }
+  if (off >= bytes.length) return empty;
+  const pulseCount = bytes[off++]!;
+  for (let i = 0; i < pulseCount; i++) {
+    if (off >= bytes.length) return empty;
+    const r = bytes[off++]!;
+    if (r < bars) empty.pulseMeterUnlinked[r] = true;
+  }
+  if (version === 0x02 || version === 0x03 || version === 0x04) {
+    if (off < bytes.length) off += 1; // accentMapVersion
+  }
+  if (version >= 0x04) {
+    const maskCount = readU16(bytes, off);
+    if (maskCount === null) return empty;
+    off += 2;
+    for (let i = 0; i < maskCount; i++) {
+      const idx = readU16(bytes, off);
+      if (idx === null) return empty;
+      off += 2;
+      if (off + 2 >= bytes.length) return empty;
+      const len = bytes[off++]!;
+      const lo = bytes[off++]!;
+      const hi = bytes[off++]!;
+      if (idx >= cells.length || len < 1 || len > 9) continue;
+      const bits = lo | (hi << 8);
+      empty.cellStepMasks[cells[idx]!.key] = Array.from({ length: len }, (_, b) => ((bits >> b) & 1) === 1);
     }
   }
-  const writer = new MidiWriter.Writer([track], { ticksPerBeat: ppq });
-  return writer.buildFile();
+  return empty;
+}
+
+function buildMidiInputFromSnapshot(snapshot: CompactSnapshot): MidiExportInput {
+  const decoded = decodePackedGridToken(snapshot.gridToken, snapshot.bars, snapshot.syllables);
+  const flags = Number.parseInt(snapshot.flagsRaw, 10);
+  const polyMode = Number.isFinite(flags) ? (flags & SNAPSHOT_FLAG_POLY_MODE) !== 0 : false;
+  const polyVoices: 2 | 3 = Number.isFinite(flags) && (flags & SNAPSHOT_FLAG_POLY_VOICES_3) !== 0 ? 3 : 2;
+  const firstBeatAccent = Number.isFinite(flags) ? (flags & SNAPSHOT_FLAG_FIRST_BEAT_ACCENT) !== 0 : true;
+  return {
+    bpm: snapshot.tempo,
+    bars: snapshot.bars,
+    baseSyllables: snapshot.syllables,
+    customSyllables: decoded.customSyllables,
+    customSubdivisions: decoded.customSubdivisions,
+    cellStepMasks: decoded.cellStepMasks,
+    pulseMeterUnlinked: decoded.pulseMeterUnlinked,
+    customMultipliers: decoded.customMultipliers,
+    accents: decoded.accents,
+    taDingKeys: decoded.taDingKeys,
+    firstBeatAccent,
+    firstBeatDingSuppressedRows: new Set<number>(),
+    deadCells: parseDeadCellsToken(snapshot.deadToken, snapshot.bars),
+    polyMode,
+    polyVoices,
+    humanize: false,
+    seed: 1,
+    ppq: 960,
+    maxNoteEvents: 500_000,
+    maxWallSeconds: 120,
+    patternRevolutions: 1,
+  };
+}
+
+function generateMidiFromSnapshot(snapshot: CompactSnapshot): Uint8Array {
+  return generateMidi(buildMidiInputFromSnapshot(snapshot));
 }
 
 function readVarLen(bytes: Uint8Array, offset: number): { value: number; next: number } {
@@ -417,6 +524,18 @@ function analyzeMidi(bytes: Uint8Array): MidiAnalysis {
       ? gainFromCc
       : Math.max(0, Math.min(255, Math.round((averageVelocityMidi / 127) * 255)));
   const derivedNonNoteGainToken = `e:${gain255}`;
+  const noteTruth = {
+    strictExpectedEvents: 0,
+    strictActualEvents: 0,
+    strictMismatches: 0,
+    strictExactMatch: true,
+    expectedEvents: 0,
+    actualNoteOns: onsets,
+    mismatches: 0,
+    exactMatch: true,
+    velocityMismatches: 0,
+    velocityExactMatch: true,
+  };
   return {
     bpm,
     onsets,
@@ -427,25 +546,229 @@ function analyzeMidi(bytes: Uint8Array): MidiAnalysis {
     inferredPolyRhythm,
     averageVelocityMidi,
     derivedNonNoteGainToken,
+    noteTruth,
+  };
+}
+
+function verifyNoteTruth(snapshot: CompactSnapshot, midiBytes: Uint8Array): MidiAnalysis['noteTruth'] {
+  const input = buildMidiInputFromSnapshot(snapshot);
+  const writerVelocityToMidi = (v: number): number =>
+    Math.max(1, Math.min(127, Math.round((Math.max(1, Math.min(100, Math.round(v))) / 100) * 127)));
+  const writerEvents = buildWriterEvents(input).events;
+  const expectedNoteOnsRaw = writerEvents.filter((e) => e.type === 'noteOn');
+  const expectedNoteOnsSorted = expectedNoteOnsRaw
+    .map((e) => e as MidiWriterEvent)
+    .sort((a, b) => a.trackIndex - b.trackIndex || a.tick - b.tick || a.order - b.order);
+  const expectedNormalizedEvents: Array<{
+    track: number;
+    tick: number;
+    type: 'noteOn' | 'noteOff';
+    note: number;
+    velocity: number;
+    channel: number;
+    order: number;
+    durationTicks: number;
+  }> = [];
+  let expectedOrder = 0;
+  for (const e of expectedNoteOnsSorted) {
+    const note = e.note ?? 0;
+    const dur = Math.max(1, e.durationTicks ?? 1);
+    const startTick = e.tick;
+    const endTick = startTick + dur;
+    const onVelocity = writerVelocityToMidi(e.velocity ?? 1);
+    expectedNormalizedEvents.push({
+      track: e.trackIndex,
+      tick: startTick,
+      type: 'noteOn',
+      note,
+      velocity: onVelocity,
+      channel: e.channel,
+      order: expectedOrder++,
+      durationTicks: dur,
+    });
+    expectedNormalizedEvents.push({
+      track: e.trackIndex,
+      tick: endTick,
+      type: 'noteOff',
+      note,
+      velocity: onVelocity,
+      channel: e.channel,
+      order: expectedOrder++,
+      durationTicks: 0,
+    });
+  }
+  const parsed: Array<{ tick: number; note: number; velocity: number; track: number; status: 'noteOn' | 'noteOff'; channel: number }> = [];
+  const headerLen = readU32BE(midiBytes, 4);
+  let offset = 8 + headerLen;
+  let trackCounter = -1;
+  while (offset + 8 <= midiBytes.length) {
+    const chunkType = String.fromCharCode(...midiBytes.slice(offset, offset + 4));
+    const chunkLen = readU32BE(midiBytes, offset + 4);
+    offset += 8;
+    if (offset + chunkLen > midiBytes.length) break;
+    if (chunkType !== 'MTrk') {
+      offset += chunkLen;
+      continue;
+    }
+    trackCounter += 1;
+    const end = offset + chunkLen;
+    let i = offset;
+    let runningStatus = 0;
+    let absTicks = 0;
+    while (i < end) {
+      const dv = readVarLen(midiBytes, i);
+      absTicks += dv.value;
+      i = dv.next;
+      if (i >= end) break;
+      let status = midiBytes[i];
+      if (status < 0x80) {
+        if (runningStatus === 0) break;
+        status = runningStatus;
+      } else {
+        i += 1;
+        runningStatus = status < 0xf0 ? status : 0;
+      }
+      if (status === 0xff) {
+        if (i >= end) break;
+        i += 1;
+        const lv = readVarLen(midiBytes, i);
+        i = lv.next + lv.value;
+        continue;
+      }
+      if (status === 0xf0 || status === 0xf7) {
+        const lv = readVarLen(midiBytes, i);
+        i = lv.next + lv.value;
+        continue;
+      }
+      const eventType = status & 0xf0;
+      if (eventType === 0x90 || eventType === 0x80) {
+        const note = midiBytes[i] ?? 0;
+        const vel = midiBytes[i + 1] ?? 0;
+        const channel = (status & 0x0f) + 1;
+        i += 2;
+        if (eventType === 0x90 && vel > 0) {
+          parsed.push({ tick: absTicks, note, velocity: vel, track: Math.max(0, trackCounter), status: 'noteOn', channel });
+        } else {
+          parsed.push({ tick: absTicks, note, velocity: vel, track: Math.max(0, trackCounter), status: 'noteOff', channel });
+        }
+        continue;
+      }
+      if (eventType === 0xa0 || eventType === 0xb0 || eventType === 0xe0) {
+        i += 2;
+        continue;
+      }
+      if (eventType === 0xc0 || eventType === 0xd0) {
+        i += 1;
+        continue;
+      }
+      break;
+    }
+    offset = end;
+  }
+  const expectedStrictProjection = expectedNormalizedEvents
+    // MIDI stores events by track chunks; compare in that same canonical order.
+    .sort((a, b) => a.track - b.track || a.tick - b.tick || a.order - b.order);
+  const expectedStrict = expectedStrictProjection.map((e) => `${e.track}:${e.tick}:${e.type}:${e.note}:${e.velocity}:${e.channel}`);
+  const parsedStrict = parsed.map((e) => `${e.track}:${e.tick}:${e.status}:${e.note}:${e.velocity}:${e.channel}`);
+  let strictMismatches = Math.abs(expectedStrict.length - parsedStrict.length);
+  let strictFirstMismatch: string | undefined;
+  const strictLen = Math.min(expectedStrict.length, parsedStrict.length);
+  for (let i = 0; i < strictLen; i++) {
+    if (expectedStrict[i] !== parsedStrict[i]) {
+      strictMismatches += 1;
+      if (!strictFirstMismatch) strictFirstMismatch = `#${i + 1} expected=${expectedStrict[i]} got=${parsedStrict[i]}`;
+    }
+  }
+  if (!strictFirstMismatch && expectedStrict.length !== parsedStrict.length) {
+    strictFirstMismatch = `length expected=${expectedStrict.length} got=${parsedStrict.length}`;
+  }
+  const expectedOn = expectedStrictProjection.filter((e) => e.type === 'noteOn');
+  const parsedOn = parsed.filter((e) => e.status === 'noteOn');
+  const expectedTupleProjection = expectedOn.map((e) => `${e.track}:${e.tick}:${e.note}:${e.velocity}`);
+  const parsedTupleProjection = parsedOn.map((e) => `${e.track}:${e.tick}:${e.note}:${e.velocity}`);
+  const bag = (arr: string[]): Map<string, number> => {
+    const m = new Map<string, number>();
+    for (const k of arr) m.set(k, (m.get(k) ?? 0) + 1);
+    return m;
+  };
+  const expectedBag = bag(expectedTupleProjection);
+  const parsedBag = bag(parsedTupleProjection);
+  const allTupleKeys = new Set<string>([...expectedBag.keys(), ...parsedBag.keys()]);
+  let mismatches = 0;
+  let firstMismatch: string | undefined;
+  let tupleIdx = 0;
+  for (const key of allTupleKeys) {
+    tupleIdx++;
+    const expN = expectedBag.get(key) ?? 0;
+    const gotN = parsedBag.get(key) ?? 0;
+    if (expN !== gotN) {
+      mismatches += Math.abs(expN - gotN);
+      if (!firstMismatch) firstMismatch = `#${tupleIdx} tuple=${key} expectedCount=${expN} gotCount=${gotN}`;
+    }
+  }
+  let velocityMismatches = 0;
+  let firstVelocityMismatch: string | undefined;
+  const expectedVelTuples = expectedTupleProjection;
+  const parsedVelTuples = parsedTupleProjection;
+	const expectedVelBag = bag(expectedVelTuples);
+	const parsedVelBag = bag(parsedVelTuples);
+	const velKeys = new Set<string>([...expectedVelBag.keys(), ...parsedVelBag.keys()]);
+  let velIdx = 0;
+  for (const key of velKeys) {
+    velIdx++;
+    const expN = expectedVelBag.get(key) ?? 0;
+    const gotN = parsedVelBag.get(key) ?? 0;
+    if (expN !== gotN) {
+      velocityMismatches += Math.abs(expN - gotN);
+      if (!firstVelocityMismatch) firstVelocityMismatch = `#${velIdx} tuple=${key} expectedCount=${expN} gotCount=${gotN}`;
+    }
+  }
+  return {
+    strictExpectedEvents: expectedStrict.length,
+    strictActualEvents: parsedStrict.length,
+    strictMismatches,
+    strictExactMatch: strictMismatches === 0,
+    strictFirstMismatch,
+    expectedEvents: expectedOn.length,
+    actualNoteOns: parsedOn.length,
+    mismatches,
+    firstMismatch,
+    exactMatch: mismatches === 0,
+    velocityMismatches,
+    firstVelocityMismatch,
+    velocityExactMatch: velocityMismatches === 0,
+	debugExpectedHead: expectedTupleProjection.slice(0, 12),
+	debugParsedHead: parsedTupleProjection.slice(0, 12),
   };
 }
 
 function buildRoundtripSnapshot(source: CompactSnapshot, analyzed: MidiAnalysis): string {
   // Compatibility-first generation:
-  // - Known compact binary families (p1/p2/p3) stay stable.
+  // - Known compact binary families (p1/p2/p3/p4) stay stable.
   // - Unknown families use derived debug token.
   const derivedGridToken =
-    source.gridToken.startsWith('p1') || source.gridToken.startsWith('p2') || source.gridToken.startsWith('p3')
+    source.gridToken.startsWith('p1') ||
+    source.gridToken.startsWith('p2') ||
+    source.gridToken.startsWith('p3') ||
+    source.gridToken.startsWith('p4')
       ? source.gridToken
       : `rt${analyzed.onsets.toString(36)}_${Math.round(analyzed.lastOnsetMs).toString(36)}`;
+  const hasStablePackedGrid =
+    source.gridToken.startsWith('p1') ||
+    source.gridToken.startsWith('p2') ||
+    source.gridToken.startsWith('p3') ||
+    source.gridToken.startsWith('p4');
   const deadTokenOut = source.deadToken.startsWith('e:') ? analyzed.derivedNonNoteGainToken : source.deadToken;
+  const outTempo = hasStablePackedGrid ? source.tempo : analyzed.bpm;
+  const outBars = hasStablePackedGrid ? source.bars : analyzed.inferredBars;
+  const outSyllables = hasStablePackedGrid ? source.syllables : analyzed.inferredSyllables;
   let body = '';
   if (source.partCount === 11) {
     // Keep 11-part legacy shape stable; only update header and accent token placeholder.
     body = [
-      String(analyzed.bpm),
-      String(analyzed.inferredBars),
-      String(analyzed.inferredSyllables),
+      String(outTempo),
+      String(outBars),
+      String(outSyllables),
       '0',
       '0',
       '0',
@@ -457,9 +780,9 @@ function buildRoundtripSnapshot(source: CompactSnapshot, analyzed: MidiAnalysis)
     ].join('.');
   } else if (source.partCount === 7) {
     body = [
-      String(analyzed.bpm),
-      String(analyzed.inferredBars),
-      String(analyzed.inferredSyllables),
+      String(outTempo),
+      String(outBars),
+      String(outSyllables),
       derivedGridToken,
       source.chaosRaw,
       source.flagsRaw,
@@ -467,9 +790,9 @@ function buildRoundtripSnapshot(source: CompactSnapshot, analyzed: MidiAnalysis)
     ].join('.');
   } else {
     body = [
-      String(analyzed.bpm),
-      String(analyzed.inferredBars),
-      String(analyzed.inferredSyllables),
+      String(outTempo),
+      String(outBars),
+      String(outSyllables),
       derivedGridToken,
       deadTokenOut,
       source.chaosRaw,
@@ -489,6 +812,7 @@ async function run(): Promise<void> {
   const snapshot = parseSnapshot(inputSnapshot);
   const midiBytes = generateMidiFromSnapshot(snapshot);
   const analyzed = analyzeMidi(midiBytes);
+  analyzed.noteTruth = verifyNoteTruth(snapshot, midiBytes);
   const roundtrip = buildRoundtripSnapshot(snapshot, analyzed);
   const isMatch = roundtrip === snapshot.normalized;
 

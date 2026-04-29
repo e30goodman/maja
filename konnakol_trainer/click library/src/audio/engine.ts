@@ -1,6 +1,6 @@
 import { fillChannelDeterministicWhiteNoise } from '../../../src/deterministicWhiteNoiseFill';
 import { SoundConfig } from './sounds';
-import { getMetronomeSummingInput } from 'trainer-src/metraAudioBus';
+import { getMetronomeSummingInput } from '../../../src/metraAudioBus';
 
 class AudioEngine {
   private context: AudioContext | null = null;

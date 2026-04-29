@@ -487,6 +487,19 @@ const SNAPSHOT_FLAG_POLY_VOICES_3 = 1 << 9;
 const SNAPSHOT_FLAG_POLY_VOICES_4 = 1 << 10;
 /** Parent mode active: randomMode='parent'. Old snapshots without this flag are treated as 'free'. */
 const SNAPSHOT_FLAG_PARENT_MODE = 1 << 11;
+/** Extended compact snapshot payload marker: includes encoded mixer/trainer/playback/mute modes. */
+const SNAPSHOT_FLAG_MODE_FIELDS_PRESENT = 1 << 12;
+const SNAPSHOT_FLAG_TRAINER_HOLD_MUTE = 1 << 13;
+const SNAPSHOT_FLAG_SQUARE_PASSIVE_LAYER_MUTED = 1 << 14;
+const SNAPSHOT_FLAG_DICTANT_MODE = 1 << 15;
+const SNAPSHOT_FLAG_MIXER_LAYER_SHIFT = 16;
+const SNAPSHOT_FLAG_MIXER_LAYER_MASK = 0b11 << SNAPSHOT_FLAG_MIXER_LAYER_SHIFT;
+const SNAPSHOT_FLAG_TRAINER_MODE_SHIFT = 18;
+const SNAPSHOT_FLAG_TRAINER_MODE_MASK = 0b11 << SNAPSHOT_FLAG_TRAINER_MODE_SHIFT;
+const SNAPSHOT_FLAG_SQUARE_PLAYBACK_SHIFT = 20;
+const SNAPSHOT_FLAG_SQUARE_PLAYBACK_MASK = 0b11 << SNAPSHOT_FLAG_SQUARE_PLAYBACK_SHIFT;
+const SNAPSHOT_FLAG_SYLLABLE_MUTE_SHIFT = 22;
+const SNAPSHOT_FLAG_SYLLABLE_MUTE_MASK = 0b11 << SNAPSHOT_FLAG_SYLLABLE_MUTE_SHIFT;
 const SNAPSHOT_SOUND_ID_CLASSIC = 0;
 const SNAPSHOT_SOUND_ID_OLDSCHOOL = 1;
 const AUDIO_START_GUARD_SEC = 0.004;
@@ -2285,6 +2298,30 @@ function buildSnapshotFlags(s: ReturnType<typeof createEmptySnapshot>): number {
 	if (s.polyVoices === 3) flags |= SNAPSHOT_FLAG_POLY_VOICES_3;
 	// if (s.polyVoices === 4) flags |= SNAPSHOT_FLAG_POLY_VOICES_4; // 4-voice polyrythm temporarily disabled
 	if (s.randomMode === 'parent') flags |= SNAPSHOT_FLAG_PARENT_MODE;
+	flags |= SNAPSHOT_FLAG_MODE_FIELDS_PRESENT;
+	if (s.trainerHoldMute) flags |= SNAPSHOT_FLAG_TRAINER_HOLD_MUTE;
+	if (s.squarePassiveLayerMuted) flags |= SNAPSHOT_FLAG_SQUARE_PASSIVE_LAYER_MUTED;
+	if (s.dictantMode) flags |= SNAPSHOT_FLAG_DICTANT_MODE;
+	const mixerBits =
+		s.mixerLayerMode === 'no_alt' ? 1
+		: s.mixerLayerMode === 'alt_only' ? 2
+		: 0;
+	const trainerBits =
+		s.trainerMode === 'ta_only' ? 1
+		: s.trainerMode === 'dictation' ? 2
+		: 0;
+	const squareBits =
+		s.squarePlaybackMode === 'passive_no_alt' ? 1
+		: s.squarePlaybackMode === 'ta_only' ? 2
+		: 0;
+	const muteBits =
+		s.syllableReadMuteMode === 'full' ? 1
+		: s.syllableReadMuteMode === 'no_accent_sharp' ? 2
+		: 0;
+	flags |= (mixerBits << SNAPSHOT_FLAG_MIXER_LAYER_SHIFT) & SNAPSHOT_FLAG_MIXER_LAYER_MASK;
+	flags |= (trainerBits << SNAPSHOT_FLAG_TRAINER_MODE_SHIFT) & SNAPSHOT_FLAG_TRAINER_MODE_MASK;
+	flags |= (squareBits << SNAPSHOT_FLAG_SQUARE_PLAYBACK_SHIFT) & SNAPSHOT_FLAG_SQUARE_PLAYBACK_MASK;
+	flags |= (muteBits << SNAPSHOT_FLAG_SYLLABLE_MUTE_SHIFT) & SNAPSHOT_FLAG_SYLLABLE_MUTE_MASK;
 	return flags;
 }
 
@@ -2307,6 +2344,31 @@ function applySnapshotFlags(flags: number, d: ReturnType<typeof createEmptySnaps
 	// 4-voice polyrythm temporarily disabled.
 	d.polyVoices = (flags & SNAPSHOT_FLAG_POLY_VOICES_3) ? 3 : 2;
 	d.randomMode = flags & SNAPSHOT_FLAG_PARENT_MODE ? 'parent' : 'free';
+	if (flags & SNAPSHOT_FLAG_MODE_FIELDS_PRESENT) {
+		d.trainerHoldMute = Boolean(flags & SNAPSHOT_FLAG_TRAINER_HOLD_MUTE);
+		d.squarePassiveLayerMuted = Boolean(flags & SNAPSHOT_FLAG_SQUARE_PASSIVE_LAYER_MUTED);
+		d.dictantMode = Boolean(flags & SNAPSHOT_FLAG_DICTANT_MODE);
+		const mixerBits = (flags & SNAPSHOT_FLAG_MIXER_LAYER_MASK) >>> SNAPSHOT_FLAG_MIXER_LAYER_SHIFT;
+		const trainerBits = (flags & SNAPSHOT_FLAG_TRAINER_MODE_MASK) >>> SNAPSHOT_FLAG_TRAINER_MODE_SHIFT;
+		const squareBits = (flags & SNAPSHOT_FLAG_SQUARE_PLAYBACK_MASK) >>> SNAPSHOT_FLAG_SQUARE_PLAYBACK_SHIFT;
+		const muteBits = (flags & SNAPSHOT_FLAG_SYLLABLE_MUTE_MASK) >>> SNAPSHOT_FLAG_SYLLABLE_MUTE_SHIFT;
+		d.mixerLayerMode =
+			mixerBits === 1 ? 'no_alt'
+			: mixerBits === 2 ? 'alt_only'
+			: DEFAULT_MIXER_LAYER_MODE;
+		d.trainerMode =
+			trainerBits === 1 ? 'ta_only'
+			: trainerBits === 2 ? 'dictation'
+			: DEFAULT_TRAINER_MODE;
+		d.squarePlaybackMode =
+			squareBits === 1 ? 'passive_no_alt'
+			: squareBits === 2 ? 'ta_only'
+			: DEFAULT_SQUARE_PLAYBACK_MODE;
+		d.syllableReadMuteMode =
+			muteBits === 1 ? 'full'
+			: muteBits === 2 ? 'no_accent_sharp'
+			: 'off';
+	}
 }
 
 function buildSnapshotSoundId(s: ReturnType<typeof createEmptySnapshot>): number {
@@ -2435,6 +2497,12 @@ function createEmptySnapshot() {
 		formPresetId: 'random' as FormPresetId,
 		/** Press Matrix state for this snapshot: null=off, 'star'/'slider'=armed source. */
 		pressMatrixArmSource: null as PressArmSource | null,
+		/** Parent mode density progression source for export/log replay. */
+		progressiveDensityMode: 'gati_mode' as ProgressiveDensityMode,
+		/** Parent mode long-press jati toggle snapshot. */
+		deSyncJatiActive: false,
+		/** Parent mode de-sync cycle length for jati mode. */
+		deSyncCycleLength: undefined as number | undefined,
 	};
 }
 
@@ -2680,7 +2748,7 @@ function parseSnapshotRow(raw: unknown) {
 		}
 		d.deadCells = nextDead;
 	}
-	if (isRandomMode(o.randomMode)) d.randomMode = o.randomMode;
+	d.randomMode = 'free';
 	const pg = parentGenomeFromJSON(o.parentGenome);
 	if (pg) d.parentGenome = pg;
 	const pl = parseInt(String(o.parentLength), 10);
@@ -2695,6 +2763,16 @@ function parseSnapshotRow(raw: unknown) {
 		d.pressMatrixArmSource = o.pressMatrixArmSource;
 	} else {
 		d.pressMatrixArmSource = null;
+	}
+	if (o.progressiveDensityMode === 'gati_mode' || o.progressiveDensityMode === 'jati_mode') {
+		d.progressiveDensityMode = o.progressiveDensityMode;
+	}
+	d.deSyncJatiActive = o.deSyncJatiActive === true;
+	if (o.deSyncCycleLength === undefined || o.deSyncCycleLength === null) {
+		d.deSyncCycleLength = undefined;
+	} else {
+		const parsedCycle = Math.floor(Number(o.deSyncCycleLength));
+		d.deSyncCycleLength = Number.isFinite(parsedCycle) && parsedCycle >= 1 ? parsedCycle : undefined;
 	}
 	const tdkIn = o.taDingKeys;
 	if (Array.isArray(tdkIn)) {
@@ -5611,6 +5689,9 @@ export default function App() {
     enabledMutations: [...enabledMutationsRef.current],
     formPresetId: formPresetIdRef.current,
     pressMatrixArmSource: getPressArmSource(),
+    progressiveDensityMode: progressiveDensityModeRef.current,
+    deSyncJatiActive: deSyncJatiActiveRef.current,
+    deSyncCycleLength: deSyncCycleLengthRef.current,
   });
 
   const prefillAllTactsRandomizer = useCallback((compositionSeedOverride?: number) => {
@@ -6459,6 +6540,9 @@ export default function App() {
       randomSpeed: raw.randomSpeed,
       randomBarSpeed: raw.randomBarSpeed,
       chaosLevel: raw.chaosLevel,
+      progressiveDensityMode: (raw as { progressiveDensityMode?: unknown }).progressiveDensityMode,
+      deSyncJatiActive: (raw as { deSyncJatiActive?: unknown }).deSyncJatiActive,
+      deSyncCycleLength: (raw as { deSyncCycleLength?: unknown }).deSyncCycleLength,
       clickSound: raw.clickSound,
       clickSoundByPolyVoice: (raw as { clickSoundByPolyVoice?: unknown }).clickSoundByPolyVoice,
       clickBusBalance: (raw as AppSnapshot).clickBusBalance,
@@ -6962,6 +7046,7 @@ export default function App() {
         customSyllables: { ...snap.customSyllables },
         customMultipliers: { ...(snap.customMultipliers || {}) },
         customSubdivisions: { ...(snap.customSubdivisions || {}) },
+        cellStepMasks: { ...((snap as { cellStepMasks?: CellStepMasks }).cellStepMasks || {}) },
         customCellSyllables: { ...((snap as { customCellSyllables?: Record<string, string> }).customCellSyllables || {}) },
         accents: new Set(nextAccents),
         taDingKeys: new Set(nextTaDing),

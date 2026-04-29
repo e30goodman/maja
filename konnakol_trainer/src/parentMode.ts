@@ -448,81 +448,38 @@ export type ArudiReason = 'symmetry_close' | 'phrase_cadence';
  * `phraseStep` — индекс внутри фразы [0, phraseLength). `parentBarIdx` ∈ {0,1} — какой из
  * двух parent-тактов используется (для ParentLength=1 всегда 0).
  */
+type PhraseRoleShared = {
+	phraseId: number;
+	phraseStep: number;
+	phraseLength: number;
+	parentBarIdx: 0 | 1;
+	pulseOffsetBeforeBar?: number;
+	densityFreeze?: boolean;
+	deSyncJati?: boolean;
+	localCycleLength?: number;
+	bridgeKind?: 'resync' | 'de_sync_prep' | 'gati_prep';
+	gatiTargetSub?: number;
+	intensityTarget?: number;
+	tihaiPrefixBars?: number;
+	tihaiGapBars?: number;
+	tihaiGapPulses?: number;
+	tihaiLandingIndex?: number;
+	tihaiPulseLen?: number;
+	triggerJatiAction?: { targetCurSyl: 5 | 7 | 9; source: 'auto' | 'ui' };
+	emotionalProfile?: EmotionalProfile;
+	arudiReason?: ArudiReason;
+	prasaMaxEditDistance?: number;
+};
+
+type MutationPhraseRole = {
+	[K in MutationType]: PhraseRoleShared & { type: K };
+}[MutationType];
+
 export type PhraseRole =
-	| {
-			type: MutationType;
-			phraseId: number;
-			phraseStep: number;
-			phraseLength: number;
-			parentBarIdx: 0 | 1;
-			/** Глобальный пульс перед стартом бара (running accumulator). */
-			pulseOffsetBeforeBar?: number;
-			/** Freeze-окно плотности перед финальным блоком. */
-			densityFreeze?: boolean;
-			/** Автономный Jati режим (de-sync относительно ADI-8). */
-			deSyncJati?: boolean;
-			/** Локальная длина цикла для de-sync, если используется. */
-			localCycleLength?: number;
-			/** Целевой уровень gati/subdiv для progressive эскалации. */
-			gatiTargetSub?: number;
-			/** Интенсивность фразы 0..1 для crescendo-слоя. */
-			intensityTarget?: number;
-			/** Tihai plan: число префиксных karvai-баров перед формулой. */
-			tihaiPrefixBars?: number;
-			/** Tihai plan: длина одного gap-блока в барах внутри формулы 3P + 2G. */
-			tihaiGapBars?: number;
-			/** Tihai plan: длина karvai внутри gap-бара в пульсах (для частичного затухания). */
-			tihaiGapPulses?: number;
-			/** Tihai plan: индекс landing-слага внутри последнего бара. */
-			tihaiLandingIndex?: number;
-			/** Плановая длина tihai-бара в пульсах для строгого Plan=Fact. */
-			tihaiPulseLen?: number;
-			/** Явная инструкция для App-layer: применить единый Jati action. */
-			triggerJatiAction?: { targetCurSyl: 5 | 7 | 9; source: 'auto' | 'ui' };
-			/** Художественный профиль фразы (агрессия/плавность/симметрия). */
-			emotionalProfile?: EmotionalProfile;
-			/** Причина внутреннего каданса, если текущий бар отмечен как Arudi. */
-			arudiReason?: ArudiReason;
-			/** Ограничение вариативности prasa на этом шаге. */
-			prasaMaxEditDistance?: number;
-	  }
-	| {
-			type: 'resync_bridge';
-			phraseId: number;
-			phraseStep: 0;
-			phraseLength: 1;
-			parentBarIdx: 0 | 1;
-			pulseOffsetBeforeBar?: number;
-			localCycleLength?: number;
-			bridgeKind?: 'resync' | 'de_sync_prep' | 'gati_prep';
-			emotionalProfile?: EmotionalProfile;
-	  }
-	| {
-			type: 'parent';
-			phraseId: number;
-			phraseStep: 0;
-			phraseLength: 1;
-			parentBarIdx: 0 | 1;
-			emotionalProfile?: EmotionalProfile;
-	  }
-	| {
-			type: 'free';
-			phraseId: number;
-			phraseStep: 0;
-			phraseLength: 1;
-			parentBarIdx: 0;
-			emotionalProfile?: EmotionalProfile;
-	  }
-	| {
-			type: 'resync_bridge';
-			phraseId: number;
-			phraseStep: 0;
-			phraseLength: 1;
-			parentBarIdx: 0 | 1;
-			pulseOffsetBeforeBar?: number;
-			localCycleLength?: number;
-			emotionalProfile?: EmotionalProfile;
-	  };
+	| MutationPhraseRole
+	| (PhraseRoleShared & { type: 'resync_bridge' })
+	| (PhraseRoleShared & { type: 'parent' })
+	| (PhraseRoleShared & { type: 'free'; parentBarIdx: 0 });
 
 export type PhraseSchedule = PhraseRole[];
 
@@ -1314,7 +1271,7 @@ export function buildPhraseSchedule(ctx: SchedulerContext): PhraseSchedule {
 							densityFreeze: isDensityFreezeBar(out.length, bars),
 							deSyncJati,
 							localCycleLength: deSyncJati ? deSyncCycleLength : undefined,
-						});
+						} as PhraseRole);
 						globalPulseAccumulator += estimateRolePulseLen(
 							{ type: breath, phraseStep: step, phraseLength: len },
 							motifL,
@@ -1881,7 +1838,7 @@ export function buildPhraseSchedule(ctx: SchedulerContext): PhraseSchedule {
 				tihaiLandingIndex: chosen === 'tihai' ? phraseTihaiPlan?.landingIndex : undefined,
 				tihaiPulseLen:
 					chosen === 'tihai' && preset === 'progressive' && hasExplicitMotifPulseLen ? motifL : undefined,
-			});
+			} as PhraseRole);
 			globalPulseAccumulator += estimateRolePulseLen(
 				{ type: chosen, phraseStep: step, phraseLength: len },
 				motifL,
@@ -2724,7 +2681,7 @@ function applyStrongBeatPhonetics(genome: BarGenome, role: Extract<PhraseRole, {
 	for (const beat of [0, 4]) {
 		if (beat >= live) continue;
 		const cur = genome.cellSyllables[beat];
-		if (cur === 'Thom' && role.type === 'tihai' && role.phraseStep === role.phraseLength - 1) continue;
+		if (cur === 'Thom' && role.phraseStep === role.phraseLength - 1) continue;
 		genome.cellSyllables[beat] = 'Ta';
 	}
 }
@@ -3072,11 +3029,7 @@ export function applyParentModeBar(args: ApplyParentModeArgs): boolean {
 		}
 	}
 	const allowedThomIndex =
-		role.type !== 'parent' &&
-		role.type !== 'free' &&
-		role.type !== 'resync_bridge' &&
-		role.type === 'tihai' &&
-		role.phraseStep === role.phraseLength - 1
+		role.type === 'tihai' && role.phraseStep === role.phraseLength - 1
 			? resolveFinalTihaiLandingIndex(nextGenome.curSyl, role.tihaiLandingIndex)
 			: null;
 	scrubInternalThom(nextGenome, allowedThomIndex);

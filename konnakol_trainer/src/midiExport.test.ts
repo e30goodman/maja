@@ -3,6 +3,7 @@
  */
 import assert from 'node:assert/strict';
 import {
+	buildWriterEvents,
 	buildMidiParityEvents,
 	classifyGridCellHits,
 	computeVelocity,
@@ -350,6 +351,59 @@ function testFirstSubstepMaskBlocksPrimaryHits() {
 	assert.equal(cellEvents.some((e) => e.role === 'taHigh' || e.role === 'accent'), false);
 }
 
+function testBuildWriterEventsStrictOrderAndOffEvents() {
+	const { events } = buildWriterEvents({
+		bpm: 120,
+		bars: 1,
+		baseSyllables: 4,
+		customSyllables: {},
+		customSubdivisions: {},
+		accents: new Set<string>(['0-0']),
+		taDingKeys: new Set<string>(),
+		firstBeatAccent: false,
+		firstBeatDingSuppressedRows: new Set<number>(),
+		deadCells: {},
+		polyMode: false,
+		polyVoices: 2,
+		humanize: false,
+		seed: 1,
+		ppq: 960,
+		maxNoteEvents: 1000,
+		maxWallSeconds: 30,
+		patternRevolutions: 1,
+	});
+	assert.ok(events.length > 6);
+	assert.equal(events[0]?.type, 'cc10');
+	const noteOnIdx = events.findIndex((e) => e.type === 'noteOn');
+	const noteOffIdx = events.findIndex((e) => e.type === 'noteOff');
+	assert.ok(noteOnIdx >= 0 && noteOffIdx > noteOnIdx);
+	assert.equal(events.every((e, idx) => e.order === idx), true);
+}
+
+function testMonoRegressionSmoke() {
+	const bytes = generateMidi({
+		bpm: 120,
+		bars: 2,
+		baseSyllables: 4,
+		customSyllables: {},
+		customSubdivisions: { '0-1': 2 },
+		accents: new Set<string>(['0-0', '1-2']),
+		taDingKeys: new Set<string>(['1-0']),
+		firstBeatAccent: true,
+		firstBeatDingSuppressedRows: new Set<number>(),
+		deadCells: {},
+		polyMode: false,
+		polyVoices: 2,
+		humanize: false,
+		seed: 123,
+		ppq: 960,
+		maxNoteEvents: 1000,
+		maxWallSeconds: 30,
+		patternRevolutions: 1,
+	});
+	assert.ok(bytes.length > 100);
+}
+
 function run() {
 	testSyllableToDrumNote();
 	testComputeVelocity();
@@ -368,6 +422,8 @@ function run() {
 	testParityNoAltOnExplicitTaDingCell();
 	testLaneRoleMidiNotes();
 	testFirstSubstepMaskBlocksPrimaryHits();
+	testBuildWriterEventsStrictOrderAndOffEvents();
+	testMonoRegressionSmoke();
 	console.log('midiExport.test.ts: all passed');
 }
 

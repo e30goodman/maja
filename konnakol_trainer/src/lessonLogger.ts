@@ -2102,7 +2102,7 @@ export function buildGridLessonLogMarkdown(input: {
 		firstBeatDingSuppressedRows: input.firstBeatDingSuppressedRows ?? [],
 		deadCells: input.deadCells,
 		polyMode: input.polyMode,
-		polyVoices: input.polyVoices,
+		polyVoices: input.polyVoices === 3 ? 3 : 2,
 		progressiveDensityMode: input.progressiveDensityMode,
 		deSyncJatiActive: input.deSyncJatiActive,
 		deSyncCycleLength: input.deSyncCycleLength,

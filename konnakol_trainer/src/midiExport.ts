@@ -10,6 +10,7 @@ import { buildRowCellSyllableLabels, type KalamMap, type RowRuntimeContext } fro
 import { resolveEffectiveStepMask, type CellStepMasks } from './stepMask';
 
 const PULSE_METER_BASE_SYLLABLES = 4;
+const LEGACY_TICK_OFFSET = 3840;
 
 export type MidiSquarePlaybackMode = 'passive_no_alt' | 'full_mix' | 'ta_only';
 export type MidiMixerLayerMode = 'full_mix' | 'no_alt' | 'alt_only';
@@ -1063,21 +1064,287 @@ export function buildMidiParityEvents(input: MidiExportInput): {
 	return { bpm, ppq, events };
 }
 
-export function generateMidi(input: MidiExportInput): Uint8Array {
+export type MidiWriterNoteTuple = {
+	trackIndex: number;
+	lane: number;
+	role: MidiExportRole;
+	tick: number;
+	note: number;
+	velocity: number;
+	durationTicks: number;
+};
+
+export function buildMidiWriterNoteTuples(input: MidiExportInput): {
+	bpm: number;
+	ppq: number;
+	laneCount: number;
+	trackLaneByIndex: number[];
+	notes: MidiWriterNoteTuple[];
+} {
 	const { pending, bpm, ppq, laneCount, laneProfiles } = buildPendingNotes(input);
+	if (laneCount === 1) {
+		const roleOrder = (r: MidiExportRole): number =>
+			r === 'accent' ? 0 : r === 'passive' ? 1 : r === 'alt' ? 2 : 3;
+		const norm = pending
+			.map((n) => ({
+				...n,
+				role: n.role === 'taHigh' ? ('accent' as MidiExportRole) : n.role,
+				pitch: n.role === 'taHigh' ? MIDI_V1_ACCENT_NOTE : n.pitch,
+				tick: LEGACY_TICK_OFFSET + Math.max(0, Math.floor(n.tick / 2)),
+				durationTicks: Math.max(1, Math.floor(n.durationTicks / 2)),
+			}))
+			.filter((n) => n.role === 'accent' || n.role === 'alt' || n.role === 'passive')
+			.sort((a, b) => (a.tick - b.tick) || (roleOrder(a.role) - roleOrder(b.role)));
+		const seen = new Set<string>();
+		const notes: MidiWriterNoteTuple[] = [];
+		for (const n of norm) {
+			const dedupeKey = `${n.tick}:${n.pitch}:${n.durationTicks}:${n.role}`;
+			if (seen.has(dedupeKey)) continue;
+			seen.add(dedupeKey);
+			notes.push({
+				trackIndex: 0,
+				lane: 0,
+				role: n.role,
+				tick: n.tick,
+				note: n.pitch,
+				velocity: n.velocity,
+				durationTicks: n.durationTicks,
+			});
+		}
+		return { bpm, ppq: 480, laneCount, trackLaneByIndex: [0], notes };
+	}
+	const normalizeTrackIndex = (trackIndex: number): number => {
+		if (laneCount === 1 && trackIndex === 3) return 0;
+		if (laneCount > 1) return Math.floor(trackIndex / 4);
+		return trackIndex;
+	};
+	const usedTrackIndices = Array.from(new Set(pending.map((n) => normalizeTrackIndex(n.trackIndex)))).sort((a, b) => a - b);
+	const trackIndexToDense = new Map<number, number>();
+	const denseToLane: number[] = [];
+	for (let dense = 0; dense < usedTrackIndices.length; dense++) {
+		const rawTrackIdx = usedTrackIndices[dense];
+		trackIndexToDense.set(rawTrackIdx, dense);
+		denseToLane[dense] = rawTrackIdx;
+	}
+	const notes: MidiWriterNoteTuple[] = [];
+	if (laneCount > 1) {
+		for (let dense = 0; dense < usedTrackIndices.length; dense++) {
+			const lane = denseToLane[dense] ?? dense;
+			const hasTaAtStart = pending.some((n) => n.lane === lane && n.role === 'taHigh' && n.tick === 0);
+			if (!hasTaAtStart) continue;
+			const laneProfile = laneProfiles[lane] ?? 'base';
+			notes.push({
+				trackIndex: dense,
+				lane,
+				role: 'accent',
+				tick: lane > 0 ? Math.max(1, Math.round(ppq / 4)) : 0,
+				note: resolveMidiNoteForProfileRole(laneProfile, 'accent'),
+				velocity: toWriterVelocity(108),
+				durationTicks: Math.max(1, Math.round(ppq / 4)),
+			});
+		}
+	}
+	for (const n of pending) {
+		const denseIdx = trackIndexToDense.get(normalizeTrackIndex(n.trackIndex));
+		if (denseIdx === undefined) continue;
+		const laneProfile = laneProfiles[n.lane] ?? 'base';
+		const outPitch =
+			laneCount > 1 && n.role === 'taHigh'
+				? resolveMidiNoteForProfileRole(laneProfile, 'accent')
+				: n.pitch;
+		notes.push({
+			trackIndex: denseIdx,
+			lane: n.lane,
+			role: n.role,
+			tick: n.tick,
+			note: outPitch,
+			velocity: n.velocity,
+			durationTicks: n.durationTicks,
+		});
+	}
+	let notesOut = [...notes];
+	if (laneCount > 1) {
+		const tracksWithAccentAtStart = new Set<number>();
+		for (const n of notesOut) {
+			if (n.tick === 0 && (n.role === 'accent' || n.role === 'taHigh')) tracksWithAccentAtStart.add(n.trackIndex);
+		}
+		if (tracksWithAccentAtStart.size > 0) {
+			notesOut = notesOut.filter((n) => !(n.tick === 0 && n.role === 'passive' && tracksWithAccentAtStart.has(n.trackIndex)));
+		}
+	}
+	notesOut = notesOut.sort(
+		(a, b) => a.tick - b.tick || a.trackIndex - b.trackIndex || a.note - b.note || a.velocity - b.velocity,
+	);
+	return { bpm, ppq, laneCount, trackLaneByIndex: denseToLane, notes: notesOut };
+}
+
+export type MidiWriterEvent = {
+	order: number;
+	trackIndex: number;
+	lane: number;
+	type: 'cc10' | 'noteOn' | 'noteOff';
+	tick: number;
+	channel: number;
+	note?: number;
+	velocity?: number;
+	durationTicks?: number;
+	controllerNumber?: 10;
+	controllerValue?: number;
+	role?: MidiExportRole;
+};
+
+function canonicalizeWriterNotes(notes: MidiWriterNoteTuple[]): MidiWriterNoteTuple[] {
+	const sorted = [...notes].sort(
+		(a, b) =>
+			a.trackIndex - b.trackIndex ||
+			a.tick - b.tick ||
+			a.note - b.note ||
+			a.velocity - b.velocity ||
+			a.durationTicks - b.durationTicks,
+	);
+	const nextFreeTickByTrackNote = new Map<string, number>();
+	const out: MidiWriterNoteTuple[] = [];
+	const seen = new Set<string>();
+	for (const n of sorted) {
+		const keyTrackNote = `${n.trackIndex}:${n.note}`;
+		const nextFree = nextFreeTickByTrackNote.get(keyTrackNote) ?? 0;
+		const startTick = Math.max(n.tick, nextFree);
+		const durationTicks = Math.max(1, n.durationTicks);
+		const normalized: MidiWriterNoteTuple = {
+			...n,
+			tick: startTick,
+			durationTicks,
+		};
+		const identity = `${normalized.trackIndex}:${normalized.tick}:${normalized.note}:${normalized.velocity}:${normalized.durationTicks}`;
+		if (seen.has(identity)) continue;
+		seen.add(identity);
+		out.push(normalized);
+		nextFreeTickByTrackNote.set(keyTrackNote, startTick + durationTicks);
+	}
+	return out;
+}
+
+export function buildWriterEvents(input: MidiExportInput): {
+	bpm: number;
+	ppq: number;
+	laneCount: number;
+	trackLaneByIndex: number[];
+	events: MidiWriterEvent[];
+} {
+	const { bpm, ppq, laneCount, trackLaneByIndex, notes } = buildMidiWriterNoteTuples(input);
+	const canonicalNotes = canonicalizeWriterNotes(notes);
+	const laneProfileFor = (lane: number): MidiLaneProfile => (lane <= 0 ? 'base' : lane === 1 ? 'contrast' : 'ring');
+	const rawEvents: MidiWriterEvent[] = [];
+	let order = 0;
+	const pushEvent = (event: Omit<MidiWriterEvent, 'order'>): void => {
+		rawEvents.push({ order: order++, ...event });
+	};
+	if (laneCount === 1) {
+		const laneProfile = laneProfileFor(0);
+		for (let i = 0; i < 3; i++) {
+			pushEvent({
+				trackIndex: 0,
+				lane: 0,
+				type: 'cc10',
+				tick: LEGACY_TICK_OFFSET,
+				channel: DRUM_CHANNEL,
+				controllerNumber: 10,
+				controllerValue: lanePanCc10(laneProfile),
+			});
+		}
+		for (const n of canonicalNotes) {
+			pushEvent({
+				trackIndex: n.trackIndex,
+				lane: n.lane,
+				type: 'noteOn',
+				tick: n.tick,
+				channel: DRUM_CHANNEL,
+				note: n.note,
+				velocity: n.velocity,
+				durationTicks: n.durationTicks,
+				role: n.role,
+			});
+			pushEvent({
+				trackIndex: n.trackIndex,
+				lane: n.lane,
+				type: 'noteOff',
+				tick: n.tick + Math.max(1, n.durationTicks),
+				channel: DRUM_CHANNEL,
+				note: n.note,
+				velocity: 0,
+				role: n.role,
+			});
+		}
+		const deduped: MidiWriterEvent[] = [];
+		const seen = new Set<string>();
+		for (const e of rawEvents) {
+			const key = `${e.trackIndex}:${e.tick}:${e.type}:${e.note ?? -1}:${e.velocity ?? -1}:${e.channel}:${e.durationTicks ?? -1}:${e.controllerNumber ?? -1}:${e.controllerValue ?? -1}`;
+			if (seen.has(key)) continue;
+			seen.add(key);
+			deduped.push(e);
+		}
+		return { bpm, ppq, laneCount, trackLaneByIndex, events: deduped.map((e, idx) => ({ ...e, order: idx })) };
+	}
+	const usedTrackIndices = Array.from(new Set(notes.map((n) => n.trackIndex))).sort((a, b) => a - b);
+	for (let dense = 0; dense < usedTrackIndices.length; dense++) {
+		const lane = trackLaneByIndex[dense] ?? dense;
+		pushEvent({
+			trackIndex: dense,
+			lane,
+			type: 'cc10',
+			tick: 0,
+			channel: DRUM_CHANNEL,
+			controllerNumber: 10,
+			controllerValue: lanePanCc10(laneProfileFor(lane)),
+		});
+	}
+	for (const n of canonicalNotes) {
+		pushEvent({
+			trackIndex: n.trackIndex,
+			lane: n.lane,
+			type: 'noteOn',
+			tick: n.tick,
+			channel: DRUM_CHANNEL,
+			note: n.note,
+			velocity: n.velocity,
+			durationTicks: n.durationTicks,
+			role: n.role,
+		});
+		pushEvent({
+			trackIndex: n.trackIndex,
+			lane: n.lane,
+			type: 'noteOff',
+			tick: n.tick + Math.max(1, n.durationTicks),
+			channel: DRUM_CHANNEL,
+			note: n.note,
+			velocity: 0,
+			role: n.role,
+		});
+	}
+	const deduped: MidiWriterEvent[] = [];
+	const seen = new Set<string>();
+	for (const e of rawEvents) {
+		const key = `${e.trackIndex}:${e.tick}:${e.type}:${e.note ?? -1}:${e.velocity ?? -1}:${e.channel}:${e.durationTicks ?? -1}:${e.controllerNumber ?? -1}:${e.controllerValue ?? -1}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		deduped.push(e);
+	}
+	return { bpm, ppq, laneCount, trackLaneByIndex, events: deduped.map((e, idx) => ({ ...e, order: idx })) };
+}
+
+export function generateMidi(input: MidiExportInput): Uint8Array {
+	const { bpm, ppq, laneCount, trackLaneByIndex, events } = buildWriterEvents(input);
+	const laneProfileFor = (lane: number): MidiLaneProfile => (lane <= 0 ? 'base' : lane === 1 ? 'contrast' : 'ring');
 	if (laneCount === 1) {
 		// Legacy compatibility mode (reference-aligned):
 		// - single track (type-0 writer output)
 		// - 480 TPB timeline with 1-bar lead-in offset
 		// - 3 instrument voices only: Accent/Alt/Passive (TaHigh merged into Accent)
-		const LEGACY_TPB = 480;
-		const LEGACY_TICK_OFFSET = 3840;
-		const roleOrder = (r: MidiExportRole): number =>
-			r === 'accent' ? 0 : r === 'passive' ? 1 : r === 'alt' ? 2 : 3;
-		const laneProfile = laneProfiles[0] ?? 'base';
+		const LEGACY_TPB = ppq;
+		const laneProfile = laneProfileFor(0);
 		const tr = new MidiWriter.Track();
 		tr.addTrackName('Tempo');
-		tr.setTempo(bpm, LEGACY_TICK_OFFSET);
+		tr.setTempo(bpm, 3840);
 		// Keep role-channel CC pan events (historical compatibility: 3 identical CC10 at start tick).
 		for (let i = 0; i < 3; i++) {
 			tr.addEvent(
@@ -1089,28 +1356,15 @@ export function generateMidi(input: MidiExportInput): Uint8Array {
 				}),
 			);
 		}
-		const norm = pending
-			.map((n) => ({
-				...n,
-				role: n.role === 'taHigh' ? 'accent' : n.role,
-				pitch: n.role === 'taHigh' ? MIDI_V1_ACCENT_NOTE : n.pitch,
-				tick: LEGACY_TICK_OFFSET + Math.max(0, Math.floor(n.tick / 2)),
-				durationTicks: Math.max(1, Math.floor(n.durationTicks / 2)),
-			}))
-			.filter((n) => n.role === 'accent' || n.role === 'alt' || n.role === 'passive')
-			.sort((a, b) => (a.tick - b.tick) || (roleOrder(a.role) - roleOrder(b.role)));
-		const seen = new Set<string>();
-		for (const n of norm) {
-			const dedupeKey = `${n.tick}:${n.pitch}:${n.durationTicks}:${n.role}`;
-			if (seen.has(dedupeKey)) continue;
-			seen.add(dedupeKey);
+		for (const n of events) {
+			if (n.type !== 'noteOn' || n.note === undefined || n.velocity === undefined || n.durationTicks === undefined) continue;
 			tr.addEvent(
 				new MidiWriter.NoteEvent({
-					pitch: n.pitch,
+					pitch: n.note,
 					startTick: n.tick,
 					duration: `T${n.durationTicks}`,
 					velocity: n.velocity,
-					channel: DRUM_CHANNEL,
+					channel: n.channel,
 				}),
 			);
 		}
@@ -1118,28 +1372,14 @@ export function generateMidi(input: MidiExportInput): Uint8Array {
 		return writer.buildFile();
 	}
 
-	const labels = ['Accent', 'Alt', 'Passive', 'TaHigh'] as const;
-	const normalizeTrackIndex = (trackIndex: number): number => {
-		// Legacy export keeps only 3 tracks: Accent/Alt/Passive.
-		// TaHigh events are merged into Accent track.
-		if (laneCount === 1 && trackIndex === 3) return 0;
-		// Poly export: one instrument track per lane.
-		if (laneCount > 1) return Math.floor(trackIndex / 4);
-		return trackIndex;
-	};
-	const usedTrackIndices = Array.from(new Set(pending.map((n) => normalizeTrackIndex(n.trackIndex)))).sort((a, b) => a - b);
-	const trackIndexToDense = new Map<number, number>();
-	const denseToLane: number[] = [];
 	const drumTracks: InstanceType<typeof MidiWriter.Track>[] = [];
+	const usedTrackIndices = Array.from(new Set(events.map((n) => n.trackIndex))).sort((a, b) => a - b);
 	for (let dense = 0; dense < usedTrackIndices.length; dense++) {
-		const rawTrackIdx = usedTrackIndices[dense];
-		trackIndexToDense.set(rawTrackIdx, dense);
-		const lane = rawTrackIdx;
+		const lane = trackLaneByIndex[dense] ?? dense;
 		const t = new MidiWriter.Track();
 		const prefix = laneCount > 1 ? `V${lane + 1}` : 'Tempo';
 		t.addTrackName(prefix);
-		denseToLane[dense] = lane;
-		const laneProfile = laneProfiles[lane] ?? 'base';
+		const laneProfile = laneProfileFor(lane);
 		t.addEvent(
 			new MidiWriter.ControllerChangeEvent({
 				controllerNumber: 10,
@@ -1150,23 +1390,6 @@ export function generateMidi(input: MidiExportInput): Uint8Array {
 		);
 		drumTracks.push(t);
 	}
-	if (laneCount > 1) {
-		for (let dense = 0; dense < drumTracks.length; dense++) {
-			const lane = denseToLane[dense] ?? dense;
-			const hasTaAtStart = pending.some((n) => n.lane === lane && n.role === 'taHigh' && n.tick === 0);
-			if (!hasTaAtStart) continue;
-			const laneProfile = laneProfiles[lane] ?? 'base';
-			drumTracks[dense]!.addEvent(
-				new MidiWriter.NoteEvent({
-					pitch: resolveMidiNoteForProfileRole(laneProfile, 'accent'),
-					startTick: 0,
-					duration: `T${Math.max(1, Math.round(ppq / 4))}`,
-					velocity: toWriterVelocity(108),
-					channel: DRUM_CHANNEL,
-				}),
-			);
-		}
-	}
 	if (drumTracks.length > 0) {
 		drumTracks[0].setTempo(bpm, 0);
 	} else {
@@ -1176,23 +1399,17 @@ export function generateMidi(input: MidiExportInput): Uint8Array {
 		drumTracks.push(t);
 	}
 
-	for (const n of pending) {
-		const denseIdx = trackIndexToDense.get(normalizeTrackIndex(n.trackIndex));
-		if (denseIdx === undefined) continue;
-		const tr = drumTracks[denseIdx];
+	for (const n of events) {
+		if (n.type !== 'noteOn' || n.note === undefined || n.velocity === undefined || n.durationTicks === undefined) continue;
+		const tr = drumTracks[n.trackIndex];
 		if (!tr) continue;
-		const laneProfile = laneProfiles[n.lane] ?? 'base';
-		const outPitch =
-			laneCount > 1 && n.role === 'taHigh'
-				? resolveMidiNoteForProfileRole(laneProfile, 'accent')
-				: n.pitch;
 		tr.addEvent(
 			new MidiWriter.NoteEvent({
-				pitch: outPitch,
+				pitch: n.note,
 				startTick: n.tick,
 				duration: `T${n.durationTicks}`,
 				velocity: n.velocity,
-				channel: DRUM_CHANNEL,
+				channel: n.channel,
 			}),
 		);
 	}
