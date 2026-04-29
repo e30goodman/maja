@@ -450,13 +450,25 @@ function testCellOverrideRespectsMaskValidation() {
 		cellSyllableOverrides: { '0-1': 'DIM' },
 		cellStepMasks: { '0-1': [false] },
 	});
-	assert.equal(muted[1]?.[0]?.syl, '-', 'override must not bypass per-cell mute mask');
+	assert.equal(muted[1]?.[0]?.syl, undefined, 'fully muted cell is skipped from phrase flow');
 	const active = buildRowCellSyllableLabels(2, {}, 0, {
 		bpm: 60,
 		cellSyllableOverrides: { '0-1': 'DIM' },
 		cellStepMasks: { '0-1': [true] },
 	});
 	assert.equal(active[1]?.[0]?.syl, 'DIM', 'override applies only for active cell mask');
+}
+
+function testDivZeroCellCompressesSarvaFlow() {
+	const out = buildRowCellSyllableLabels(5, {}, 0, {
+		bpm: 60,
+		cellStepMasks: { '0-2': [false] },
+	});
+	assert.equal(out[0]?.[0]?.syl, 'Ta');
+	assert.equal(out[1]?.[0]?.syl, 'Ka');
+	assert.equal(out[2]?.length, 0, 'muted cell keeps empty visual slot');
+	assert.equal(out[3]?.[0]?.syl, 'Dhi', 'flow shifts forward after skipped cell');
+	assert.equal(out[4]?.[0]?.syl, 'Mi');
 }
 
 testComputeNps();
@@ -488,4 +500,5 @@ testJuNuDelayedForX2UntilVeryHighTempo();
 testDebugTraceIncludesRuntimeContext();
 testLongBarAlternationGatedByDivAndMultiplier();
 testCellOverrideRespectsMaskValidation();
+testDivZeroCellCompressesSarvaFlow();
 console.log('sequencerLabels.test.ts: ok');

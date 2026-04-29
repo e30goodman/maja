@@ -852,7 +852,15 @@ function buildPendingNotes(input: MidiExportInput): {
 
 	if (!input.polyMode) {
 		const polyClickSlots = new Set<string>();
-		const seq = buildLegacyPlaybackSequence(input.bars, input.customSyllables, input.baseSyllables, deadMap);
+		const seq = buildLegacyPlaybackSequence(
+			input.bars,
+			input.customSyllables,
+			input.baseSyllables,
+			deadMap,
+			undefined,
+			input.customSubdivisions,
+			input.cellStepMasks,
+		);
 		let wall = 0;
 		for (let rev = 0; rev < revolutions; rev++) {
 			for (const step of seq) {

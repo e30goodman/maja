@@ -11,6 +11,8 @@
  *   pulsation -> barSpeed -> pattern -> speed (dead-cells before pattern/speed).
  */
 
+import { resolveEffectiveStepMask, type CellStepMasks } from './stepMask';
+
 export const CHAOS_SLIDER_MAX = 100;
 
 /** RNG compatible with Math.random. Seed injection for bar replay (see mulberry32). */
@@ -223,6 +225,8 @@ export function buildLegacyPlaybackSequence(
 	deadCells: DeadCellsMap,
 	/** kept for call-site compatibility; ignored by stable algorithm */
 	customCellSyllables?: Record<string, string>,
+	customSubdivisions?: Record<string, number>,
+	cellStepMasks?: CellStepMasks,
 ): SequencerSeqItem[] {
 	void customCellSyllables;
 	const seq: SequencerSeqItem[] = [];
@@ -232,6 +236,10 @@ export function buildLegacyPlaybackSequence(
 		const lastLiveExclusive =
 			typeof ds === 'number' ? Math.min(Math.max(0, Math.floor(ds)), syls) : syls;
 		for (let c = 0; c < lastLiveExclusive; c++) {
+			const cellKey = `${r}-${c}`;
+			const subdivs = customSubdivisions?.[cellKey] ?? 1;
+			const stepMask = resolveEffectiveStepMask(cellKey, subdivs, cellStepMasks);
+			if (stepMask.every((v) => v === false)) continue;
 			seq.push({ r, c, activeSyllables: syls });
 		}
 	}

@@ -212,10 +212,13 @@ export function buildRowCellSyllableLabels(
 	if (rowSyllCount <= 0) return out;
 
 	const normalizedSubdivs: number[] = [];
+	const mutedCells: boolean[] = [];
 	for (let cIdx = 0; cIdx < rowSyllCount; cIdx++) {
 		const raw = customSubdivs[`${rowIdx}-${cIdx}`];
 		const sd = Math.min(9, Math.max(1, typeof raw === 'number' && raw >= 1 ? raw : 1));
 		normalizedSubdivs.push(sd);
+		const mask = resolveEffectiveStepMask(`${rowIdx}-${cIdx}`, sd, opts?.cellStepMasks);
+		mutedCells.push(mask.every((v) => v === false));
 	}
 
 	const withAccent = (cellIdx: number, phrase: string[]): SyllableLabel[] => {
@@ -257,8 +260,13 @@ export function buildRowCellSyllableLabels(
 			cIdx++;
 			continue;
 		}
-
 		const subdivs = normalizedSubdivs[cIdx] ?? 1;
+		if (mutedCells[cIdx] === true && subdivs > 1) {
+			// Divs=0 (fully muted cell): skip from phrase flow and keep cell visually empty.
+			out.push([]);
+			cIdx++;
+			continue;
+		}
 		const cellKey = `${rowIdx}-${cIdx}`;
 		const stepMask = resolveEffectiveStepMask(cellKey, subdivs, opts?.cellStepMasks);
 
@@ -274,7 +282,16 @@ export function buildRowCellSyllableLabels(
 		}
 		const segStart = cIdx;
 		while (cIdx < dead && (normalizedSubdivs[cIdx] ?? 1) === 1) cIdx++;
-		const segLen = cIdx - segStart;
+		const segEnd = cIdx;
+		const segActiveCells: number[] = [];
+		for (let i = segStart; i < segEnd; i++) {
+			if (mutedCells[i] !== true) segActiveCells.push(i);
+		}
+		const segLen = segActiveCells.length;
+		if (segLen <= 0) {
+			for (let i = segStart; i < segEnd; i++) out.push([]);
+			continue;
+		}
 		const key = `${rowIdx}-seg${segStart}`;
 		const kalam = pickAndRemember(key, computeNps(bpm, segLen), segStart, segLen);
 		const phrase =
@@ -283,11 +300,16 @@ export function buildRowCellSyllableLabels(
 				: composeLongBar(segLen, kalam, {
 						enableFastFourChunkAlternation: shouldEnableFastFourChunkAlternation(runtimeCtx),
 				  });
-		for (let i = 0; i < segLen; i++) {
-			const segCellIdx = segStart + i;
+		let phraseIdx = 0;
+		for (let segCellIdx = segStart; segCellIdx < segEnd; segCellIdx++) {
+			if (mutedCells[segCellIdx] === true) {
+				out.push([]);
+				continue;
+			}
 			const segCellKey = `${rowIdx}-${segCellIdx}`;
 			const mask = resolveEffectiveStepMask(segCellKey, 1, opts?.cellStepMasks);
-			const syl = resolveCellSyllable(segCellIdx, phrase[i] ?? 'Ta', mask);
+			const syl = resolveCellSyllable(segCellIdx, phrase[phraseIdx] ?? 'Ta', mask);
+			phraseIdx++;
 			out.push(withAccent(segCellIdx, [syl]));
 		}
 	}
