@@ -825,10 +825,12 @@ const SequencerGridRow = React.memo(
 										triggerHapticPulse(50);
 										const armedStartY = Number(btn.dataset.subdivArmLatestY ?? btn.dataset.subdivArmStartY ?? e.clientY);
 										const panelExpanded = a.isPanelExpandedRef.current;
-										if (cellFullyMuted && !panelExpanded) {
-											a.handleCellDivUpdate(checkKey, 1);
+										if (cellFullyMuted) {
+											// Divs=0 long-press must affect only this exact cell.
+											// Use per-cell intent path (no row/neighbor side-effects).
+											a.applyCellIntent(rIdx, cIdx, { type: 'SET_SUBDIVS', nextSubdivs: 1 });
+											return;
 										}
-										if (cellFullyMuted && !panelExpanded) return;
 										const next = nextSubdivLongPress(subdivs, panelExpanded);
 										a.applyCellIntent(rIdx, cIdx, { type: 'LONG_PRESS', nextSubdivs: next });
 										a.subdivHoldSessionRef.current = {
@@ -927,17 +929,10 @@ const SequencerGridRow = React.memo(
 									if (gesture?.key === checkKey) {
 										gesture.phase = 'click-fired';
 									}
-									if (!a.isPanelExpandedRef.current && cellFullyMuted) {
-										if (a.holdTimerRef.current) {
-											clearTimeout(a.holdTimerRef.current);
-											a.holdTimerRef.current = null;
-										}
+									// Divs=0 cell: single tap should be a no-op.
+									// Only long-press is allowed to modify muted cell behavior.
+									if (cellFullyMuted) {
 										a.isHoldingRef.current = false;
-										// Keep true Divs=0 state on muted cells:
-										// opening editor is safer than implicit unmute-to-1.
-										a.setActiveEditRow(null);
-										a.setActiveEditCell(checkKey);
-										a.setIsPanelExpanded(true);
 										a.cellGestureMutexRef.current = null;
 										return;
 									}
