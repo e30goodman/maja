@@ -949,8 +949,7 @@ function deriveCustomSubdivisionsFromMidi(args: {
       rowCells[row] = rowList;
       const start = cursorTick + col * cellTicks;
       const end = start + cellTicks;
-      const isLastCellInRow = col === rowSyllables - 1;
-      const endWindow = isLastCellInRow ? end + Math.floor(cellTicks * 0.75) : end;
+      const endWindow = end;
       const passiveTicks = onsets
         .filter((o) => passiveNotes.has(o.note) && o.tick >= start && o.tick < endWindow + 1)
         .map((o) => o.tick)
@@ -987,48 +986,48 @@ function deriveCustomSubdivisionsFromMidi(args: {
         linearCell += 1;
         continue;
       }
+      const MIN_TICKS = 1;
       let bestDiv = 1;
       let bestScore = Number.NEGATIVE_INFINITY;
-      let softBestDiv = 1;
-      let softBestScore = Number.NEGATIVE_INFINITY;
+      let fallbackDiv = 1;
+      let fallbackMatched = -1;
+      let fallbackError = Number.POSITIVE_INFINITY;
       for (let div = 2; div <= 9; div++) {
         const step = cellTicks / div;
-        const maxError = Math.max(2, Math.floor(step * 0.2));
+        const strictTolerance = Math.max(MIN_TICKS, step * 0.05);
         const matchedSteps = new Set<number>();
         let totalError = 0;
         let fatalHits = 0;
         for (const tick of signalTicks) {
-          let nearestStep = 0;
-          let nearestErr = Number.POSITIVE_INFINITY;
-          for (let s = 0; s < div; s++) {
-            const target = start + s * step;
-            const err = Math.abs(tick - target);
-            if (err < nearestErr) {
-              nearestErr = err;
-              nearestStep = s;
-            }
-          }
-          // Fatal penalty: candidate div gets disqualified when note clearly lands between grid points.
-          if (nearestErr > step * 0.28) {
+          const offset = tick - start;
+          const nearestStep = Math.round(offset / step);
+          if (nearestStep < 0 || nearestStep >= div) {
             fatalHits += 1;
             continue;
           }
-          if (nearestErr <= maxError) {
-            matchedSteps.add(nearestStep);
-            totalError += nearestErr;
+          const nearestErr = Math.abs(offset - nearestStep * step);
+          if (nearestErr > strictTolerance) {
+            fatalHits += 1;
+            continue;
           }
+          matchedSteps.add(nearestStep);
+          totalError += nearestErr;
         }
         const coverage = matchedSteps.size / div;
         const meanError = totalError / Math.max(1, matchedSteps.size);
-        const softScore = matchedSteps.size * 100 - meanError * 3 - div * 0.05 - fatalHits * 40;
-        if (softScore > softBestScore) {
-          softBestScore = softScore;
-          softBestDiv = div;
+        if (fatalHits === 0) {
+          if (
+            matchedSteps.size > fallbackMatched ||
+            (matchedSteps.size === fallbackMatched && totalError < fallbackError)
+          ) {
+            fallbackMatched = matchedSteps.size;
+            fallbackError = totalError;
+            fallbackDiv = div;
+          }
         }
         let rejectedReason: string | null = null;
-        if (fatalHits > 0) rejectedReason = 'fatal_between_steps';
+        if (fatalHits > 0) rejectedReason = 'fatal_strict_grid_miss';
         else if (matchedSteps.size < 2) rejectedReason = 'low_matched_steps';
-        else if (coverage < 0.5) rejectedReason = 'low_coverage';
         if (rejectedReason) {
           if (traceTargets.has(linearCell)) {
             candidateTrace.push({
@@ -1043,7 +1042,7 @@ function deriveCustomSubdivisionsFromMidi(args: {
           }
           continue;
         }
-        const score = coverage * 1000 + matchedSteps.size * 10 - meanError * 5 - div * 0.1;
+        const score = matchedSteps.size * 1000 - totalError;
         if (traceTargets.has(linearCell)) {
           candidateTrace.push({
             div,
@@ -1061,7 +1060,7 @@ function deriveCustomSubdivisionsFromMidi(args: {
         }
       }
       if (bestDiv >= 2) rawOnlyDivs[key] = bestDiv;
-      else if (softBestDiv >= 2 && signalTicks.length > 0) softHints[key] = softBestDiv;
+      else if (fallbackDiv >= 2 && signalTicks.length > 0) softHints[key] = fallbackDiv;
       if (traceTargets.has(linearCell)) {
         traceByLinearCell[String(linearCell)] = {
           row,
