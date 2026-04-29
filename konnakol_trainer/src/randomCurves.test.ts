@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import {
 	applyRandomizerEffectsToBar,
 	barSpeedChangeProbFromChaos,
+	buildLegacyPlaybackSequence,
 	cellSpeedExtendedBlendFromChaos,
 	cellSpeedHitPFromChaos,
 	mulberry32,
@@ -374,6 +375,26 @@ function testSpeedFillsAllCellsIndependentOfAccents() {
 	);
 }
 
+/** Divs=0 (all-false step mask) must not remove cell from timing sequence. */
+function testLegacySequenceKeepsDiv0CellsInTimingGrid() {
+	const seq = buildLegacyPlaybackSequence(
+		1,
+		{},
+		4,
+		{},
+		{},
+		{},
+		{
+			'0-1': [false],
+		},
+	);
+	assert.deepEqual(
+		seq.map((x) => `${x.r}-${x.c}`),
+		['0-0', '0-1', '0-2', '0-3'],
+		'Div0 cell must stay in sequence timing, only audio should be muted',
+	);
+}
+
 testChangeProbCurvesMonotoneAndBounded();
 testCellSpeedHitPContinuityAt25();
 testSmoothstep();
@@ -394,4 +415,5 @@ testCellSpeedUniformHighChaos();
 testCellSpeedExtendedBlendEndpoints();
 testDeadCellsIndependentOfAccents();
 testSpeedFillsAllCellsIndependentOfAccents();
+testLegacySequenceKeepsDiv0CellsInTimingGrid();
 console.log('randomCurves.test.ts: ok');

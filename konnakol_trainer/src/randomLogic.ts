@@ -239,7 +239,8 @@ export function buildLegacyPlaybackSequence(
 			const cellKey = `${r}-${c}`;
 			const subdivs = customSubdivisions?.[cellKey] ?? 1;
 			const stepMask = resolveEffectiveStepMask(cellKey, subdivs, cellStepMasks);
-			if (stepMask.every((v) => v === false)) continue;
+			// Divs=0 (all-false mask) must stay in timing grid:
+			// mute is handled in audio emit path, not by removing cell from sequence.
 			seq.push({ r, c, activeSyllables: syls });
 		}
 	}
