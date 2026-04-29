@@ -7,7 +7,13 @@ import {
 	type SyllableLabel,
 } from './sequencerLabels';
 import type { PlayheadPosition } from './playheadTypes';
-import { stepMaskSignatureByRow, type CellStepMasks } from './stepMask';
+import {
+	stepMaskSignatureByRow,
+	getRowDataHash,
+	type CellConfigs,
+	type CellIntent,
+	type CellStepMasks,
+} from './stepMask';
 
 /** Keep long-press pulse switching consistent with collapsed behavior. */
 function allowedSubdivisions(_panelExpanded: boolean): number[] {
@@ -201,6 +207,11 @@ function useStableRowCellLabelsCache(
 
 /** Ref-filled each App render — stable identity for memoized grid row. */
 export type SequencerGridRowActions = {
+	cellGestureMutexRef: React.MutableRefObject<{
+		key: string;
+		phase: 'armed' | 'hold-fired' | 'click-fired';
+		pointerId: number | null;
+	} | null>;
 	isHoldingRef: React.MutableRefObject<boolean>;
 	holdTimerRef: React.MutableRefObject<number | null>;
 	pulseUnlinkHoldTimerRef: React.MutableRefObject<number | null>;
@@ -225,6 +236,8 @@ export type SequencerGridRowActions = {
 	setIsPanelExpanded: React.Dispatch<React.SetStateAction<boolean>>;
 	setCustomMultipliers: React.Dispatch<React.SetStateAction<Record<number, number>>>;
 	setCustomSubdivisions: React.Dispatch<React.SetStateAction<Record<string, number>>>;
+	applyCellIntent: (row: number, cell: number, intent: CellIntent) => void;
+	handleCellDivUpdate: (cellKey: string, nextValue: number) => void;
 	toggleCellStepMute: (cellKey: string, stepIdx: number) => void;
 	setCustomSyllables: React.Dispatch<React.SetStateAction<Record<number, number>>>;
 	setPulseMeterUnlinked: React.Dispatch<React.SetStateAction<Record<number, boolean>>>;
@@ -258,6 +271,7 @@ type SequencerGridRowProps = {
 	rowMult: number;
 	subdivSig: string;
 	rowStepMaskSig: string;
+	rowDataHash: string;
 	accentSig: string;
 	taDingSig: string;
 	pulseUnlinkedRow: boolean;
@@ -302,6 +316,7 @@ function sequencerGridRowPropsEqual(a: SequencerGridRowProps, b: SequencerGridRo
 		a.rowMult === b.rowMult &&
 		a.subdivSig === b.subdivSig &&
 		a.rowStepMaskSig === b.rowStepMaskSig &&
+		a.rowDataHash === b.rowDataHash &&
 		a.accentSig === b.accentSig &&
 		a.taDingSig === b.taDingSig &&
 		a.pulseUnlinkedRow === b.pulseUnlinkedRow &&
@@ -346,6 +361,7 @@ const SequencerGridRow = React.memo(
 			rowMult,
 			subdivSig,
 			rowStepMaskSig,
+			rowDataHash,
 			accentSig,
 			taDingSig,
 			pulseUnlinkedRow,
@@ -374,6 +390,7 @@ const SequencerGridRow = React.memo(
 			actionsRef,
 			setRowEl,
 		} = p;
+		void rowDataHash;
 		const rowSubdivs = useMemo(
 			() => subdivSig.split(',').map((x) => parseInt(x, 10) || 1),
 			[subdivSig],
@@ -765,6 +782,11 @@ const SequencerGridRow = React.memo(
 									const a = actionsRef.current;
 									if (!a) return;
 									const btn = e.currentTarget as HTMLButtonElement;
+									a.cellGestureMutexRef.current = {
+										key: checkKey,
+										phase: 'armed',
+										pointerId: e.pointerId,
+									};
 									btn.dataset.subdivArmStartY = String(e.clientY);
 									btn.dataset.subdivArmLatestY = String(e.clientY);
 									btn.dataset.subdivArmActive = '1';
@@ -788,6 +810,9 @@ const SequencerGridRow = React.memo(
 									a.subdivHoldSessionRef.current = null;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
 									a.holdTimerRef.current = window.setTimeout(() => {
+										const gesture = a.cellGestureMutexRef.current;
+										if (!gesture || gesture.key !== checkKey || gesture.phase !== 'armed') return;
+										gesture.phase = 'hold-fired';
 										let captureOk = false;
 										try {
 											btn.setPointerCapture(e.pointerId);
@@ -800,28 +825,19 @@ const SequencerGridRow = React.memo(
 										triggerHapticPulse(50);
 										const armedStartY = Number(btn.dataset.subdivArmLatestY ?? btn.dataset.subdivArmStartY ?? e.clientY);
 										const panelExpanded = a.isPanelExpandedRef.current;
-										if (cellFullyMuted) {
-											if (a.isPanelExpandedRef.current && !a.showRandomSettingsRef.current) {
-												a.setActiveEditRow(null);
-												a.setActiveEditCell(checkKey);
-												a.setIsPanelExpanded(true);
-											}
-											btn.dataset.subdivArmActive = '0';
-											return;
+										if (cellFullyMuted && !panelExpanded) {
+											a.handleCellDivUpdate(checkKey, 1);
 										}
-										a.setCustomSubdivisions((prev) => {
-											const current = prev[checkKey] || 1;
-											const next = nextSubdivLongPress(current, panelExpanded);
-											const out = { ...prev, [checkKey]: next };
-											a.subdivHoldSessionRef.current = {
-												key: checkKey,
-												startY: Number.isFinite(armedStartY) ? armedStartY : e.clientY,
-												baseSubdiv: next,
-												lastDeltaSteps: 0,
-												panelExpanded,
-											};
-											return out;
-										});
+										if (cellFullyMuted && !panelExpanded) return;
+										const next = nextSubdivLongPress(subdivs, panelExpanded);
+										a.applyCellIntent(rIdx, cIdx, { type: 'LONG_PRESS', nextSubdivs: next });
+										a.subdivHoldSessionRef.current = {
+											key: checkKey,
+											startY: Number.isFinite(armedStartY) ? armedStartY : e.clientY,
+											baseSubdiv: next,
+											lastDeltaSteps: 0,
+											panelExpanded,
+										};
 										if (a.isPanelExpandedRef.current && !a.showRandomSettingsRef.current) {
 											a.setActiveEditRow(null);
 											a.setActiveEditCell(checkKey);
@@ -851,11 +867,8 @@ const SequencerGridRow = React.memo(
 									const deltaSteps = Math.trunc(dy / pxPerStep);
 									if (deltaSteps === s.lastDeltaSteps) return;
 									s.lastDeltaSteps = deltaSteps;
-									a.setCustomSubdivisions((prev) => {
-										const next = stepSubdivByDelta(s.baseSubdiv, deltaSteps, s.panelExpanded);
-										if ((prev[checkKey] || 1) === next) return prev;
-										return { ...prev, [checkKey]: next };
-									});
+									const next = stepSubdivByDelta(s.baseSubdiv, deltaSteps, s.panelExpanded);
+									a.applyCellIntent(rIdx, cIdx, { type: 'LONG_PRESS', nextSubdivs: next });
 								}}
 								onPointerUp={(e) => {
 									const a = actionsRef.current;
@@ -868,6 +881,10 @@ const SequencerGridRow = React.memo(
 									a.deadSwipeSessionRef.current = null;
 									a.subdivHoldSessionRef.current = null;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
+									const gesture = a.cellGestureMutexRef.current;
+									if (gesture?.key === checkKey && gesture.phase === 'click-fired') {
+										a.cellGestureMutexRef.current = null;
+									}
 								}}
 								onPointerCancel={(e) => {
 									const a = actionsRef.current;
@@ -880,6 +897,8 @@ const SequencerGridRow = React.memo(
 									a.deadSwipeSessionRef.current = null;
 									a.subdivHoldSessionRef.current = null;
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
+									const gesture = a.cellGestureMutexRef.current;
+									if (gesture?.key === checkKey) a.cellGestureMutexRef.current = null;
 								}}
 								onPointerLeave={(e) => {
 									const a = actionsRef.current;
@@ -895,6 +914,29 @@ const SequencerGridRow = React.memo(
 								onClick={() => {
 									const a = actionsRef.current;
 									if (!a) return;
+									if (a.holdTimerRef.current) {
+										clearTimeout(a.holdTimerRef.current);
+										a.holdTimerRef.current = null;
+									}
+									const gesture = a.cellGestureMutexRef.current;
+									if (gesture?.key === checkKey && gesture.phase === 'hold-fired') {
+										a.isHoldingRef.current = false;
+										a.cellGestureMutexRef.current = null;
+										return;
+									}
+									if (gesture?.key === checkKey) {
+										gesture.phase = 'click-fired';
+									}
+									if (!a.isPanelExpandedRef.current && cellFullyMuted) {
+										if (a.holdTimerRef.current) {
+											clearTimeout(a.holdTimerRef.current);
+											a.holdTimerRef.current = null;
+										}
+										a.isHoldingRef.current = false;
+										a.handleCellDivUpdate(checkKey, 1);
+										a.cellGestureMutexRef.current = null;
+										return;
+									}
 									if (isDeadCellsEditorMode) {
 										if (isDead) a.restoreDeadRow(rIdx);
 										else a.triggerDeadCut(rIdx, cIdx);
@@ -915,9 +957,11 @@ const SequencerGridRow = React.memo(
 									}
 									if (isTaEditorMode) {
 										a.toggleTaDing(rIdx, cIdx);
+										a.cellGestureMutexRef.current = null;
 										return;
 									}
 									a.toggleAccent(rIdx, cIdx);
+									a.cellGestureMutexRef.current = null;
 								}}
 								onContextMenu={(e) => e.preventDefault()}
 								/* IMPORTANT FIX POINT #3 (CELLS): flex-1/self-stretch тут ОСОЗНАННО оставлены.
@@ -991,6 +1035,7 @@ export type SequencerGridProps = {
 	customCellSyllables: Record<string, string>;
 	customSubdivisions: Record<string, number>;
 	cellStepMasks: CellStepMasks;
+	cellConfigs: CellConfigs;
 	customMultipliers: Record<number, number>;
 	accents: Set<string>;
 	taDingKeys: Set<string>;
@@ -1034,6 +1079,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	customCellSyllables,
 	customSubdivisions,
 	cellStepMasks,
+	cellConfigs,
 	customMultipliers,
 	accents,
 	taDingKeys,
@@ -1134,7 +1180,8 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 				const subdivSig = Array.from({ length: rowSylls }, (_, c) =>
 					String(customSubdivisions[`${rIdx}-${c}`] ?? 1),
 				).join(',');
-				const stepMaskSig = stepMaskSignatureByRow(rIdx, rowSylls, customSubdivisions, cellStepMasks);
+				const stepMaskSig = stepMaskSignatureByRow(rIdx, rowSylls, customSubdivisions, cellStepMasks, cellConfigs);
+				const rowDataHash = getRowDataHash(rIdx, rowSylls, customSubdivisions, cellStepMasks, cellConfigs);
 				const accentSig = Array.from({ length: rowSylls }, (_, c) =>
 					accents.has(`${rIdx}-${c}`) ? '1' : '0',
 				).join('');
@@ -1185,6 +1232,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 						rowMult={rowMult}
 						subdivSig={subdivSig}
 						rowStepMaskSig={stepMaskSig}
+						rowDataHash={rowDataHash}
 						accentSig={accentSig}
 						taDingSig={taDingSig}
 						pulseUnlinkedRow={pulseUnlinkedRow}

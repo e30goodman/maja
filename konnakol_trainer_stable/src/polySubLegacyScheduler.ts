@@ -86,6 +86,12 @@ export type PolySubLegacyScheduler = {
 	reset: (startTime: number) => void;
 	fillLookahead: (horizon: number) => void;
 	rebuildLanes: (startTime: number) => void;
+	handleRowSyllablesHotSwitch: (
+		barIdx: number,
+		prevRowSyllables: number,
+		nextRowSyllables: number,
+		anchorTime: number,
+	) => void;
 	getMinNextTime: () => number;
 };
 
@@ -133,6 +139,47 @@ export function createPolySubLegacyScheduler(deps: PolySubLegacyDeps): PolySubLe
 		return Math.min(...nonempty.map((l) => l.nextTime));
 	};
 
+	const handleRowSyllablesHotSwitch = (
+		barIdx: number,
+		prevRowSyllables: number,
+		nextRowSyllables: number,
+		anchorTime: number,
+	) => {
+		if (!Number.isInteger(barIdx) || barIdx < 0) return;
+		const prevSyl = Math.max(1, Math.floor(prevRowSyllables));
+		const nextSyl = Math.max(1, Math.floor(nextRowSyllables));
+		if (prevSyl === nextSyl) return;
+		const lane = lanes.find((l) => {
+			if (l.barIndices.length === 0) return false;
+			return l.barIndices[l.barCursor] === barIdx;
+		});
+		if (!lane) return;
+		const barWindow = deps.getBarTimeWindowSeconds(barIdx);
+		if (!Number.isFinite(barWindow) || barWindow <= 0) return;
+
+		const prevStepDur = barWindow / prevSyl;
+		const nextStepDur = barWindow / nextSyl;
+		const barStartTime = lane.nextTime - lane.cellCursor * prevStepDur;
+		const rawPhase = (anchorTime - barStartTime) / barWindow;
+		const phase = Math.max(0, Math.min(0.999999, rawPhase));
+		let nextCell = Math.ceil(phase * nextSyl - 1e-9);
+		if (!Number.isFinite(nextCell)) nextCell = 0;
+		nextCell = Math.max(0, Math.min(nextSyl - 1, nextCell));
+		let nextTime = barStartTime + nextCell * nextStepDur;
+		if (nextTime < anchorTime + 1e-4) {
+			nextCell += 1;
+			nextTime += nextStepDur;
+			if (nextCell >= nextSyl) {
+				if (lane.barIndices.length > 0) {
+					lane.barCursor = (lane.barCursor + 1) % lane.barIndices.length;
+				}
+				nextCell = 0;
+			}
+		}
+		lane.cellCursor = nextCell;
+		lane.nextTime = nextTime;
+	};
+
 	const fillLookahead = (horizon: number) => {
 		const guardMax = 50_000;
 		let guard = 0;
@@ -158,10 +205,32 @@ export function createPolySubLegacyScheduler(deps: PolySubLegacyDeps): PolySubLe
 			const V = deps.polyVoices() === 3 ? 3 : 2;
 			const chunkStep = Math.floor(bar / V);
 
-			deps.emit(bar, c, bar, bestT, voice, chunkStep, dBar);
+			const rowFullyDead = typeof deadStart === 'number' && deadStart <= 0;
+			if (!rowFullyDead) {
+				deps.emit(bar, c, bar, bestT, voice, chunkStep, dBar);
+			}
+			if (rowFullyDead) {
+				const prevBar = bar;
+				const prevCursor = best.barCursor;
+				best.barCursor = (best.barCursor + 1) % best.barIndices.length;
+				best.cellCursor = 0;
+				const wrappedPattern =
+					best.barCursor === 0 && prevCursor === best.barIndices.length - 1;
+				deps.onLaneBarBoundary?.(prevBar, best.laneId, wrappedPattern);
+				// Truncation policy: fully-dead bar consumes zero physical time.
+				continue;
+			}
 
 			const { nextC, advanceBar } = advancePolyLaneAfterEmit(c, rowSyl, deadStart);
-			const advanceLaneBar = advanceBar || (!advanceBar && nextC === 0);
+			const laneHeadSingleLiveHold =
+				best.barCursor === 0 &&
+				c === 0 &&
+				typeof deadStart === 'number' &&
+				deadStart === 1 &&
+				rowSyl >= 2;
+			const nextCWithHeadHold = laneHeadSingleLiveHold ? 1 : nextC;
+			const advanceLaneBar =
+				!laneHeadSingleLiveHold && (advanceBar || (!advanceBar && nextCWithHeadHold === 0));
 			if (advanceLaneBar) {
 				const prevBar = bar;
 				const prevCursor = best.barCursor;
@@ -171,8 +240,9 @@ export function createPolySubLegacyScheduler(deps: PolySubLegacyDeps): PolySubLe
 					best.barCursor === 0 && prevCursor === best.barIndices.length - 1;
 				deps.onLaneBarBoundary?.(prevBar, best.laneId, wrappedPattern);
 			} else {
-				best.cellCursor = nextC;
+				best.cellCursor = nextCWithHeadHold;
 			}
+			// Truncation policy: one emitted cell always advances by one cell duration.
 			best.nextTime += dBar;
 		}
 	};
@@ -186,6 +256,7 @@ export function createPolySubLegacyScheduler(deps: PolySubLegacyDeps): PolySubLe
 		reset,
 		fillLookahead,
 		rebuildLanes,
+		handleRowSyllablesHotSwitch,
 		getMinNextTime,
 	};
 }

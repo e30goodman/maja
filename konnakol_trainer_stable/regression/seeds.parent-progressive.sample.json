@@ -1,0 +1,9 @@
+{
+  "preset": "progressive",
+  "count": 3,
+  "seeds": [
+    { "seed": 3721621954, "note": "sample-1" },
+    { "seed": 3478844360, "note": "sample-2" },
+    { "seed": 125900233, "note": "sample-3" }
+  ]
+}

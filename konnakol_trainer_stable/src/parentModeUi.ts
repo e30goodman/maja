@@ -1,13 +1,13 @@
 /**
- * UI-слой для Parent-mode: какие мутации включены при выборе Form preset.
- * Логика операторов / scheduler не меняется — только дефолтные пулы для `enabledMutations`.
+ * UI layer for Parent mode: which mutations are enabled for selected Form preset.
+ * Operator/scheduler logic is unchanged - only default pools for `enabledMutations`.
  */
 import { ALL_MUTATION_TYPES, type FormPresetId, type MutationType } from './parentMode';
 
 const MIN_PARENT_BARS = 1;
 const MAX_PARENT_BARS = 32;
 
-/** Пул мутаций для каждого пресета формы (subset или полный набор). */
+/** Mutation pool for each form preset (subset or full set). */
 export const PRESET_ENABLED_MUTATIONS: Record<FormPresetId, readonly MutationType[]> = {
 	random: [...ALL_MUTATION_TYPES],
 	tihai_heavy: [
@@ -18,7 +18,7 @@ export const PRESET_ENABLED_MUTATIONS: Record<FormPresetId, readonly MutationTyp
 		'substitution',
 		'retrograde',
 	],
-	/** Scheduler сам выбирает порядок «простое→сложное» среди включённых кандидатов. */
+	/** Scheduler chooses simple->complex ordering among enabled candidates. */
 	progressive: [...ALL_MUTATION_TYPES],
 	call_fill: [
 		'call_fill',
@@ -31,7 +31,7 @@ export const PRESET_ENABLED_MUTATIONS: Record<FormPresetId, readonly MutationTyp
 	],
 };
 
-/** Целевая «композиционная» длина по стилю (в барах). */
+/** Target compositional length by style (in bars). */
 export const PRESET_TARGET_BARS: Record<FormPresetId, number> = {
 	random: 16,
 	tihai_heavy: 24,
@@ -55,7 +55,7 @@ export function mutationSetsEqual(a: readonly MutationType[], b: readonly Mutati
 	return true;
 }
 
-/** true если набор мутаций не совпадает со стандартным пулом выбранного пресета (ручная правка / снэпшот). */
+/** true if mutation set differs from selected preset default pool (manual edit / snapshot). */
 export function isEnabledMutationsCustomForPreset(enabled: MutationType[], preset: FormPresetId): boolean {
 	return !mutationSetsEqual(enabled, PRESET_ENABLED_MUTATIONS[preset]);
 }

@@ -444,6 +444,21 @@ function testRowSyllCountZero() {
 	assert.deepEqual(buildRowCellSyllableLabels(0, {}, 0, { bpm: 60 }), []);
 }
 
+function testCellOverrideRespectsMaskValidation() {
+	const muted = buildRowCellSyllableLabels(2, {}, 0, {
+		bpm: 60,
+		cellSyllableOverrides: { '0-1': 'DIM' },
+		cellStepMasks: { '0-1': [false] },
+	});
+	assert.equal(muted[1]?.[0]?.syl, '-', 'override must not bypass per-cell mute mask');
+	const active = buildRowCellSyllableLabels(2, {}, 0, {
+		bpm: 60,
+		cellSyllableOverrides: { '0-1': 'DIM' },
+		cellStepMasks: { '0-1': [true] },
+	});
+	assert.equal(active[1]?.[0]?.syl, 'DIM', 'override applies only for active cell mask');
+}
+
 testComputeNps();
 testPickKalamStartState();
 testPickKalamHysteresisSlowMedium();
@@ -472,4 +487,5 @@ testNps833StaysMediumUntil84WhenSticky();
 testJuNuDelayedForX2UntilVeryHighTempo();
 testDebugTraceIncludesRuntimeContext();
 testLongBarAlternationGatedByDivAndMultiplier();
+testCellOverrideRespectsMaskValidation();
 console.log('sequencerLabels.test.ts: ok');

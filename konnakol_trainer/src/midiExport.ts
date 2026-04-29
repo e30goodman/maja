@@ -785,8 +785,12 @@ function buildPendingNotes(input: MidiExportInput): {
 		const subCount = Math.max(1, Math.floor(subdivs));
 		const subCellTicks = cellTicks / subCount;
 		const stepMask = resolveEffectiveStepMask(`${rowIdx}-${colIdx}`, subdivs, input.cellStepMasks);
-		if (hits.taHigh) tryPush(lane, 'taHigh', baseTick, subCellTicks, rowMultiplier, rowIdx, colIdx, subdivs, headSyl, mainAccent, shouldPlayFirstBeatTa);
-		if (hits.accent) tryPush(lane, 'accent', baseTick, subCellTicks, rowMultiplier, rowIdx, colIdx, subdivs, headSyl, mainAccent, shouldPlayFirstBeatTa);
+		if (stepMask[0] !== false && hits.taHigh) {
+			tryPush(lane, 'taHigh', baseTick, subCellTicks, rowMultiplier, rowIdx, colIdx, subdivs, headSyl, mainAccent, shouldPlayFirstBeatTa);
+		}
+		if (stepMask[0] !== false && hits.accent) {
+			tryPush(lane, 'accent', baseTick, subCellTicks, rowMultiplier, rowIdx, colIdx, subdivs, headSyl, mainAccent, shouldPlayFirstBeatTa);
+		}
 		if (hits.altShadow) {
 			for (let subIdx = 0; subIdx < subCount; subIdx++) {
 				if (stepMask[subIdx] === false) continue;

@@ -68,9 +68,14 @@ import {
 import { generateMidiBlob } from './midiExport';
 import type { RowRuntimeContext } from './sequencerLabels';
 import {
+	applyCellIntentToConfig,
+	buildCellConfigsFromLegacy,
+	ensureCellConfig,
 	normalizeStoredStepMask,
 	resolveEffectiveStepMask,
-	toggleStepMute,
+	splitCellConfigsToLegacy,
+	type CellConfigs,
+	type CellIntent,
 	type CellStepMasks,
 } from './stepMask';
 import {
@@ -3719,6 +3724,9 @@ export default function App() {
   const [customMultipliers, setCustomMultipliers] = useState<Record<number, number>>(() => ({ ...seed.customMultipliers }));
   const [customSubdivisions, setCustomSubdivisions] = useState<Record<string, number>>(() => ({ ...seed.customSubdivisions }));
   const [cellStepMasks, setCellStepMasks] = useState<CellStepMasks>(() => ({ ...(seed.cellStepMasks || {}) }));
+  const [cellConfigs, setCellConfigs] = useState<CellConfigs>(() =>
+    buildCellConfigsFromLegacy(seed.customSubdivisions, seed.cellStepMasks || {}),
+  );
   const [customCellSyllables, setCustomCellSyllables] = useState<Record<string, string>>(() => ({
     ...((seed as { customCellSyllables?: Record<string, string> }).customCellSyllables || {}),
   }));
@@ -4167,6 +4175,11 @@ export default function App() {
 
   /** Long-press по клетке такта (поддоли). */
   const holdTimerRef = useRef<number | null>(null);
+  const cellGestureMutexRef = useRef<{
+    key: string;
+    phase: 'armed' | 'hold-fired' | 'click-fired';
+    pointerId: number | null;
+  } | null>(null);
   /** Активная сессия long-press поддолей (для вертикального пролистывания пульса). */
   const subdivHoldSessionRef = useRef<{
     key: string;
@@ -4299,6 +4312,8 @@ export default function App() {
     customSubdivisionsRef.current = {};
     setCellStepMasks({});
     cellStepMasksRef.current = {};
+    setCellConfigs({});
+    cellConfigsRef.current = {};
     setCustomCellSyllables({});
     customCellSyllablesRef.current = {};
     // Keep per-voice click assignments on clear (eraser should reset pattern, not voice timbres).
@@ -4518,6 +4533,7 @@ export default function App() {
   const customMultipliersRef = useRef(customMultipliers);
   const customSubdivisionsRef = useRef(customSubdivisions);
   const cellStepMasksRef = useRef<CellStepMasks>(cellStepMasks);
+  const cellConfigsRef = useRef<CellConfigs>(cellConfigs);
   const customCellSyllablesRef = useRef(customCellSyllables);
   const pulseMeterUnlinkedRef = useRef(pulseMeterUnlinked);
   const prevCustomSyllablesRef = useRef<Record<number, number>>({ ...customSyllables });
@@ -4722,11 +4738,60 @@ export default function App() {
   useEffect(() => { customMultipliersRef.current = customMultipliers; }, [customMultipliers]);
   useEffect(() => { customSubdivisionsRef.current = customSubdivisions; }, [customSubdivisions]);
   useEffect(() => { cellStepMasksRef.current = cellStepMasks; }, [cellStepMasks]);
+  useEffect(() => {
+    const nextConfigs = buildCellConfigsFromLegacy(customSubdivisions, cellStepMasks);
+    cellConfigsRef.current = nextConfigs;
+    setCellConfigs(nextConfigs);
+  }, [customSubdivisions, cellStepMasks]);
+  useEffect(() => { cellConfigsRef.current = cellConfigs; }, [cellConfigs]);
   useEffect(() => { customCellSyllablesRef.current = customCellSyllables; }, [customCellSyllables]);
 
+  const applyCellIntent = useCallback((row: number, cell: number, intent: CellIntent) => {
+    const cellKey = `${row}-${cell}`;
+    const fallbackSubdivs = customSubdivisionsRef.current[cellKey] ?? 1;
+    const nextConfigs = { ...cellConfigsRef.current };
+    const current = ensureCellConfig(cellKey, fallbackSubdivs, nextConfigs, cellStepMasksRef.current);
+    nextConfigs[cellKey] = applyCellIntentToConfig(current, intent);
+    const legacy = splitCellConfigsToLegacy(nextConfigs);
+    cellConfigsRef.current = nextConfigs;
+    customSubdivisionsRef.current = legacy.customSubdivs;
+    cellStepMasksRef.current = legacy.cellStepMasks;
+    setCellConfigs(nextConfigs);
+    setCustomSubdivisions(legacy.customSubdivs);
+    setCellStepMasks(legacy.cellStepMasks);
+  }, []);
+
   const toggleCellStepMute = useCallback((cellKey: string, stepIdx: number) => {
-    const subdivs = customSubdivisionsRef.current[cellKey] ?? 1;
-    setCellStepMasks((prev) => toggleStepMute(cellKey, subdivs, stepIdx, prev));
+    const [rowStr, colStr] = cellKey.split('-');
+    const row = Number(rowStr);
+    const cell = Number(colStr);
+    if (!Number.isFinite(row) || !Number.isFinite(cell)) return;
+    applyCellIntent(row, cell, { type: 'TOGGLE_SUBSTEP', stepIdx });
+  }, [applyCellIntent]);
+  const handleCellDivUpdate = useCallback((cellKey: string, nextValue: number) => {
+    if (!Number.isFinite(nextValue)) return;
+    const nextInt = Math.floor(nextValue);
+    if (nextInt < 0 || nextInt > 9) return;
+    const currentSubdivs = customSubdivisionsRef.current[cellKey] || 1;
+    if (nextInt === 0) {
+      const nextMasks = {
+        ...cellStepMasksRef.current,
+        [cellKey]: new Array(currentSubdivs).fill(false),
+      };
+      cellStepMasksRef.current = nextMasks;
+      setCellStepMasks(nextMasks);
+      return;
+    }
+    const nextSubdivisions = {
+      ...customSubdivisionsRef.current,
+      [cellKey]: nextInt,
+    };
+    customSubdivisionsRef.current = nextSubdivisions;
+    setCustomSubdivisions(nextSubdivisions);
+    const nextMasks = { ...cellStepMasksRef.current };
+    delete nextMasks[cellKey];
+    cellStepMasksRef.current = nextMasks;
+    setCellStepMasks(nextMasks);
   }, []);
   useEffect(() => { pulseMeterUnlinkedRef.current = pulseMeterUnlinked; }, [pulseMeterUnlinked]);
   useEffect(() => {
@@ -4833,6 +4898,7 @@ export default function App() {
     customSyllables: { ...customSyllablesRef.current },
     customMultipliers: { ...customMultipliersRef.current },
     customSubdivisions: { ...customSubdivisionsRef.current },
+    cellStepMasks: { ...cellStepMasksRef.current },
     customCellSyllables: { ...customCellSyllablesRef.current },
     accents: new Set(accentsRef.current),
     taDingKeys: new Set(taDingKeysRef.current),
@@ -4855,6 +4921,16 @@ export default function App() {
     if (patch.customSubdivisions) {
       customSubdivisionsRef.current = patch.customSubdivisions;
       setCustomSubdivisions(patch.customSubdivisions);
+      const nextConfigs = buildCellConfigsFromLegacy(patch.customSubdivisions, cellStepMasksRef.current);
+      cellConfigsRef.current = nextConfigs;
+      setCellConfigs(nextConfigs);
+    }
+    if (patch.cellStepMasks) {
+      cellStepMasksRef.current = patch.cellStepMasks;
+      setCellStepMasks(patch.cellStepMasks);
+      const nextConfigs = buildCellConfigsFromLegacy(customSubdivisionsRef.current, patch.cellStepMasks);
+      cellConfigsRef.current = nextConfigs;
+      setCellConfigs(nextConfigs);
     }
     if (patch.customCellSyllables) {
       customCellSyllablesRef.current = patch.customCellSyllables;
@@ -6607,9 +6683,15 @@ export default function App() {
       setDeadCells({ ...((snap as { deadCells?: DeadCellsMap }).deadCells || {}) });
       deadCellsRef.current = { ...((snap as { deadCells?: DeadCellsMap }).deadCells || {}) };
       setCustomMultipliers({ ...(snap.customMultipliers || {}) });
-      setCustomSubdivisions({ ...(snap.customSubdivisions || {}) });
-      setCellStepMasks({ ...(snap.cellStepMasks || {}) });
-      cellStepMasksRef.current = { ...(snap.cellStepMasks || {}) };
+      const nextSubdivs = { ...(snap.customSubdivisions || {}) };
+      const nextMasks = { ...(snap.cellStepMasks || {}) };
+      const nextConfigs = buildCellConfigsFromLegacy(nextSubdivs, nextMasks);
+      setCustomSubdivisions(nextSubdivs);
+      customSubdivisionsRef.current = nextSubdivs;
+      setCellStepMasks(nextMasks);
+      cellStepMasksRef.current = nextMasks;
+      setCellConfigs(nextConfigs);
+      cellConfigsRef.current = nextConfigs;
       const nextCellSyl = { ...((snap as { customCellSyllables?: Record<string, string> }).customCellSyllables || {}) };
       setCustomCellSyllables(nextCellSyl);
       customCellSyllablesRef.current = nextCellSyl;
@@ -8745,6 +8827,7 @@ export default function App() {
     firstBeatDingSuppressedRows.size > 0 ||
     hasAnyExplicitTaOutsideFirstBeat;
   sequencerGridRowActionsRef.current = {
+    cellGestureMutexRef,
     isHoldingRef,
     holdTimerRef,
     pulseUnlinkHoldTimerRef,
@@ -8757,6 +8840,8 @@ export default function App() {
     setIsPanelExpanded,
     setCustomMultipliers,
     setCustomSubdivisions,
+    applyCellIntent,
+    handleCellDivUpdate,
     toggleCellStepMute,
     setCustomSyllables,
     triggerDeadCut,
@@ -9989,40 +10074,31 @@ export default function App() {
                       min="0" 
                       max="9" 
                       value={activeEditCell !== null ? (() => {
-                        const subdivs = customSubdivisions[activeEditCell] || 1;
-                        const mask = resolveEffectiveStepMask(activeEditCell, subdivs, cellStepMasks);
-                        return mask.every((x) => x === false) ? 0 : subdivs;
+                        const config = ensureCellConfig(
+                          activeEditCell,
+                          customSubdivisions[activeEditCell] || 1,
+                          cellConfigs,
+                          cellStepMasks,
+                        );
+                        return config.isMuted ? 0 : config.subdivs;
                       })() : 1} 
                       onChange={(e) => {
                         const nextValue = parseInt(e.target.value, 10);
                         if (Number.isNaN(nextValue) || nextValue < 0 || nextValue > 9) return;
                         if (activeEditCell === null) return;
-                        const cellKey = activeEditCell;
-                        const currentSubdivs = customSubdivisionsRef.current[cellKey] || 1;
-                        if (nextValue === 0) {
-                          setCellStepMasks((prev) => ({
-                            ...prev,
-                            [cellKey]: new Array(currentSubdivs).fill(false),
-                          }));
-                        } else {
-                          setCustomSubdivisions((prev) => ({
-                            ...prev,
-                            [cellKey]: nextValue,
-                          }));
-                          setCellStepMasks((prev) => {
-                            const nextMasks = { ...prev };
-                            delete nextMasks[cellKey];
-                            return nextMasks;
-                          });
-                        }
+                        handleCellDivUpdate(activeEditCell, nextValue);
                       }} 
                       className="flex-1 h-3 bg-[#0b101e] rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110" 
                     />
                     <div className="w-5 shrink-0 flex items-center justify-end">
                       <span className="text-[11px] font-bold text-purple-300 text-right">{activeEditCell !== null ? (() => {
-                        const subdivs = customSubdivisions[activeEditCell] || 1;
-                        const mask = resolveEffectiveStepMask(activeEditCell, subdivs, cellStepMasks);
-                        return mask.every((x) => x === false) ? 0 : subdivs;
+                        const config = ensureCellConfig(
+                          activeEditCell,
+                          customSubdivisions[activeEditCell] || 1,
+                          cellConfigs,
+                          cellStepMasks,
+                        );
+                        return config.isMuted ? 0 : config.subdivs;
                       })() : ''}</span>
                     </div>
                   </div>
@@ -10147,6 +10223,7 @@ export default function App() {
           customCellSyllables={customCellSyllables}
           customSubdivisions={customSubdivisions}
           cellStepMasks={cellStepMasks}
+          cellConfigs={cellConfigs}
           customMultipliers={customMultipliers}
           rowRuntimeContexts={rowRuntimeContexts}
           accents={accentsUi}

@@ -204,6 +204,7 @@ export function buildRowCellSyllableLabels(
 	const kalamMap = opts?.kalamMap;
 	const touched = opts?.touchedKeys;
 	const accentCells = opts?.accentCells;
+	const overrides = opts?.cellSyllableOverrides;
 	const runtimeCtx = opts?.rowRuntimeContext;
 	const debugTrace = opts?.debugTrace;
 
@@ -220,6 +221,12 @@ export function buildRowCellSyllableLabels(
 	const withAccent = (cellIdx: number, phrase: string[]): SyllableLabel[] => {
 		const accent = accentCells?.has(cellIdx) === true;
 		return phrase.map((s) => ({ syl: s, accent }));
+	};
+	const resolveCellSyllable = (cellIdx: number, fallback: string, stepMask: boolean[]): string => {
+		if (stepMask[0] === false) return '-';
+		const override = overrides?.[`${rowIdx}-${cellIdx}`];
+		if (typeof override === 'string' && override.trim().length > 0) return override.trim();
+		return fallback;
 	};
 
 	const pickAndRemember = (key: string, nps: number, cellIdx: number, subdivs: number): Kalam => {
@@ -265,12 +272,6 @@ export function buildRowCellSyllableLabels(
 			cIdx++;
 			continue;
 		}
-		if (stepMask[0] === false) {
-			out.push(withAccent(cIdx, ['-']));
-			cIdx++;
-			continue;
-		}
-
 		const segStart = cIdx;
 		while (cIdx < dead && (normalizedSubdivs[cIdx] ?? 1) === 1) cIdx++;
 		const segLen = cIdx - segStart;
@@ -286,7 +287,7 @@ export function buildRowCellSyllableLabels(
 			const segCellIdx = segStart + i;
 			const segCellKey = `${rowIdx}-${segCellIdx}`;
 			const mask = resolveEffectiveStepMask(segCellKey, 1, opts?.cellStepMasks);
-			const syl = mask[0] === false ? '-' : phrase[i] ?? 'Ta';
+			const syl = resolveCellSyllable(segCellIdx, phrase[i] ?? 'Ta', mask);
 			out.push(withAccent(segCellIdx, [syl]));
 		}
 	}

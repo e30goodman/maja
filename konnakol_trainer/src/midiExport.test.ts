@@ -327,6 +327,29 @@ function testLaneRoleMidiNotes() {
 	assert.equal(resolveMidiNoteForLaneRole(1, 'taHigh'), 29); // V2 F1
 }
 
+function testFirstSubstepMaskBlocksPrimaryHits() {
+	const { events } = buildMidiParityEvents({
+		bpm: 100,
+		bars: 1,
+		baseSyllables: 4,
+		customSyllables: {},
+		customSubdivisions: { '0-0': 2 },
+		cellStepMasks: { '0-0': [false, true] },
+		accents: new Set<string>(['0-0']),
+		taDingKeys: new Set<string>(['0-0']),
+		firstBeatAccent: true,
+		firstBeatDingSuppressedRows: new Set<number>(),
+		deadCells: {},
+		polyMode: false,
+		polyVoices: 2,
+		humanize: false,
+		seed: 1,
+		ppq: 960,
+	});
+	const cellEvents = events.filter((e) => e.row === 1 && e.cell === 1);
+	assert.equal(cellEvents.some((e) => e.role === 'taHigh' || e.role === 'accent'), false);
+}
+
 function run() {
 	testSyllableToDrumNote();
 	testComputeVelocity();
@@ -344,6 +367,7 @@ function run() {
 	testParityNoAltOnFirstBeatTaCell();
 	testParityNoAltOnExplicitTaDingCell();
 	testLaneRoleMidiNotes();
+	testFirstSubstepMaskBlocksPrimaryHits();
 	console.log('midiExport.test.ts: all passed');
 }
 

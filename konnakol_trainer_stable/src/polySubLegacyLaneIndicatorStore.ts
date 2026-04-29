@@ -1,7 +1,7 @@
 /**
- * Индикаторы playhead для poly sub_legacy: у каждой временной линии (`PolySubLegacyScheduler` lane)
- * свой слот. Очередь событий общая по времени — без persistent-хранилища при wake срабатывает только
- * последняя порция снятых событий, остальные линии «гаснут» до следующего своего t.
+ * Playhead indicators for poly sub_legacy: each temporal lane (`PolySubLegacyScheduler` lane)
+ * has its own slot. Event queue is time-shared; without persistent storage on wake only the latest
+ * drained event batch survives, so other lanes "dim" until their next scheduled t.
  */
 import type { PlayheadPosition } from './playheadTypes';
 
