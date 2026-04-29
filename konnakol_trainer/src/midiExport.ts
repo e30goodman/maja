@@ -596,7 +596,8 @@ function buildPendingNotes(input: MidiExportInput): {
 	const bpm = input.bpm;
 	const requestedPpq = input.ppq ?? 960;
 	const ppq = resolveAdaptivePpq(input, requestedPpq);
-	const humanize = input.humanize !== false;
+	// Force robot-straight timing/velocity for deterministic export.
+	const humanize = false;
 	const seed = input.seed ?? 0x9e3779b9;
 	const rng = mulberry32(seed);
 	const maxNotes = input.maxNoteEvents ?? 200_000;
