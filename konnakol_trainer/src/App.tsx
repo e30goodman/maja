@@ -6345,66 +6345,16 @@ export default function App() {
     setCustomSyllables({});
     customSyllablesRef.current = {};
 
-    const prunedAccents = new Set<string>();
-    for (const k of accentsRef.current) {
-      const parts = k.split('-');
-      if (parts.length !== 2) continue;
-      const r = parseInt(parts[0], 10);
-      const c = parseInt(parts[1], 10);
-      if (Number.isFinite(r) && Number.isFinite(c) && r >= 0 && r < nBars && c >= 0 && c < next) {
-        prunedAccents.add(k);
-      }
-    }
-    setAccents(prunedAccents);
-    accentsRef.current = prunedAccents;
-    const prunedAccByLane = distributeSetToLanes(prunedAccents, nBars, polyVoicesRef.current);
-    setAccentsByLane(prunedAccByLane);
-    accentsByLaneRef.current = cloneLaneSetMap(prunedAccByLane);
-
-    const prunedTaDing = new Set<string>();
-    for (const k of taDingKeysRef.current) {
-      const parts = k.split('-');
-      if (parts.length !== 2) continue;
-      const r = parseInt(parts[0], 10);
-      const c = parseInt(parts[1], 10);
-      if (Number.isFinite(r) && Number.isFinite(c) && r >= 0 && r < nBars && c >= 0 && c < next) {
-        prunedTaDing.add(k);
-      }
-    }
-    setTaDingKeys(prunedTaDing);
-    taDingKeysRef.current = prunedTaDing;
-    const prunedTaByLane = distributeSetToLanes(prunedTaDing, nBars, polyVoicesRef.current);
-    setTaDingKeysByLane(prunedTaByLane);
-    taDingKeysByLaneRef.current = cloneLaneSetMap(prunedTaByLane);
-
-    const prevSub = customSubdivisionsRef.current;
-    const nextSub: Record<string, number> = {};
-    for (const [k, v] of Object.entries(prevSub)) {
-      const parts = k.split('-');
-      if (parts.length !== 2) continue;
-      const r = parseInt(parts[0], 10);
-      const c = parseInt(parts[1], 10);
-      if (Number.isFinite(r) && Number.isFinite(c) && r >= 0 && r < nBars && c >= 0 && c < next) {
-        const vn = typeof v === 'number' ? v : Number(v);
-        if (Number.isFinite(vn)) nextSub[k] = vn;
-      }
-    }
-    setCustomSubdivisions(nextSub);
-    customSubdivisionsRef.current = { ...nextSub };
-
-    const prevCellSyl = customCellSyllablesRef.current;
-    const nextCellSyl: Record<string, string> = {};
-    for (const [k, v] of Object.entries(prevCellSyl)) {
-      const parts = k.split('-');
-      if (parts.length !== 2) continue;
-      const r = parseInt(parts[0]!, 10);
-      const c = parseInt(parts[1]!, 10);
-      if (Number.isFinite(r) && Number.isFinite(c) && r >= 0 && r < nBars && c >= 0 && c < next) {
-        nextCellSyl[k] = typeof v === 'string' ? v : String(v);
-      }
-    }
-    setCustomCellSyllables(nextCellSyl);
-    customCellSyllablesRef.current = { ...nextCellSyl };
+    // Preserve hidden-tail cell data when syllable count shrinks.
+    // Sequence/render uses current `syllables`, so out-of-range cells stay dormant
+    // and revive when user restores larger pulse later.
+    const nextAccByLane = distributeSetToLanes(accentsRef.current, nBars, polyVoicesRef.current);
+    setAccentsByLane(nextAccByLane);
+    accentsByLaneRef.current = cloneLaneSetMap(nextAccByLane);
+    const nextTaByLane = distributeSetToLanes(taDingKeysRef.current, nBars, polyVoicesRef.current);
+    setTaDingKeysByLane(nextTaByLane);
+    taDingKeysByLaneRef.current = cloneLaneSetMap(nextTaByLane);
+    const nextCellSyl = { ...customCellSyllablesRef.current };
 
     const nextMult = { ...customMultipliersRef.current };
     for (const rk of Object.keys(nextMult)) {
@@ -7405,7 +7355,7 @@ export default function App() {
     }
     programmaticAutoscrollRef.current = true;
     programmaticAutoscrollSawScrollRef.current = false;
-    rowEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    rowEl.scrollIntoView({ behavior: lowPerfMode ? 'auto' : 'smooth', block: 'start' });
     const AUTOSCROLL_FALLBACK_MS = 1600;
     programmaticAutoscrollFallbackTimerRef.current = window.setTimeout(() => {
       programmaticAutoscrollFallbackTimerRef.current = null;
@@ -7418,7 +7368,7 @@ export default function App() {
       }
       programmaticAutoscrollRef.current = false;
     }, AUTOSCROLL_FALLBACK_MS);
-  }, []);
+  }, [lowPerfMode]);
   const primaryActivePos = useMemo(() => {
     if (!polyMode || activePositions.length === 0) return activePos;
     const masters = activePositions.filter((pos) => pos.voice === 0);
