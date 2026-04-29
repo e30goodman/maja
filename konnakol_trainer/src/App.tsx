@@ -2388,6 +2388,63 @@ function applySnapshotSoundId(soundId: number, d: ReturnType<typeof createEmptyS
 	d.clickSound = 'classic';
 }
 
+function buildSnapshotSoundToken(s: ReturnType<typeof createEmptySnapshot>): string {
+	const soundId = buildSnapshotSoundId(s);
+	const byVoice = normalizeClickSoundByPolyVoice((s as { clickSoundByPolyVoice?: unknown }).clickSoundByPolyVoice);
+	const entries = Object.entries(byVoice)
+		.map(([voiceRaw, preset]) => {
+			const voice = parseInt(voiceRaw, 10);
+			const presetId = CLICK_SOUND_PRESET_ORDER.indexOf(preset);
+			if (!Number.isFinite(voice) || voice < 0 || voice > 3) return null;
+			if (presetId < 0) return null;
+			return `${voice}:${presetId.toString(36)}`;
+		})
+		.filter((chunk): chunk is string => typeof chunk === 'string')
+		.sort();
+	if (entries.length === 0) return String(soundId);
+	return `${soundId}~${entries.join('_')}`;
+}
+
+function applySnapshotSoundToken(soundRaw: string, d: ReturnType<typeof createEmptySnapshot>) {
+	const token = String(soundRaw ?? '').trim();
+	const [baseRaw, byVoiceRaw] = token.split('~', 2);
+	const baseId = parseInt(baseRaw, 10);
+	applySnapshotSoundId(Number.isFinite(baseId) ? baseId : SNAPSHOT_SOUND_ID_CLASSIC, d);
+	if (!byVoiceRaw) return;
+	const byVoice: ClickSoundByPolyVoice = {};
+	for (const chunk of byVoiceRaw.split('_')) {
+		const [voiceRaw, presetRaw] = chunk.split(':', 2);
+		const voice = parseInt(String(voiceRaw), 10);
+		const presetId = parseInt(String(presetRaw), 36);
+		if (!Number.isFinite(voice) || voice < 0 || voice > 3) continue;
+		if (!Number.isFinite(presetId) || presetId < 0 || presetId >= CLICK_SOUND_PRESET_ORDER.length) continue;
+		byVoice[voice as PolyVoiceTarget] = CLICK_SOUND_PRESET_ORDER[presetId]!;
+	}
+	d.clickSoundByPolyVoice = byVoice;
+}
+
+export function encodeSnapshotSoundTokenForTest(
+	baseClickSound: ClickSoundPreset,
+	clickSoundByPolyVoice: ClickSoundByPolyVoice = {},
+): string {
+	const s = createEmptySnapshot();
+	s.clickSound = baseClickSound;
+	s.clickSoundByPolyVoice = normalizeClickSoundByPolyVoice(clickSoundByPolyVoice);
+	return buildSnapshotSoundToken(s);
+}
+
+export function decodeSnapshotSoundTokenForTest(soundRaw: string): {
+	clickSound: ClickSoundPreset;
+	clickSoundByPolyVoice: ClickSoundByPolyVoice;
+} {
+	const s = createEmptySnapshot();
+	applySnapshotSoundToken(soundRaw, s);
+	return {
+		clickSound: s.clickSound,
+		clickSoundByPolyVoice: normalizeClickSoundByPolyVoice(s.clickSoundByPolyVoice),
+	};
+}
+
 type SequencerCellJSON = { accent: boolean; pulsation: number };
 
 function buildSequencerCellsForSnapshot(s: ReturnType<typeof createEmptySnapshot>): Record<string, SequencerCellJSON> {
@@ -2981,8 +3038,8 @@ function encodeSnapshotClipboard(s: ReturnType<typeof createEmptySnapshot>): str
 		parsePolyVoices((s as { polyVoices?: unknown }).polyVoices),
 	);
 	const flags = buildSnapshotFlags(s);
-	const soundId = buildSnapshotSoundId(s);
-	const compact = `${s.tempo}.${s.bars}.${s.syllables}.${gridToken}.${deadCellsToken}.${s.chaosLevel}.${flags}.${soundId}`;
+	const soundToken = buildSnapshotSoundToken(s);
+	const compact = `${s.tempo}.${s.bars}.${s.syllables}.${gridToken}.${deadCellsToken}.${s.chaosLevel}.${flags}.${soundToken}`;
 	return SNAPSHOT_CLIPBOARD_MARKER + compact;
 }
 
@@ -3025,13 +3082,11 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 			const syllables = parseInt(syllablesRaw, 10);
 			const chaosLevel = parseInt(chaosRaw, 10);
 			const flags = parseInt(flagsRaw, 10);
-			const soundId = parseInt(soundRaw, 10);
 			if (!Number.isFinite(tempo) || tempo < 20 || tempo > 400) return null;
 			if (!Number.isFinite(bars) || bars < 1 || bars > 100) return null;
 			if (!Number.isFinite(syllables) || syllables < 1 || syllables > 9) return null;
 			if (!Number.isFinite(chaosLevel) || chaosLevel < 0 || chaosLevel > 100) return null;
 			if (!Number.isFinite(flags) || flags < 0) return null;
-			if (!Number.isFinite(soundId)) return null;
 			d.tempo = tempo;
 			d.bars = bars;
 			d.syllables = syllables;
@@ -3046,7 +3101,7 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 			d.pulseMeterUnlinked = decodePulseUnlinkedRowsToken(pulseUnlinkedToken);
 			d.chaosLevel = chaosLevel;
 			applySnapshotFlags(flags, d);
-			applySnapshotSoundId(soundId, d);
+			applySnapshotSoundToken(soundRaw, d);
 			return d;
 		}
 		if (compactParts.length === 8) {
@@ -3058,19 +3113,17 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 			const syllables = parseInt(syllablesRaw, 10);
 			const chaosLevel = parseInt(chaosRaw, 10);
 			const flags = parseInt(flagsRaw, 10);
-			const soundId = parseInt(soundRaw, 10);
 			if (!Number.isFinite(tempo) || tempo < 20 || tempo > 400) return null;
 			if (!Number.isFinite(bars) || bars < 1 || bars > 100) return null;
 			if (!Number.isFinite(syllables) || syllables < 1 || syllables > 9) return null;
 			if (!Number.isFinite(chaosLevel) || chaosLevel < 0 || chaosLevel > 100) return null;
 			if (!Number.isFinite(flags) || flags < 0) return null;
-			if (!Number.isFinite(soundId)) return null;
 			d.tempo = tempo;
 			d.bars = bars;
 			d.syllables = syllables;
 			d.chaosLevel = chaosLevel;
 			applySnapshotFlags(flags, d);
-			applySnapshotSoundId(soundId, d);
+			applySnapshotSoundToken(soundRaw, d);
 			if (gridTokenRaw.startsWith('p1') || gridTokenRaw.startsWith('p2') || gridTokenRaw.startsWith('p3') || gridTokenRaw.startsWith('p4')) {
 				if (!unpackGridTokenPacked(gridTokenRaw, d)) return null;
 				// Some shared compact strings have outer bars/syllables that are newer than packed p3 internals.
@@ -3106,19 +3159,17 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 			const syllables = parseInt(syllablesRaw, 10);
 			const chaosLevel = parseInt(chaosRaw, 10);
 			const flags = parseInt(flagsRaw, 10);
-			const soundId = parseInt(soundRaw, 10);
 			if (!Number.isFinite(tempo) || tempo < 20 || tempo > 400) return null;
 			if (!Number.isFinite(bars) || bars < 1 || bars > 100) return null;
 			if (!Number.isFinite(syllables) || syllables < 1 || syllables > 9) return null;
 			if (!Number.isFinite(chaosLevel) || chaosLevel < 0 || chaosLevel > 100) return null;
 			if (!Number.isFinite(flags) || flags < 0) return null;
-			if (!Number.isFinite(soundId)) return null;
 			d.tempo = tempo;
 			d.bars = bars;
 			d.syllables = syllables;
 			d.chaosLevel = chaosLevel;
 			applySnapshotFlags(flags, d);
-			applySnapshotSoundId(soundId, d);
+			applySnapshotSoundToken(soundRaw, d);
 			if (gridTokenRaw.startsWith('p1') || gridTokenRaw.startsWith('p2') || gridTokenRaw.startsWith('p3') || gridTokenRaw.startsWith('p4')) {
 				if (!unpackGridTokenPacked(gridTokenRaw, d)) return null;
 				// Keep explicit compact header geometry for compatibility with externally edited short snapshots.
@@ -6880,6 +6931,7 @@ export default function App() {
     );
     const nextClickSound: ClickSoundPreset = isClickSoundPreset(snap.clickSound) ? snap.clickSound : 'classic';
     setClickSound(nextClickSound);
+    clickSoundRef.current = nextClickSound;
     const nextClickByVoice = normalizeClickSoundByPolyVoice(
       (snap as { clickSoundByPolyVoice?: unknown }).clickSoundByPolyVoice,
     );
@@ -7074,6 +7126,7 @@ export default function App() {
 
   const loadSnapshot = (id: number) => {
     onWindowPointerEndCaptureRef.current();
+    flushLiveSnapshotToActiveSlotRef.current();
     flushChaosToActiveSnapshot();
     activeSnapshotRef.current = id;
     setActiveSnapshot(id);
@@ -9318,7 +9371,10 @@ export default function App() {
                                 <button
                                   key={voiceIdx}
                                   type="button"
-                                  onClick={() => setActiveClickVoiceTarget(voiceIdx)}
+                                  onClick={() => {
+                                    activeClickVoiceTargetRef.current = voiceIdx;
+                                    setActiveClickVoiceTarget(voiceIdx);
+                                  }}
                                   className={`px-2 py-1 rounded-md border text-[10px] font-bold transition-colors ${
                                     isActive
                                       ? activeCls
@@ -9600,27 +9656,44 @@ export default function App() {
                               key={preset.id}
                               type="button"
                               onClick={() => {
+                                const targetVoice = polyMode
+                                  ? (activeClickVoiceTargetRef.current as 0 | 1 | 2)
+                                  : 0;
                                 if (polyMode) {
-                                  if (activeClickVoiceTarget === 0) {
+                                  if (targetVoice === 0) {
                                     setClickSound(preset.mappedSound);
-                                    setClickSoundByPolyVoice((prev) => {
-                                      const next = { ...prev };
-                                      delete next[0];
-                                      clickSoundByPolyVoiceRef.current = { ...next };
-                                      return next;
-                                    });
+                                    clickSoundRef.current = preset.mappedSound;
+                                    const next = { ...clickSoundByPolyVoiceRef.current };
+                                    delete next[0];
+                                    clickSoundByPolyVoiceRef.current = { ...next };
+                                    setClickSoundByPolyVoice(next);
                                   } else {
-                                    setClickSoundByPolyVoice((prev) => {
-                                      const next = { ...prev };
-                                      if (preset.mappedSound === clickSoundRef.current) delete next[activeClickVoiceTarget];
-                                      else next[activeClickVoiceTarget] = preset.mappedSound;
-                                      clickSoundByPolyVoiceRef.current = { ...next };
-                                      return next;
-                                    });
+                                    const next = { ...clickSoundByPolyVoiceRef.current };
+                                    if (preset.mappedSound === clickSoundRef.current) delete next[targetVoice];
+                                    else next[targetVoice] = preset.mappedSound;
+                                    clickSoundByPolyVoiceRef.current = { ...next };
+                                    setClickSoundByPolyVoice(next);
                                   }
                                 } else {
                                   setClickSound(preset.mappedSound);
+                                  clickSoundRef.current = preset.mappedSound;
                                 }
+                                // Force immediate snapshot sync for click-type changes.
+                                // Prevents losing click preset in slot save due to async UI/state races.
+                                startTransition(() => {
+                                  const slot = activeSnapshotRef.current;
+                                  setSnapshots((prev) => {
+                                    const cur = prev[slot] ?? createEmptySnapshot();
+                                    return {
+                                      ...prev,
+                                      [slot]: {
+                                        ...cur,
+                                        clickSound: clickSoundRef.current,
+                                        clickSoundByPolyVoice: { ...clickSoundByPolyVoiceRef.current },
+                                      },
+                                    };
+                                  });
+                                });
                                 playTwoBarsPreviewFromGrid(preset.mappedSound);
                               }}
                               className={`rounded-xl border p-3 min-h-[64px] text-center flex items-center justify-center transition-all ${

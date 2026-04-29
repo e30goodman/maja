@@ -24,7 +24,7 @@ if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event('pwaInstallable'));
   });
 
-  if ('serviceWorker' in navigator) {
+  if (import.meta.env.PROD && 'serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {
         /* ignore registration errors in unsupported contexts */
