@@ -1,5 +1,7 @@
 /**
- * Export current grid to General MIDI drums (channel 10).
+ * Export current grid to MIDI.
+ * - single-voice mode keeps GM drum channel 10 for legacy compatibility
+ * - poly mode uses dedicated per-voice channels so DAW import does not collapse voices into one instrument
  * Semantics: `full_mix` baseline; parity with gating in App.tsx (emitGridSubAudio / classifyGridCellHits).
  */
 
@@ -67,6 +69,12 @@ export const MIDI_V3_PASSIVE_NOTE = 76; // E5 (Hi Wood Block, GM)
 export const MIDI_V3_TA_HIGH_NOTE = 57; // A2 (Crash Cymbal 2)
 
 const DRUM_CHANNEL = 10;
+const POLY_VOICE_CHANNELS = [1, 2, 3] as const;
+const midiChannelForLane = (lane: number, laneCount: number): number => {
+	if (laneCount <= 1) return DRUM_CHANNEL;
+	if (lane >= 0 && lane < POLY_VOICE_CHANNELS.length) return POLY_VOICE_CHANNELS[lane]!;
+	return POLY_VOICE_CHANNELS[POLY_VOICE_CHANNELS.length - 1]!;
+};
 
 export type MidiExportRole = 'accent' | 'alt' | 'passive' | 'taHigh';
 type MidiLaneProfile = 'base' | 'contrast' | 'ring';
@@ -1338,23 +1346,25 @@ export function buildWriterEvents(input: MidiExportInput): {
 	const usedTrackIndices = Array.from(new Set(notes.map((n) => n.trackIndex))).sort((a, b) => a - b);
 	for (let dense = 0; dense < usedTrackIndices.length; dense++) {
 		const lane = trackLaneByIndex[dense] ?? dense;
+		const channel = midiChannelForLane(lane, laneCount);
 		pushEvent({
 			trackIndex: dense,
 			lane,
 			type: 'cc10',
 			tick: 0,
-			channel: DRUM_CHANNEL,
+			channel,
 			controllerNumber: 10,
 			controllerValue: lanePanCc10(laneProfileFor(lane)),
 		});
 	}
 	for (const n of canonicalNotes) {
+		const channel = midiChannelForLane(n.lane, laneCount);
 		pushEvent({
 			trackIndex: n.trackIndex,
 			lane: n.lane,
 			type: 'noteOn',
 			tick: n.tick,
-			channel: DRUM_CHANNEL,
+			channel,
 			note: n.note,
 			velocity: n.velocity,
 			durationTicks: n.durationTicks,
@@ -1365,7 +1375,7 @@ export function buildWriterEvents(input: MidiExportInput): {
 			lane: n.lane,
 			type: 'noteOff',
 			tick: n.tick + Math.max(1, n.durationTicks),
-			channel: DRUM_CHANNEL,
+			channel,
 			note: n.note,
 			velocity: 0,
 			role: n.role,
@@ -1430,11 +1440,12 @@ export function generateMidi(input: MidiExportInput): Uint8Array {
 		const prefix = laneCount > 1 ? `V${lane + 1}` : 'Tempo';
 		t.addTrackName(prefix);
 		const laneProfile = laneProfileFor(lane);
+		const channel = midiChannelForLane(lane, laneCount);
 		t.addEvent(
 			new MidiWriter.ControllerChangeEvent({
 				controllerNumber: 10,
 				controllerValue: lanePanCc10(laneProfile),
-				channel: DRUM_CHANNEL,
+				channel,
 				tick: 0,
 			}),
 		);
