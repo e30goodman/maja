@@ -6641,6 +6641,8 @@ export default function App() {
     deadCells,
     customMultipliers,
     customSubdivisions,
+    cellStepMasks,
+    customCellSyllables,
     pulseMeterUnlinked,
     activeSnapshot,
     randomModeEnabled,
