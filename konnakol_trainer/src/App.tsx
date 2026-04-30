@@ -17,6 +17,7 @@ import {
 import { SequencerGrid, type SequencerGridRowActions } from './SequencerGrid';
 import {
 	getMetraSchedulerConfig,
+	getMetronomePreLimiterDebug,
 	getMetronomeSummingInput,
 	type MetraSchedulerProfile,
 } from './metraAudioBus';
@@ -422,6 +423,8 @@ const POLY_MODE_STORAGE_KEY = 'konnakol_poly_mode';
 const POLY_VOICES_STORAGE_KEY = 'konnakol_poly_voices';
 const POLY_VOICE_GAINS_STORAGE_KEY = 'konnakol_poly_voice_gains';
 const CLICK_PRESET_BUS_GAINS_STORAGE_KEY = 'konnakol_click_preset_bus_gains';
+const CLICK_SETTINGS_UI_MAX = 1.6;
+const CLICK_SETTINGS_DRIVE_MAX = 12;
 /**
  * Project-wide hardcoded default from user-calibrated backup.
  * Neutral UI "vol" baseline is still 1.0, but startup default for V1 uses 0.76.
@@ -503,7 +506,12 @@ const SNAPSHOT_FLAG_SYLLABLE_MUTE_SHIFT = 22;
 const SNAPSHOT_FLAG_SYLLABLE_MUTE_MASK = 0b11 << SNAPSHOT_FLAG_SYLLABLE_MUTE_SHIFT;
 const SNAPSHOT_SOUND_ID_CLASSIC = 0;
 const SNAPSHOT_SOUND_ID_OLDSCHOOL = 1;
-const AUDIO_START_GUARD_SEC = 0.004;
+// Hybrid guard decision matrix (see docs/SOUND_ENGINE_FLOW.md):
+// - normal tick (!recoveredThisTick && catchUpBatches === 0): 0.001s
+// - degraded recovery/cooldown tick: 0.004s
+// Keep matrix explicit; do not "simplify" into one constant without re-validating stall artifacts.
+const AUDIO_START_GUARD_NORMAL_SEC = 0.001;
+const AUDIO_START_GUARD_DEGRADED_SEC = 0.004;
 const AUDIO_BURST_MIN_SPACING_SEC = 0.0012;
 const AUDIO_BURST_PASSIVE_MIN_SPACING_SEC = 0.0032;
 const AUDIO_PASSIVE_STALL_COOLDOWN_SPACING_MULT = 1.8;
@@ -782,7 +790,7 @@ const HARDCODED_DEFAULT_CLICK_PRESET_BUS_GAINS_BY_VOICE: ClickPresetBusGainsByVo
 
 function clampClickPresetBusGain(n: number): number {
 	if (!Number.isFinite(n)) return 1;
-	return Math.max(0, Math.min(1.6, n));
+	return Math.max(0, Math.min(CLICK_SETTINGS_UI_MAX, n));
 }
 
 function getClickPresetBusGainsForPreset(map: ClickPresetBusGainsMap, preset: ClickSoundPreset): ClickPresetBusGains {
@@ -3325,12 +3333,210 @@ type ClickMixerPerPresetCache = Partial<Record<ClickSoundPreset, ClickMixerLayer
 const clickMixerLayerClonesByPresetRef: { current: ClickMixerPerPresetCache } = { current: {} };
 const lastScheduledVoiceTimeByContext = new WeakMap<AudioContext, Record<MetroVoiceKey, number>>();
 const passiveBurstCooldownUntilByContext = new WeakMap<AudioContext, number>();
+const audioStartGuardSecByContext = new WeakMap<AudioContext, number>();
 const IS_CHROME_DESKTOP =
   typeof navigator !== 'undefined' &&
   /Chrome\//.test(navigator.userAgent) &&
   !/(Android|iPhone|iPad|iPod)/i.test(navigator.userAgent);
 
 const clickMixerGroupRef: { current: Record<MetroVoiceKey, ClickMixerGroup> | null } = { current: null };
+const lastTaScheduleTimeByContext = new WeakMap<AudioContext, number>();
+const DEBUG_SKIP_FIRST_BEAT_TA = false;
+type ClickBufferRole = 'accent' | 'alt' | 'passive' | 'firstBeat';
+type ClickBufferCacheMap = Map<string, AudioBuffer>;
+type ClickBufferInflightMap = Map<string, Promise<AudioBuffer | null>>;
+const clickBufferByContext = new WeakMap<AudioContext, ClickBufferCacheMap>();
+const clickBufferInflightByContext = new WeakMap<AudioContext, ClickBufferInflightMap>();
+const CLICK_BUFFER_RENDER_START_SEC = 0.006;
+const CLICK_BUFFER_DECAY_TAIL_SEC = 0.08;
+
+function clickBufferKey(preset: ClickSoundPreset, role: ClickBufferRole): string {
+  return `${preset}-${role}`;
+}
+
+function getClickBufferCache(ctx: AudioContext): ClickBufferCacheMap {
+  const cached = clickBufferByContext.get(ctx);
+  if (cached) return cached;
+  const next: ClickBufferCacheMap = new Map();
+  clickBufferByContext.set(ctx, next);
+  return next;
+}
+
+function getClickBufferInflight(ctx: AudioContext): ClickBufferInflightMap {
+  const cached = clickBufferInflightByContext.get(ctx);
+  if (cached) return cached;
+  const next: ClickBufferInflightMap = new Map();
+  clickBufferInflightByContext.set(ctx, next);
+  return next;
+}
+
+function getRenderableLayersForRole(soundType: ClickSoundPreset, role: Exclude<ClickBufferRole, 'firstBeat'>): ClickLayerConfig[] {
+  const cfg = CLICK_SOUND_LIBRARY[soundType] ?? CLICK_SOUND_LIBRARY.classic;
+  const roleLayers = (cfg.layers ?? buildLegacyVoiceLayers(cfg))[role];
+  const activeLayers = roleLayers.filter(
+    (layer) => layer.mute !== true && layer.params.volume > CLICK_LAYER_VOLUME_GATE && layer.type !== 'none',
+  );
+  const soloLayers = activeLayers.filter((layer) => layer.solo === true);
+  return soloLayers.length > 0 ? soloLayers : activeLayers;
+}
+
+function estimateRenderDurationSec(soundType: ClickSoundPreset, role: ClickBufferRole): number {
+  if (role === 'firstBeat') {
+    if (soundType === 'classic') return 0.16;
+    if (soundType === 'oldschool') return 0.16;
+    role = 'accent';
+  }
+  const layers = getRenderableLayersForRole(soundType, role);
+  const maxDecay = layers.reduce((acc, layer) => {
+    const layerDecay = Math.min(CLICK_DECAY_MAX_SEC, Math.max(CLICK_DECAY_MIN_SEC, layer.params.decay));
+    return Math.max(acc, layerDecay);
+  }, 0.1);
+  return Math.max(0.14, CLICK_BUFFER_RENDER_START_SEC + maxDecay + CLICK_BUFFER_DECAY_TAIL_SEC);
+}
+
+async function renderClickToBuffer(
+  ctx: AudioContext,
+  soundType: ClickSoundPreset,
+  role: ClickBufferRole,
+): Promise<AudioBuffer | null> {
+  const OfflineCtor = (window as unknown as { OfflineAudioContext?: typeof OfflineAudioContext }).OfflineAudioContext;
+  if (!OfflineCtor) return null;
+  const sampleRate = Math.max(22050, Math.floor(ctx.sampleRate || 44100));
+  const durationSec = estimateRenderDurationSec(soundType, role);
+  const frameCount = Math.max(1, Math.floor(sampleRate * durationSec));
+  const off = new OfflineCtor(1, frameCount, sampleRate);
+  const t0 = CLICK_BUFFER_RENDER_START_SEC;
+  const summing = off.createGain();
+  summing.gain.value = 1;
+  summing.connect(off.destination);
+  if (role === 'firstBeat' && (soundType === 'classic' || soundType === 'oldschool')) {
+    const osc = off.createOscillator();
+    const gain = off.createGain();
+    const hp = off.createBiquadFilter();
+    const lp = off.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(20000, t0);
+    hp.type = 'highpass';
+    if (soundType === 'classic') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(1550, t0);
+      osc.frequency.exponentialRampToValueAtTime(520, t0 + 0.028);
+      hp.frequency.setValueAtTime(1600, t0);
+      gain.gain.setValueAtTime(0, t0);
+      gain.gain.linearRampToValueAtTime(0.36, t0 + CLICK_ENV_ATTACK_SEC);
+      gain.gain.exponentialRampToValueAtTime(metroEnvelopeEndFromPeak(0.36), t0 + 0.0336);
+    } else {
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(920, t0);
+      osc.frequency.exponentialRampToValueAtTime(210, t0 + 0.03);
+      hp.frequency.setValueAtTime(1200, t0);
+      gain.gain.setValueAtTime(0, t0);
+      gain.gain.linearRampToValueAtTime(0.78, t0 + CLICK_ENV_ATTACK_SEC);
+      gain.gain.exponentialRampToValueAtTime(metroEnvelopeEndFromPeak(0.78), t0 + 0.035);
+    }
+    osc.connect(gain);
+    gain.connect(hp);
+    hp.connect(lp);
+    lp.connect(summing);
+    osc.start(t0);
+    osc.stop(t0 + 0.08);
+  } else {
+    const targetRole: Exclude<ClickBufferRole, 'firstBeat'> = role === 'firstBeat' ? 'accent' : role;
+    const runLayers = getRenderableLayersForRole(soundType, targetRole);
+    for (const layer of runLayers) {
+      const layerDecay = Math.min(CLICK_DECAY_MAX_SEC, Math.max(CLICK_DECAY_MIN_SEC, layer.params.decay));
+      scheduleLayerToBus(
+        off,
+        t0,
+        layer,
+        layer.params.volume,
+        layerDecay,
+        summing,
+        0,
+      );
+    }
+  }
+  const rendered = await off.startRendering();
+  return rendered;
+}
+
+function getOrRenderClickBuffer(ctx: AudioContext, soundType: ClickSoundPreset, role: ClickBufferRole): Promise<AudioBuffer | null> {
+  const key = clickBufferKey(soundType, role);
+  const cache = getClickBufferCache(ctx);
+  const ready = cache.get(key);
+  if (ready) return Promise.resolve(ready);
+  const inFlightCache = getClickBufferInflight(ctx);
+  const inFlight = inFlightCache.get(key);
+  if (inFlight) return inFlight;
+  const job = renderClickToBuffer(ctx, soundType, role)
+    .then((buf) => {
+      if (buf) {
+        cache.set(key, buf);
+      }
+      return buf;
+    })
+    .catch(() => null)
+    .finally(() => {
+      inFlightCache.delete(key);
+    });
+  inFlightCache.set(key, job);
+  return job;
+}
+
+function warmupClickBuffersForPreset(ctx: AudioContext, preset: ClickSoundPreset): void {
+  for (const role of ['accent', 'alt', 'passive'] as const) {
+    void getOrRenderClickBuffer(ctx, preset, role);
+  }
+  if (preset === 'classic' || preset === 'oldschool') {
+    void getOrRenderClickBuffer(ctx, preset, 'firstBeat');
+  }
+}
+
+function warmupClickBuffersForPoly(
+  ctx: AudioContext,
+  clickSound: ClickSoundPreset,
+  clickSoundByPolyVoice: ClickSoundByPolyVoice,
+  polyMode: boolean,
+): void {
+  const presets = new Set<ClickSoundPreset>([clickSound]);
+  if (polyMode) {
+    for (const lane of [0, 1, 2] as const) {
+      presets.add(resolveClickSoundForPolyVoice(lane, true, clickSoundByPolyVoice, clickSound));
+    }
+  }
+  for (const preset of presets) warmupClickBuffersForPreset(ctx, preset);
+}
+
+function postDebugLog(payload: {
+	runId: string;
+	hypothesisId: string;
+	location: string;
+	message: string;
+	data: Record<string, unknown>;
+}): void {
+	// #region agent log
+	fetch('http://127.0.0.1:7813/ingest/125cad1d-6ae9-4dbe-8f4f-aefc5f46b805', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '9123ed' },
+		body: JSON.stringify({
+			sessionId: '9123ed',
+			runId: payload.runId,
+			hypothesisId: payload.hypothesisId,
+			location: payload.location,
+			message: payload.message,
+			data: payload.data,
+			timestamp: Date.now(),
+		}),
+	}).catch(() => {});
+	// #endregion
+}
+
+function recordTaDeltaSec(ctx: AudioContext, scheduledAt: number): number | null {
+	const prev = lastTaScheduleTimeByContext.get(ctx);
+	lastTaScheduleTimeByContext.set(ctx, scheduledAt);
+	if (!Number.isFinite(prev)) return null;
+	return Math.max(0, scheduledAt - (prev as number));
+}
 
 function armPassiveBurstCooldown(ctx: AudioContext, durationMs: number): void {
   if (!IS_CHROME_DESKTOP || durationMs <= 0) return;
@@ -3340,6 +3546,53 @@ function armPassiveBurstCooldown(ctx: AudioContext, durationMs: number): void {
 function isPassiveBurstCooldownActive(ctx: AudioContext): boolean {
   const until = passiveBurstCooldownUntilByContext.get(ctx);
   return typeof until === 'number' && ctx.currentTime < until;
+}
+
+function setAudioStartGuardForContext(ctx: AudioContext, guardSec: number): void {
+  audioStartGuardSecByContext.set(ctx, Math.max(AUDIO_START_GUARD_NORMAL_SEC, guardSec));
+}
+
+function getAudioStartGuardForContext(ctx: AudioContext): number {
+  return audioStartGuardSecByContext.get(ctx) ?? AUDIO_START_GUARD_NORMAL_SEC;
+}
+
+function getClickMixerGroupForVoice(voice: MetroVoiceKey): ClickMixerGroup {
+  const g = clickMixerGroupRef.current?.[voice];
+  if (g) return g;
+  return { groupHpHz: 20, groupLpHz: 20000, groupMasterLinear: 1 };
+}
+
+function applyVoiceLimiterDriveAt(
+  ctx: AudioContext,
+  voice: MetroVoiceKey,
+  driveLinear: number,
+  atTime: number,
+): void {
+  const uiClamped = Math.max(0, Math.min(CLICK_SETTINGS_UI_MAX, driveLinear));
+  const limiterDrive = (uiClamped / CLICK_SETTINGS_UI_MAX) * CLICK_SETTINGS_DRIVE_MAX;
+  const g = getClickMixerGroupForVoice(voice);
+  applyVoiceGroupChain(
+    ctx,
+    voice,
+    g.groupHpHz,
+    g.groupLpHz,
+    limiterDrive,
+    atTime,
+  );
+}
+
+function softenTaGainForDeterministicSynth(rawGain: number): number {
+  const clamped = Math.max(0, Math.min(1.6, rawGain));
+  // Softly compress around unity to reduce hit-to-hit level variance
+  // while preserving general dynamics and timbre path.
+  const compressed = 1 + (clamped - 1) * 0.3;
+  return Math.max(0, Math.min(1.15, compressed));
+}
+
+function getPresetInternalBufferBoost(soundType: ClickSoundPreset, role: ClickBufferRole): number {
+  void soundType;
+  void role;
+  return 1;
 }
 
 function cloneClickMixerFromLibrary(soundType: ClickSoundPreset): void {
@@ -3371,9 +3624,9 @@ const playSharpClick = (
   voiceRole: 'accent' | 'base' | 'alt' = isChecked ? 'accent' : 'base',
   voiceGainMul = 1,
 ) => {
-  // USER-SOURCE-OF-TRUTH: render only the role explicitly requested by scheduler from user grid state.
-  const cfg = CLICK_SOUND_LIBRARY[soundType] ?? CLICK_SOUND_LIBRARY.classic;
-  const nowGuarded = ctx.currentTime + AUDIO_START_GUARD_SEC;
+  // Guard is local playback safety (start/envelope), never timing source-of-truth.
+  // Scheduler grid must stay anchored to nextNoteTimeRef.
+  const nowGuarded = ctx.currentTime + getAudioStartGuardForContext(ctx);
   const baseT0 = Math.max(time, nowGuarded);
   const voiceKey: MetroVoiceKey = voiceRole === 'accent' ? 'accent' : voiceRole === 'alt' ? 'alt' : 'passive';
   let lastByVoice = lastScheduledVoiceTimeByContext.get(ctx);
@@ -3392,22 +3645,43 @@ const playSharpClick = (
   // into the exact same timestamp (audible as random digital clipping on dense passive patterns).
   const t0 = Math.max(baseT0, lastByVoice[voiceKey] + minSpacingSec);
   lastByVoice[voiceKey] = t0;
+  const preLimiter = getMetronomePreLimiterDebug(ctx);
+  postDebugLog({
+    runId: 'pre-fix',
+    hypothesisId: 'H1-role-gain-to-compressor',
+    location: 'App.tsx:playSharpClick',
+    message: 'schedule sharp click to pre-limiter',
+    data: {
+      voiceRole,
+      voiceKey,
+      voiceGainMul,
+      isChecked,
+      accentOnlyPlayback,
+      minSpacingSec,
+      scheduleTime: time,
+      scheduledAt: t0,
+      ctxNow: ctx.currentTime,
+      preLimiter,
+    },
+  });
   const busIn = getVoiceLayerSumInput(ctx, voiceKey);
-  const libLayers = (cfg.layers ?? buildLegacyVoiceLayers(cfg))[voiceKey];
-  const cachedForPreset = clickMixerLayerClonesByPresetRef.current[soundType];
-  const layers = cachedForPreset?.[voiceKey] ?? libLayers;
-  const activeLayers = layers.filter(
-    (layer) => layer.mute !== true && layer.params.volume > CLICK_LAYER_VOLUME_GATE && layer.type !== 'none',
-  );
-  const soloLayers = activeLayers.filter((layer) => layer.solo === true);
-  const runLayers = soloLayers.length > 0 ? soloLayers : activeLayers;
-  for (const layer of runLayers) {
-    const layerDecay = Math.min(CLICK_DECAY_MAX_SEC, Math.max(CLICK_DECAY_MIN_SEC, layer.params.decay));
-    const baseLayerVol =
-      accentOnlyPlayback && voiceRole === 'accent' ? layer.params.volume * 0.72 : layer.params.volume;
-    const layerVol = baseLayerVol * voiceGainMul;
-    scheduleLayerToBus(ctx, t0, layer, layerVol, layerDecay, busIn);
+  const role: ClickBufferRole = voiceKey;
+  const presetBoost = getPresetInternalBufferBoost(soundType, role);
+  const runtimeGainMul = (accentOnlyPlayback && voiceRole === 'accent' ? 0.72 : 1) * voiceGainMul * presetBoost;
+  if (runtimeGainMul <= 0) return;
+  const cachedBuffer = getClickBufferCache(ctx).get(clickBufferKey(soundType, role));
+  if (!cachedBuffer) {
+    void getOrRenderClickBuffer(ctx, soundType, role);
+    return;
   }
+  applyVoiceLimiterDriveAt(ctx, voiceKey, runtimeGainMul, t0);
+  const source = ctx.createBufferSource();
+  source.buffer = cachedBuffer;
+  source.connect(busIn);
+  source.start(t0);
+  source.onended = () => {
+    source.disconnect();
+  };
 };
 
 const playBarFirstHighClick = (
@@ -3415,66 +3689,42 @@ const playBarFirstHighClick = (
   time: number,
   soundType: ClickSoundPreset = 'classic',
   voiceGainMul = 1,
+  taDeltaSec: number | null = null,
 ) => {
   if (voiceGainMul <= 0) return;
-  const now = ctx.currentTime;
-  const t0 = Math.max(time, ctx.currentTime + AUDIO_START_GUARD_SEC);
-  const masterIn = getMetronomeSummingInput(ctx);
-  if (soundType === 'classic') {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const hpFilter = ctx.createBiquadFilter();
-    hpFilter.type = 'highpass';
-    hpFilter.frequency.setValueAtTime(1600, t0);
-    const lpFilter = ctx.createBiquadFilter();
-    lpFilter.type = 'lowpass';
-    lpFilter.frequency.setValueAtTime(20000, t0);
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(1550, t0);
-    osc.frequency.exponentialRampToValueAtTime(520, t0 + 0.028);
-    const classicPeak = 0.36 * voiceGainMul;
-    gain.gain.cancelScheduledValues(now);
-    gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(0, t0);
-    gain.gain.setValueAtTime(0, t0);
-    gain.gain.linearRampToValueAtTime(classicPeak, t0 + CLICK_ENV_ATTACK_SEC);
-    gain.gain.exponentialRampToValueAtTime(metroEnvelopeEndFromPeak(classicPeak), t0 + 0.0336);
-    osc.connect(gain);
-    gain.connect(hpFilter);
-    hpFilter.connect(lpFilter);
-    lpFilter.connect(masterIn);
-    osc.start(t0);
-    osc.stop(t0 + 0.06);
+  // Keep same guard policy as playSharpClick to avoid first-beat phase drift.
+  const t0 = Math.max(time, ctx.currentTime + getAudioStartGuardForContext(ctx));
+  const preLimiter = getMetronomePreLimiterDebug(ctx);
+  postDebugLog({
+    runId: 'pre-fix',
+    hypothesisId: 'H2-ta-direct-path-to-compressor',
+    location: 'App.tsx:playBarFirstHighClick',
+    message: 'schedule Ta high click to pre-limiter',
+    data: {
+      soundType,
+      voiceGainMul,
+      scheduleTime: time,
+      scheduledAt: t0,
+      ctxNow: ctx.currentTime,
+      preLimiter,
+    },
+  });
+  const busIn = getVoiceLayerSumInput(ctx, 'accent');
+  const role: ClickBufferRole = (soundType === 'classic' || soundType === 'oldschool') ? 'firstBeat' : 'accent';
+  const taGainSoft = softenTaGainForDeterministicSynth(voiceGainMul) * getPresetInternalBufferBoost(soundType, role);
+  const cachedBuffer = getClickBufferCache(ctx).get(clickBufferKey(soundType, role));
+  if (!cachedBuffer) {
+    void getOrRenderClickBuffer(ctx, soundType, role);
     return;
   }
-  if (soundType === 'oldschool') {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const hpFilter = ctx.createBiquadFilter();
-    const lpFilter = ctx.createBiquadFilter();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(920, t0);
-    osc.frequency.exponentialRampToValueAtTime(210, t0 + 0.03);
-    hpFilter.type = 'highpass';
-    hpFilter.frequency.setValueAtTime(1200, t0);
-    lpFilter.type = 'lowpass';
-    lpFilter.frequency.setValueAtTime(20000, t0);
-    const oldschoolPeak = 0.78 * voiceGainMul;
-    gain.gain.cancelScheduledValues(now);
-    gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(0, t0);
-    gain.gain.setValueAtTime(0, t0);
-    gain.gain.linearRampToValueAtTime(oldschoolPeak, t0 + CLICK_ENV_ATTACK_SEC);
-    gain.gain.exponentialRampToValueAtTime(metroEnvelopeEndFromPeak(oldschoolPeak), t0 + 0.035);
-    osc.connect(gain);
-    gain.connect(hpFilter);
-    hpFilter.connect(lpFilter);
-    lpFilter.connect(masterIn);
-    osc.start(t0);
-    osc.stop(t0 + 0.06);
-    return;
-  }
-  playSharpClick(ctx, time, true, soundType, false, 'accent', voiceGainMul);
+  applyVoiceLimiterDriveAt(ctx, 'accent', taGainSoft, t0);
+  const source = ctx.createBufferSource();
+  source.buffer = cachedBuffer;
+  source.connect(busIn);
+  source.start(t0);
+  source.onended = () => {
+    source.disconnect();
+  };
 };
 
 /** Long-press на рукоятке: `holdMs` до `onArm`; до срабатывания можно отменить жест (slop / смена value). */
@@ -4959,6 +5209,11 @@ export default function App() {
     setCellStepMasks(nextMasks);
   }, []);
   useEffect(() => { pulseMeterUnlinkedRef.current = pulseMeterUnlinked; }, [pulseMeterUnlinked]);
+  useEffect(() => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    warmupClickBuffersForPoly(ctx, clickSound, clickSoundByPolyVoice, polyMode);
+  }, [clickSound, clickSoundByPolyVoice, polyMode]);
   useEffect(() => {
     const prev = prevCustomSyllablesRef.current;
     if (isPlayingRef.current && polyModeRef.current && audioCtxRef.current && polySubLegacyRef.current) {
@@ -8183,8 +8438,8 @@ export default function App() {
           laneId,
         );
         const polyVoiceGain = polyModeRef.current
-          ? Math.max(0, Math.min(1.6, polyVoiceGainsRef.current[voice as 0 | 1 | 2] ?? 1))
-          : Math.max(0, Math.min(1.6, polyVoiceGainsRef.current[0] ?? 1));
+          ? Math.max(0, Math.min(CLICK_SETTINGS_UI_MAX, polyVoiceGainsRef.current[voice as 0 | 1 | 2] ?? 1))
+          : Math.max(0, Math.min(CLICK_SETTINGS_UI_MAX, polyVoiceGainsRef.current[0] ?? 1));
         const busG = getClickPresetBusGainsForVoicePreset(
           clickPresetBusGainsByVoiceRef.current,
           clickPresetBusGainsRef.current,
@@ -8213,19 +8468,48 @@ export default function App() {
         const mainAccentClick = isAccent && sub === 0;
         const shouldPlayFirstBeatTa =
           isFirstBarCell && fa && firstBeatCellHitRow && sub === 0;
-        if (shouldPlayFirstBeatTa && !debugTaEngineModeRef.current && accentGain > 0) {
+        const shouldPlayFirstBeatTaAfterDebug = shouldPlayFirstBeatTa && !DEBUG_SKIP_FIRST_BEAT_TA;
+        if (shouldPlayFirstBeatTa && DEBUG_SKIP_FIRST_BEAT_TA) {
+          postDebugLog({
+            runId: 'post-fix',
+            hypothesisId: 'H10-first-beat-interval-ablation',
+            location: 'App.tsx:scheduleGridCellAtTime',
+            message: 'skip first-beat Ta for interval AB',
+            data: { rIdx, cIdx, sub, scheduleTime: subTime, ctxNow: ctx.currentTime },
+          });
+        }
+        if (shouldPlayFirstBeatTaAfterDebug && !debugTaEngineModeRef.current && accentGain > 0) {
+          const taDeltaSec = recordTaDeltaSec(ctx, subTime);
+          postDebugLog({
+            runId: 'pre-fix',
+            hypothesisId: 'H5-ta-interval-vs-compressor-gr',
+            location: 'App.tsx:scheduleGridCellAtTime',
+            message: 'Ta first-beat event before compressor',
+            data: {
+              taEventType: 'first_beat',
+              rIdx,
+              cIdx,
+              sub,
+              accentGain,
+              taDeltaSec,
+              scheduleTime: subTime,
+              ctxNow: ctx.currentTime,
+              preLimiter: getMetronomePreLimiterDebug(ctx),
+            },
+          });
           playBarFirstHighClick(
             ctx,
             subTime,
             soundPreset,
             accentGain,
+            taDeltaSec,
           );
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
           }
         }
         // Vocal karvai is silence in syllable layer, but physical Sam click must survive on c=0.
-        if (isPauseSyllableToken(cellSylOv) && !shouldPlayFirstBeatTa) return;
+        if (isPauseSyllableToken(cellSylOv) && !shouldPlayFirstBeatTaAfterDebug) return;
         if (shouldDedupPolyClick) {
           return;
         }
@@ -8240,7 +8524,7 @@ export default function App() {
         const dictantActive = trainerMode === 'dictation';
         const trainerTaOnly = trainerMode === 'ta_only';
         const shouldPlayBeat =
-          trainerTaOnly ? hasTaDingHere || shouldPlayFirstBeatTa : true;
+          trainerTaOnly ? hasTaDingHere || shouldPlayFirstBeatTaAfterDebug : true;
         const isTaFirstBeatArticulation =
           cIdx === 0 && fa && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
         const sharpAsChecked = (() => {
@@ -8249,11 +8533,30 @@ export default function App() {
           return mainAccentClick;
         })();
         if (shouldPlayTaDingSound && !debugTaEngineModeRef.current && accentGain > 0) {
+          const taDeltaSec = recordTaDeltaSec(ctx, subTime);
+          postDebugLog({
+            runId: 'pre-fix',
+            hypothesisId: 'H5-ta-interval-vs-compressor-gr',
+            location: 'App.tsx:scheduleGridCellAtTime',
+            message: 'Ta ding event before compressor',
+            data: {
+              taEventType: 'ta_ding',
+              rIdx,
+              cIdx,
+              sub,
+              accentGain,
+              taDeltaSec,
+              scheduleTime: subTime,
+              ctxNow: ctx.currentTime,
+              preLimiter: getMetronomePreLimiterDebug(ctx),
+            },
+          });
           playBarFirstHighClick(
             ctx,
             subTime,
             soundPreset,
             accentGain,
+            taDeltaSec,
           );
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
@@ -8264,19 +8567,45 @@ export default function App() {
         if (shouldPlayTaDingSound && !sharpAsChecked && trainerTaOnly) {
           return;
         }
-        if (shouldPlayFirstBeatTa && !sharpAsChecked && trainerTaOnly) {
+        if (shouldPlayFirstBeatTaAfterDebug && !sharpAsChecked && trainerTaOnly) {
           return;
         }
         const accentOnlyPlayback =
           (trainerTaOnly || dictantActive) &&
           !(shouldPlayTaDingSound && isAccent) &&
-          !(shouldPlayFirstBeatTa && isAccent);
+          !(shouldPlayFirstBeatTaAfterDebug && isAccent);
+        const taSinglePathABEnabled = true;
+        const taAlreadyRenderedOnBarPath =
+          (shouldPlayTaDingSound || shouldPlayFirstBeatTaAfterDebug) &&
+          !debugTaEngineModeRef.current &&
+          accentGain > 0;
+        if (taSinglePathABEnabled && taAlreadyRenderedOnBarPath) {
+          postDebugLog({
+            runId: 'post-fix',
+            hypothesisId: 'H6-ta-double-hit-ablation',
+            location: 'App.tsx:scheduleGridCellAtTime',
+            message: 'skip sharp path because Ta already rendered via bar path',
+            data: {
+              rIdx,
+              cIdx,
+              sub,
+              shouldPlayTaDingSound,
+              shouldPlayFirstBeatTa: shouldPlayFirstBeatTaAfterDebug,
+              accentGain,
+              preLimiter: getMetronomePreLimiterDebug(ctx),
+            },
+          });
+          if (polyModeRef.current) {
+            polyClickSlotsRef.current.add(polySlotKey);
+          }
+          return;
+        }
         // USER-SOURCE-OF-TRUTH:
         // - white frame (Ta) drives ACCENT bus
         // - purple fill (square accent) → ALT bus, кроме серого (passive_no_alt): пассив
         // - plain cell drives PASSIVE bus
         const hasUserWhiteAccent =
-          shouldPlayFirstBeatTa || shouldPlayTaDingSound || hasTaDingHere;
+          shouldPlayFirstBeatTaAfterDebug || shouldPlayTaDingSound || hasTaDingHere;
         const hasUserPurpleAltAccent = isAccent;
         const taStableSampleMode = debugTaEngineModeRef.current && hasUserWhiteAccent;
         if (taStableSampleMode) {
@@ -8328,6 +8657,26 @@ export default function App() {
             : hasUserPurpleAltAccent
               ? (mixerAllowsAlt ? 'alt' : mixerAllowsBase ? 'base' : null)
               : (mixerAllowsBase ? 'base' : null);
+        postDebugLog({
+          runId: 'pre-fix',
+          hypothesisId: 'H3-role-routing-decision',
+          location: 'App.tsx:scheduleGridCellAtTime',
+          message: 'resolved voice role for hit',
+          data: {
+            rIdx,
+            cIdx,
+            sub,
+            isAccent,
+            hasUserWhiteAccent,
+            hasUserPurpleAltAccent,
+            mixerMode,
+            voiceRole,
+            accentGain,
+            taEnabled,
+            shouldPlayTaDingSound,
+            shouldPlayFirstBeatTa,
+          },
+        });
         if (voiceRole === null) {
           if (polyModeRef.current) {
             polyClickSlotsRef.current.add(polySlotKey);
@@ -8523,6 +8872,7 @@ export default function App() {
     {
       const ctxBoot = audioCtxRef.current;
       const gBoot = clickMixerGroupRef.current;
+      warmupClickBuffersForPreset(ctxBoot, soundPreset);
       if (gBoot) {
         for (const v of ['accent', 'alt', 'passive'] as const) {
           getVoiceLayerSumInput(ctxBoot, v);
@@ -8613,6 +8963,7 @@ export default function App() {
       prevTickPerf !== null && observedTickGapMs > longStallThresholdMs;
     const horizon = ctx.currentTime + cfg.scheduleAheadSec;
     let recoveredThisTick = false;
+    let catchUpBatchesThisTick = 0;
     if (longStallDetected) {
       const stallLagSec = observedTickGapMs / 1000;
       recordSchedulerRecovery(stallLagSec);
@@ -8654,11 +9005,13 @@ export default function App() {
         recoveredThisTick = true;
         nextNoteTimeRef.current = ctx.currentTime + Math.max(0.01, cfg.scheduleAheadSec - Math.min(cfg.maxCatchUpLagSec, lagSec));
       }
-      let catchUpBatches = 0;
-      while (nextNoteTimeRef.current < horizon && catchUpBatches < cfg.maxCatchUpBatchesPerTick) {
+      while (
+        nextNoteTimeRef.current < horizon &&
+        catchUpBatchesThisTick < cfg.maxCatchUpBatchesPerTick
+      ) {
         scheduleNote(currentStepRef.current, playAbsBarRef.current, nextNoteTimeRef.current);
         nextNote();
-        catchUpBatches += 1;
+        catchUpBatchesThisTick += 1;
       }
       if (nextNoteTimeRef.current < horizon) {
         const lagSec = horizon - nextNoteTimeRef.current;
@@ -8667,13 +9020,34 @@ export default function App() {
         nextNoteTimeRef.current = Math.max(nextNoteTimeRef.current, ctx.currentTime + 0.01);
       }
     }
+    const inPostStallCooldown = nowPerf < schedulerPostStallCooldownUntilPerfRef.current;
+    const degradedGuardTick = recoveredThisTick || inPostStallCooldown || catchUpBatchesThisTick > 0;
+    setAudioStartGuardForContext(
+      ctx,
+      degradedGuardTick ? AUDIO_START_GUARD_DEGRADED_SEC : AUDIO_START_GUARD_NORMAL_SEC,
+    );
+    postDebugLog({
+      runId: 'post-fix',
+      hypothesisId: 'H8-scheduler-guard-state',
+      location: 'App.tsx:schedulerTick',
+      message: 'scheduler guard state for current tick',
+      data: {
+        recoveredThisTick,
+        inPostStallCooldown,
+        catchUpBatchesThisTick,
+        degradedGuardTick,
+        guardSec: degradedGuardTick ? AUDIO_START_GUARD_DEGRADED_SEC : AUDIO_START_GUARD_NORMAL_SEC,
+        schedulerProfile: schedulerProfileRef.current,
+        ctxNow: ctx.currentTime,
+      },
+    });
     if (recoveredThisTick) {
       schedulerSafeProfileEscalationsRef.current += 1;
       if (schedulerSafeProfileEscalationsRef.current >= 3 && schedulerProfileRef.current !== 'safe') {
         schedulerProfileRef.current = 'safe';
         schedulerConfigRef.current = getMetraSchedulerConfig('safe');
       }
-    } else if (nowPerf < schedulerPostStallCooldownUntilPerfRef.current) {
+    } else if (inPostStallCooldown) {
       schedulerProfileRef.current = 'safe';
       schedulerConfigRef.current = getMetraSchedulerConfig('safe');
     } else {
@@ -8859,6 +9233,14 @@ export default function App() {
       {
         const ctxBoot = audioCtxRef.current;
         const gBoot = clickMixerGroupRef.current;
+        if (ctxBoot) {
+          warmupClickBuffersForPoly(
+            ctxBoot,
+            clickSoundRef.current,
+            clickSoundByPolyVoiceRef.current,
+            polyModeRef.current,
+          );
+        }
         if (ctxBoot && gBoot) {
           for (const v of ['accent', 'alt', 'passive'] as const) {
             getVoiceLayerSumInput(ctxBoot, v);
@@ -9420,7 +9802,7 @@ export default function App() {
                             },
                           ];
                           const busRowSliderClass =
-                            'min-w-0 flex-1 h-2 rounded-md bg-[#0f1526] appearance-none cursor-pointer touch-manipulation';
+                            'click-settings-slider min-w-0 flex-1 h-2 rounded-md bg-[#0f1526] appearance-none cursor-pointer touch-manipulation';
                           const labelColClass =
                             'w-7 shrink-0 text-left text-[10px] font-bold text-slate-500 leading-none';
                           const volVoiceIdx = (polyMode ? activeClickVoiceTarget : 0) as 0 | 1 | 2;
@@ -9460,7 +9842,7 @@ export default function App() {
                                   <input
                                     type="range"
                                     min={0}
-                                    max={1.6}
+                                    max={CLICK_SETTINGS_UI_MAX}
                                     step={0.01}
                                     value={busFaderVisualByKey[sliderToken] ?? 1}
                                     onInput={(e) => {
@@ -9468,7 +9850,7 @@ export default function App() {
                                       markBusSliderMoved();
                                       const raw = Number((e.target as HTMLInputElement).value);
                                       const nextVal = Number.isFinite(raw)
-                                        ? Math.max(0, Math.min(1.6, raw))
+                                        ? Math.max(0, Math.min(CLICK_SETTINGS_UI_MAX, raw))
                                         : 1;
                                       setBusFaderVisualByKey((prev) => ({ ...prev, [sliderToken]: nextVal }));
                                       setClickPresetBusGainsByVoice((prev) => {
@@ -9492,7 +9874,7 @@ export default function App() {
                                       markBusSliderMoved();
                                       const raw = Number(e.target.value);
                                       const nextVal = Number.isFinite(raw)
-                                        ? Math.max(0, Math.min(1.6, raw))
+                                        ? Math.max(0, Math.min(CLICK_SETTINGS_UI_MAX, raw))
                                         : 1;
                                       setBusFaderVisualByKey((prev) => ({ ...prev, [sliderToken]: nextVal }));
                                       setClickPresetBusGainsByVoice((prev) => {
@@ -9585,13 +9967,15 @@ export default function App() {
                                 <input
                                   type="range"
                                   min={0}
-                                  max={1.6}
+                                  max={CLICK_SETTINGS_UI_MAX}
                                   step={0.01}
                                   value={polyVoiceFaderVisual[volVoiceIdx] ?? 1}
                                   onChange={(e) => {
                                     beginLiveControlWindow();
                                     const raw = Number(e.target.value);
-                                    const next = Number.isFinite(raw) ? Math.max(0, Math.min(1.6, raw)) : 1;
+                                    const next = Number.isFinite(raw)
+                                      ? Math.max(0, Math.min(CLICK_SETTINGS_UI_MAX, raw))
+                                      : 1;
                                     setPolyVoiceFaderVisual((prev) => ({ ...prev, [volVoiceIdx]: next }));
                                     setPolyVoiceGains((prev) => {
                                       const updated: PolyVoiceGainMap = {
