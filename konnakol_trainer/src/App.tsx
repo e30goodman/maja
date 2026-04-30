@@ -3333,13 +3333,6 @@ const IS_CHROME_DESKTOP =
 const clickMixerGroupRef: { current: Record<MetroVoiceKey, ClickMixerGroup> | null } = { current: null };
 const taHiHatBufferByContext = new WeakMap<AudioContext, AudioBuffer>();
 const taHiHatRenderPromiseByContext = new WeakMap<AudioContext, Promise<AudioBuffer | null>>();
-const TA_HIHAT_NUM_CANDIDATES = 5;
-
-type BufferStats = {
-  clickness: number;
-  bassEnergy: number;
-  zeroCrossings: number;
-};
 
 function getClassicOldschoolLoudnessBoost(soundType: ClickSoundPreset): number {
   if (soundType === 'classic') return 1.42;
@@ -3353,7 +3346,11 @@ async function renderTaHiHatBuffer(ctx: AudioContext): Promise<AudioBuffer | nul
   const sampleRate = Math.max(22050, Math.floor(ctx.sampleRate || 44100));
   const durationSec = 0.2;
   const frameCount = Math.max(1, Math.floor(sampleRate * durationSec));
+  const off = new OfflineCtor(1, frameCount, sampleRate);
   const t0 = 0.006;
+  const sumIn = off.createGain();
+  sumIn.gain.value = 1;
+  sumIn.connect(off.destination);
   const cfg = CLICK_SOUND_LIBRARY.hi_hat ?? CLICK_SOUND_LIBRARY.classic;
   const accentLayers = (cfg.layers ?? buildLegacyVoiceLayers(cfg)).accent;
   const activeLayers = accentLayers.filter(
@@ -3361,61 +3358,11 @@ async function renderTaHiHatBuffer(ctx: AudioContext): Promise<AudioBuffer | nul
   );
   const soloLayers = activeLayers.filter((layer) => layer.solo === true);
   const runLayers = soloLayers.length > 0 ? soloLayers : activeLayers;
-  const analyzeBufferCharacteristics = (buffer: AudioBuffer): BufferStats => {
-    const data = buffer.getChannelData(0);
-    const sr = buffer.sampleRate;
-    const clickSamples = Math.max(2, Math.floor(sr * 0.005));
-    let maxClickDelta = 0;
-    for (let i = 1; i < clickSamples && i < data.length; i += 1) {
-      const delta = Math.abs((data[i] ?? 0) - (data[i - 1] ?? 0));
-      if (delta > maxClickDelta) maxClickDelta = delta;
-    }
-    const bodyStart = Math.max(1, Math.floor(sr * 0.01));
-    const bodyEnd = Math.min(data.length, Math.max(bodyStart + 1, Math.floor(sr * 0.05)));
-    let bassEnergy = 0;
-    let zeroCrossings = 0;
-    for (let i = bodyStart; i < bodyEnd; i += 1) {
-      const cur = data[i] ?? 0;
-      const prev = data[i - 1] ?? 0;
-      bassEnergy += cur * cur;
-      if ((cur >= 0 && prev < 0) || (cur < 0 && prev >= 0)) zeroCrossings += 1;
-    }
-    return { clickness: maxClickDelta, bassEnergy, zeroCrossings };
-  };
-
-  const buildVariantLayer = (layer: ClickLayerConfig): ClickLayerConfig => {
-    const isTone = layer.type !== 'noise' && layer.type !== 'none';
-    const variationFreq = isTone ? (300 + Math.random() * 100) : layer.params.freq;
-    const variationHpFreq = 10 + Math.random() * 20;
-    return {
-      ...layer,
-      params: {
-        ...layer.params,
-        freq: variationFreq,
-        hpFreq: variationHpFreq,
-      },
-    };
-  };
-
-  const candidates: Array<{ buffer: AudioBuffer; stats: BufferStats }> = [];
-  for (let i = 0; i < TA_HIHAT_NUM_CANDIDATES; i += 1) {
-    const candidateOff = new OfflineCtor(1, frameCount, sampleRate);
-    const candidateSumIn = candidateOff.createGain();
-    candidateSumIn.gain.value = 1;
-    candidateSumIn.connect(candidateOff.destination);
-    for (const baseLayer of runLayers) {
-      const layer = buildVariantLayer(baseLayer);
-      const layerDecay = Math.min(CLICK_DECAY_MAX_SEC, Math.max(CLICK_DECAY_MIN_SEC, layer.params.decay));
-      scheduleLayerToBus(candidateOff as unknown as AudioContext, t0, layer, layer.params.volume, layerDecay, candidateSumIn);
-    }
-    const rendered = await candidateOff.startRendering();
-    candidates.push({ buffer: rendered, stats: analyzeBufferCharacteristics(rendered) });
+  for (const layer of runLayers) {
+    const layerDecay = Math.min(CLICK_DECAY_MAX_SEC, Math.max(CLICK_DECAY_MIN_SEC, layer.params.decay));
+    scheduleLayerToBus(off as unknown as AudioContext, t0, layer, layer.params.volume, layerDecay, sumIn);
   }
-  if (candidates.length === 0) return null;
-  candidates.sort((a, b) => a.stats.zeroCrossings - b.stats.zeroCrossings);
-  const topBass = candidates.slice(0, Math.min(3, candidates.length));
-  topBass.sort((a, b) => a.stats.clickness - b.stats.clickness);
-  return topBass[0]?.buffer ?? null;
+  return off.startRendering();
 }
 
 function ensureTaHiHatBuffer(ctx: AudioContext): Promise<AudioBuffer | null> {
@@ -3651,6 +3598,12 @@ function StructuralSlider({
   const committedValueRef = useRef(value);
   const lastLiveValueRef = useRef(value);
   const pointerActiveRef = useRef(false);
+  const pointerPosRef = useRef<{ x: number; y: number } | null>(null);
+  const pointerLastMoveAtRef = useRef(0);
+  const pointerIsStoppedRef = useRef(false);
+  const thumbRearmOnStopPendingRef = useRef(false);
+  const thumbStopWatchTimerRef = useRef<number | null>(null);
+  const thumbStopWatchLastPosRef = useRef<{ x: number; y: number } | null>(null);
   const localValueRef = useRef(value);
   const thumbArmTimerRef = useRef<number | null>(null);
   const thumbArmStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -3667,7 +3620,59 @@ function StructuralSlider({
     }
   }, []);
 
-  useEffect(() => () => clearThumbArmTimer(), [clearThumbArmTimer]);
+  const clearThumbStopWatchTimer = useCallback(() => {
+    if (thumbStopWatchTimerRef.current !== null) {
+      window.clearInterval(thumbStopWatchTimerRef.current);
+      thumbStopWatchTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleThumbIdleArm = useCallback(() => {
+    const cfg = thumbIdleArmRef.current;
+    if (!cfg) return;
+    clearThumbArmTimer();
+    thumbArmStartRef.current = pointerPosRef.current ? { ...pointerPosRef.current } : null;
+    thumbArmValueAtDownRef.current = localValueRef.current;
+    const holdMs = cfg.holdMs;
+    thumbArmTimerRef.current = window.setTimeout(() => {
+      thumbArmTimerRef.current = null;
+      thumbArmStartRef.current = null;
+      thumbArmValueAtDownRef.current = null;
+      thumbIdleArmRef.current?.onArm();
+    }, holdMs);
+  }, [clearThumbArmTimer]);
+
+  const startThumbStopWatch = useCallback(() => {
+    clearThumbStopWatchTimer();
+    pointerLastMoveAtRef.current = performance.now();
+    pointerIsStoppedRef.current = false;
+    thumbStopWatchLastPosRef.current = pointerPosRef.current ? { ...pointerPosRef.current } : null;
+    thumbStopWatchTimerRef.current = window.setInterval(() => {
+      if (!pointerActiveRef.current) return;
+      const pos = pointerPosRef.current;
+      const last = thumbStopWatchLastPosRef.current;
+      if (pos && (!last || pos.x !== last.x || pos.y !== last.y)) {
+        thumbStopWatchLastPosRef.current = { ...pos };
+        pointerLastMoveAtRef.current = performance.now();
+        pointerIsStoppedRef.current = false;
+        return;
+      }
+      const isStoppedNow = performance.now() - pointerLastMoveAtRef.current >= 5;
+      pointerIsStoppedRef.current = isStoppedNow;
+      if (isStoppedNow && thumbRearmOnStopPendingRef.current) {
+        thumbRearmOnStopPendingRef.current = false;
+        scheduleThumbIdleArm();
+      }
+    }, 5);
+  }, [clearThumbStopWatchTimer, scheduleThumbIdleArm]);
+
+  useEffect(
+    () => () => {
+      clearThumbArmTimer();
+      clearThumbStopWatchTimer();
+    },
+    [clearThumbArmTimer, clearThumbStopWatchTimer],
+  );
 
   useEffect(() => {
     localValueRef.current = localValue;
@@ -3734,18 +3739,14 @@ function StructuralSlider({
           return;
         }
         pointerActiveRef.current = true;
+        pointerPosRef.current = { x: e.clientX, y: e.clientY };
+        pointerLastMoveAtRef.current = performance.now();
+        pointerIsStoppedRef.current = false;
+        thumbRearmOnStopPendingRef.current = false;
         const cfg = thumbIdleArmRef.current;
         if (cfg) {
-          clearThumbArmTimer();
-          thumbArmStartRef.current = { x: e.clientX, y: e.clientY };
-          thumbArmValueAtDownRef.current = localValueRef.current;
-          const holdMs = cfg.holdMs;
-          thumbArmTimerRef.current = window.setTimeout(() => {
-            thumbArmTimerRef.current = null;
-            thumbArmStartRef.current = null;
-            thumbArmValueAtDownRef.current = null;
-            thumbIdleArmRef.current?.onArm();
-          }, holdMs);
+          startThumbStopWatch();
+          scheduleThumbIdleArm();
           try {
             e.currentTarget.setPointerCapture(e.pointerId);
           } catch {
@@ -3755,6 +3756,9 @@ function StructuralSlider({
         onBeginDrag?.();
       }}
       onPointerMove={(e) => {
+        pointerPosRef.current = { x: e.clientX, y: e.clientY };
+        pointerLastMoveAtRef.current = performance.now();
+        pointerIsStoppedRef.current = false;
         const cfg = thumbIdleArmRef.current;
         const sp = cfg?.slopPx;
         if (typeof sp !== 'number' || thumbArmTimerRef.current === null || !thumbArmStartRef.current) return;
@@ -3771,6 +3775,10 @@ function StructuralSlider({
         clearThumbArmTimer();
         thumbArmStartRef.current = null;
         thumbArmValueAtDownRef.current = null;
+        pointerPosRef.current = null;
+        thumbRearmOnStopPendingRef.current = false;
+        pointerIsStoppedRef.current = false;
+        clearThumbStopWatchTimer();
         try {
           if (e.currentTarget.hasPointerCapture(e.pointerId)) {
             e.currentTarget.releasePointerCapture(e.pointerId);
@@ -3786,6 +3794,10 @@ function StructuralSlider({
         clearThumbArmTimer();
         thumbArmStartRef.current = null;
         thumbArmValueAtDownRef.current = null;
+        pointerPosRef.current = null;
+        thumbRearmOnStopPendingRef.current = false;
+        pointerIsStoppedRef.current = false;
+        clearThumbStopWatchTimer();
         try {
           if (e.currentTarget.hasPointerCapture(e.pointerId)) {
             e.currentTarget.releasePointerCapture(e.pointerId);
@@ -3799,6 +3811,10 @@ function StructuralSlider({
       onBlur={() => {
         thumbArmStartRef.current = null;
         thumbArmValueAtDownRef.current = null;
+        pointerPosRef.current = null;
+        thumbRearmOnStopPendingRef.current = false;
+        pointerIsStoppedRef.current = false;
+        clearThumbStopWatchTimer();
         if (!thumbIdleArmRef.current) {
           clearThumbArmTimer();
         }
@@ -3807,6 +3823,7 @@ function StructuralSlider({
       onInput={(e) => {
         const cfg = thumbIdleArmRef.current;
         const next = normalizeValue(e.currentTarget.value);
+        const valueChanged = next !== lastLiveValueRef.current;
         if (
           cfg?.cancelArmOnValueChange &&
           thumbArmTimerRef.current !== null &&
@@ -3817,11 +3834,15 @@ function StructuralSlider({
           thumbArmStartRef.current = null;
           thumbArmValueAtDownRef.current = null;
         }
+        if (cfg?.cancelArmOnValueChange && pointerActiveRef.current && valueChanged) {
+          thumbRearmOnStopPendingRef.current = true;
+        }
         applyLiveValue(next);
       }}
       onChange={(e) => {
         const cfg = thumbIdleArmRef.current;
         const next = normalizeValue(e.currentTarget.value);
+        const valueChanged = next !== lastLiveValueRef.current;
         if (
           cfg?.cancelArmOnValueChange &&
           thumbArmTimerRef.current !== null &&
@@ -3831,6 +3852,9 @@ function StructuralSlider({
           clearThumbArmTimer();
           thumbArmStartRef.current = null;
           thumbArmValueAtDownRef.current = null;
+        }
+        if (cfg?.cancelArmOnValueChange && pointerActiveRef.current && valueChanged) {
+          thumbRearmOnStopPendingRef.current = true;
         }
         applyLiveValue(next);
       }}
@@ -3909,11 +3933,53 @@ function TempoSliderTrack({
 				// Any movement cancels long-press inline mode for this pointer session.
 				const moveCancelSq = 0;
 				let holdTimer: number | null = null;
+				let stopWatchTimer: number | null = null;
+				let pendingRearmOnStop = false;
+				let pointerPos: { x: number; y: number } = { x: e.clientX, y: e.clientY };
+				let lastWatchPos: { x: number; y: number } = { x: e.clientX, y: e.clientY };
+				let lastMoveAt = performance.now();
 				const clearHold = () => {
 					if (holdTimer !== null) {
 						window.clearTimeout(holdTimer);
 						holdTimer = null;
 					}
+				};
+				const startHold = () => {
+					if (typeof onBeginInlineEdit !== 'function') return;
+					clearHold();
+					holdTimer = window.setTimeout(() => {
+						holdTimer = null;
+						if (finished) return;
+						finished = true;
+						triggerHapticPulse(50);
+						flushTempoCommit();
+						detachListeners();
+						onBeginInlineEdit(tempoSliderSlot);
+					}, TEMPO_SLIDER_INLINE_HOLD_MS);
+				};
+				const clearStopWatch = () => {
+					if (stopWatchTimer !== null) {
+						window.clearInterval(stopWatchTimer);
+						stopWatchTimer = null;
+					}
+				};
+				const startStopWatch = () => {
+					clearStopWatch();
+					lastWatchPos = { ...pointerPos };
+					lastMoveAt = performance.now();
+					stopWatchTimer = window.setInterval(() => {
+						if (finished) return;
+						if (pointerPos.x !== lastWatchPos.x || pointerPos.y !== lastWatchPos.y) {
+							lastWatchPos = { ...pointerPos };
+							lastMoveAt = performance.now();
+							return;
+						}
+						const stopped = performance.now() - lastMoveAt >= 5;
+						if (stopped && pendingRearmOnStop) {
+							pendingRearmOnStop = false;
+							startHold();
+						}
+					}, 5);
 				};
 				const updateTempo = (clientX: number) => {
 					const activeWidth = rect.width - thumbHalf * 2;
@@ -3935,15 +4001,21 @@ function TempoSliderTrack({
 					if (finished) return;
 					finished = true;
 					clearHold();
+					clearStopWatch();
 					flushTempoCommit();
 					detachListeners();
 				};
 				const onMove = (moveEvt: PointerEvent) => {
 					if (finished) return;
+					pointerPos = { x: moveEvt.clientX, y: moveEvt.clientY };
+					lastMoveAt = performance.now();
 					const dx = moveEvt.clientX - startX;
 					const dy = moveEvt.clientY - startY;
 					// Любое существенное движение → отмена hold'а, продолжаем drag как обычно.
-					if (dx * dx + dy * dy > moveCancelSq) clearHold();
+					if (dx * dx + dy * dy > moveCancelSq) {
+						clearHold();
+						pendingRearmOnStop = true;
+					}
 					updateTempo(moveEvt.clientX);
 				};
 				const onUp = () => {
@@ -3951,20 +4023,11 @@ function TempoSliderTrack({
 				};
 				el.setPointerCapture(e.pointerId);
 				updateTempo(e.clientX);
+				startStopWatch();
 				el.addEventListener('pointermove', onMove);
 				el.addEventListener('pointerup', onUp);
 				el.addEventListener('pointercancel', onUp);
-				if (typeof onBeginInlineEdit === 'function') {
-					holdTimer = window.setTimeout(() => {
-						holdTimer = null;
-						if (finished) return;
-						finished = true;
-						triggerHapticPulse(50);
-						flushTempoCommit();
-						detachListeners();
-						onBeginInlineEdit(tempoSliderSlot);
-					}, TEMPO_SLIDER_INLINE_HOLD_MS);
-				}
+				startHold();
 			}}
 		>
 			<div className="absolute w-full h-1.5 bg-[#0b101e] rounded-full overflow-hidden">
