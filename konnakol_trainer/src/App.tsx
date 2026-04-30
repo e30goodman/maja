@@ -3391,6 +3391,7 @@ const playBarFirstHighClick = (
   voiceGainMul = 1,
 ) => {
   if (voiceGainMul <= 0) return;
+  const now = ctx.currentTime;
   const t0 = Math.max(time, ctx.currentTime + AUDIO_START_GUARD_SEC);
   const masterIn = getMetronomeSummingInput(ctx);
   if (soundType === 'classic') {
@@ -3406,7 +3407,9 @@ const playBarFirstHighClick = (
     osc.frequency.setValueAtTime(1550, t0);
     osc.frequency.exponentialRampToValueAtTime(520, t0 + 0.028);
     const classicPeak = 0.36 * voiceGainMul;
-    gain.gain.cancelScheduledValues(t0);
+    gain.gain.cancelScheduledValues(now);
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0, t0);
     gain.gain.setValueAtTime(0, t0);
     gain.gain.linearRampToValueAtTime(classicPeak, t0 + CLICK_ENV_ATTACK_SEC);
     gain.gain.exponentialRampToValueAtTime(metroEnvelopeEndFromPeak(classicPeak), t0 + 0.0336);
@@ -3431,7 +3434,9 @@ const playBarFirstHighClick = (
     lpFilter.type = 'lowpass';
     lpFilter.frequency.setValueAtTime(20000, t0);
     const oldschoolPeak = 0.78 * voiceGainMul;
-    gain.gain.cancelScheduledValues(t0);
+    gain.gain.cancelScheduledValues(now);
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0, t0);
     gain.gain.setValueAtTime(0, t0);
     gain.gain.linearRampToValueAtTime(oldschoolPeak, t0 + CLICK_ENV_ATTACK_SEC);
     gain.gain.exponentialRampToValueAtTime(metroEnvelopeEndFromPeak(oldschoolPeak), t0 + 0.035);
@@ -4249,8 +4254,6 @@ export default function App() {
     }
   }, [polyVoices]);
 
-  const potatoAutoFreezeArmedRef = useRef(true);
-  const prevLowPerfModeRef = useRef(lowPerfMode);
   const normalizeBarsForMode = useCallback(
     (raw: number) => snapBarsToPolyGrid(raw, polyModeRef.current, polyVoicesRef.current),
     [],
@@ -4264,21 +4267,6 @@ export default function App() {
     }
   }, [frozenScale, frozenRowHeightPx, frozenRowHeightsByRIdx]);
 
-  useEffect(() => {
-    const prev = prevLowPerfModeRef.current;
-    prevLowPerfModeRef.current = lowPerfMode;
-    if (prev === lowPerfMode) return;
-    potatoAutoFreezeArmedRef.current = true;
-    if (!lowPerfMode) return;
-    /* Poly: не навязываем freeze по числу тактов — только кнопка-снежинка. */
-    if (polyModeRef.current) {
-      if (bars < 6) setFrozenScale(null);
-      return;
-    }
-    if (bars >= 6) setFrozenScale(bars);
-    else setFrozenScale(null);
-  }, [lowPerfMode, bars]);
-
   const applyBarsWithPotatoFreeze = useCallback(
     (next: number) => {
       const normalizedNext = normalizeBarsForMode(next);
@@ -4288,22 +4276,10 @@ export default function App() {
       // Press Matrix gate: tile/drop from frozen baseline if armed.
       // Pure functions live in `pressMatrix.ts`; closure-resolved at call time.
       handlePressOnBarsChange(prevBars, normalizedNext);
-      if (!lowPerfMode) return;
-      if (normalizedNext <= 5) {
-        potatoAutoFreezeArmedRef.current = true;
-        setFrozenScale(null);
-        return;
-      }
-      /* Poly: без авто-freeze при росте тактов (иначе «липнет» масштаб как при freeze). */
-      if (polyModeRef.current) return;
-      const crossedUpFromLow = prevBars <= 5 && normalizedNext >= 6;
-      if (potatoAutoFreezeArmedRef.current && crossedUpFromLow) {
-        setFrozenScale(normalizedNext);
-      }
     },
     /* `handlePressOnBarsChange` resolved via closure at call time (declared later in component body). */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [lowPerfMode, normalizeBarsForMode],
+    [normalizeBarsForMode],
   );
 
   const beginBarsInlineEdit = useCallback(() => {
@@ -10144,10 +10120,6 @@ export default function App() {
                         setFrozenRowHeightsByRIdx(byRow);
                       } else {
                         setFrozenRowHeightsByRIdx({});
-                      }
-                      if (lowPerfMode) {
-                        if (bars >= 6) potatoAutoFreezeArmedRef.current = next !== null;
-                        if (bars <= 5) potatoAutoFreezeArmedRef.current = true;
                       }
                       return next;
                     });
