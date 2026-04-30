@@ -426,7 +426,7 @@ const CLICK_PRESET_BUS_GAINS_STORAGE_KEY = 'konnakol_click_preset_bus_gains';
  * Project-wide hardcoded default from user-calibrated backup.
  * Neutral UI "vol" baseline is still 1.0, but startup default for V1 uses 0.76.
  */
-const DEFAULT_POLY_VOICE_GAINS: PolyVoiceGainMap = { 0: 0.76, 1: 1, 2: 1 };
+const DEFAULT_POLY_VOICE_GAINS: PolyVoiceGainMap = { 0: 1, 1: 1, 2: 1 };
 /** Debounce `playTwoBarsPreviewFromGrid` after bus 1/2/3 slider moves. */
 const CLICK_PRESET_BUS_TWO_BARS_PREVIEW_DEBOUNCE_MS = 120;
 const APP_COMMIT_VERSION = (() => {
@@ -4044,6 +4044,10 @@ export default function App() {
     if (fromSnapshot) return { ...seeded, ...fromSnapshot };
     return seeded;
   });
+  // Visual-only fader positions: keep neutral default (1.0) on load.
+  // Real audio gains continue to use polyVoiceGains / clickPresetBusGainsByVoice.
+  const [busFaderVisualByKey, setBusFaderVisualByKey] = useState<Record<string, number>>({});
+  const [polyVoiceFaderVisual, setPolyVoiceFaderVisual] = useState<Record<number, number>>({});
   const [activeClickVoiceTarget, setActiveClickVoiceTarget] = useState<0 | 1 | 2>(0);
   const activeClickVoiceTargetRef = useRef<0 | 1 | 2>(0);
   const debugTaEngineModeRef = useRef(false);
@@ -9443,7 +9447,7 @@ export default function App() {
                                     min={0}
                                     max={1.6}
                                     step={0.01}
-                                    value={gRow[key]}
+                                    value={busFaderVisualByKey[sliderToken] ?? 1}
                                     onInput={(e) => {
                                       beginLiveControlWindow();
                                       markBusSliderMoved();
@@ -9451,6 +9455,7 @@ export default function App() {
                                       const nextVal = Number.isFinite(raw)
                                         ? Math.max(0, Math.min(1.6, raw))
                                         : 1;
+                                      setBusFaderVisualByKey((prev) => ({ ...prev, [sliderToken]: nextVal }));
                                       setClickPresetBusGainsByVoice((prev) => {
                                         const voiceMap = { ...(prev[busVoice] ?? {}) };
                                         const cur = getClickPresetBusGainsForVoicePreset(
@@ -9474,6 +9479,7 @@ export default function App() {
                                       const nextVal = Number.isFinite(raw)
                                         ? Math.max(0, Math.min(1.6, raw))
                                         : 1;
+                                      setBusFaderVisualByKey((prev) => ({ ...prev, [sliderToken]: nextVal }));
                                       setClickPresetBusGainsByVoice((prev) => {
                                         const voiceMap = { ...(prev[busVoice] ?? {}) };
                                         const cur = getClickPresetBusGainsForVoicePreset(
@@ -9493,6 +9499,7 @@ export default function App() {
                                     onDoubleClick={(e) => {
                                       e.preventDefault();
                                       beginLiveControlWindow();
+                                      setBusFaderVisualByKey((prev) => ({ ...prev, [sliderToken]: 1 }));
                                       setClickPresetBusGainsByVoice((prev) => {
                                         const voiceMap = { ...(prev[busVoice] ?? {}) };
                                         const cur = getClickPresetBusGainsForVoicePreset(
@@ -9519,6 +9526,7 @@ export default function App() {
                                         const current = clickBusSliderHoldRef.current;
                                         if (current.token !== sliderToken || current.moved) return;
                                         current.timer = null;
+                                        setBusFaderVisualByKey((prev) => ({ ...prev, [sliderToken]: 1 }));
                                         setClickPresetBusGainsByVoice((prev) => {
                                           const voiceMap = { ...(prev[busVoice] ?? {}) };
                                           const cur = getClickPresetBusGainsForVoicePreset(
@@ -9564,11 +9572,12 @@ export default function App() {
                                   min={0}
                                   max={1.6}
                                   step={0.01}
-                                  value={polyVoiceGains[volVoiceIdx] ?? 1}
+                                  value={polyVoiceFaderVisual[volVoiceIdx] ?? 1}
                                   onChange={(e) => {
                                     beginLiveControlWindow();
                                     const raw = Number(e.target.value);
                                     const next = Number.isFinite(raw) ? Math.max(0, Math.min(1.6, raw)) : 1;
+                                    setPolyVoiceFaderVisual((prev) => ({ ...prev, [volVoiceIdx]: next }));
                                     setPolyVoiceGains((prev) => {
                                       const updated: PolyVoiceGainMap = {
                                         ...prev,
@@ -9580,6 +9589,7 @@ export default function App() {
                                   }}
                                   onDoubleClick={() => {
                                     beginLiveControlWindow();
+                                    setPolyVoiceFaderVisual((prev) => ({ ...prev, [volVoiceIdx]: 1 }));
                                     setPolyVoiceGains((prev) => {
                                       const updated: PolyVoiceGainMap = {
                                         ...prev,
