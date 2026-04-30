@@ -1,111 +1,148 @@
-# Логика саунд-движка (генерация -> mix bus -> output)
+# Логика саунд-движка (актуально)
 
-Этот файл фиксирует реальный путь сигнала в `konnakol_trainer` от генерации клика до выхода в `AudioContext.destination`.
+Док описывает фактический аудио-путь в `konnakol_trainer` по состоянию текущего кода:
 
-## 1) Точки входа генерации
+- `src/App.tsx` (оркестрация, scheduler, запуск хитов)
+- `src/metroLayerGraph.ts` (DSP слоя)
+- `src/metroSoundBus.ts` (per-voice bus)
+- `src/metraAudioBus.ts` (master path + scheduler profiles)
+
+## 1) Где стартует звук
 
 - Основной рендер клика: `playSharpClick(...)` в `src/App.tsx`.
-- Дополнительный акцент первой доли: `playBarFirstHighClick(...)` в `src/App.tsx`.
-- Низкоуровневый рендер одного слоя: `scheduleLayerToBus(...)` в `src/metroLayerGraph.ts`.
+- Спец-ветка сильной первой доли: `playBarFirstHighClick(...)` в `src/App.tsx`.
+- Низкоуровневая отрисовка одного слоя: `scheduleLayerToBus(...)` в `src/metroLayerGraph.ts`.
 
-## 2) Источник пресета и слоев
+Принцип: scheduler решает "когда и какой голос", `playSharpClick` решает "какие слои и с какими gain", `scheduleLayerToBus` строит WebAudio-граф.
 
-- Пресет берется из `CLICK_SOUND_LIBRARY` (в т.ч. через legacy-конверсию в слои).
-- Для каждой роли голоса используется отдельный слой-набор:
-  - `accent`
-  - `alt`
-  - `passive`
-- Для каждого слоя применяются:
-  - `mute/solo` логика
-  - volume gate (`CLICK_LAYER_VOLUME_GATE`)
-  - clamp decay (`CLICK_DECAY_MIN_SEC..CLICK_DECAY_MAX_SEC`)
-  - роль/режимный gain-множитель (`voiceGainMul`, `accentOnlyPlayback` поправка)
+## 2) Источник пресетов и роль слоёв
 
-## 3) Генерация слоя (Layer DSP)
+- База звуков: `CLICK_SOUND_LIBRARY` в `App.tsx`.
+- Источник слоев на голос:
+  - либо `cfg.layers` (если у пресета есть новый формат),
+  - либо `buildLegacyVoiceLayers(cfg)` (legacy-совместимость).
+- Голоса: `accent`, `alt`, `passive`.
+- На каждый слой перед рендером:
+  - `mute/solo` фильтрация,
+  - volume gate `CLICK_LAYER_VOLUME_GATE`,
+  - clamp decay в диапазон `CLICK_DECAY_MIN_SEC..CLICK_DECAY_MAX_SEC`,
+  - итоговый множитель громкости (`voiceGainMul` + режимная поправка `accentOnlyPlayback`).
 
-Реализовано в `scheduleLayerToBus(...)`:
+## 3) Layer DSP (реальный граф)
 
-### Tone-слой (`OscillatorType`)
+Реализовано в `scheduleLayerToBus(...)`.
 
-1. `OscillatorNode` создается с `type` и `frequency`.
-2. Опционально sweep: экспоненциальный спуск частоты к `freq * 0.1`.
-3. Envelope на `GainNode`:
-   - `0 -> peak` линейно за `METRO_LAYER_ATTACK_SEC` (0.002s)
-   - `peak -> end` экспоненциально до `max(1e-5, peak*0.001)`
-4. Пост-фильтры слоя:
-   - `Highpass (hpFreq)`
-   - `Lowpass (lpFreq)`
-5. Выход слоя идет в вход voice bus (`summingInput`).
+### 3.1 Tone-слой (`OscillatorType`)
 
-### Noise-слой (`type === "noise"`)
+Граф:
 
-1. `AudioBufferSourceNode` получает детерминированный белый шум из shared buffer (`WeakMap` на контекст).
-2. Character filter (`noiseFilterType`, freq = `params.freq`).
-3. Envelope на `noiseGain`:
-   - `0 -> nVol` (`peakLinear * 0.5`)
-   - `nVol -> nEndVol` экспоненциально
-4. Далее тот же слойный post-chain:
-   - `HP -> LP -> summingInput`.
+`osc -> gain(AD envelope) -> layerHp -> layerLp -> summingInput`
 
-## 4) Voice bus (per-voice group chain)
+Детали:
 
-Реализовано в `src/metroSoundBus.ts`. Для каждой роли (`accent/alt/passive`) создается отдельная шина:
+- старт осциллятора: `scheduleTime + jitter`, где `jitter <= 0.002s`;
+- при `sweep=true` частота уходит экспоненциально к `max(10, freq*0.1)`;
+- envelope:
+  - attack `METRO_LAYER_ATTACK_SEC = 0.002`,
+  - decay экспоненциально до `metroEnvelopeEndFromPeak(peak) = max(1e-5, peak*0.001)`.
+
+### 3.2 Noise-слой (`type === 'noise'`)
+
+Граф:
+
+`bufferSource(shared deterministic noise) -> noiseFilter -> noiseGain(AD) -> layerHp -> layerLp -> summingInput`
+
+Детали:
+
+- шум берется из `WeakMap<AudioContext, AudioBuffer>` (общий буфер на контекст);
+- буфер заполняется детерминированно (`fillChannelDeterministicWhiteNoise`);
+- peak для noise: `nVol = peakLinear * 0.5`.
+
+## 4) Voice buses (групповая обработка по голосам)
+
+Реализовано в `src/metroSoundBus.ts`.
+
+Цепь на каждый голос:
 
 `layerSum -> groupHp -> groupLp -> groupDelay -> groupMaster -> metronome summing input`
 
 Параметры:
 
-- `groupHp.frequency` (снизу clamp до 20 Hz).
-- `groupLp.frequency` (снизу clamp до 20 Hz).
-- `groupDelay.delayTime`:
-  - `accent = 0`
-  - `alt = 0.00045`
-  - `passive = 0.0009`
-- `groupMaster.gain` clamp `0..4`.
+- HP clamp снизу до `20 Hz`;
+- LP задается напрямую (по текущему коду с нижним clamp `20 Hz`);
+- `groupMaster.gain` clamp `0..4`;
+- micro-delay:
+  - `accent = 0`,
+  - `alt = 0.00045`,
+  - `passive = 0.0009`.
 
-Назначение micro-delay: снизить риск моно-канселляции между голосами при сохранении тайминга.
+Назначение micro-delay: уменьшить риск моно-канселляции при плотных совпадениях голосов.
 
-## 5) Metronome mix bus (master path)
+## 5) Master bus (финальный путь в output)
 
 Реализовано в `src/metraAudioBus.ts`.
 
-Master chain на контекст:
+Цепь:
 
-`summing (Gain=0.85) -> masterLimiter (DynamicsCompressor) -> ctx.destination`
+`summing(gain=0.85) -> DynamicsCompressor(masterLimiter) -> ctx.destination`
 
-Лимитер (peak-limiter поведение через `DynamicsCompressor`):
+Лимитер (peak-limiter стиль):
 
-- `threshold = -0.1 dB`
+- `threshold = -0.1`
 - `knee = 0`
 - `ratio = 10`
-- `attack = 0.003 s`
-- `release = 0.05 s`
+- `attack = 0.003`
+- `release = 0.05`
 
-Итог: все voice buses линейно суммируются в `summing`, затем проходят мастер-лимитер и выходят в `destination`.
+`getMetronomeSummingInput(ctx)` создает эту цепь лениво и кеширует на `WeakMap` по `AudioContext`.
 
-## 6) Где это подключается в рантайме
+## 6) Scheduler: актуальные профили и recovery
 
-В `App.tsx` при старте/preview:
+Профили (`metraAudioBus.ts`):
 
-1. Создается/резюмится `AudioContext`.
-2. Для каждого voice (`accent/alt/passive`) дергается `getVoiceLayerSumInput(ctx, v)`.
-3. На те же voice шины накатываются group-параметры через `applyVoiceGroupChain(...)`.
-4. Планировщик вызывает `scheduleGridCellAtTime(...)`, оттуда идет вызов `playSharpClick(...)`.
-5. `playSharpClick(...)` раскладывает hit на слои и каждый слой отправляет в `scheduleLayerToBus(...)`.
+- `safe`: `lookaheadMs=20`, `scheduleAheadSec=0.5`
+- `balanced`: `lookaheadMs=25`, `scheduleAheadSec=0.35`
+- `aggressive`: `lookaheadMs=16`, `scheduleAheadSec=0.25`
 
-## 7) Отдельная ветка первой доли
+В `App.tsx` дефолт сейчас: `DEFAULT_SCHEDULER_PROFILE = 'safe'`.
 
-`playBarFirstHighClick(...)`:
+Recovery-поведение scheduler:
 
-- Для `classic` и `oldschool` строит локальный граф напрямую:
-  - `osc -> gain -> hp -> lp -> masterIn`
-- `masterIn` берется из `getMetronomeSummingInput(ctx)`, то есть все равно попадает в общий metronome mix bus и limiter.
-- Для остальных пресетов делегирует в `playSharpClick(..., voiceRole="accent")`.
+- детект long stall по gap тиков;
+- hard resync `nextTime`/`nextNoteTime`;
+- ограничение catch-up (`maxCatchUpBatchesPerTick`, `maxCatchUpLagSec`);
+- post-stall cooldown с форсом `safe` профиля;
+- эскалация в `safe`, если подряд несколько recoveries.
 
-## 8) Анти-артефакты и устойчивость
+## 7) Как это поднимается в рантайме
 
-- Start guard: `t0 >= ctx.currentTime + AUDIO_START_GUARD_SEC`.
-- Anti-burst spacing per voice в `playSharpClick`: предотвращает совпадение множества late events в один timestamp.
-- Anti-phase jitter для tone-слоев: `osc.start(scheduleTime + random(0..0.002s))`, чтобы осцилляторы не складывались в одинаковую фазу каждый hit.
-- Shared deterministic noise buffer: стабильный шум без случайного дрейфа от вызова к вызову.
-- `WeakMap` по `AudioContext` во всех шинах/буферах: корректная изоляция инстансов и cleanup через GC после закрытия контекста.
+При play/preview:
+
+1. Создается (или пересоздается) `AudioContext`.
+2. Инициализируются voice buses (`getVoiceLayerSumInput`).
+3. Применяются group-параметры (`applyVoiceGroupChain`).
+4. Scheduler вызывает `scheduleGridCellAtTime(...)`.
+5. На событии grid-cell вызывается `playSharpClick(...)` / `playBarFirstHighClick(...)`.
+
+Отдельно: в `playTwoBarsPreviewFromGrid(...)` перед предпрослушкой контекст принудительно пересоздается и шины/параметры заново "бутстрапятся".
+
+## 8) Ветка сильной доли (`playBarFirstHighClick`)
+
+- Для `classic` и `oldschool` строится локальный граф вручную:
+  - `osc -> gain -> hp -> lp -> masterIn`.
+- `masterIn` = `getMetronomeSummingInput(ctx)`, то есть сигнал все равно проходит общий limiter.
+- Для остальных пресетов: делегирование в `playSharpClick(..., voiceRole='accent')`.
+
+## 9) Anti-artifact механики (текущее)
+
+- Start guard: `AUDIO_START_GUARD_SEC = 0.004`.
+- Anti-burst spacing по голосам через `lastScheduledVoiceTimeByContext`.
+- Усиленный spacing для `passive` и post-stall cooldown на Chrome desktop.
+- Jitter старта tone-осцилляторов до `2 ms` для снижения фазового складывания.
+- Shared deterministic noise buffer (без рандом-дрейфа между вызовами).
+- Все persistent audio-структуры держатся в `WeakMap<AudioContext,...>` (без ручного глобального singleton-state).
+
+## 10) Что считать source-of-truth
+
+- Актуальный runtime-код: `src/App.tsx`, `src/metraAudioBus.ts`, `src/metroSoundBus.ts`, `src/metroLayerGraph.ts`.
+- Файлы `src/App_saved.tsx` и `src/app_reserv.txt` не являются runtime source-of-truth.
