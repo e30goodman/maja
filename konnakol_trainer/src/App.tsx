@@ -3492,6 +3492,8 @@ const playBarFirstHighClick = (
     const cached = taHiHatBuffersByContext.get(ctx);
     if (!cached || cached.length === 0) {
       void ensureTaHiHatBuffer(ctx);
+      // Cold-start fallback: do not drop first Ta if RR buffers are not ready yet.
+      playSharpClick(ctx, time, true, soundType, false, 'accent', voiceGainMul);
       return;
     }
     const rrNext = taHiHatRoundRobinIndexByContext.get(ctx) ?? 0;
