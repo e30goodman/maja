@@ -3331,8 +3331,11 @@ const IS_CHROME_DESKTOP =
   !/(Android|iPhone|iPad|iPod)/i.test(navigator.userAgent);
 
 const clickMixerGroupRef: { current: Record<MetroVoiceKey, ClickMixerGroup> | null } = { current: null };
-const taHiHatBufferByContext = new WeakMap<AudioContext, AudioBuffer>();
-const taHiHatRenderPromiseByContext = new WeakMap<AudioContext, Promise<AudioBuffer | null>>();
+const TA_HIHAT_ROUND_ROBIN_VARIANTS = 4;
+const TA_HIHAT_BUFFER_PADDING_SEC = 0.01;
+const taHiHatBuffersByContext = new WeakMap<AudioContext, AudioBuffer[]>();
+const taHiHatRenderPromiseByContext = new WeakMap<AudioContext, Promise<AudioBuffer[]>>();
+const taHiHatRoundRobinIndexByContext = new WeakMap<AudioContext, number>();
 
 function getClassicOldschoolLoudnessBoost(soundType: ClickSoundPreset): number {
   if (soundType === 'classic') return 1.42;
@@ -3340,17 +3343,12 @@ function getClassicOldschoolLoudnessBoost(soundType: ClickSoundPreset): number {
   return 1;
 }
 
-async function renderTaHiHatBuffer(ctx: AudioContext): Promise<AudioBuffer | null> {
+async function renderTaHiHatRoundRobinBuffers(ctx: AudioContext): Promise<AudioBuffer[]> {
   const OfflineCtor = (window as unknown as { OfflineAudioContext?: typeof OfflineAudioContext }).OfflineAudioContext;
-  if (!OfflineCtor) return null;
+  if (!OfflineCtor) return [];
   const sampleRate = Math.max(22050, Math.floor(ctx.sampleRate || 44100));
   const durationSec = 0.2;
   const frameCount = Math.max(1, Math.floor(sampleRate * durationSec));
-  const off = new OfflineCtor(1, frameCount, sampleRate);
-  const t0 = 0.006;
-  const sumIn = off.createGain();
-  sumIn.gain.value = 1;
-  sumIn.connect(off.destination);
   const cfg = CLICK_SOUND_LIBRARY.hi_hat ?? CLICK_SOUND_LIBRARY.classic;
   const accentLayers = (cfg.layers ?? buildLegacyVoiceLayers(cfg)).accent;
   const activeLayers = accentLayers.filter(
@@ -3358,24 +3356,42 @@ async function renderTaHiHatBuffer(ctx: AudioContext): Promise<AudioBuffer | nul
   );
   const soloLayers = activeLayers.filter((layer) => layer.solo === true);
   const runLayers = soloLayers.length > 0 ? soloLayers : activeLayers;
-  for (const layer of runLayers) {
-    const layerDecay = Math.min(CLICK_DECAY_MAX_SEC, Math.max(CLICK_DECAY_MIN_SEC, layer.params.decay));
-    scheduleLayerToBus(off as unknown as AudioContext, t0, layer, layer.params.volume, layerDecay, sumIn);
+  const variants: AudioBuffer[] = [];
+  for (let variantIdx = 0; variantIdx < TA_HIHAT_ROUND_ROBIN_VARIANTS; variantIdx += 1) {
+    const off = new OfflineCtor(1, frameCount, sampleRate);
+    const sumIn = off.createGain();
+    sumIn.gain.value = 1;
+    sumIn.connect(off.destination);
+    const t0 = TA_HIHAT_BUFFER_PADDING_SEC;
+    const noiseSeed = (0x2f6b9a3e + variantIdx * 0x9e3779b9) | 0;
+    for (const layer of runLayers) {
+      const layerDecay = Math.min(CLICK_DECAY_MAX_SEC, Math.max(CLICK_DECAY_MIN_SEC, layer.params.decay));
+      scheduleLayerToBus(
+        off as unknown as AudioContext,
+        t0,
+        layer,
+        layer.params.volume,
+        layerDecay,
+        sumIn,
+        { isOffline: true, noiseSeed },
+      );
+    }
+    variants.push(await off.startRendering());
   }
-  return off.startRendering();
+  return variants;
 }
 
-function ensureTaHiHatBuffer(ctx: AudioContext): Promise<AudioBuffer | null> {
-  const ready = taHiHatBufferByContext.get(ctx);
-  if (ready) return Promise.resolve(ready);
+function ensureTaHiHatBuffer(ctx: AudioContext): Promise<AudioBuffer[]> {
+  const ready = taHiHatBuffersByContext.get(ctx);
+  if (ready && ready.length > 0) return Promise.resolve(ready);
   const inFlight = taHiHatRenderPromiseByContext.get(ctx);
   if (inFlight) return inFlight;
-  const job = renderTaHiHatBuffer(ctx)
-    .then((buf) => {
-      if (buf) taHiHatBufferByContext.set(ctx, buf);
-      return buf;
+  const job = renderTaHiHatRoundRobinBuffers(ctx)
+    .then((buffers) => {
+      if (buffers.length > 0) taHiHatBuffersByContext.set(ctx, buffers);
+      return buffers;
     })
-    .catch(() => null)
+    .catch(() => [])
     .finally(() => {
       taHiHatRenderPromiseByContext.delete(ctx);
     });
@@ -3473,21 +3489,24 @@ const playBarFirstHighClick = (
   const t0 = Math.max(time, ctx.currentTime + AUDIO_START_GUARD_SEC);
   const presetBoost = getClassicOldschoolLoudnessBoost(soundType);
   if (soundType === 'hi_hat') {
-    const cached = taHiHatBufferByContext.get(ctx);
-    if (!cached) {
+    const cached = taHiHatBuffersByContext.get(ctx);
+    if (!cached || cached.length === 0) {
       void ensureTaHiHatBuffer(ctx);
       return;
     }
+    const rrNext = taHiHatRoundRobinIndexByContext.get(ctx) ?? 0;
+    const rrIdx = rrNext % cached.length;
+    taHiHatRoundRobinIndexByContext.set(ctx, (rrNext + 1) % cached.length);
     const busIn = getVoiceLayerSumInput(ctx, 'accent');
     const src = ctx.createBufferSource();
     const gain = ctx.createGain();
-    src.buffer = cached;
+    src.buffer = cached[rrIdx]!;
     gain.gain.cancelScheduledValues(now);
     gain.gain.setValueAtTime(0, now);
     gain.gain.linearRampToValueAtTime(voiceGainMul * presetBoost, t0 + CLICK_ENV_ATTACK_SEC);
     src.connect(gain);
     gain.connect(busIn);
-    src.start(t0);
+    src.start(Math.max(now, t0 - TA_HIHAT_BUFFER_PADDING_SEC));
     src.onended = () => {
       src.disconnect();
       gain.disconnect();
