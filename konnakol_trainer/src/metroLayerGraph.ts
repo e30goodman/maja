@@ -5,7 +5,7 @@
  * Filter cutoff scheduling uses setValueAtTime at `scheduleTime` like the reference.
  */
 
-import { fillChannelDeterministicWhiteNoise, SHARED_AUDIO_NOISE_SEED } from './deterministicWhiteNoiseFill';
+import { fillChannelDeterministicWhiteNoise } from './deterministicWhiteNoiseFill';
 
 export type MetroLayerGraphType = OscillatorType | 'noise' | 'none';
 
@@ -27,30 +27,23 @@ const OSC_START_JITTER_MAX_SEC = 0.002;
 const SHARED_NOISE_BUFFER_SEC = 2;
 const FILTER_Q_FLAT = 0.7071;
 const MIN_HP_HZ = 20;
-const sharedNoiseBufferByContext = new WeakMap<AudioContext, Map<number, AudioBuffer>>();
+const sharedNoiseBufferByContext = new WeakMap<AudioContext, AudioBuffer>();
 
 /** Same floor as engine example (`max(1e-5, peak * 0.001)`). */
 export function metroEnvelopeEndFromPeak(peakLinear: number): number {
 	return Math.max(0.00001, peakLinear * 0.001);
 }
 
-function getSharedNoiseBuffer(ctx: AudioContext, seed: number): AudioBuffer {
-	const bySeed = sharedNoiseBufferByContext.get(ctx) ?? new Map<number, AudioBuffer>();
-	const cached = bySeed.get(seed);
+function getSharedNoiseBuffer(ctx: AudioContext): AudioBuffer {
+	const cached = sharedNoiseBufferByContext.get(ctx);
 	if (cached) return cached;
 	const frameCount = Math.max(1, Math.floor(ctx.sampleRate * SHARED_NOISE_BUFFER_SEC));
 	const buf = ctx.createBuffer(1, frameCount, ctx.sampleRate);
 	const output = buf.getChannelData(0);
-	fillChannelDeterministicWhiteNoise(output, seed);
-	bySeed.set(seed, buf);
-	sharedNoiseBufferByContext.set(ctx, bySeed);
+	fillChannelDeterministicWhiteNoise(output);
+	sharedNoiseBufferByContext.set(ctx, buf);
 	return buf;
 }
-
-type ScheduleLayerOptions = {
-	isOffline?: boolean;
-	noiseSeed?: number;
-};
 
 /**
  * @param scheduleTime AudioContext time for scheduling (e.g. t0 after guard)
@@ -64,11 +57,8 @@ export function scheduleLayerToBus(
 	peakLinear: number,
 	decaySec: number,
 	summingInput: AudioNode,
-	options?: ScheduleLayerOptions,
 ): void {
 	const now = ctx.currentTime;
-	const isOffline = options?.isOffline === true;
-	const noiseSeed = options?.noiseSeed ?? SHARED_AUDIO_NOISE_SEED;
 	const p = layer.params;
 	const hpFreq = Math.max(MIN_HP_HZ, p.hpFreq || 20);
 	const lpFreq = p.lpFreq || 20000;
@@ -88,7 +78,7 @@ export function scheduleLayerToBus(
 
 	if (layer.type === 'noise') {
 		const noiseSrc = ctx.createBufferSource();
-		noiseSrc.buffer = getSharedNoiseBuffer(ctx, noiseSeed);
+		noiseSrc.buffer = getSharedNoiseBuffer(ctx);
 
 		const noiseFilter = ctx.createBiquadFilter();
 		noiseFilter.type = layer.noiseFilterType || 'highpass';
@@ -100,7 +90,7 @@ export function scheduleLayerToBus(
 		const nEndVol = Math.max(0.00001, nVol * 0.001);
 
 		noiseGain.gain.cancelScheduledValues(now);
-		noiseGain.gain.setValueAtTime(0, 0);
+		noiseGain.gain.setValueAtTime(0, now);
 		noiseGain.gain.linearRampToValueAtTime(0, scheduleTime);
 		noiseGain.gain.setValueAtTime(0, scheduleTime);
 		noiseGain.gain.linearRampToValueAtTime(nVol, scheduleTime + METRO_LAYER_ATTACK_SEC);
@@ -118,7 +108,7 @@ export function scheduleLayerToBus(
 	const osc = ctx.createOscillator();
 	const gain = ctx.createGain();
 	const endVol = metroEnvelopeEndFromPeak(peakLinear);
-	const oscStartTime = isOffline ? scheduleTime : scheduleTime + Math.random() * OSC_START_JITTER_MAX_SEC;
+	const oscStartTime = scheduleTime + Math.random() * OSC_START_JITTER_MAX_SEC;
 
 	osc.type = layer.type as OscillatorType;
 	osc.frequency.setValueAtTime(Math.max(1, p.freq), oscStartTime);
@@ -127,7 +117,7 @@ export function scheduleLayerToBus(
 	}
 
 	gain.gain.cancelScheduledValues(now);
-	gain.gain.setValueAtTime(0, 0);
+	gain.gain.setValueAtTime(0, now);
 	gain.gain.linearRampToValueAtTime(0, oscStartTime);
 	gain.gain.setValueAtTime(0, oscStartTime);
 	gain.gain.linearRampToValueAtTime(peakLinear, oscStartTime + METRO_LAYER_ATTACK_SEC);
