@@ -2521,6 +2521,8 @@ function createEmptySnapshot() {
 		pulseMeterUnlinked: {} as Record<number, boolean>,
 		/** Frozen row height (number of visible bars) or null. */
 		frozenScale: null as number | null,
+		/** Potato mode (low-performance UI). */
+		lowPerfMode: false,
 		polyMode: false,
 		polyVoices: 2 as 2 | 3 | 4,
 		onlyAccents: false,
@@ -2782,6 +2784,7 @@ function parseSnapshotRow(raw: unknown) {
 		const fn = parseInt(String(fs), 10);
 		d.frozenScale = Number.isFinite(fn) && fn >= 1 && fn <= 100 ? fn : null;
 	}
+	if (typeof o.lowPerfMode === 'boolean') d.lowPerfMode = o.lowPerfMode;
 	if (typeof o.polyMode === 'boolean') d.polyMode = o.polyMode;
 	d.polyVoices = parsePolyVoices(o.polyVoices);
 	const deadRaw = o.deadCells;
@@ -2895,6 +2898,7 @@ function snapSlotLooksUsed(s: ReturnType<typeof createEmptySnapshot>) {
 	}
 	if (s.firstBeatAccent === false) return true;
 	if (s.frozenScale != null) return true;
+	if ((s as { lowPerfMode?: boolean }).lowPerfMode === true) return true;
 	if (s.polyMode) return true;
 	if (s.polyVoices !== 2) return true;
 	if (s.syllableReadMuteMode !== 'off') return true;
@@ -2962,6 +2966,7 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 			Object.entries(s.pulseMeterUnlinked || {}).filter(([, v]) => v),
 		) as Record<string, boolean>,
 		frozenScale: s.frozenScale ?? null,
+		lowPerfMode: (s as { lowPerfMode?: boolean }).lowPerfMode === true,
 		polyMode: s.polyMode === true,
 		polyVoices: parsePolyVoices(s.polyVoices),
 		onlyAccents: s.onlyAccents,
@@ -3226,6 +3231,13 @@ type CompactSnapshotStoragePayload = {
 	v: 1;
 	activeSnapshot?: number;
 	slots?: Record<string, string>;
+	slotUi?: Record<
+		string,
+		{
+			lowPerfMode?: boolean;
+			frozenScale?: number | null;
+		}
+	>;
 };
 
 function loadSnapshotStorage(): {
@@ -3254,12 +3266,26 @@ function loadSnapshotStorage(): {
 				activeSnapshot = Math.floor(compactData.activeSnapshot);
 			}
 			const bag = compactData.slots;
+			const compactSlotUi = compactData.slotUi;
 			if (bag && typeof bag === 'object') {
 				for (let i = 1; i <= SNAPSHOT_SLOT_COUNT; i++) {
 					const encoded = bag[String(i)] ?? (bag as any)[i];
 					if (typeof encoded !== 'string' || !encoded.trim()) continue;
 					const parsed = tryDecodeSnapshotClipboard(encoded);
 					if (!parsed) continue;
+					if (compactSlotUi && typeof compactSlotUi === 'object') {
+						const uiRaw = compactSlotUi[String(i)] ?? (compactSlotUi as any)[i];
+						if (uiRaw && typeof uiRaw === 'object') {
+							const ui = uiRaw as { lowPerfMode?: unknown; frozenScale?: unknown };
+							if (typeof ui.lowPerfMode === 'boolean') parsed.lowPerfMode = ui.lowPerfMode;
+							if (ui.frozenScale === null || ui.frozenScale === undefined) {
+								parsed.frozenScale = null;
+							} else {
+								const fs = parseInt(String(ui.frozenScale), 10);
+								parsed.frozenScale = Number.isFinite(fs) && fs >= 1 && fs <= 100 ? fs : null;
+							}
+						}
+					}
 					snapshots[i] = parsed;
 					restoredAny = true;
 				}
@@ -3477,8 +3503,8 @@ type StructuralSliderProps = {
   onThumbPointerSessionEnd?: () => void;
 };
 
-/** Ширина «рукоятки» в px (совпадает с w-4 в классе слайдера) — только по ней принимаем pointerdown, не по дорожке. */
-const STRUCTURAL_SLIDER_THUMB_PX = 16;
+/** Ширина «рукоятки» в px (совпадает с w-5 в классе слайдера) — только по ней принимаем pointerdown, не по дорожке. */
+const STRUCTURAL_SLIDER_THUMB_PX = 20;
 
 function StructuralSlider({
   label,
@@ -3685,7 +3711,7 @@ function StructuralSlider({
         WebkitTouchCallout: 'none',
         userSelect: 'none',
       }}
-      className={`flex-1 h-3 bg-[#0b101e] rounded-lg appearance-none cursor-pointer touch-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 ${colorClass} [&::-webkit-slider-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110`}
+      className={`flex-1 h-3 bg-[#0b101e] rounded-lg appearance-none cursor-pointer touch-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 ${colorClass} [&::-webkit-slider-thumb]:rounded-full [&::-moz-range-thumb]:rounded-full hover:[&::-webkit-slider-thumb]:scale-110`}
     />
   );
 }
@@ -3968,6 +3994,7 @@ export default function App() {
   const showRandomSettingsRef = useRef(false);
   showRandomSettingsRef.current = showRandomSettings;
   const [lowPerfMode, setLowPerfMode] = useState(() => {
+    if ((seed as { lowPerfMode?: unknown }).lowPerfMode === true) return true;
     try {
       return localStorage.getItem(LITE_UI_STORAGE_KEY) === '1';
     } catch {
@@ -5692,6 +5719,7 @@ export default function App() {
     panelExpanded: isPanelExpandedRef.current,
     pulseMeterUnlinked: { ...pulseMeterUnlinkedRef.current },
     frozenScale: frozenScaleRef.current,
+    lowPerfMode,
     polyMode: polyModeRef.current,
     polyVoices: polyVoicesRef.current,
     onlyAccents: false,
@@ -6523,6 +6551,7 @@ export default function App() {
       panelExpanded: raw.panelExpanded,
       pulseMeterUnlinked: raw.pulseMeterUnlinked,
       frozenScale: raw.frozenScale,
+      lowPerfMode: (raw as { lowPerfMode?: unknown }).lowPerfMode,
       polyMode: raw.polyMode,
       polyVoices: raw.polyVoices,
       onlyAccents: raw.onlyAccents,
@@ -6664,6 +6693,7 @@ export default function App() {
           panelExpanded: isPanelExpanded,
           pulseMeterUnlinked: { ...pulseMeterUnlinked },
           frozenScale,
+          lowPerfMode,
           polyMode,
           polyVoices,
           mixerLayerMode,
@@ -6714,6 +6744,7 @@ export default function App() {
     clickPresetBusGainsByVoice,
     isPanelExpanded,
     frozenScale,
+    lowPerfMode,
     polyMode,
     polyVoices,
     mixerLayerMode,
@@ -6747,6 +6778,7 @@ export default function App() {
           JSON.stringify({ activeSnapshot, snapshots: out }),
         );
         const compactSlots: Record<string, string> = {};
+        const compactSlotUi: NonNullable<CompactSnapshotStoragePayload['slotUi']> = {};
         for (let i = 1; i <= SNAPSHOT_SLOT_COUNT; i++) {
           let s = snapshots[i];
           if (i === activeSnapshot && s) {
@@ -6754,11 +6786,16 @@ export default function App() {
           }
           if (!s) continue;
           compactSlots[String(i)] = encodeSnapshotClipboard(s);
+          compactSlotUi[String(i)] = {
+            lowPerfMode: (s as { lowPerfMode?: boolean }).lowPerfMode === true,
+            frozenScale: typeof s.frozenScale === 'number' && s.frozenScale >= 1 ? s.frozenScale : null,
+          };
         }
         const compactPayload: CompactSnapshotStoragePayload = {
           v: 1,
           activeSnapshot,
           slots: compactSlots,
+          slotUi: compactSlotUi,
         };
         localStorage.setItem(SNAPSHOT_STORAGE_COMPACT_KEY, JSON.stringify(compactPayload));
       } catch (e) {
@@ -6995,6 +7032,7 @@ export default function App() {
     setFrozenScale(
       typeof snap.frozenScale === 'number' && snap.frozenScale >= 1 ? snap.frozenScale : null,
     );
+    setLowPerfMode((snap as { lowPerfMode?: unknown }).lowPerfMode === true);
     setPolyMode(snap.polyMode === true);
     setPolyVoices(snapVoices);
     setActiveClickVoiceTarget(0);
@@ -7076,6 +7114,7 @@ export default function App() {
       },
     pulseMeterUnlinked: { ...(s.pulseMeterUnlinked || {}) },
     frozenScale: typeof s.frozenScale === 'number' && s.frozenScale >= 1 ? s.frozenScale : null,
+    lowPerfMode: (s as { lowPerfMode?: unknown }).lowPerfMode === true,
     polyMode: s.polyMode === true,
     polyVoices: parsePolyVoices(s.polyVoices),
     mixerLayerMode: normalizeMixerLayerModeFromSnapshot((s as { mixerLayerMode?: unknown }).mixerLayerMode),
@@ -10204,7 +10243,7 @@ export default function App() {
 
             <div className={`grid ${disableMenuSmoothing ? '' : 'transition-all duration-300'} ${isPanelExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
               <div className="overflow-hidden">
-                <div className="relative h-4 w-full">
+                <div className="relative h-6 w-full">
                   {/* Global Syllables Slider */}
                   <div className={`absolute inset-0 flex items-center gap-2 ${disableMenuSmoothing ? '' : 'transition-all duration-300'} ${((activeEditCell !== null) || activeEditRow !== null) ? 'opacity-0 pointer-events-none scale-y-50' : 'opacity-100 scale-y-100'}`}>
                     <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold w-12 shrink-0">Syllbs</span>
