@@ -9341,6 +9341,13 @@ export default function App() {
         : trainerMode === 'ta_only'
           ? 'Mode: Ta-only'
           : 'Mode: normal';
+  const isMatrixUiActive = pressMatrixArmSourceUi !== null;
+  const matrixBlockSurfaceClass = isMatrixUiActive
+    ? `bg-violet-500/10 border-violet-500/55 ${lowPerfMode ? '' : 'shadow-[0_0_14px_rgba(167,139,250,0.22)]'}`
+    : 'bg-[#161f33] border-[#23314f]';
+  const matrixInnerBlockSurfaceClass = isMatrixUiActive
+    ? `bg-violet-500/12 border-violet-500/45 ${lowPerfMode ? '' : 'shadow-[inset_0_0_10px_rgba(167,139,250,0.16)]'}`
+    : 'bg-[#161f33] border-[#23314f]';
 
   return (
     <div className="h-[100dvh] bg-[#0b101e] sm:bg-black/95 text-slate-200 p-0 sm:p-6 font-sans flex flex-col items-center justify-center">
@@ -9364,7 +9371,7 @@ export default function App() {
             <Settings size={20} />
           </button>
           {!isPanelExpanded && !showRandomSettings ? (
-            <div className="flex-1 flex items-center gap-2 min-w-0 py-2 px-1.5 bg-[#161f33] rounded-xl border border-[#23314f] touch-none">
+            <div className={`flex-1 flex items-center gap-2 min-w-0 py-2 px-1.5 rounded-xl border touch-none transition-colors ${matrixInnerBlockSurfaceClass}`}>
           <button 
                 type="button"
                 onPointerDown={beginTempoMinusHold}
@@ -9516,7 +9523,7 @@ export default function App() {
 
         {/* Global Settings (Tempo & Row Selectors) */}
         <div
-          className={`relative flex shrink-0 flex-col rounded-2xl border border-[#23314f] bg-[#161f33] ${
+          className={`relative flex shrink-0 flex-col rounded-2xl border transition-colors ${matrixBlockSurfaceClass} ${
             isClickSoundSelectorOpen ? 'mb-1' : 'mb-2'
           }`}
         >
