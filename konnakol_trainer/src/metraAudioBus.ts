@@ -8,16 +8,16 @@ const masterBusByContext = new WeakMap<AudioContext, { summing: GainNode; master
 
 function createMasterPeakLimiter(ctx: AudioContext): DynamicsCompressorNode {
 	const lim = ctx.createDynamicsCompressor();
-	lim.threshold.value = -0.5;
+	lim.threshold.value = -0.1;
 	lim.knee.value = 0;
-	lim.ratio.value = 20;
-	lim.attack.value = 0.001;
+	lim.ratio.value = 10;
+	lim.attack.value = 0.003;
 	lim.release.value = 0.05;
 	return lim;
 }
 
 export const METRA_LOOKAHEAD_MS = 25;
-export const METRA_SCHEDULE_AHEAD_SEC = 0.1;
+export const METRA_SCHEDULE_AHEAD_SEC = 0.35;
 
 export type MetraSchedulerProfile = 'safe' | 'balanced' | 'aggressive';
 
@@ -37,7 +37,7 @@ function computeSafetyLeadSec(lookaheadMs: number): number {
 export const METRA_SCHEDULER_PROFILES: Record<MetraSchedulerProfile, MetraSchedulerConfig> = {
 	safe: {
 		lookaheadMs: 20,
-		scheduleAheadSec: 0.2,
+		scheduleAheadSec: 0.5,
 		lateResetThresholdSec: 0.8,
 		maxCatchUpBatchesPerTick: 128,
 		maxCatchUpLagSec: 0.35,
@@ -45,7 +45,7 @@ export const METRA_SCHEDULER_PROFILES: Record<MetraSchedulerProfile, MetraSchedu
 	},
 	balanced: {
 		lookaheadMs: METRA_LOOKAHEAD_MS,
-		scheduleAheadSec: 0.15,
+		scheduleAheadSec: METRA_SCHEDULE_AHEAD_SEC,
 		lateResetThresholdSec: 0.65,
 		maxCatchUpBatchesPerTick: 96,
 		maxCatchUpLagSec: 0.25,
@@ -53,7 +53,7 @@ export const METRA_SCHEDULER_PROFILES: Record<MetraSchedulerProfile, MetraSchedu
 	},
 	aggressive: {
 		lookaheadMs: 16,
-		scheduleAheadSec: 0.12,
+		scheduleAheadSec: 0.25,
 		lateResetThresholdSec: 0.5,
 		maxCatchUpBatchesPerTick: 64,
 		maxCatchUpLagSec: 0.15,
@@ -70,8 +70,8 @@ export function getMetronomeSummingInput(ctx: AudioContext): GainNode {
 	let entry = masterBusByContext.get(ctx);
 	if (!entry) {
 		const summing = ctx.createGain();
-		// Global loudness trim before limiter. Keep moderate boost to avoid aggressive pumping.
-		summing.gain.value = 1.2;
+		// Keep headroom before limiter; avoid pre-limiter overload as default state.
+		summing.gain.value = 0.85;
 		const masterLimiter = createMasterPeakLimiter(ctx);
 		summing.connect(masterLimiter);
 		masterLimiter.connect(ctx.destination);

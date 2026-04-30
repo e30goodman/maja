@@ -5,6 +5,7 @@
 import { getMetronomeSummingInput } from './metraAudioBus';
 
 export type MetroVoiceKey = 'accent' | 'alt' | 'passive';
+const MIN_HP_HZ = 20;
 
 /**
  * Anti-phase micro-delays per voice bus (seconds).
@@ -16,6 +17,7 @@ const VOICE_MICRO_DELAY_SEC: Record<MetroVoiceKey, number> = {
 	alt: 0.00045,
 	passive: 0.0009,
 };
+const FILTER_Q_FLAT = 0.7071;
 
 type VoiceBus = {
 	layerSum: GainNode;
@@ -37,9 +39,11 @@ function ensureVoiceBuses(ctx: AudioContext): Record<MetroVoiceKey, VoiceBus> {
 		const groupHp = ctx.createBiquadFilter();
 		groupHp.type = 'highpass';
 		groupHp.frequency.value = 20;
+		groupHp.Q.value = FILTER_Q_FLAT;
 		const groupLp = ctx.createBiquadFilter();
 		groupLp.type = 'lowpass';
 		groupLp.frequency.value = 20000;
+		groupLp.Q.value = FILTER_Q_FLAT;
 		const groupDelay = ctx.createDelay(0.05);
 		groupDelay.delayTime.value = 0;
 		const groupMaster = ctx.createGain();
@@ -75,10 +79,12 @@ export function applyVoiceGroupChain(
 ): void {
 	const t = atTime ?? ctx.currentTime;
 	const b = ensureVoiceBuses(ctx)[voice];
-	const hp = Math.max(10, hpHz);
+	const hp = Math.max(MIN_HP_HZ, hpHz);
 	const lp = Math.max(20, lpHz);
 	b.groupHp.frequency.setValueAtTime(hp, t);
+	b.groupHp.Q.setValueAtTime(FILTER_Q_FLAT, t);
 	b.groupLp.frequency.setValueAtTime(lp, t);
+	b.groupLp.Q.setValueAtTime(FILTER_Q_FLAT, t);
 	const microDelaySec = VOICE_MICRO_DELAY_SEC[voice] ?? 0;
 	b.groupDelay.delayTime.setValueAtTime(microDelaySec, t);
 	const g = Math.max(0, Math.min(4, masterLinear));
