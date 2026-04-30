@@ -3333,6 +3333,13 @@ const IS_CHROME_DESKTOP =
 const clickMixerGroupRef: { current: Record<MetroVoiceKey, ClickMixerGroup> | null } = { current: null };
 const taHiHatBufferByContext = new WeakMap<AudioContext, AudioBuffer>();
 const taHiHatRenderPromiseByContext = new WeakMap<AudioContext, Promise<AudioBuffer | null>>();
+const TA_HIHAT_NUM_CANDIDATES = 5;
+
+type BufferStats = {
+  clickness: number;
+  bassEnergy: number;
+  zeroCrossings: number;
+};
 
 function getClassicOldschoolLoudnessBoost(soundType: ClickSoundPreset): number {
   if (soundType === 'classic') return 1.42;
@@ -3346,11 +3353,7 @@ async function renderTaHiHatBuffer(ctx: AudioContext): Promise<AudioBuffer | nul
   const sampleRate = Math.max(22050, Math.floor(ctx.sampleRate || 44100));
   const durationSec = 0.2;
   const frameCount = Math.max(1, Math.floor(sampleRate * durationSec));
-  const off = new OfflineCtor(1, frameCount, sampleRate);
   const t0 = 0.006;
-  const sumIn = off.createGain();
-  sumIn.gain.value = 1;
-  sumIn.connect(off.destination);
   const cfg = CLICK_SOUND_LIBRARY.hi_hat ?? CLICK_SOUND_LIBRARY.classic;
   const accentLayers = (cfg.layers ?? buildLegacyVoiceLayers(cfg)).accent;
   const activeLayers = accentLayers.filter(
@@ -3358,11 +3361,61 @@ async function renderTaHiHatBuffer(ctx: AudioContext): Promise<AudioBuffer | nul
   );
   const soloLayers = activeLayers.filter((layer) => layer.solo === true);
   const runLayers = soloLayers.length > 0 ? soloLayers : activeLayers;
-  for (const layer of runLayers) {
-    const layerDecay = Math.min(CLICK_DECAY_MAX_SEC, Math.max(CLICK_DECAY_MIN_SEC, layer.params.decay));
-    scheduleLayerToBus(off as unknown as AudioContext, t0, layer, layer.params.volume, layerDecay, sumIn);
+  const analyzeBufferCharacteristics = (buffer: AudioBuffer): BufferStats => {
+    const data = buffer.getChannelData(0);
+    const sr = buffer.sampleRate;
+    const clickSamples = Math.max(2, Math.floor(sr * 0.005));
+    let maxClickDelta = 0;
+    for (let i = 1; i < clickSamples && i < data.length; i += 1) {
+      const delta = Math.abs((data[i] ?? 0) - (data[i - 1] ?? 0));
+      if (delta > maxClickDelta) maxClickDelta = delta;
+    }
+    const bodyStart = Math.max(1, Math.floor(sr * 0.01));
+    const bodyEnd = Math.min(data.length, Math.max(bodyStart + 1, Math.floor(sr * 0.05)));
+    let bassEnergy = 0;
+    let zeroCrossings = 0;
+    for (let i = bodyStart; i < bodyEnd; i += 1) {
+      const cur = data[i] ?? 0;
+      const prev = data[i - 1] ?? 0;
+      bassEnergy += cur * cur;
+      if ((cur >= 0 && prev < 0) || (cur < 0 && prev >= 0)) zeroCrossings += 1;
+    }
+    return { clickness: maxClickDelta, bassEnergy, zeroCrossings };
+  };
+
+  const buildVariantLayer = (layer: ClickLayerConfig): ClickLayerConfig => {
+    const isTone = layer.type !== 'noise' && layer.type !== 'none';
+    const variationFreq = isTone ? (300 + Math.random() * 100) : layer.params.freq;
+    const variationHpFreq = 10 + Math.random() * 20;
+    return {
+      ...layer,
+      params: {
+        ...layer.params,
+        freq: variationFreq,
+        hpFreq: variationHpFreq,
+      },
+    };
+  };
+
+  const candidates: Array<{ buffer: AudioBuffer; stats: BufferStats }> = [];
+  for (let i = 0; i < TA_HIHAT_NUM_CANDIDATES; i += 1) {
+    const candidateOff = new OfflineCtor(1, frameCount, sampleRate);
+    const candidateSumIn = candidateOff.createGain();
+    candidateSumIn.gain.value = 1;
+    candidateSumIn.connect(candidateOff.destination);
+    for (const baseLayer of runLayers) {
+      const layer = buildVariantLayer(baseLayer);
+      const layerDecay = Math.min(CLICK_DECAY_MAX_SEC, Math.max(CLICK_DECAY_MIN_SEC, layer.params.decay));
+      scheduleLayerToBus(candidateOff as unknown as AudioContext, t0, layer, layer.params.volume, layerDecay, candidateSumIn);
+    }
+    const rendered = await candidateOff.startRendering();
+    candidates.push({ buffer: rendered, stats: analyzeBufferCharacteristics(rendered) });
   }
-  return off.startRendering();
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => a.stats.zeroCrossings - b.stats.zeroCrossings);
+  const topBass = candidates.slice(0, Math.min(3, candidates.length));
+  topBass.sort((a, b) => a.stats.clickness - b.stats.clickness);
+  return topBass[0]?.buffer ?? null;
 }
 
 function ensureTaHiHatBuffer(ctx: AudioContext): Promise<AudioBuffer | null> {
