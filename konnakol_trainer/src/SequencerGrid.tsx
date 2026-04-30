@@ -929,9 +929,14 @@ const SequencerGridRow = React.memo(
 									if (gesture?.key === checkKey) {
 										gesture.phase = 'click-fired';
 									}
-									// Divs=0 cell: single tap should be a no-op.
-									// Only long-press is allowed to modify muted cell behavior.
+									// Divs=0 cell: allow direct layer edits on single tap.
+									// Normal mode -> accent layer; Ta editor -> Ta layer.
 									if (cellFullyMuted) {
+										if (isTaEditorMode) {
+											a.toggleTaDing(rIdx, cIdx);
+										} else {
+											a.toggleAccent(rIdx, cIdx);
+										}
 										a.isHoldingRef.current = false;
 										a.cellGestureMutexRef.current = null;
 										return;
