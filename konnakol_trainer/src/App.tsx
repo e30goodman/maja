@@ -9355,7 +9355,9 @@ export default function App() {
       <div className="relative flex h-[100dvh] min-h-0 w-full max-w-[390px] shrink-0 flex-col gap-2 overflow-hidden bg-[#0b101e] px-3 pb-3 pt-1.5 shadow-2xl sm:h-[844px] sm:rounded-[2.5rem] sm:border-[6px] border-[#1e2a45]">
         
         {/* Top Header Controls */}
-        <div className="flex gap-2 items-center">
+        {/* HEADER WIDTH CONTRACT: эта строка (с Eraser) — референс по правой X-линии для выравнивания BAR.
+            При регрессии сравнивать правую грань BAR именно с правой гранью кнопки Eraser здесь. */}
+        <div className="flex w-full gap-2 items-center">
           <button 
             ref={settingsGearButtonRef}
             onClick={() => {
@@ -10643,7 +10645,7 @@ export default function App() {
           </button>
         </div>
 
-        <div className={`flex min-h-0 flex-1 flex-col gap-1 ${isClickSoundSelectorOpen ? 'justify-end' : ''}`}>
+        <div className={`flex w-full min-h-0 flex-1 flex-col gap-1 ${isClickSoundSelectorOpen ? 'justify-end' : ''}`}>
         {!isClickSoundSelectorOpen ? (
         <SequencerGrid
           gridRef={gridRef}

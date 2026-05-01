@@ -437,15 +437,12 @@ const SequencerGridRow = React.memo(
 						: undefined,
 				}}
 			>
-				{/* IMPORTANT FIX POINT #2 (BAR): BAR растягивается на всю ширину родителя через w-full.
-				    ВНУТРЕННИЙ правый padding здесь НЕ использовать, иначе появляется "черная дыра"
-				    и CELLS не доходят до правой границы фона.
-				    ЧЕРНЫЙ СПИСОК ИЗ ПЕРВЫХ ИТЕРАЦИЙ (НЕ ПОВТОРЯТЬ):
-				    - h-full/self-stretch/negative-margin-y+padding-y на правом CELLS-блоке как "фикс выравнивания";
-				    - relative + top/bottom offset для "подтяжки" блока;
-				    - translateX/translateY/right:-Npx для сдвига контента;
-				    - fake extension-layer для дорисовки правого края.
-				    Все это маскирует причину, но ломает layout/flow в других состояниях. */}
+				{/* СТРОГО-НАСТРОГО НЕ ТРОГАТЬ (BAR WIDTH CONTRACT):
+				    - BAR ДОЛЖЕН оставаться в нормальном потоке: `w-full` + обычный border.
+				    - CELLS (внутренние кнопки) НЕ править для фикса правой границы BAR.
+				    - НЕЛЬЗЯ возвращать `translateX/Y`, negative offsets, fake extension-layer.
+				    - НЕЛЬЗЯ добавлять правые gutter-хаки (width-calc/paddingRight/marginRight) на root scroll.
+				    Причина: это уже многократно ломало визуальное совпадение правой границы BAR с линией кнопки Eraser. */}
 				<div className={`flex flex-col gap-1 justify-center ${isPolyRow ? 'w-14' : 'w-8'} shrink-0`}>
 					<button
 						type="button"
@@ -1158,21 +1155,23 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 		return bars * limitedCycles;
 	}, [polyMode, isPlaying, allBarsFitViewport, bars, displayScaleBars, activePos.absR, autoscrollVirtualRowsEnabled]);
 	return (
-		<div className="relative flex min-h-0 flex-1">
-			{/* IMPORTANT FIX POINT #1 (ROOT SCROLL): здесь была "собака зарыта".
-			    Раньше внешний правый gutter (paddingRight/marginRight/width-calc) и прочие костыли
-			    обрывали реальную правую границу grid относительно хедера (ластика).
-			    Текущий нативный фикс: только небольшой -mr-2 для точного совмещения вертикалей,
-			    без fake-layers/translate/right-offset-хаков. */}
+		<div className="relative flex min-h-0 flex-1 w-full">
+			{/* СТРОГО-НАСТРОГО НЕ ТРОГАТЬ (ROOT SCROLL CONTRACT):
+			    у scroll-контейнера запрещены внешние right-gutter хаки (paddingRight/marginRight/width-calc)
+			    и любые геометрические сдвиги для "дотягивания" BAR.
+			    Здесь должен быть только нативный поток: flex-ширина контейнера + overflow-x-hidden. */}
 			<div
 				ref={gridRef}
-				className="relative z-10 -mr-2 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[#2f4066] [&::-webkit-scrollbar-thumb]:rounded-full"
+				className="relative z-10 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[#2f4066] [&::-webkit-scrollbar-thumb]:rounded-full"
 				style={{
 					overscrollBehaviorY: 'contain',
 					touchAction: 'pan-y',
-					scrollbarGutter: 'stable',
 					scrollbarColor: '#2f4066 transparent',
 					scrollbarWidth: 'thin',
+					/* Scrollbar-only nudge: move vertical thumb/track 5px to the right. */
+					width: 'calc(100% + 5px)',
+					paddingRight: '5px',
+					marginRight: '-5px',
 				}}
 			>
 				{Array.from({ length: virtualRowCount }).map((_, absR) => {
