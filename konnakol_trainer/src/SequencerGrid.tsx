@@ -64,6 +64,15 @@ type BarSwipeVisual = {
 	colored: boolean;
 };
 
+type BarSwipeGesture = {
+	pointerId: number;
+	row: number;
+	startX: number;
+	startY: number;
+	left: number;
+	crossed: boolean;
+};
+
 /** Poly playback: voice 0 = emerald; 1 = sky; 2 = violet; 3+ = amber. */
 function playheadHighlightCellClasses(
 	isDead: boolean,
