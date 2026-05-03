@@ -54,6 +54,15 @@ const PULSE_ROULETTE_SLOP_Y_PX = 0;
 const PULSE_MODE_TOGGLE_CANCEL_SLOP_Y_PX = 8;
 const PULSE_HOLD_MS = 450;
 const CELL_HOLD_MS = 120;
+const POLY2_BAR_SWIPE_START_GAP_PX = 72;
+const POLY2_BAR_SWIPE_CANCEL_Y_PX = 24;
+const POLY2_BAR_SWIPE_MAX_PULL_PX = 34;
+
+type BarSwipeVisual = {
+	dx: number;
+	dragging: boolean;
+	colored: boolean;
+};
 
 /** Poly playback: voice 0 = emerald; 1 = sky; 2 = violet; 3+ = amber. */
 function playheadHighlightCellClasses(
@@ -299,6 +308,7 @@ type SequencerGridRowProps = {
 	lowPerfMode: boolean;
 	/** In flat poly mode: visual separator between steps (does not affect audio). */
 	polyStepTopRule?: boolean;
+	barSwipeVisual?: BarSwipeVisual;
 	actionsRef: React.MutableRefObject<SequencerGridRowActions | null>;
 	setRowEl: (absR: number, el: HTMLDivElement | null) => void;
 };
@@ -342,6 +352,9 @@ function sequencerGridRowPropsEqual(a: SequencerGridRowProps, b: SequencerGridRo
 		a.syllables === b.syllables &&
 		a.lowPerfMode === b.lowPerfMode &&
 		(a.polyStepTopRule ?? false) === (b.polyStepTopRule ?? false) &&
+		(a.barSwipeVisual?.dx ?? 0) === (b.barSwipeVisual?.dx ?? 0) &&
+		(a.barSwipeVisual?.dragging ?? false) === (b.barSwipeVisual?.dragging ?? false) &&
+		(a.barSwipeVisual?.colored ?? false) === (b.barSwipeVisual?.colored ?? false) &&
 		a.actionsRef === b.actionsRef &&
 		a.setRowEl === b.setRowEl
 	);
@@ -387,6 +400,7 @@ const SequencerGridRow = React.memo(
 			syllables,
 			lowPerfMode,
 			polyStepTopRule = false,
+			barSwipeVisual,
 			actionsRef,
 			setRowEl,
 		} = p;
@@ -412,6 +426,13 @@ const SequencerGridRow = React.memo(
 			);
 		}, [firstBeatEditorSuppressedSig]);
 		const polyVoiceIdx = polyMode ? rIdx % polyVoices : 0;
+		const swipeDx = barSwipeVisual?.dx ?? 0;
+		const swipeClasses = barSwipeVisual
+			? [
+				barSwipeVisual.dragging ? 'transition-colors duration-150' : 'transition-[transform,background-color,border-color,box-shadow] duration-500 ease-[cubic-bezier(0.18,1.55,0.28,1)]',
+				barSwipeVisual.colored ? 'bg-teal-500/15 border-teal-300/80 shadow-[0_0_0_1px_rgba(94,234,212,0.24)_inset,0_0_18px_rgba(20,184,166,0.22)]' : '',
+			].filter(Boolean).join(' ')
+			: '';
 		const pulsePointerStartYRef = useRef<number | null>(null);
 		const pulsePointerLatestYRef = useRef<number | null>(null);
 		const pulseMovedBeforeHoldRef = useRef(false);
@@ -424,17 +445,21 @@ const SequencerGridRow = React.memo(
 		return (
 			<div
 				ref={(el) => setRowEl(absR, el)}
+				data-sequencer-bar-row="1"
+				data-row-index={rIdx}
 				className={`z-[12] flex w-full items-stretch bg-[#161f33] border border-[#23314f] min-h-0 relative ${
 					displayScaleBars > 7 ? 'gap-1 p-1 rounded-lg' : 'gap-1.5 p-1 rounded-xl'
 				} ${isPolyRow ? 'border-l-4 border-l-blue-500/45' : ''} ${
 					polyStepTopRule ? 'mt-1.5 border-t border-[#2a3d66]/90 pt-1.5' : ''
-				} ${!effectiveUseFixedFlex ? 'flex-1' : ''}`}
+				} ${!effectiveUseFixedFlex ? 'flex-1' : ''} ${swipeClasses}`}
 				style={{
 					flex: effectiveUseFixedFlex
 						? `0 0 ${(useFrozenRowHeight && Math.max(1, (frozenRowHeightsByRIdx[rIdx] ?? frozenRowHeightPx ?? 0)) > 1)
 							? `${Math.max(1, (frozenRowHeightsByRIdx[rIdx] ?? frozenRowHeightPx ?? 0))}px`
 							: `calc((100% - ${(displayScaleBars - 1) * 6}px) / ${displayScaleBars})`}`
 						: undefined,
+					transform: swipeDx > 0 ? `translate3d(${swipeDx}px, 0, 0)` : undefined,
+					willChange: barSwipeVisual ? 'transform' : undefined,
 				}}
 			>
 				{/* СТРОГО-НАСТРОГО НЕ ТРОГАТЬ (BAR WIDTH CONTRACT):
@@ -1114,6 +1139,9 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	sequencerGridRowActionsRef,
 	setRowElStable,
 }: SequencerGridProps) {
+	const [poly2BarSwipeColoredRows, setPoly2BarSwipeColoredRows] = React.useState<Set<number>>(() => new Set());
+	const [poly2BarSwipeVisualByRow, setPoly2BarSwipeVisualByRow] = React.useState<Record<number, BarSwipeVisual>>({});
+	const poly2BarSwipeSessionRef = useRef<BarSwipeGesture | null>(null);
 	const rowCellLabelsCache = useStableRowCellLabelsCache(
 		bars,
 		syllables,
@@ -1142,6 +1170,126 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 		};
 	}, [gridRef, sequencerGridRowActionsRef]);
 
+	useEffect(() => {
+		if (!polyMode || polyVoices !== 2) {
+			poly2BarSwipeSessionRef.current = null;
+			setPoly2BarSwipeVisualByRow({});
+			return;
+		}
+
+		const finishSwipe = (complete = false) => {
+			const session = poly2BarSwipeSessionRef.current;
+			if (!session) return;
+			poly2BarSwipeSessionRef.current = null;
+			if (complete) {
+				setPoly2BarSwipeColoredRows((prev) => {
+					const next = new Set(prev);
+					next.add(session.row);
+					return next;
+				});
+				triggerHapticPulse(8);
+			}
+			setPoly2BarSwipeVisualByRow((prev) => ({
+				...prev,
+				[session.row]: { dx: 0, dragging: false, colored: complete || poly2BarSwipeColoredRows.has(session.row) },
+			}));
+			window.setTimeout(() => {
+				setPoly2BarSwipeVisualByRow((prev) => {
+					const cur = prev[session.row];
+					if (!cur || cur.dragging || cur.dx !== 0) return prev;
+					const next = { ...prev };
+					delete next[session.row];
+					return next;
+				});
+			}, 480);
+		};
+
+		const findCandidate = (clientX: number, clientY: number) => {
+			const gridEl = gridRef.current;
+			if (!gridEl) return null;
+			const rows = Array.from(gridEl.querySelectorAll<HTMLElement>('[data-sequencer-bar-row="1"]'));
+			for (const rowEl of rows) {
+				const rect = rowEl.getBoundingClientRect();
+				const inY = clientY >= rect.top && clientY <= rect.bottom;
+				const inLeftVoid = clientX >= rect.left - POLY2_BAR_SWIPE_START_GAP_PX && clientX < rect.left;
+				if (!inY || !inLeftVoid) continue;
+				const row = parseInt(rowEl.dataset.rowIndex ?? '', 10);
+				if (!Number.isFinite(row)) continue;
+				return { row, left: rect.left };
+			}
+			return null;
+		};
+
+		const onPointerDown = (e: PointerEvent) => {
+			if (e.button !== undefined && e.button !== 0) return;
+			if (poly2BarSwipeSessionRef.current) return;
+			if ((e.target as Element | null)?.closest?.('[data-sequencer-bar-row="1"]')) return;
+			const candidate = findCandidate(e.clientX, e.clientY);
+			if (!candidate) return;
+			poly2BarSwipeSessionRef.current = {
+				pointerId: e.pointerId,
+				row: candidate.row,
+				startX: e.clientX,
+				startY: e.clientY,
+				left: candidate.left,
+				crossed: false,
+			};
+			setPoly2BarSwipeVisualByRow((prev) => ({
+				...prev,
+				[candidate.row]: { dx: 0, dragging: true, colored: false },
+			}));
+		};
+
+		const onPointerMove = (e: PointerEvent) => {
+			const session = poly2BarSwipeSessionRef.current;
+			if (!session || e.pointerId !== session.pointerId) return;
+			const dx = e.clientX - session.startX;
+			const dy = Math.abs(e.clientY - session.startY);
+			if (dy > POLY2_BAR_SWIPE_CANCEL_Y_PX || dx < -8) {
+				finishSwipe(false);
+				return;
+			}
+			if (dx < 0) return;
+			e.preventDefault();
+			if (!session.crossed && e.clientX >= session.left) {
+				session.crossed = true;
+				setPoly2BarSwipeColoredRows((prev) => {
+					const next = new Set(prev);
+					next.add(session.row);
+					return next;
+				});
+			}
+			const pull = Math.min(POLY2_BAR_SWIPE_MAX_PULL_PX, Math.max(0, e.clientX - session.left));
+			setPoly2BarSwipeVisualByRow((prev) => ({
+				...prev,
+				[session.row]: { dx: pull, dragging: true, colored: false },
+			}));
+		};
+
+		const onPointerEnd = (e: PointerEvent) => {
+			const session = poly2BarSwipeSessionRef.current;
+			if (!session || e.pointerId !== session.pointerId) return;
+			finishSwipe(session.crossed);
+		};
+
+		document.addEventListener('pointerdown', onPointerDown, true);
+		document.addEventListener('pointermove', onPointerMove, { capture: true, passive: false });
+		document.addEventListener('pointerup', onPointerEnd, true);
+		document.addEventListener('pointercancel', onPointerEnd, true);
+		return () => {
+			document.removeEventListener('pointerdown', onPointerDown, true);
+			document.removeEventListener('pointermove', onPointerMove, true);
+			document.removeEventListener('pointerup', onPointerEnd, true);
+			document.removeEventListener('pointercancel', onPointerEnd, true);
+		};
+	}, [gridRef, polyMode, polyVoices]);
+
+	useEffect(() => {
+		if (polyMode && polyVoices === 2) return;
+		setPoly2BarSwipeColoredRows(new Set());
+		setPoly2BarSwipeVisualByRow({});
+	}, [polyMode, polyVoices]);
+
 	/**
 	 * Legacy: while playing with a long strip, duplicate rows for scrolling (playAbsBar grows).
 	 * Poly: playhead absR is always 0..bars-1, so duplicates would cause false highlight; keep bars rows only.
@@ -1162,6 +1310,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 			    Здесь должен быть только нативный поток: flex-ширина контейнера + overflow-x-hidden. */}
 			<div
 				ref={gridRef}
+				data-sequencer-grid="1"
 				className="relative z-10 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[#2f4066] [&::-webkit-scrollbar-thumb]:rounded-full"
 				style={{
 					overscrollBehaviorY: 'contain',
@@ -1193,6 +1342,15 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 				).join('');
 				const pulseUnlinkedRow = Boolean(pulseMeterUnlinked[rIdx]);
 				const jatiPulseActiveRow = Boolean(jatiPulseActiveByRow[rIdx]);
+				const swipeBase = poly2BarSwipeVisualByRow[rIdx];
+				const swipeColored = polyMode && polyVoices === 2 && poly2BarSwipeColoredRows.has(rIdx);
+				const barSwipeVisual = swipeBase || swipeColored
+					? {
+						dx: swipeBase?.dx ?? 0,
+						dragging: swipeBase?.dragging ?? false,
+						colored: swipeColored,
+					}
+					: undefined;
 
 				let highlightCol: number | null;
 				let stepLabel: string | undefined;
@@ -1261,6 +1419,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 						syllables={syllables}
 						lowPerfMode={lowPerfMode}
 						polyStepTopRule={polyStepTopRule}
+						barSwipeVisual={barSwipeVisual}
 						polyMode={polyMode}
 						polyVoices={polyVoices}
 						actionsRef={sequencerGridRowActionsRef}
