@@ -471,6 +471,43 @@ const SequencerGridRow = React.memo(
 					willChange: barSwipeVisual ? 'transform' : undefined,
 				}}
 			>
+				{/* DEBUG: маркер зоны свайпа — яркая линия на левом краю bar (граница триггера) (УДАЛИТЬ после отладки) */}
+				{polyMode && polyVoices === 2 && (
+					<div
+						style={{
+							position: 'absolute',
+							left: 0,
+							top: 0,
+							bottom: 0,
+							width: '4px',
+							background: 'linear-gradient(180deg, rgba(45,212,191,1) 0%, rgba(56,189,248,1) 100%)',
+							borderRadius: '2px 0 0 2px',
+							zIndex: 60,
+							pointerEvents: 'none',
+							boxShadow: '0 0 12px rgba(45,212,191,0.8), -4px 0 20px rgba(45,212,191,0.4)',
+						}}
+					/>
+				)}
+				{/* DEBUG: стрелка "← 72px" — зона начала свайпа за пределами bar (УДАЛИТЬ после отладки) */}
+				{polyMode && polyVoices === 2 && (
+					<div
+						style={{
+							position: 'absolute',
+							left: '-6px',
+							top: '50%',
+							transform: 'translate(-100%, -50%)',
+							fontSize: '9px',
+							fontWeight: 700,
+							color: 'rgba(45,212,191,0.95)',
+							whiteSpace: 'nowrap',
+							pointerEvents: 'none',
+							zIndex: 60,
+							textShadow: '0 0 6px rgba(45,212,191,0.5)',
+						}}
+					>
+						← 72px
+					</div>
+				)}
 				{/* СТРОГО-НАСТРОГО НЕ ТРОГАТЬ (BAR WIDTH CONTRACT):
 				    - BAR ДОЛЖЕН оставаться в нормальном потоке: `w-full` + обычный border.
 				    - CELLS (внутренние кнопки) НЕ править для фикса правой границы BAR.
