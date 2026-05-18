@@ -49,6 +49,18 @@ function triggerHapticPulse(durationMs = 50): void {
 	}
 }
 
+/** stopPropagation always; preventDefault only when the browser allows it (non-passive). */
+function swallowPointerLikeEvent(e: { stopPropagation: () => void; cancelable?: boolean; preventDefault?: () => void }) {
+	e.stopPropagation();
+	if (e.cancelable !== false) {
+		try {
+			e.preventDefault?.();
+		} catch {
+			/* passive touch listener */
+		}
+	}
+}
+
 const CELL_SUBDIV_ARM_SLOP_Y_PX = 10;
 const PULSE_ROULETTE_SLOP_Y_PX = 0;
 const PULSE_MODE_TOGGLE_CANCEL_SLOP_Y_PX = 8;
@@ -431,6 +443,7 @@ const SequencerGridRow = React.memo(
 			lastDeltaSteps: number;
 		} | null>(null);
 		const barPickHandledAtRef = useRef(0);
+		const barPickOverlayRef = useRef<HTMLDivElement>(null);
 		const polyStepVoices = polyVoices === 3 ? 3 : 2;
 		const isBarPickHighlighted =
 			isStartBarPickMode &&
@@ -444,6 +457,38 @@ const SequencerGridRow = React.memo(
 			barPickHandledAtRef.current = now;
 			onStartBarPick(rIdx);
 		};
+		const commitBarPickFromRowRef = useRef(commitBarPickFromRow);
+		commitBarPickFromRowRef.current = commitBarPickFromRow;
+		const swallowBarPickEvent = (e: React.SyntheticEvent) => {
+			swallowPointerLikeEvent(e);
+		};
+		const commitBarPickFromOverlay = (e: React.SyntheticEvent) => {
+			swallowBarPickEvent(e);
+			commitBarPickFromRow();
+		};
+		useEffect(() => {
+			if (!isStartBarPickMode) return;
+			const node = barPickOverlayRef.current;
+			if (!node) return;
+			const swallowNative = (e: Event) => {
+				e.stopPropagation();
+				if (e.cancelable) e.preventDefault();
+			};
+			const onTouchEnd = (e: TouchEvent) => {
+				swallowNative(e);
+				commitBarPickFromRowRef.current();
+			};
+			node.addEventListener('touchstart', swallowNative, { passive: false, capture: true });
+			node.addEventListener('touchmove', swallowNative, { passive: false, capture: true });
+			node.addEventListener('touchend', onTouchEnd, { passive: false, capture: true });
+			node.addEventListener('touchcancel', swallowNative, { passive: false, capture: true });
+			return () => {
+				node.removeEventListener('touchstart', swallowNative, true);
+				node.removeEventListener('touchmove', swallowNative, true);
+				node.removeEventListener('touchend', onTouchEnd, true);
+				node.removeEventListener('touchcancel', swallowNative, true);
+			};
+		}, [isStartBarPickMode]);
 		return (
 			<div
 				ref={(el) => setRowEl(absR, el)}
@@ -473,6 +518,7 @@ const SequencerGridRow = React.memo(
 						isStartBarPickMode ? 'pointer-events-none opacity-60' : ''
 					}`}
 					aria-disabled={isStartBarPickMode}
+					{...(isStartBarPickMode ? { inert: true } : {})}
 				>
 					<button
 						type="button"
@@ -725,9 +771,7 @@ const SequencerGridRow = React.memo(
 				{/* СТРОГО-НАСТРОГО НЕ ТРОГАТЬ ЭТО МЕСТО: ЭТО CELLS. Их не двигать и не растягивать для калибровки правой стенки.
 				    По "первому сообщению" сюда НЕ применять: h-full/-my-1/py-1/top-bottom offsets/translate/right-shift. */}
 				<div
-					className={`relative flex-1 self-stretch min-w-0 ${
-						isStartBarPickMode ? 'pointer-events-none opacity-60' : ''
-					}`}
+					className={`relative flex-1 self-stretch min-w-0 ${isStartBarPickMode ? 'opacity-60' : ''}`}
 					aria-disabled={isStartBarPickMode}
 				>
 					<div className="absolute inset-x-0 -top-[2px] -bottom-[2px] w-full flex gap-1 items-stretch">
@@ -813,15 +857,76 @@ const SequencerGridRow = React.memo(
 								lowPerfMode,
 							);
 						}
+						const cellShellClass = `flex-1 h-full self-stretch flex flex-col items-center justify-center min-w-0 ${
+							isStartBarPickMode ? 'pointer-events-none touch-none' : 'touch-pan-y'
+						} ${lowPerfMode ? '' : 'transition-all duration-75'} ${
+							rowSylls > 7 ? 'rounded-md' : 'rounded-xl'
+						} ${cellClasses} ${activeEditCell === checkKey ? `ring-2 ring-inset ring-purple-500 z-20 ${lowPerfMode ? '' : 'shadow-purple-500/30'}` : ''}`;
+						const cellSubdivPanel = (
+							<div
+								className={`w-full h-full rounded-[inherit] overflow-hidden ${
+									visualSubdivs === 1
+										? 'flex items-center justify-center'
+										: visualSubdivs === 2
+											? 'grid grid-cols-1 grid-rows-2'
+											: visualSubdivs === 3
+												? 'grid grid-cols-1 grid-rows-3'
+												: visualSubdivs === 4
+													? 'grid grid-cols-2 grid-rows-2'
+													: visualSubdivs <= 6
+														? 'grid grid-cols-2 grid-rows-3'
+														: 'grid grid-cols-3 grid-rows-3'
+								}`}
+							>
+								{Array.from({ length: visualSubdivs }).map((_, i) => {
+									const syl = rowCellLabels[cIdx]?.[i]?.syl ?? '';
+									const mutedGlyph = syl === '-' || syl === '–';
+									return (
+										<span
+											key={i}
+											data-muted={mutedGlyph ? 'true' : 'false'}
+											onClick={(e) => {
+												if (isStartBarPickMode) return;
+												if (!e.shiftKey) return;
+												e.stopPropagation();
+												actionsRef.current?.toggleCellStepMute(checkKey, i);
+											}}
+											className={`flex items-center justify-center w-full h-full min-w-0 overflow-hidden text-center px-px font-sans ${getSyllableStyles(rowSylls, subdivs)} ${
+												isDead
+													? 'text-transparent'
+													: isActive
+														? lowPerfMode
+															? 'text-inherit'
+															: 'text-inherit drop-shadow-md'
+														: (accentForGlyph || rowCellLabels[cIdx]?.[i]?.accent === true)
+															? (lowPerfMode ? 'text-white' : 'drop-shadow-md')
+															: 'text-slate-300'
+											} ${visualSubdivs > 1 ? 'border-[0.5px] border-[#2f4066]/50' : ''}`}
+										>
+											{isDead || mutedGlyph ? '' : syl}
+										</span>
+									);
+								})}
+							</div>
+						);
+						if (isStartBarPickMode) {
+							return (
+								<div
+									key={cIdx}
+									className={cellShellClass}
+									data-bar-pick-cell="true"
+									aria-hidden
+								>
+									{cellSubdivPanel}
+								</div>
+							);
+						}
 						return (
 							<button
 								type="button"
 								key={cIdx}
-								disabled={isStartBarPickMode}
-								tabIndex={isStartBarPickMode ? -1 : undefined}
 								data-subdiv-cell-key={checkKey}
 								onPointerDown={(e) => {
-									if (isStartBarPickMode) return;
 									const a = actionsRef.current;
 									if (!a) return;
 									const btn = e.currentTarget as HTMLButtonElement;
@@ -957,7 +1062,6 @@ const SequencerGridRow = React.memo(
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
 								}}
 								onClick={() => {
-									if (isStartBarPickMode) return;
 									const a = actionsRef.current;
 									if (!a) return;
 									if (a.holdTimerRef.current) {
@@ -1012,73 +1116,25 @@ const SequencerGridRow = React.memo(
 									a.cellGestureMutexRef.current = null;
 								}}
 								onContextMenu={(e) => e.preventDefault()}
-								/* IMPORTANT FIX POINT #3 (CELLS): flex-1/self-stretch тут ОСОЗНАННО оставлены.
-								   Если убрать flex-1, клетки схлопнутся и сломают деление такта.
-								   Правим только геометрию внешних контейнеров (scroll/BAR), не клетки. */
-								className={`flex-1 h-full self-stretch flex flex-col items-center justify-center min-w-0 touch-pan-y ${lowPerfMode ? '' : 'transition-all duration-75'} ${
-									rowSylls > 7 ? 'rounded-md' : 'rounded-xl'
-								} ${cellClasses} ${activeEditCell === checkKey ? `ring-2 ring-inset ring-purple-500 z-20 ${lowPerfMode ? '' : 'shadow-purple-500/30'}` : ''}`}
+								className={cellShellClass}
 							>
-								<div
-									className={`w-full h-full rounded-[inherit] overflow-hidden ${
-										visualSubdivs === 1
-											? 'flex items-center justify-center'
-											: visualSubdivs === 2
-												? 'grid grid-cols-1 grid-rows-2'
-												: visualSubdivs === 3
-													? 'grid grid-cols-1 grid-rows-3'
-													: visualSubdivs === 4
-														? 'grid grid-cols-2 grid-rows-2'
-														: visualSubdivs <= 6
-															? 'grid grid-cols-2 grid-rows-3'
-															: 'grid grid-cols-3 grid-rows-3'
-									}`}
-								>
-									{Array.from({ length: visualSubdivs }).map((_, i) => {
-										const syl = rowCellLabels[cIdx]?.[i]?.syl ?? '';
-										const mutedGlyph = syl === '-' || syl === '–';
-										return (
-										<span
-											key={i}
-											data-muted={mutedGlyph ? 'true' : 'false'}
-											onClick={(e) => {
-												if (!e.shiftKey) return;
-												e.stopPropagation();
-												actionsRef.current?.toggleCellStepMute(checkKey, i);
-											}}
-											className={`flex items-center justify-center w-full h-full min-w-0 overflow-hidden text-center px-px font-sans ${getSyllableStyles(rowSylls, subdivs)} ${
-												isDead
-													? 'text-transparent'
-													: isActive
-														? lowPerfMode
-															? 'text-inherit'
-															: 'text-inherit drop-shadow-md'
-														: (accentForGlyph || rowCellLabels[cIdx]?.[i]?.accent === true)
-															? (lowPerfMode ? 'text-white' : 'drop-shadow-md')
-															: 'text-slate-300'
-											} ${visualSubdivs > 1 ? 'border-[0.5px] border-[#2f4066]/50' : ''}`}
-										>
-											{isDead || mutedGlyph ? '' : syl}
-										</span>
-										);
-									})}
-								</div>
+								{cellSubdivPanel}
 							</button>
 						);
 					})}
 					</div>
-				</div>
-				{isStartBarPickMode ? (
+					{isStartBarPickMode ? (
 					<div
-						className="absolute inset-0 z-40 cursor-pointer rounded-[inherit]"
+						ref={barPickOverlayRef}
+						className="absolute inset-0 z-50 cursor-pointer touch-none pointer-events-auto"
 						aria-label="Pick start bar"
-						onPointerUp={(e) => {
-							e.preventDefault();
-							e.stopPropagation();
-							commitBarPickFromRow();
-						}}
+						data-start-bar-pick-overlay="true"
+						onPointerDown={swallowBarPickEvent}
+						onPointerUp={commitBarPickFromOverlay}
+						onClick={swallowBarPickEvent}
 					/>
-				) : null}
+					) : null}
+				</div>
 			</div>
 		);
 	},
@@ -1205,6 +1261,41 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 			gridEl.removeEventListener('touchmove', handleTouchMove);
 		};
 	}, [gridRef, sequencerGridRowActionsRef]);
+
+	useEffect(() => {
+		if (!isStartBarPickMode) return;
+		const gridEl = gridRef.current;
+		if (!gridEl) return;
+		const isPickOverlay = (target: Element | null) =>
+			Boolean(target?.closest('[data-start-bar-pick-overlay="true"]'));
+		const shouldBlockGridTarget = (target: Element | null) => {
+			if (!target || !gridEl.contains(target)) return false;
+			if (isPickOverlay(target)) return false;
+			return Boolean(
+				target.closest('[data-subdiv-cell-key]') ||
+					target.closest('[data-bar-pick-cell="true"]') ||
+					target.closest('button'),
+			);
+		};
+		const blockTouch = (e: TouchEvent) => {
+			if (!shouldBlockGridTarget(e.target as Element | null)) return;
+			e.stopPropagation();
+			if (e.cancelable) e.preventDefault();
+		};
+		const blockClick = (e: MouseEvent) => {
+			if (!shouldBlockGridTarget(e.target as Element | null)) return;
+			e.stopPropagation();
+			e.preventDefault();
+		};
+		gridEl.addEventListener('touchstart', blockTouch, { capture: true, passive: false });
+		gridEl.addEventListener('touchend', blockTouch, { capture: true, passive: false });
+		gridEl.addEventListener('click', blockClick, { capture: true });
+		return () => {
+			gridEl.removeEventListener('touchstart', blockTouch, true);
+			gridEl.removeEventListener('touchend', blockTouch, true);
+			gridEl.removeEventListener('click', blockClick, true);
+		};
+	}, [isStartBarPickMode, gridRef]);
 
 	/**
 	 * Legacy: while playing with a long strip, duplicate rows for scrolling (playAbsBar grows).
