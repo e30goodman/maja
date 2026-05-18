@@ -7955,6 +7955,7 @@ export default function App() {
   }
 
   const toggleAccent = useCallback((r: number, c: number) => {
+    if (isStartBarPickModeRef.current) return;
     // USER-SOURCE-OF-TRUTH: accent map is defined only by explicit user taps on grid cells.
     if (c === 0) setAccentMapVersion(1);
     const key = `${r}-${c}`;
@@ -7994,6 +7995,7 @@ export default function App() {
   // 4) If default is OFF, col0 behaves like a regular explicit taDing cell.
   // 5) Audio mapping must stay: Ta(white) -> accent bus, Square(purple) -> alt bus, plain -> passive.
   const toggleTaDing = useCallback((r: number, c: number) => {
+    if (isStartBarPickModeRef.current) return;
     if (c < 0) return;
     const key = `${r}-${c}`;
     if (polyModeRef.current) {

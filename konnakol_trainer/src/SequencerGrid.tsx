@@ -438,17 +438,15 @@ const SequencerGridRow = React.memo(
 			(!polyMode
 				? rIdx === startBarPickHighlight
 				: Math.floor(rIdx / polyStepVoices) === Math.floor(startBarPickHighlight / polyStepVoices));
+		const commitBarPickFromRow = () => {
+			const now = Date.now();
+			if (now - barPickHandledAtRef.current < 300) return;
+			barPickHandledAtRef.current = now;
+			onStartBarPick(rIdx);
+		};
 		return (
 			<div
 				ref={(el) => setRowEl(absR, el)}
-				onPointerUp={(e) => {
-					if (!isStartBarPickMode) return;
-					e.preventDefault();
-					const now = Date.now();
-					if (now - barPickHandledAtRef.current < 300) return;
-					barPickHandledAtRef.current = now;
-					onStartBarPick(rIdx);
-				}}
 				className={`z-[12] flex w-full items-stretch bg-[#161f33] border border-[#23314f] min-h-0 relative ${
 					displayScaleBars > 7 ? 'gap-1 p-1 rounded-lg' : 'gap-1.5 p-1 rounded-xl'
 				} ${isPolyRow ? 'border-l-4 border-l-blue-500/45' : ''} ${
@@ -478,8 +476,10 @@ const SequencerGridRow = React.memo(
 				>
 					<button
 						type="button"
+						disabled={isStartBarPickMode}
 						tabIndex={isStartBarPickMode ? -1 : undefined}
 						onClick={() => {
+							if (isStartBarPickMode) return;
 							const a = actionsRef.current;
 							if (!a) return;
 							a.setCustomMultipliers((prev) => {
@@ -526,12 +526,16 @@ const SequencerGridRow = React.memo(
 					</button>
 					<button
 						type="button"
+						disabled={isStartBarPickMode}
+						tabIndex={isStartBarPickMode ? -1 : undefined}
 						onMouseDown={(e) => {
+							if (isStartBarPickMode) return;
 							// Prevent button focus on click: in an overflow container this may
 							// trigger abrupt jump-scroll (especially on lower rows).
 							e.preventDefault();
 						}}
 						onPointerDown={(e) => {
+							if (isStartBarPickMode) return;
 							const a = actionsRef.current;
 							if (!a) return;
 							const el = e.currentTarget as HTMLButtonElement;
@@ -685,6 +689,7 @@ const SequencerGridRow = React.memo(
 							a.isHoldingRef.current = false;
 						}}
 						onClick={() => {
+							if (isStartBarPickMode) return;
 							const a = actionsRef.current;
 							if (!a) return;
 							if (a.pulseUnlinkJustFiredRef.current) {
@@ -812,8 +817,11 @@ const SequencerGridRow = React.memo(
 							<button
 								type="button"
 								key={cIdx}
+								disabled={isStartBarPickMode}
+								tabIndex={isStartBarPickMode ? -1 : undefined}
 								data-subdiv-cell-key={checkKey}
 								onPointerDown={(e) => {
+									if (isStartBarPickMode) return;
 									const a = actionsRef.current;
 									if (!a) return;
 									const btn = e.currentTarget as HTMLButtonElement;
@@ -949,6 +957,7 @@ const SequencerGridRow = React.memo(
 									if (a.holdTimerRef.current) clearTimeout(a.holdTimerRef.current);
 								}}
 								onClick={() => {
+									if (isStartBarPickMode) return;
 									const a = actionsRef.current;
 									if (!a) return;
 									if (a.holdTimerRef.current) {
@@ -1059,6 +1068,17 @@ const SequencerGridRow = React.memo(
 					})}
 					</div>
 				</div>
+				{isStartBarPickMode ? (
+					<div
+						className="absolute inset-0 z-40 cursor-pointer rounded-[inherit]"
+						aria-label="Pick start bar"
+						onPointerUp={(e) => {
+							e.preventDefault();
+							e.stopPropagation();
+							commitBarPickFromRow();
+						}}
+					/>
+				) : null}
 			</div>
 		);
 	},
