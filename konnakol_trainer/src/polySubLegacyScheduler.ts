@@ -81,9 +81,22 @@ export type PolyLaneState = {
 	nextTime: number;
 };
 
+/** Pick lane barCursor for pattern-bar anchor: exact bar, else first bar >= N, else 0. */
+function laneBarCursorForPatternBar(barIndices: number[], patternBar: number): number {
+	if (barIndices.length === 0) return 0;
+	const exact = barIndices.indexOf(patternBar);
+	if (exact >= 0) return exact;
+	for (let i = 0; i < barIndices.length; i++) {
+		if (barIndices[i]! >= patternBar) return i;
+	}
+	return 0;
+}
+
 export type PolySubLegacyScheduler = {
 	lanes: PolyLaneState[];
 	reset: (startTime: number) => void;
+	/** All lanes seek to `patternBar` (col 0): lanes without N use first bar >= N in cycle. */
+	resetFromPatternBar: (startTime: number, patternBar: number) => void;
 	fillLookahead: (horizon: number) => void;
 	rebuildLanes: (startTime: number) => void;
 	handleRowSyllablesHotSwitch: (
@@ -115,6 +128,27 @@ export function createPolySubLegacyScheduler(deps: PolySubLegacyDeps): PolySubLe
 		rebuildLaneArrays();
 		for (const L of lanes) {
 			L.barCursor = 0;
+			L.cellCursor = 0;
+			L.nextTime = startTime;
+		}
+	};
+
+	const resetFromPatternBar = (startTime: number, patternBar: number) => {
+		const anchor = Math.max(0, Math.floor(patternBar));
+		const bc = Math.max(0, Math.floor(deps.barCount()));
+		const V = deps.polyVoices() === 3 ? 3 : 2;
+		const stepIdx = Math.floor(anchor / V);
+		const stepLeadBar = stepIdx * V;
+		rebuildLaneArrays();
+		for (const L of lanes) {
+			const targetBar = stepLeadBar + L.laneId;
+			if (targetBar < bc) {
+				const exact = L.barIndices.indexOf(targetBar);
+				L.barCursor =
+					exact >= 0 ? exact : laneBarCursorForPatternBar(L.barIndices, stepLeadBar);
+			} else {
+				L.barCursor = laneBarCursorForPatternBar(L.barIndices, anchor);
+			}
 			L.cellCursor = 0;
 			L.nextTime = startTime;
 		}
@@ -254,6 +288,7 @@ export function createPolySubLegacyScheduler(deps: PolySubLegacyDeps): PolySubLe
 			return lanes;
 		},
 		reset,
+		resetFromPatternBar,
 		fillLookahead,
 		rebuildLanes,
 		handleRowSyllablesHotSwitch,

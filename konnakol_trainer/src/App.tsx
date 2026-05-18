@@ -111,6 +111,11 @@ function buildPolyChunks(barCount: number, voiceCount: number): number[][] {
 	return chunks;
 }
 
+/** Row index in grid = pattern bar index (legacy and poly). */
+function patternBarFromRowTap(rIdx: number, _polyMode: boolean, _polyVoices: 2 | 3 | 4): number {
+	return rIdx;
+}
+
 function insertPlayheadSorted(queue: PlayheadHighlightEvent[], ev: PlayheadHighlightEvent) {
 	let lo = 0;
 	let hi = queue.length;
@@ -474,6 +479,8 @@ const TA_EDITOR_HOLD_MS = 150;
 const TA_EDITOR_HOLD_FILL_DEAD_MS = 100;
 /** Hold the dice button: toggle Randomizer mode (enable/disable randomization at bar boundaries). */
 const RANDOM_DICE_PREFILL_HOLD_MS = SNAPSHOT_MENU_HOLD_MS;
+/** Long-press PLAY: pick pattern-bar anchor for next playback start. */
+const PLAY_START_PICK_HOLD_MS = 400;
 
 const SNAPSHOT_FLAG_RANDOM_MODE_ENABLED = 1 << 0;
 const SNAPSHOT_FLAG_RANDOM_PULSATION = 1 << 1;
@@ -1870,12 +1877,10 @@ function decodePulseUnlinkedRowsToken(token: string): Record<number, boolean> {
 	return out;
 }
 
-function canRowUseZeroDeadStart(polyMode: boolean, polyVoices: number, row: number): boolean {
-	if (!polyMode) return false;
-	const voices = polyVoices === 3 ? 3 : 2;
-	// For each lane, keep bar #1 anchor (lane head row) alive at c0.
-	// Zero-live dead rows are allowed only from the second bar within lane.
-	return row >= voices;
+function canRowUseZeroDeadStart(_polyMode: boolean, _polyVoices: number, _row: number): boolean {
+	// Manual dead-cells editor + snapshot round-trip: deadStart may be 0 on any row.
+	// Random dead-cells still enforce at least one live cell via randomLogic activeCount floor.
+	return true;
 }
 
 function encodeDeadCellsToken(deadCells: DeadCellsMap, bars: number, polyMode: boolean, polyVoices: number): string {
@@ -4156,6 +4161,10 @@ export default function App() {
   /** Удержание Ta → вход в редактор: 0 = без заливки, 1 = полная заливка (включается скачком после `TA_EDITOR_HOLD_FILL_DEAD_MS`). */
   const [taHoldFill, setTaHoldFill] = useState(0);
   const [isDeadCellsEditorMode, setIsDeadCellsEditorMode] = useState(false);
+  /** Long-press PLAY: tap a bar row to set playback start anchor (sticky across STOP). */
+  const [isStartBarPickMode, setIsStartBarPickMode] = useState(false);
+  /** Pick-mode UI highlight: pattern bar N, or null (no ring / legacy viewport on commit bar 0). */
+  const [startBarPickHighlight, setStartBarPickHighlight] = useState<number | null>(null);
   /** В режиме Ta-редактора: строки, где пользователь снял дефолтную белую метку на первой доле (без ключа taDing). */
   const [firstBeatDingSuppressedRows, setFirstBeatDingSuppressedRows] = useState<Set<number>>(() => new Set());
 
@@ -4562,6 +4571,11 @@ export default function App() {
   /** Long-press square: toggle «без щелчков по клеткам»; ding такта Ta не мьютится. */
   const squareHoldTimerRef = useRef<number | null>(null);
   const squareHoldAteClickRef = useRef(false);
+  const playHoldTimerRef = useRef<number | null>(null);
+  const playHoldAteClickRef = useRef(false);
+  /** `null` = legacy viewport start; number = pattern bar index (0..bars-1). */
+  const playbackStartBarOverrideRef = useRef<number | null>(null);
+  const isStartBarPickModeRef = useRef(false);
   const randomDiceHoldTimerRef = useRef<number | null>(null);
   const randomDiceHoldAteClickRef = useRef(false);
   const randomDicePointerTapHandledRef = useRef(false);
@@ -7533,11 +7547,16 @@ export default function App() {
     }
   }, [polyMode, polyChunks.length, sequence.length]);
 
-  /** Poly sub_legacy: при смене bars/polyVoices во время воспроизведения — пересборка линий без скачка назад во времени. */
+  /** Poly sub_legacy: пересборка линий только при смене bars/polyVoices **уже во время** play (не на edge isPlaying→true: иначе затирает resetFromPatternBar). */
+  const polyPlayRebuildSigRef = useRef({ bars, polyVoices, wasPlaying: false });
   useEffect(() => {
+    const prev = polyPlayRebuildSigRef.current;
+    polyPlayRebuildSigRef.current = { bars, polyVoices, wasPlaying: isPlaying };
     if (!isPlaying || !polyMode || !audioCtxRef.current) return;
     const poly = polySubLegacyRef.current;
     if (!poly) return;
+    if (!prev.wasPlaying) return;
+    if (prev.bars === bars && prev.polyVoices === polyVoices) return;
     poly.rebuildLanes(
       audioCtxRef.current.currentTime + schedulerConfigRef.current.scheduleAheadSec,
     );
@@ -8082,8 +8101,7 @@ export default function App() {
     const baseNow = customSyllablesRef.current[barIndex] !== undefined
       ? customSyllablesRef.current[barIndex]
       : syllablesRef.current;
-    const minLive = canRowUseZeroDeadStart(polyModeRef.current, polyVoicesRef.current, barIndex) ? 0 : 1;
-    const activeCount = Math.max(minLive, Math.min(baseNow, startCell));
+    const activeCount = Math.max(0, Math.min(baseNow, startCell));
     const prevDead = deadCellsRef.current[barIndex];
     const displayLen = prevDead?.displayLen ?? baseNow;
     const baseLen = prevDead?.baseLen ?? baseNow;
@@ -8877,6 +8895,158 @@ export default function App() {
     timerIDRef.current = window.setTimeout(scheduler, cfg.lookaheadMs);
   };
 
+  const clearPlayHoldTimer = useCallback(() => {
+    if (playHoldTimerRef.current !== null) {
+      window.clearTimeout(playHoldTimerRef.current);
+      playHoldTimerRef.current = null;
+    }
+  }, []);
+
+  const initLastScrolledPageForPlayAbs = useCallback((playAbs0: number, c0: number, b: number, dsb0: number) => {
+    if (b <= dsb0) return;
+    const scrollStride0 = Math.max(1, dsb0 - 1);
+    let logicalPage = Math.floor(playAbs0 / scrollStride0);
+    if (playAbs0 > 0 && playAbs0 % scrollStride0 === 0) {
+      const rIdx0 = playAbs0 % b;
+      const rowSyl0 =
+        customSyllablesRef.current[rIdx0] !== undefined
+          ? customSyllablesRef.current[rIdx0]!
+          : syllablesRef.current;
+      if (c0 < Math.floor(rowSyl0 / 2)) logicalPage -= 1;
+    }
+    lastScrolledPageRef.current = logicalPage;
+  }, []);
+
+  const resolveLegacyPlaybackStartFromViewport = useCallback(() => {
+    const seq = sequenceRef.current;
+    const b = barsRef.current;
+    if (seq.length === 0) {
+      currentStepRef.current = 0;
+      playAbsBarRef.current = 0;
+      return;
+    }
+    const grid = gridRef.current;
+    let topAbs = 0;
+    if (grid) {
+      const gTop = grid.getBoundingClientRect().top;
+      for (let absR = 0; absR < b; absR++) {
+        const el = rowRefs.current[absR];
+        if (!el) continue;
+        if (el.getBoundingClientRect().bottom > gTop) {
+          topAbs = absR;
+          break;
+        }
+      }
+    }
+    const patternR = topAbs % Math.max(1, b);
+    let stepIdx = seq.findIndex((it) => it.r === patternR);
+    if (stepIdx === -1) stepIdx = seq.findIndex((it) => it.r > patternR);
+    if (stepIdx === -1) stepIdx = 0;
+    const item = seq[stepIdx];
+    const fs0 = frozenScaleRef.current;
+    const dsb0 = fs0 !== null ? Math.min(fs0, 10) : Math.min(b, 10);
+    const compact0 = b <= dsb0;
+    currentStepRef.current = stepIdx;
+    if (!item) {
+      playAbsBarRef.current = 0;
+    } else {
+      playAbsBarRef.current = compact0 ? item.r : topAbs;
+    }
+    if (b > dsb0 && item) {
+      initLastScrolledPageForPlayAbs(playAbsBarRef.current, item.c, b, dsb0);
+    }
+  }, [initLastScrolledPageForPlayAbs]);
+
+  const resolveLegacyPlaybackStartFromPatternBar = useCallback((patternBarN: number) => {
+    const seq = sequenceRef.current;
+    const b = barsRef.current;
+    const N = Math.max(0, Math.min(b - 1, Math.floor(patternBarN)));
+    if (seq.length === 0) {
+      currentStepRef.current = 0;
+      playAbsBarRef.current = N;
+      return;
+    }
+    let stepIdx = seq.findIndex((it) => it.r === N && it.c === 0);
+    if (stepIdx === -1) stepIdx = seq.findIndex((it) => it.r === N);
+    if (stepIdx === -1) stepIdx = seq.findIndex((it) => it.r > N);
+    if (stepIdx === -1) stepIdx = 0;
+    const item = seq[stepIdx];
+    const fs0 = frozenScaleRef.current;
+    const dsb0 = fs0 !== null ? Math.min(fs0, 10) : Math.min(b, 10);
+    const compact0 = b <= dsb0;
+    currentStepRef.current = stepIdx;
+    playAbsBarRef.current = compact0 ? (item?.r ?? N) : N;
+    if (b > dsb0 && item) {
+      initLastScrolledPageForPlayAbs(playAbsBarRef.current, item.c, b, dsb0);
+    }
+  }, [initLastScrolledPageForPlayAbs]);
+
+  const scrollGridToPatternBar = useCallback(
+    (patternBarN: number) => {
+      const rowEl = rowRefs.current[patternBarN];
+      if (rowEl) performAutoscrollToRow(rowEl);
+    },
+    [performAutoscrollToRow],
+  );
+
+  const applyPlaybackStartAnchor = useCallback(() => {
+    const override = playbackStartBarOverrideRef.current;
+    if (polyModeRef.current) {
+      const startBar = override ?? 0;
+      playAbsBarRef.current = startBar;
+      scrollGridToPatternBar(startBar);
+      currentStepRef.current = 0;
+      return;
+    }
+    if (override === null) {
+      resolveLegacyPlaybackStartFromViewport();
+    } else {
+      resolveLegacyPlaybackStartFromPatternBar(override);
+      scrollGridToPatternBar(override);
+    }
+  }, [
+    resolveLegacyPlaybackStartFromViewport,
+    resolveLegacyPlaybackStartFromPatternBar,
+    scrollGridToPatternBar,
+  ]);
+
+  const enterStartBarPickMode = useCallback(() => {
+    if (isPlayingRef.current || isTaEditorModeRef.current || isDeadCellsEditorModeRef.current) return;
+    setStartBarPickHighlight(playbackStartBarOverrideRef.current);
+    setIsStartBarPickMode(true);
+    isStartBarPickModeRef.current = true;
+  }, []);
+
+  const handleStartBarPick = useCallback(
+    (rIdx: number) => {
+      const b = barsRef.current;
+      if (b <= 0) return;
+      const safeR = Math.max(0, Math.min(b - 1, Math.floor(rIdx)));
+      const patternBarN = patternBarFromRowTap(safeR, polyModeRef.current, polyVoicesRef.current);
+      playbackStartBarOverrideRef.current = patternBarN === 0 ? null : patternBarN;
+      setStartBarPickHighlight(patternBarN === 0 ? null : patternBarN);
+      setIsStartBarPickMode(false);
+      isStartBarPickModeRef.current = false;
+      scrollGridToPatternBar(patternBarN);
+    },
+    [scrollGridToPatternBar],
+  );
+
+  useEffect(() => {
+    if (!isStartBarPickMode) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const grid = gridRef.current;
+      if (!grid) return;
+      const target = e.target;
+      if (!(target instanceof Node)) return;
+      if (grid.contains(target)) return;
+      setIsStartBarPickMode(false);
+      isStartBarPickModeRef.current = false;
+    };
+    window.addEventListener('pointerdown', onPointerDown, true);
+    return () => window.removeEventListener('pointerdown', onPointerDown, true);
+  }, [isStartBarPickMode]);
+
   const togglePlayback = () => {
     if (previewResetTimerRef.current !== null) {
       window.clearTimeout(previewResetTimerRef.current);
@@ -8965,6 +9135,10 @@ export default function App() {
       randomDiceHoldAteClickRef.current = false;
       taHoldAteClickRef.current = false;
       eraserHoldAteClickRef.current = false;
+      clearPlayHoldTimer();
+      playHoldAteClickRef.current = false;
+      setIsStartBarPickMode(false);
+      isStartBarPickModeRef.current = false;
       if (audioCtxRef.current) {
         audioCtxRef.current.close().catch(() => {});
         audioCtxRef.current = null;
@@ -8985,63 +9159,7 @@ export default function App() {
       clearPlayheadScheduling();
       setActivePositions([]);
       coldStartRef.current = true; // Mark cold start
-      if (polyModeRef.current) {
-        playAbsBarRef.current = 0;
-      } else {
-        // Legacy: start from the first pattern row that intersects the top of the visible grid
-        // (so scrolling to bar 20 before Play begins playback at that bar).
-        const seq = sequenceRef.current;
-        if (seq.length > 0) {
-          const grid = gridRef.current;
-          const b = barsRef.current;
-          let topAbs = 0;
-          if (grid) {
-            const gTop = grid.getBoundingClientRect().top;
-            for (let absR = 0; absR < b; absR++) {
-              const el = rowRefs.current[absR];
-              if (!el) continue;
-              if (el.getBoundingClientRect().bottom > gTop) {
-                topAbs = absR;
-                break;
-              }
-            }
-          }
-          const patternR = topAbs % Math.max(1, b);
-          let stepIdx = seq.findIndex((it) => it.r === patternR);
-          if (stepIdx === -1) {
-            stepIdx = seq.findIndex((it) => it.r > patternR);
-          }
-          if (stepIdx === -1) stepIdx = 0;
-          const item = seq[stepIdx];
-          const fs0 = frozenScaleRef.current;
-          const dsb0 = fs0 !== null ? Math.min(fs0, 10) : Math.min(b, 10);
-          const compact0 = b <= dsb0;
-          currentStepRef.current = stepIdx;
-          if (!item) {
-            playAbsBarRef.current = 0;
-          } else {
-            playAbsBarRef.current = compact0 ? item.r : topAbs;
-          }
-          if (b > dsb0 && item) {
-            const scrollStride0 = Math.max(1, dsb0 - 1);
-            const playAbs0 = playAbsBarRef.current;
-            const c0 = item.c;
-            let logicalPage = Math.floor(playAbs0 / scrollStride0);
-            if (playAbs0 > 0 && playAbs0 % scrollStride0 === 0) {
-              const rIdx0 = playAbs0 % b;
-              const rowSyl0 =
-                customSyllablesRef.current[rIdx0] !== undefined
-                  ? customSyllablesRef.current[rIdx0]!
-                  : syllablesRef.current;
-              if (c0 < Math.floor(rowSyl0 / 2)) logicalPage -= 1;
-            }
-            lastScrolledPageRef.current = logicalPage;
-          }
-        } else {
-          currentStepRef.current = 0;
-          playAbsBarRef.current = 0;
-        }
-      }
+      applyPlaybackStartAnchor();
       
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       if (!audioCtxRef.current) {
@@ -9091,10 +9209,29 @@ export default function App() {
       nextNoteTimeRef.current =
         audioCtxRef.current.currentTime + schedulerConfigRef.current.scheduleAheadSec;
       if (polyModeRef.current) {
-        getPolySubLegacyScheduler().reset(nextNoteTimeRef.current);
+        const polyStart = playbackStartBarOverrideRef.current ?? 0;
+        const poly = getPolySubLegacyScheduler();
+        if (playbackStartBarOverrideRef.current !== null) {
+          poly.resetFromPatternBar(nextNoteTimeRef.current, polyStart);
+        } else {
+          poly.reset(nextNoteTimeRef.current);
+        }
       }
       scheduler();
     }
+  };
+
+  const handlePlayButtonClick = () => {
+    if (playHoldAteClickRef.current) {
+      playHoldAteClickRef.current = false;
+      return;
+    }
+    if (isStartBarPickModeRef.current) {
+      setIsStartBarPickMode(false);
+      isStartBarPickModeRef.current = false;
+      return;
+    }
+    togglePlayback();
   };
 
   /* Синхронизация refs с render до pointerup flush (до useEffect по deps). */
@@ -9120,6 +9257,7 @@ export default function App() {
   accentMapVersionRef.current = accentMapVersion;
   isTaEditorModeRef.current = isTaEditorMode;
   isDeadCellsEditorModeRef.current = isDeadCellsEditorMode;
+  isStartBarPickModeRef.current = isStartBarPickMode;
   firstBeatAccentRef.current = firstBeatAccent;
   firstBeatAccentByLaneRef.current = firstBeatAccentByLane;
   mixerLayerModeRef.current = mixerLayerMode;
@@ -9469,6 +9607,7 @@ export default function App() {
           )}
           <button 
             onPointerDown={() => {
+              if (isStartBarPickModeRef.current) return;
               eraserHoldAteClickRef.current = false;
               if (eraserHoldTimerRef.current !== null) {
                 window.clearTimeout(eraserHoldTimerRef.current);
@@ -10654,6 +10793,9 @@ export default function App() {
           lowPerfMode={lowPerfMode}
           isTaEditorMode={isTaEditorMode}
           isDeadCellsEditorMode={isDeadCellsEditorMode}
+          isStartBarPickMode={isStartBarPickMode}
+          startBarPickHighlight={startBarPickHighlight}
+          onStartBarPick={handleStartBarPick}
           accentMapVersion={accentMapVersion}
           forceFirstBeatEditorFrames={forceFirstBeatEditorFrames}
           canShowDefaultTaInNormal={canShowDefaultTaInNormal}
@@ -11019,18 +11161,42 @@ export default function App() {
             type="button"
             disabled={(isTaEditorMode || isDeadCellsEditorMode) && !isPlaying}
             aria-disabled={(isTaEditorMode || isDeadCellsEditorMode) && !isPlaying}
-            onClick={togglePlayback}
+            onPointerDown={() => {
+              if (isPlaying) return;
+              if (isTaEditorMode || isDeadCellsEditorMode) return;
+              playHoldAteClickRef.current = false;
+              clearPlayHoldTimer();
+              playHoldTimerRef.current = window.setTimeout(() => {
+                playHoldTimerRef.current = null;
+                playHoldAteClickRef.current = true;
+                enterStartBarPickMode();
+              }, PLAY_START_PICK_HOLD_MS);
+            }}
+            onPointerUp={() => {
+              clearPlayHoldTimer();
+            }}
+            onPointerLeave={() => {
+              clearPlayHoldTimer();
+            }}
+            onPointerCancel={() => {
+              clearPlayHoldTimer();
+            }}
+            onClick={handlePlayButtonClick}
             className={`w-full py-4 rounded-xl font-black text-lg tracking-[0.2em] flex items-center justify-center gap-2 ${lowPerfMode ? '' : 'shadow-[0_8px_20px_rgba(16,185,129,0.2)]'} transition-all transform ${
               (isTaEditorMode || isDeadCellsEditorMode) && !isPlaying
                 ? 'opacity-45 cursor-not-allowed bg-emerald-600/50 text-slate-800'
                 : 'active:scale-[0.98] ' +
                   (isPlaying
                     ? 'bg-rose-500 hover:bg-rose-400 active:bg-rose-600 shadow-rose-500/20 text-white'
-                    : 'bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-950')
+                    : isStartBarPickMode
+                      ? 'bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-950 ring-2 ring-emerald-300/60'
+                      : 'bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-950')
             }`}
           >
             {isPlaying ? (
               <>■ STOP</>
+            ) : isStartBarPickMode ? (
+              <>PICK BAR</>
             ) : (
               <><Play fill="currentColor" size={22} className="-ml-2" /> PLAY</>
             )}
