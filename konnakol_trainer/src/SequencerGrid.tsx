@@ -524,7 +524,7 @@ const SequencerGridRow = React.memo(
 				    - НЕЛЬЗЯ добавлять правые gutter-хаки (width-calc/paddingRight/marginRight) на root scroll.
 				    Причина: это уже многократно ломало визуальное совпадение правой границы BAR с линией кнопки Eraser. */}
 				<div
-					className={`flex flex-col gap-1 justify-center ${isPolyRow ? 'w-14' : 'w-8'} shrink-0 ${
+					className={`flex flex-col gap-1 justify-center w-8 shrink-0 ${
 						isStartBarPickMode ? 'pointer-events-none opacity-60' : ''
 					}`}
 					aria-disabled={isStartBarPickMode}
