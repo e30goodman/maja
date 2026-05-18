@@ -4709,6 +4709,11 @@ export default function App() {
     setDeSyncCycleLength(undefined);
     setFrozenScale(null);
     frozenScaleRef.current = null;
+    /* Playback start: bar 1 / legacy viewport (same as picking row 1 in PLAY hold UI). */
+    playbackStartBarOverrideRef.current = null;
+    setStartBarPickHighlight(null);
+    setIsStartBarPickMode(false);
+    isStartBarPickModeRef.current = false;
     /* Press Matrix: full eraser disarms baseline (single source of "primed" reset). */
     detachMobileSliderCoarseDisarmRef.current();
     notifyPressErased();
@@ -9609,7 +9614,8 @@ export default function App() {
           )}
           <button 
             onPointerDown={() => {
-              if (isStartBarPickModeRef.current) return;
+              clearPlayHoldTimer();
+              playHoldAteClickRef.current = false;
               eraserHoldAteClickRef.current = false;
               if (eraserHoldTimerRef.current !== null) {
                 window.clearTimeout(eraserHoldTimerRef.current);
