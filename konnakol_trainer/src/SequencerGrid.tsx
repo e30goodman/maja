@@ -492,13 +492,23 @@ const SequencerGridRow = React.memo(
 		return (
 			<div
 				ref={(el) => setRowEl(absR, el)}
-				className={`z-[12] flex w-full items-stretch bg-[#161f33] border border-[#23314f] min-h-0 relative ${
+				className={`z-[12] flex w-full items-stretch min-h-0 relative ${
 					displayScaleBars > 7 ? 'gap-1 p-1 rounded-lg' : 'gap-1.5 p-1 rounded-xl'
-				} ${isPolyRow ? 'border-l-4 border-l-blue-500/45' : ''} ${
+				} ${
+					isStartBarPickMode
+						? isBarPickHighlighted
+							? 'cursor-pointer touch-none border-2 border-emerald-300/90 bg-emerald-950/30 ring-2 ring-emerald-300/55'
+							: 'cursor-pointer touch-none border-2 border-emerald-500/50 bg-[#132218] hover:border-emerald-400/70 active:border-emerald-300/80'
+						: 'bg-[#161f33] border border-[#23314f]'
+				} ${lowPerfMode ? '' : 'transition-colors duration-150'} ${
+					isPolyRow
+						? isStartBarPickMode
+							? 'border-l-4 border-l-emerald-400/55'
+							: 'border-l-4 border-l-blue-500/45'
+						: ''
+				} ${
 					polyStepTopRule ? 'mt-1.5 border-t border-[#2a3d66]/90 pt-1.5' : ''
-				} ${!effectiveUseFixedFlex ? 'flex-1' : ''} ${
-					isStartBarPickMode ? 'cursor-pointer touch-none' : ''
-				} ${isBarPickHighlighted ? 'ring-2 ring-emerald-400/70' : ''}`}
+				} ${!effectiveUseFixedFlex ? 'flex-1' : ''}`}
 				style={{
 					flex: effectiveUseFixedFlex
 						? `0 0 ${(useFrozenRowHeight && Math.max(1, (frozenRowHeightsByRIdx[rIdx] ?? frozenRowHeightPx ?? 0)) > 1)
@@ -771,7 +781,7 @@ const SequencerGridRow = React.memo(
 				{/* СТРОГО-НАСТРОГО НЕ ТРОГАТЬ ЭТО МЕСТО: ЭТО CELLS. Их не двигать и не растягивать для калибровки правой стенки.
 				    По "первому сообщению" сюда НЕ применять: h-full/-my-1/py-1/top-bottom offsets/translate/right-shift. */}
 				<div
-					className={`relative flex-1 self-stretch min-w-0 ${isStartBarPickMode ? 'opacity-60' : ''}`}
+					className={`relative flex-1 self-stretch min-w-0 ${isStartBarPickMode ? 'opacity-75' : ''}`}
 					aria-disabled={isStartBarPickMode}
 				>
 					<div className="absolute inset-x-0 -top-[2px] -bottom-[2px] w-full flex gap-1 items-stretch">
