@@ -4573,6 +4573,7 @@ export default function App() {
   const squareHoldAteClickRef = useRef(false);
   const playHoldTimerRef = useRef<number | null>(null);
   const playHoldAteClickRef = useRef(false);
+  const togglePlaybackRef = useRef<() => void>(() => {});
   /** `null` = legacy viewport start; number = pattern bar index (0..bars-1). */
   const playbackStartBarOverrideRef = useRef<number | null>(null);
   const isStartBarPickModeRef = useRef(false);
@@ -9035,8 +9036,13 @@ export default function App() {
       setIsStartBarPickMode(false);
       isStartBarPickModeRef.current = false;
       scrollGridToPatternBar(patternBarN);
+      clearPlayHoldTimer();
+      playHoldAteClickRef.current = false;
+      if (!isPlayingRef.current) {
+        togglePlaybackRef.current();
+      }
     },
-    [scrollGridToPatternBar],
+    [scrollGridToPatternBar, clearPlayHoldTimer],
   );
 
   useEffect(() => {
@@ -9227,6 +9233,7 @@ export default function App() {
       scheduler();
     }
   };
+  togglePlaybackRef.current = togglePlayback;
 
   const handlePlayButtonClick = () => {
     if (playHoldAteClickRef.current) {
