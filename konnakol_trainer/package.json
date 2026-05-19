@@ -16,6 +16,8 @@
     "macro:evaluate": "tsx scripts/evaluate-macro-results.ts",
     "regression:odd-jati": "tsx scripts/run-odd-jati-regression.ts",
     "decode:snapshot-timing": "tsx scripts/decode-snapshot-timing.ts",
+    "roundtrip:build": "esbuild scripts/snapshot-roundtrip-loop.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/roundtrip.js",
+    "roundtrip": "node dist/roundtrip.js",
     "prepare": "husky"
   },
   "dependencies": {
@@ -35,6 +37,7 @@
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
+    "esbuild": "^0.28.0",
     "husky": "^9.1.7",
     "playwright": "^1.59.1",
     "tailwindcss": "^4.1.14",

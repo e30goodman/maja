@@ -6,7 +6,7 @@
 
 export type PolyVoicesCount = 2 | 3;
 
-/** `voice` = laneId той же линии, что и слот UI в `polySubLegacyLaneIndicatorStore` / `activePositions`. */
+/** `voice` = laneId; UI playhead in `activePositions` via lane indicator store. */
 export type PolySubLegacyEmit = (
 	bar: number,
 	c: number,
@@ -23,6 +23,11 @@ export type PolySubLegacyDeps = {
 	getBarTimeWindowSeconds: (bar: number) => number;
 	getRowSyllables: (bar: number) => number;
 	getDeadStart: (bar: number) => number | undefined;
+	/** Per-cell step duration (fused block uses constant dCell across member bars). */
+	getStepDurationSeconds: (bar: number, c: number) => number;
+	/** When false, advancing to next bar on lane does not fire `onLaneBarBoundary` (same fused block). */
+	barsInSameFusedBlock?: (prevBar: number, nextBar: number) => boolean;
+	getFusedGroup?: (bar: number) => { bars: number[] } | null;
 	emit: PolySubLegacyEmit;
 	/**
 	 * Любая lane пересекла границу такта (advanceBar): `prevBar` — такт, который только что доиграл,
@@ -191,11 +196,47 @@ export function createPolySubLegacyScheduler(deps: PolySubLegacyDeps): PolySubLe
 		const barWindow = deps.getBarTimeWindowSeconds(barIdx);
 		if (!Number.isFinite(barWindow) || barWindow <= 0) return;
 
-		const prevStepDur = barWindow / prevSyl;
-		const nextStepDur = barWindow / nextSyl;
+		const prevStepDur = deps.getStepDurationSeconds(barIdx, lane.cellCursor);
+		const nextStepDur = deps.getStepDurationSeconds(barIdx, 0);
 		const barStartTime = lane.nextTime - lane.cellCursor * prevStepDur;
 		const rawPhase = (anchorTime - barStartTime) / barWindow;
 		const phase = Math.max(0, Math.min(0.999999, rawPhase));
+		const fusedGroup = deps.getFusedGroup?.(barIdx) ?? null;
+		if (fusedGroup && fusedGroup.bars.length > 0) {
+			const totalCells = Math.max(1, Math.round(barWindow / prevStepDur));
+			let globalCell = Math.ceil(phase * totalCells - 1e-9);
+			if (!Number.isFinite(globalCell)) globalCell = 0;
+			globalCell = Math.max(0, Math.min(totalCells - 1, globalCell));
+			let nextTime = barStartTime + globalCell * nextStepDur;
+			if (nextTime < anchorTime + 1e-4) {
+				globalCell += 1;
+				nextTime += nextStepDur;
+			}
+			let acc = 0;
+			let mapped = false;
+			for (const b of fusedGroup.bars) {
+				const bi = lane.barIndices.indexOf(b);
+				if (bi < 0) continue;
+				const syl = deps.getRowSyllables(b);
+				const ds = deps.getDeadStart(b);
+				const live =
+					typeof ds === 'number' ? Math.min(Math.max(0, Math.floor(ds)), syl) : syl;
+				if (globalCell < acc + live) {
+					lane.barCursor = bi;
+					lane.cellCursor = globalCell - acc;
+					mapped = true;
+					break;
+				}
+				acc += live;
+			}
+			if (!mapped && lane.barIndices.length > 0) {
+				lane.barCursor = (lane.barCursor + 1) % lane.barIndices.length;
+				lane.cellCursor = 0;
+			}
+			lane.nextTime = nextTime;
+			return;
+		}
+
 		let nextCell = Math.ceil(phase * nextSyl - 1e-9);
 		if (!Number.isFinite(nextCell)) nextCell = 0;
 		nextCell = Math.max(0, Math.min(nextSyl - 1, nextCell));
@@ -232,16 +273,17 @@ export function createPolySubLegacyScheduler(deps: PolySubLegacyDeps): PolySubLe
 
 			const bar = best.barIndices[best.barCursor]!;
 			const rowSyl = deps.getRowSyllables(bar);
-			const dBar = deps.getBarTimeWindowSeconds(bar) / Math.max(1, rowSyl);
-			const deadStart = deps.getDeadStart(bar);
 			const c = best.cellCursor;
+			const stepDur = deps.getStepDurationSeconds(bar, c);
+			const deadStart = deps.getDeadStart(bar);
 			const voice = best.laneId;
 			const V = deps.polyVoices() === 3 ? 3 : 2;
+			/** Grid cycle index for playhead/UI: always physical bar row, not fused-leader step. */
 			const chunkStep = Math.floor(bar / V);
 
 			const rowFullyDead = typeof deadStart === 'number' && deadStart <= 0;
 			if (!rowFullyDead) {
-				deps.emit(bar, c, bar, bestT, voice, chunkStep, dBar);
+				deps.emit(bar, c, bar, bestT, voice, chunkStep, stepDur);
 			}
 			if (rowFullyDead) {
 				const prevBar = bar;
@@ -270,14 +312,18 @@ export function createPolySubLegacyScheduler(deps: PolySubLegacyDeps): PolySubLe
 				const prevCursor = best.barCursor;
 				best.barCursor = (best.barCursor + 1) % best.barIndices.length;
 				best.cellCursor = 0;
+				const nextBar = best.barIndices[best.barCursor]!;
 				const wrappedPattern =
 					best.barCursor === 0 && prevCursor === best.barIndices.length - 1;
-				deps.onLaneBarBoundary?.(prevBar, best.laneId, wrappedPattern);
+				const sameFused = deps.barsInSameFusedBlock?.(prevBar, nextBar) ?? false;
+				if (!sameFused) {
+					deps.onLaneBarBoundary?.(prevBar, best.laneId, wrappedPattern);
+				}
 			} else {
 				best.cellCursor = nextCWithHeadHold;
 			}
 			// Truncation policy: one emitted cell always advances by one cell duration.
-			best.nextTime += dBar;
+			best.nextTime += stepDur;
 		}
 	};
 

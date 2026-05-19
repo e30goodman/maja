@@ -8,6 +8,20 @@ import {
 } from './sequencerLabels';
 import type { PlayheadPosition } from './playheadTypes';
 import {
+	distributeFusedGroupJatiSum,
+	findGroupForBar,
+	formatFusedBarStepLabel,
+	getDisplayPulseSyllables,
+	getFusedBarStepDisplay,
+	getFusedGroupJatiSumBounds,
+	getGroupMultiplier,
+	getGroupPulseSyllables,
+	incrementFusedGroupJatiFromBar,
+	isFusedGroupFirstBeatCell,
+	sumGroupJati,
+	type FusedGroupState,
+} from './fusedBarGroups';
+import {
 	stepMaskSignatureByRow,
 	getRowDataHash,
 	type CellConfigs,
@@ -65,9 +79,13 @@ const CELL_SUBDIV_ARM_SLOP_Y_PX = 10;
 const PULSE_ROULETTE_SLOP_Y_PX = 0;
 const PULSE_MODE_TOGGLE_CANCEL_SLOP_Y_PX = 8;
 const PULSE_HOLD_MS = 450;
+const MULT_FUSED_HOLD_MS = 450;
 const CELL_HOLD_MS = 120;
 
-/** Poly playback: voice 0 = emerald; 1 = sky; 2 = violet; 3+ = amber. */
+/**
+ * Poly/legacy playhead on a syllable cell: border + opaque fill + text tint in one class string
+ * (not separate layers). Voice colors: 0 emerald, 1 sky, 2 violet.
+ */
 function playheadHighlightCellClasses(
 	isDead: boolean,
 	polyMode: boolean,
@@ -77,28 +95,28 @@ function playheadHighlightCellClasses(
 ): string {
 	if (isDead) {
 		return lowPerfMode
-			? 'bg-slate-700/35 border-2 box-border border-slate-500/70 z-10 text-slate-400'
-			: 'bg-slate-700/40 border-2 box-border border-slate-500/80 shadow-[0_0_10px_rgba(100,116,139,0.22)] z-10 text-slate-300';
+			? 'bg-slate-800 border-2 box-border border-slate-500 z-10 text-slate-400'
+			: 'bg-slate-800 border-2 box-border border-slate-500 shadow-[0_0_10px_rgba(100,116,139,0.22)] z-10 text-slate-300';
 	}
 	const polyActive = polyMode && isPlaying;
 	if (!polyActive || polyVoiceIdx === 0) {
 		return lowPerfMode
-			? 'bg-emerald-500/20 border-2 box-border border-emerald-500 z-10 text-emerald-100'
-			: 'bg-emerald-500/20 border-2 box-border border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)] z-10 text-emerald-100';
+			? 'bg-emerald-950 border-2 box-border border-emerald-500 z-10 text-emerald-100'
+			: 'bg-emerald-950 border-2 box-border border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)] z-10 text-emerald-100';
 	}
 	if (polyVoiceIdx === 1) {
 		return lowPerfMode
-			? 'bg-sky-500/20 border-2 box-border border-sky-400 z-10 text-sky-100'
-			: 'bg-sky-500/20 border-2 box-border border-sky-400 shadow-[0_0_15px_rgba(56,189,248,0.28)] z-10 text-sky-100';
+			? 'bg-sky-950 border-2 box-border border-sky-400 z-10 text-sky-100'
+			: 'bg-sky-950 border-2 box-border border-sky-400 shadow-[0_0_15px_rgba(56,189,248,0.28)] z-10 text-sky-100';
 	}
 	if (polyVoiceIdx === 2) {
 		return lowPerfMode
-			? 'bg-violet-500/20 border-2 box-border border-violet-400 z-10 text-violet-100'
-			: 'bg-violet-500/20 border-2 box-border border-violet-400 shadow-[0_0_15px_rgba(167,139,250,0.28)] z-10 text-violet-100';
+			? 'bg-violet-950 border-2 box-border border-violet-400 z-10 text-violet-100'
+			: 'bg-violet-950 border-2 box-border border-violet-400 shadow-[0_0_15px_rgba(167,139,250,0.28)] z-10 text-violet-100';
 	}
 	return lowPerfMode
-		? 'bg-amber-500/20 border-2 box-border border-amber-400 z-10 text-amber-100'
-		: 'bg-amber-500/20 border-2 box-border border-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.26)] z-10 text-amber-100';
+		? 'bg-amber-950 border-2 box-border border-amber-400 z-10 text-amber-100'
+		: 'bg-amber-950 border-2 box-border border-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.26)] z-10 text-amber-100';
 }
 
 function rowCellLabelsEqual(a: SyllableLabel[][], b: SyllableLabel[][]): boolean {
@@ -128,7 +146,14 @@ function effectiveBpmForGridRow(
 	customSyllables: Record<number, number>,
 	pulseMeterUnlinked: Record<number, boolean>,
 	customMultipliers: Record<number, number>,
+	fusedBarGroups: FusedGroupState[],
 ): number {
+	const group = findGroupForBar(fusedBarGroups, rowIdx);
+	if (group) {
+		const pulseSyl = getGroupPulseSyllables(group, customSyllables, baseSyllables, pulseMeterUnlinked);
+		const mult = getGroupMultiplier(group, customMultipliers);
+		return bpm * (pulseSyl / 4) * mult;
+	}
 	const rowSyllables = customSyllables[rowIdx] !== undefined ? customSyllables[rowIdx]! : baseSyllables;
 	const pulseSyllables = pulseMeterUnlinked[rowIdx] ? PULSE_METER_BASE_SYLLABLES : rowSyllables;
 	const mult = customMultipliers[rowIdx] ?? 1;
@@ -144,6 +169,7 @@ function useStableRowCellLabelsCache(
 	cellStepMasks: CellStepMasks,
 	pulseMeterUnlinked: Record<number, boolean>,
 	customMultipliers: Record<number, number>,
+	fusedBarGroups: FusedGroupState[],
 	rowRuntimeContexts: Record<number, RowRuntimeContext>,
 	accents: Set<string>,
 	deadStartByRow: Record<number, number>,
@@ -170,7 +196,9 @@ function useStableRowCellLabelsCache(
 				touchedKeys: touched,
 				rowRuntimeContext: {
 					...(rowRuntimeContexts[r] ?? {}),
-					rowMultiplier: customMultipliers[r] ?? 1,
+					rowMultiplier: findGroupForBar(fusedBarGroups, r)
+						? getGroupMultiplier(findGroupForBar(fusedBarGroups, r)!, customMultipliers)
+						: (customMultipliers[r] ?? 1),
 					effectiveBpm: effectiveBpmForGridRow(
 						bpm,
 						r,
@@ -178,6 +206,7 @@ function useStableRowCellLabelsCache(
 						customSyllables,
 						pulseMeterUnlinked,
 						customMultipliers,
+						fusedBarGroups,
 					),
 				},
 				cellSyllableOverrides: Object.keys(cellOv).length > 0 ? cellOv : undefined,
@@ -210,6 +239,7 @@ function useStableRowCellLabelsCache(
 		cellStepMasks,
 		pulseMeterUnlinked,
 		customMultipliers,
+		fusedBarGroups,
 		rowRuntimeContexts,
 		accents,
 		deadStartByRow,
@@ -269,6 +299,13 @@ export type SequencerGridRowActions = {
 	} | null>;
 	/** Long-press on Pulse: switch progressive mode to jati/de-sync mode. */
 	onPulseLongPressModeSwitch?: (rowIdx: number, rowSylls: number, nextPulseUnlinked: boolean) => void;
+	/** Long-press on multiplier: fused group create / extend / dissolve. */
+	onFusedMultiplierHold?: (rowIdx: number) => void;
+	/** Long-press on pulse: gati/jati for fused block or single row. */
+	onTogglePulseUnlinkedRow?: (rowIdx: number) => void;
+	/** Short click multiplier: cycle x1–x4 for fused group or row. */
+	onCycleRowMultiplier?: (rowIdx: number) => void;
+	fusedBarGroupsRef: React.MutableRefObject<FusedGroupState[]>;
 };
 
 type SequencerGridRowProps = {
@@ -281,6 +318,8 @@ type SequencerGridRowProps = {
 	polyVoices: 2 | 3 | 4;
 	rowSylls: number;
 	rowMult: number;
+	displayRowSylls: number;
+	fusedMultiplierHighlight: boolean;
 	subdivSig: string;
 	rowStepMaskSig: string;
 	rowDataHash: string;
@@ -302,6 +341,8 @@ type SequencerGridRowProps = {
 	canShowDefaultTaInNormal: boolean;
 	/** Comma-sorted row indices: rows where default first-beat white marker was disabled in editor. */
 	firstBeatEditorSuppressedSig: string;
+	/** Row col0 is downbeat of fused mega-bar (or ordinary bar when not fused). */
+	fusedAllowsFirstBeatTa: boolean;
 	deadStartByRow: Record<number, number>;
 	deadDisplayByRow: Record<number, number>;
 	rowCellLabels: SyllableLabel[][];
@@ -329,6 +370,8 @@ function sequencerGridRowPropsEqual(a: SequencerGridRowProps, b: SequencerGridRo
 		a.polyVoices === b.polyVoices &&
 		a.rowSylls === b.rowSylls &&
 		a.rowMult === b.rowMult &&
+		a.displayRowSylls === b.displayRowSylls &&
+		a.fusedMultiplierHighlight === b.fusedMultiplierHighlight &&
 		a.subdivSig === b.subdivSig &&
 		a.rowStepMaskSig === b.rowStepMaskSig &&
 		a.rowDataHash === b.rowDataHash &&
@@ -349,6 +392,7 @@ function sequencerGridRowPropsEqual(a: SequencerGridRowProps, b: SequencerGridRo
 		a.forceFirstBeatEditorFrames === b.forceFirstBeatEditorFrames &&
 		a.canShowDefaultTaInNormal === b.canShowDefaultTaInNormal &&
 		a.firstBeatEditorSuppressedSig === b.firstBeatEditorSuppressedSig &&
+		a.fusedAllowsFirstBeatTa === b.fusedAllowsFirstBeatTa &&
 		a.deadStartByRow === b.deadStartByRow &&
 		a.deadDisplayByRow === b.deadDisplayByRow &&
 		a.rowCellLabels === b.rowCellLabels &&
@@ -377,6 +421,8 @@ const SequencerGridRow = React.memo(
 			polyVoices,
 			rowSylls,
 			rowMult,
+			displayRowSylls,
+			fusedMultiplierHighlight,
 			subdivSig,
 			rowStepMaskSig,
 			rowDataHash,
@@ -397,6 +443,7 @@ const SequencerGridRow = React.memo(
 			forceFirstBeatEditorFrames,
 			canShowDefaultTaInNormal,
 			firstBeatEditorSuppressedSig,
+			fusedAllowsFirstBeatTa,
 			deadStartByRow,
 			deadDisplayByRow,
 			rowCellLabels,
@@ -442,6 +489,8 @@ const SequencerGridRow = React.memo(
 			basePulse: number;
 			lastDeltaSteps: number;
 		} | null>(null);
+		const multFusedHoldTimerRef = useRef<number | null>(null);
+		const multFusedHoldFiredRef = useRef(false);
 		const barPickHandledAtRef = useRef(0);
 		const barPickOverlayRef = useRef<HTMLDivElement>(null);
 		const polyStepVoices = polyVoices === 3 ? 3 : 2;
@@ -534,10 +583,43 @@ const SequencerGridRow = React.memo(
 						type="button"
 						disabled={isStartBarPickMode}
 						tabIndex={isStartBarPickMode ? -1 : undefined}
-						onClick={() => {
+						onPointerDown={(e) => {
 							if (isStartBarPickMode) return;
 							const a = actionsRef.current;
 							if (!a) return;
+							multFusedHoldFiredRef.current = false;
+							if (multFusedHoldTimerRef.current) clearTimeout(multFusedHoldTimerRef.current);
+							multFusedHoldTimerRef.current = window.setTimeout(() => {
+								multFusedHoldFiredRef.current = true;
+								a.onFusedMultiplierHold?.(rIdx);
+								triggerHapticPulse(50);
+								multFusedHoldTimerRef.current = null;
+							}, MULT_FUSED_HOLD_MS);
+						}}
+						onPointerUp={() => {
+							if (multFusedHoldTimerRef.current) {
+								clearTimeout(multFusedHoldTimerRef.current);
+								multFusedHoldTimerRef.current = null;
+							}
+						}}
+						onPointerCancel={() => {
+							if (multFusedHoldTimerRef.current) {
+								clearTimeout(multFusedHoldTimerRef.current);
+								multFusedHoldTimerRef.current = null;
+							}
+						}}
+						onClick={() => {
+							if (isStartBarPickMode) return;
+							if (multFusedHoldFiredRef.current) {
+								multFusedHoldFiredRef.current = false;
+								return;
+							}
+							const a = actionsRef.current;
+							if (!a) return;
+							if (a.onCycleRowMultiplier) {
+								a.onCycleRowMultiplier(rIdx);
+								return;
+							}
 							a.setCustomMultipliers((prev) => {
 								const m = prev[rIdx] || 1;
 								const next = m === 1 ? 2 : m === 2 ? 3 : m === 3 ? 4 : 1;
@@ -560,6 +642,10 @@ const SequencerGridRow = React.memo(
 							});
 						}}
 						className={`relative flex-1 rounded-md border flex items-center justify-center text-[9px] font-bold min-h-[50%] transition-colors ${
+							fusedMultiplierHighlight
+								? `ring-2 ring-violet-400/90 border-violet-400/70 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(167,139,250,0.25)]'}`
+								: ''
+						} ${
 							rowMult === 1
 								? 'bg-[#1e2a45] border-[#2f4066] text-slate-300 hover:bg-[#253353] active:bg-[#1a253c]'
 								: rowMult === 2
@@ -569,10 +655,12 @@ const SequencerGridRow = React.memo(
 										: `bg-amber-900/40 border-amber-500/50 text-amber-200 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_3px_rgba(245,158,11,0.12)]'}`
 						}`}
 					>
-						{stepLabel ? (
-							<span className="absolute top-[2px] left-[3px] text-[7.5px] text-blue-300/80 font-mono pointer-events-none leading-none uppercase">
-								{stepLabel}
-							</span>
+						{stepLabel !== undefined ? (
+							stepLabel !== '' ? (
+								<span className="absolute top-[2px] left-[3px] text-[7.5px] text-blue-300/80 font-mono pointer-events-none leading-none uppercase">
+									{stepLabel}
+								</span>
+							) : null
 						) : (
 							<span className="absolute top-[2px] left-[3px] text-[7.5px] text-slate-500 font-mono pointer-events-none leading-none opacity-80">
 								{rIdx + 1}
@@ -613,13 +701,17 @@ const SequencerGridRow = React.memo(
 								/* Long-press + no pre-move: включаем/выключаем gati-jati сразу под удержанием. */
 								if (!pulseMovedBeforeHoldRef.current) {
 									a.pulseUnlinkJustFiredRef.current = true;
-									a.setPulseMeterUnlinked((prev) => {
-										const nextVal = !prev[rIdx];
-										a.onPulseLongPressModeSwitch?.(rIdx, rowSylls, nextVal);
-										const next = { ...prev, [rIdx]: nextVal };
-										a.pulseMeterUnlinkedRef.current = { ...next };
-										return next;
-									});
+									if (a.onTogglePulseUnlinkedRow) {
+										a.onTogglePulseUnlinkedRow(rIdx);
+									} else {
+										a.setPulseMeterUnlinked((prev) => {
+											const nextVal = !prev[rIdx];
+											a.onPulseLongPressModeSwitch?.(rIdx, rowSylls, nextVal);
+											const next = { ...prev, [rIdx]: nextVal };
+											a.pulseMeterUnlinkedRef.current = { ...next };
+											return next;
+										});
+									}
 								}
 								/* После hold: можно перейти в Y-roulette без ожидания pointerup. */
 								pulseHoldReadyRef.current = true;
@@ -649,8 +741,12 @@ const SequencerGridRow = React.memo(
 										/* best effort capture */
 									}
 									a.isHoldingRef.current = true;
-									const basePulse =
-										a.customSyllablesRef.current[rIdx] !== undefined ? a.customSyllablesRef.current[rIdx]! : a.syllables;
+									const fusedForRoulette = findGroupForBar(a.fusedBarGroupsRef.current, rIdx);
+									const basePulse = fusedForRoulette
+										? sumGroupJati(fusedForRoulette, a.customSyllablesRef.current, a.syllables)
+										: a.customSyllablesRef.current[rIdx] !== undefined
+											? a.customSyllablesRef.current[rIdx]!
+											: a.syllables;
 									pulseRouletteSessionRef.current = {
 										startY: e.clientY,
 										basePulse,
@@ -664,8 +760,12 @@ const SequencerGridRow = React.memo(
 							if (!a.isHoldingRef.current) return;
 							if (pulseHoldReadyRef.current && !pulseRouletteSessionRef.current) {
 								if (Math.abs(e.clientY - startY) <= PULSE_ROULETTE_SLOP_Y_PX) return;
-								const basePulse =
-									a.customSyllablesRef.current[rIdx] !== undefined ? a.customSyllablesRef.current[rIdx]! : a.syllables;
+								const fusedHoldRoulette = findGroupForBar(a.fusedBarGroupsRef.current, rIdx);
+								const basePulse = fusedHoldRoulette
+									? sumGroupJati(fusedHoldRoulette, a.customSyllablesRef.current, a.syllables)
+									: a.customSyllablesRef.current[rIdx] !== undefined
+										? a.customSyllablesRef.current[rIdx]!
+										: a.syllables;
 								pulseRouletteSessionRef.current = {
 									startY: e.clientY,
 									basePulse,
@@ -680,7 +780,22 @@ const SequencerGridRow = React.memo(
 							const deltaSteps = -Math.trunc((e.clientY - s.startY) / pxPerStep);
 							if (deltaSteps === s.lastDeltaSteps) return;
 							s.lastDeltaSteps = deltaSteps;
+							const fusedGroup = findGroupForBar(a.fusedBarGroupsRef.current, rIdx);
 							a.setCustomSyllables((prev) => {
+								if (fusedGroup) {
+									const { minSum, maxSum } = getFusedGroupJatiSumBounds(fusedGroup);
+									const targetSum = Math.max(minSum, Math.min(maxSum, s.basePulse + deltaSteps));
+									const patch = distributeFusedGroupJatiSum(
+										fusedGroup,
+										targetSum,
+										prev,
+										a.syllables,
+										rIdx,
+									);
+									const out = { ...prev, ...patch };
+									a.customSyllablesRef.current = { ...out };
+									return out;
+								}
 								const next = Math.max(1, Math.min(9, s.basePulse + deltaSteps));
 								const cur = prev[rIdx] !== undefined ? prev[rIdx] : a.syllables;
 								if (cur === next) return prev;
@@ -757,6 +872,18 @@ const SequencerGridRow = React.memo(
 								/* Click arrived without pulse pointerdown (captured from cell): still run syllable cycle based on grid long-press isHoldingRef. */
 							}
 							a.setCustomSyllables((prev) => {
+								const fusedGroup = findGroupForBar(a.fusedBarGroupsRef.current, rIdx);
+								if (fusedGroup) {
+									const patch = incrementFusedGroupJatiFromBar(
+										fusedGroup,
+										rIdx,
+										prev,
+										a.syllables,
+									);
+									const out = { ...prev, ...patch };
+									a.customSyllablesRef.current = { ...out };
+									return out;
+								}
 								const current = prev[rIdx] !== undefined ? prev[rIdx] : a.syllables;
 								const next = current >= 9 ? 1 : current + 1;
 								const out = { ...prev, [rIdx]: next };
@@ -775,7 +902,7 @@ const SequencerGridRow = React.memo(
 									: 'bg-[#1e2a45] border-[#2f4066] text-slate-400 hover:bg-[#253353] active:bg-[#1e2a45]'
 						}`}
 					>
-						{rowSylls}
+						{displayRowSylls}
 					</button>
 				</div>
 				{/* СТРОГО-НАСТРОГО НЕ ТРОГАТЬ ЭТО МЕСТО: ЭТО CELLS. Их не двигать и не растягивать для калибровки правой стенки.
@@ -803,11 +930,13 @@ const SequencerGridRow = React.memo(
 							isTaDing ||
 							(cIdx === 0 &&
 								!isDead &&
+								fusedAllowsFirstBeatTa &&
 								!firstBeatRowSuppressed.has(rIdx) &&
 								forceFirstBeatEditorFrames);
 						const showLegacyDefaultInNormal =
 							cIdx === 0 &&
 							!isDead &&
+							fusedAllowsFirstBeatTa &&
 							forceFirstBeatEditorFrames &&
 							canShowDefaultTaInNormal &&
 							!firstBeatRowSuppressed.has(rIdx);
@@ -867,9 +996,11 @@ const SequencerGridRow = React.memo(
 								lowPerfMode,
 							);
 						}
+						const cellShellTransition =
+							isPlaying || isActive ? '' : lowPerfMode ? '' : 'transition-all duration-75';
 						const cellShellClass = `flex-1 h-full self-stretch flex flex-col items-center justify-center min-w-0 ${
 							isStartBarPickMode ? 'pointer-events-none touch-none' : 'touch-pan-y'
-						} ${lowPerfMode ? '' : 'transition-all duration-75'} ${
+						} ${cellShellTransition} ${
 							rowSylls > 7 ? 'rounded-md' : 'rounded-xl'
 						} ${cellClasses} ${activeEditCell === checkKey ? `ring-2 ring-inset ring-purple-500 z-20 ${lowPerfMode ? '' : 'shadow-purple-500/30'}` : ''}`;
 						const cellSubdivPanel = (
@@ -1165,6 +1296,7 @@ export type SequencerGridProps = {
 	accents: Set<string>;
 	taDingKeys: Set<string>;
 	pulseMeterUnlinked: Record<number, boolean>;
+	fusedBarGroups: FusedGroupState[];
 	rowRuntimeContexts: Record<number, RowRuntimeContext>;
 	jatiPulseActiveByRow: Record<number, boolean>;
 	isPlaying: boolean;
@@ -1212,6 +1344,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	accents,
 	taDingKeys,
 	pulseMeterUnlinked,
+	fusedBarGroups,
 	rowRuntimeContexts,
 	jatiPulseActiveByRow,
 	isPlaying,
@@ -1253,6 +1386,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 		cellStepMasks,
 		pulseMeterUnlinked,
 		customMultipliers,
+		fusedBarGroups,
 		rowRuntimeContexts,
 		accents,
 		deadStartByRow,
@@ -1342,8 +1476,13 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 				{Array.from({ length: virtualRowCount }).map((_, absR) => {
 				const rIdx = absR % bars;
 				const rowSylls = customSyllables[rIdx] !== undefined ? customSyllables[rIdx] : syllables;
+				const fusedGroup = findGroupForBar(fusedBarGroups, rIdx);
+				const displayRowSylls = getDisplayPulseSyllables(rIdx, customSyllables, syllables, fusedGroup);
 				const rowCellLabels = rowCellLabelsCache[rIdx] ?? [];
-				const rowMult = customMultipliers[rIdx] || 1;
+				const rowMult = fusedGroup
+					? getGroupMultiplier(fusedGroup, customMultipliers)
+					: customMultipliers[rIdx] || 1;
+				const fusedMultiplierHighlight = fusedGroup !== null;
 				const effectiveUseFixedFlex = useFrozenRowHeight || useFixedFlex || (isPlaying && !allBarsFitViewport);
 				const subdivSig = Array.from({ length: rowSylls }, (_, c) =>
 					String(customSubdivisions[`${rIdx}-${c}`] ?? 1),
@@ -1356,7 +1495,9 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 				const taDingSig = Array.from({ length: rowSylls }, (_, c) =>
 					taDingKeys.has(`${rIdx}-${c}`) ? '1' : '0',
 				).join('');
-				const pulseUnlinkedRow = Boolean(pulseMeterUnlinked[rIdx]);
+				const pulseUnlinkedRow = fusedGroup
+					? Boolean(pulseMeterUnlinked[fusedGroup.bars[0]!])
+					: Boolean(pulseMeterUnlinked[rIdx]);
 				const jatiPulseActiveRow = Boolean(jatiPulseActiveByRow[rIdx]);
 
 				let highlightCol: number | null;
@@ -1371,11 +1512,16 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 						: activePos.r === rIdx
 							? activePos.c
 							: null;
+					if (fusedGroup || deadStartByRow[rIdx] === 0) {
+						const label = formatFusedBarStepLabel(
+							getFusedBarStepDisplay(rIdx, fusedBarGroups, bars, false, 2, deadStartByRow),
+						);
+						stepLabel = label === '' ? '' : label;
+					}
 				} else {
 					const voiceIdx = rIdx % polyVoices;
-					const stepIdx = Math.floor(rIdx / polyVoices);
 					const voiceHighlight = activePositions.find(
-						(pos) => pos.step === stepIdx && pos.voice === voiceIdx,
+						(pos) => pos.voice === voiceIdx && pos.r === rIdx,
 					);
 					highlightCol =
 						isPlaying && voiceHighlight
@@ -1383,10 +1529,23 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 							: !isPlaying && activePos.r === rIdx
 								? activePos.c
 								: null;
-					/** In polyrhythm show step number on each row (V1/V2[/V3]): 1,1,2,2... */
-					stepLabel = `${stepIdx + 1}`;
+					const polyV = polyVoices === 3 ? 3 : 2;
+					const stepDisplay = getFusedBarStepDisplay(
+						rIdx,
+						fusedBarGroups,
+						bars,
+						true,
+						polyV,
+						deadStartByRow,
+					);
+					const label = formatFusedBarStepLabel(stepDisplay);
+					stepLabel = label === '' ? '' : label;
 					isPolyRow = true;
-					polyStepTopRule = stepIdx > 0 && voiceIdx === 0;
+					polyStepTopRule =
+						!stepDisplay.hideLabel &&
+						stepDisplay.stepNum > 1 &&
+						voiceIdx === 0 &&
+						!stepDisplay.isFollower;
 				}
 
 				return (
@@ -1398,6 +1557,8 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 						isPolyRow={isPolyRow}
 						rowSylls={rowSylls}
 						rowMult={rowMult}
+						displayRowSylls={displayRowSylls}
+						fusedMultiplierHighlight={fusedMultiplierHighlight}
 						subdivSig={subdivSig}
 						rowStepMaskSig={stepMaskSig}
 						rowDataHash={rowDataHash}
@@ -1418,6 +1579,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 						forceFirstBeatEditorFrames={forceFirstBeatEditorFrames}
 						canShowDefaultTaInNormal={canShowDefaultTaInNormal}
 						firstBeatEditorSuppressedSig={firstBeatEditorSuppressedSig}
+						fusedAllowsFirstBeatTa={isFusedGroupFirstBeatCell(fusedBarGroups, rIdx, 0)}
 						deadStartByRow={deadStartByRow}
 						deadDisplayByRow={deadDisplayByRow}
 						rowCellLabels={rowCellLabels}

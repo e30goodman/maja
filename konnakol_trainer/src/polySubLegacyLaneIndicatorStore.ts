@@ -1,7 +1,5 @@
 /**
- * Playhead indicators for poly sub_legacy: each temporal lane (`PolySubLegacyScheduler` lane)
- * has its own slot. Event queue is time-shared; without persistent storage on wake only the latest
- * drained event batch survives, so other lanes "dim" until their next scheduled t.
+ * Playhead indicators for poly sub_legacy: each lane keeps last drained position until the next event.
  */
 import type { PlayheadPosition } from './playheadTypes';
 

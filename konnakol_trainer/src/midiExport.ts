@@ -6,6 +6,16 @@
  */
 
 import MidiWriter from 'midi-writer-js';
+import {
+	findGroupForBar,
+	getFusedBarTimeWindowSeconds,
+	isFusedGroupFirstBeatCell,
+	getFusedCellDurationSeconds,
+	getGroupMultiplier,
+	getGroupPulseSyllables,
+	type FusedGroupState,
+	type FusedTimingContext,
+} from './fusedBarGroups';
 import { buildLegacyPlaybackSequence, type DeadCellsMap } from './randomLogic';
 import { advancePolyLaneAfterEmit, buildLaneBarIndices, type PolyVoicesCount } from './polySubLegacyScheduler';
 import { buildRowCellSyllableLabels, type KalamMap, type RowRuntimeContext } from './sequencerLabels';
@@ -113,6 +123,7 @@ export interface MidiExportInput {
 	cellStepMasks?: CellStepMasks;
 	pulseMeterUnlinked?: Record<number, boolean>;
 	customMultipliers?: Record<number, number>;
+	fusedBarGroups?: FusedGroupState[];
 	accents: Set<string> | Iterable<string>;
 	accentsByLane?: Partial<Record<0 | 1 | 2, Set<string> | Iterable<string>>>;
 	taDingKeys: Set<string> | Iterable<string>;
@@ -263,7 +274,19 @@ export function effectiveBpmForRow(
 	progressiveDensityMode?: 'gati_mode' | 'jati_mode',
 	deSyncJatiActive?: boolean,
 	deSyncCycleLength?: number,
+	fusedBarGroups: FusedGroupState[] = [],
 ): number {
+	const group = findGroupForBar(fusedBarGroups, rowIdx);
+	if (group) {
+		const pulseSyl = getGroupPulseSyllables(
+			group,
+			customSyllables,
+			baseSyllables,
+			pulseMeterUnlinked ?? {},
+		);
+		const mult = getGroupMultiplier(group, customMultipliers ?? {});
+		return bpm * (pulseSyl / 4) * mult;
+	}
 	const rowSyllables =
 		customSyllables[rowIdx] !== undefined ? customSyllables[rowIdx]! : baseSyllables;
 	const jatiCycle =
@@ -295,7 +318,22 @@ export function ticksPerCellFromRow(
 	progressiveDensityMode?: 'gati_mode' | 'jati_mode',
 	deSyncJatiActive?: boolean,
 	deSyncCycleLength?: number,
+	fusedBarGroups: FusedGroupState[] = [],
+	deadCells: DeadCellsMap = {},
 ): number {
+	const group = findGroupForBar(fusedBarGroups, rowIdx);
+	if (group) {
+		const dSec = getFusedCellDurationSeconds(
+			group,
+			customSyllables,
+			baseSyllables,
+			pulseMeterUnlinked ?? {},
+			customMultipliers ?? {},
+			bpm,
+			deadCells,
+		);
+		return wallSecToTick(dSec, bpm, ppq);
+	}
 	const eff = effectiveBpmForRow(
 		bpm,
 		rowIdx,
@@ -306,6 +344,7 @@ export function ticksPerCellFromRow(
 		progressiveDensityMode,
 		deSyncJatiActive,
 		deSyncCycleLength,
+		fusedBarGroups,
 	);
 	if (!Number.isFinite(eff) || eff <= 0) return ppq;
 	return (ppq * bpm) / eff;
@@ -315,6 +354,8 @@ function resolveAdaptivePpq(input: MidiExportInput, requestedPpq: number): numbe
 	const targetMinCellTicks = 96;
 	let minCellTicks = Infinity;
 	const bars = Math.max(0, Math.floor(input.bars));
+	const fused = input.fusedBarGroups ?? [];
+	const deadMap = toDeadCellsMap(input.deadCells);
 	for (let r = 0; r < bars; r++) {
 		const t = ticksPerCellFromRow(
 			input.bpm,
@@ -327,6 +368,8 @@ function resolveAdaptivePpq(input: MidiExportInput, requestedPpq: number): numbe
 			input.progressiveDensityMode,
 			input.deSyncJatiActive,
 			input.deSyncCycleLength,
+			fused,
+			deadMap,
 		);
 		if (Number.isFinite(t) && t > 0) minCellTicks = Math.min(minCellTicks, t);
 	}
@@ -497,7 +540,7 @@ function getRowSyl(
 	return customSyllables[rowIdx] !== undefined ? customSyllables[rowIdx]! : baseSyllables;
 }
 
-function getBarTimeWindowSeconds(
+function getPeerBarTimeWindowSeconds(
 	rowIdx: number,
 	baseSyllables: number,
 	customSyllables: Record<number, number>,
@@ -507,6 +550,7 @@ function getBarTimeWindowSeconds(
 	deSyncJatiActive: boolean | undefined,
 	deSyncCycleLength: number | undefined,
 	bpm: number,
+	fusedBarGroups: FusedGroupState[] = [],
 ): number {
 	const noteDur =
 		60 /
@@ -522,10 +566,179 @@ function getBarTimeWindowSeconds(
 				progressiveDensityMode,
 				deSyncJatiActive,
 				deSyncCycleLength,
+				fusedBarGroups,
 			),
 		);
 	const rowSyl = getRowSyl(rowIdx, baseSyllables, customSyllables);
 	return noteDur * Math.max(1, rowSyl);
+}
+
+function getBarTimeWindowSeconds(
+	rowIdx: number,
+	baseSyllables: number,
+	customSyllables: Record<number, number>,
+	pulseMeterUnlinked: Record<number, boolean> | undefined,
+	customMultipliers: Record<number, number> | undefined,
+	progressiveDensityMode: 'gati_mode' | 'jati_mode' | undefined,
+	deSyncJatiActive: boolean | undefined,
+	deSyncCycleLength: number | undefined,
+	bpm: number,
+	fusedBarGroups: FusedGroupState[] = [],
+	deadCells: DeadCellsMap = {},
+	polyMode = false,
+	polyVoices: 2 | 3 = 2,
+	barCount = 0,
+): number {
+	const group = findGroupForBar(fusedBarGroups, rowIdx);
+	const fusedCtx = polyMode
+		? {
+				polyMode: true as const,
+				polyVoices,
+				barCount,
+				getPeerBarWindowSeconds: (bar: number) =>
+					getPeerBarTimeWindowSeconds(
+						bar,
+						baseSyllables,
+						customSyllables,
+						pulseMeterUnlinked,
+						customMultipliers,
+						progressiveDensityMode,
+						deSyncJatiActive,
+						deSyncCycleLength,
+						bpm,
+						fusedBarGroups,
+					),
+			}
+		: undefined;
+	if (group) {
+		return getFusedBarTimeWindowSeconds(
+			group,
+			customSyllables,
+			baseSyllables,
+			pulseMeterUnlinked ?? {},
+			customMultipliers ?? {},
+			bpm,
+			fusedCtx,
+		);
+	}
+	return getPeerBarTimeWindowSeconds(
+		rowIdx,
+		baseSyllables,
+		customSyllables,
+		pulseMeterUnlinked,
+		customMultipliers,
+		progressiveDensityMode,
+		deSyncJatiActive,
+		deSyncCycleLength,
+		bpm,
+		fusedBarGroups,
+	);
+}
+
+function getStepDurationSecondsForExport(
+	bar: number,
+	baseSyllables: number,
+	customSyllables: Record<number, number>,
+	pulseMeterUnlinked: Record<number, boolean> | undefined,
+	customMultipliers: Record<number, number> | undefined,
+	progressiveDensityMode: 'gati_mode' | 'jati_mode' | undefined,
+	deSyncJatiActive: boolean | undefined,
+	deSyncCycleLength: number | undefined,
+	bpm: number,
+	fusedBarGroups: FusedGroupState[],
+	deadCells: DeadCellsMap,
+	polyMode = false,
+	polyVoices: 2 | 3 = 2,
+	barCount = 0,
+): number {
+	const group = findGroupForBar(fusedBarGroups, bar);
+	const fusedCtx = polyMode
+		? {
+				polyMode: true as const,
+				polyVoices,
+				barCount,
+				getPeerBarWindowSeconds: (peerBar: number) =>
+					getPeerBarTimeWindowSeconds(
+						peerBar,
+						baseSyllables,
+						customSyllables,
+						pulseMeterUnlinked,
+						customMultipliers,
+						progressiveDensityMode,
+						deSyncJatiActive,
+						deSyncCycleLength,
+						bpm,
+						fusedBarGroups,
+					),
+			}
+		: undefined;
+	if (group) {
+		return getFusedCellDurationSeconds(
+			group,
+			customSyllables,
+			baseSyllables,
+			pulseMeterUnlinked ?? {},
+			customMultipliers ?? {},
+			bpm,
+			deadCells,
+			fusedCtx,
+		);
+	}
+	const rowSyl = getRowSyl(bar, baseSyllables, customSyllables);
+	return (
+		getBarTimeWindowSeconds(
+			bar,
+			baseSyllables,
+			customSyllables,
+			pulseMeterUnlinked,
+			customMultipliers,
+			progressiveDensityMode,
+			deSyncJatiActive,
+			deSyncCycleLength,
+			bpm,
+			fusedBarGroups,
+			deadCells,
+			polyMode,
+			polyVoices,
+			barCount,
+		) / Math.max(1, rowSyl)
+	);
+}
+
+function lanePatternSeconds(
+	barIndices: number[],
+	input: MidiExportInput,
+	pulseU: Record<number, boolean>,
+	mult: Record<number, number>,
+	bpm: number,
+	deadMap: DeadCellsMap,
+	polyVoices: 2 | 3,
+	barCount: number,
+): number {
+	const fused = input.fusedBarGroups ?? [];
+	let s = 0;
+	for (let i = 0; i < barIndices.length; i++) {
+		const b = barIndices[i]!;
+		const g = findGroupForBar(fused, b);
+		if (g && b !== g.bars[0]) continue;
+		s += getBarTimeWindowSeconds(
+			b,
+			input.baseSyllables,
+			input.customSyllables,
+			pulseU,
+			mult,
+			input.progressiveDensityMode,
+			input.deSyncJatiActive,
+			input.deSyncCycleLength,
+			bpm,
+			fused,
+			deadMap,
+			true,
+			polyVoices,
+			barCount,
+		);
+	}
+	return s;
 }
 
 type PendingNote = {
@@ -638,6 +851,7 @@ function buildPendingNotes(input: MidiExportInput): {
 	const deadMap = toDeadCellsMap(input.deadCells);
 	const pulseU = input.pulseMeterUnlinked ?? {};
 	const mult = input.customMultipliers ?? {};
+	const fusedBarGroups = input.fusedBarGroups ?? [];
 
 	const V: PolyVoicesCount = input.polyVoices === 3 ? 3 : 2;
 	const laneCount = input.polyMode ? (V === 3 ? 3 : 2) : 1;
@@ -749,14 +963,19 @@ function buildPendingNotes(input: MidiExportInput): {
 		});
 		const on0Accent = rowAccents.has(`${rowIdx}-0`);
 		const on0Ding = rowTaDing.has(`${rowIdx}-0`);
-		const firstBeatCellHitRow = resolveFirstBeatHitRow(
-			firstBeatPolicy,
-			on0Accent,
-			on0Ding,
-			rowFirstBeat,
-			suppressed.has(rowIdx),
-		);
-		const shouldPlayFirstBeatTa = colIdx === 0 && firstBeatCellHitRow && (subdivs > 1 || 0 === 0);
+		const fused = input.fusedBarGroups ?? [];
+		const isMegaBarDownbeat =
+			colIdx === 0 && isFusedGroupFirstBeatCell(fused, rowIdx, colIdx);
+		const firstBeatCellHitRow = isMegaBarDownbeat
+			? resolveFirstBeatHitRow(
+					firstBeatPolicy,
+					on0Accent,
+					on0Ding,
+					rowFirstBeat,
+					suppressed.has(rowIdx),
+				)
+			: false;
+		const shouldPlayFirstBeatTa = isMegaBarDownbeat && firstBeatCellHitRow && (subdivs > 1 || 0 === 0);
 		const mainAccent = isAccent;
 		const rowMultiplier = Math.max(1, Math.min(4, Math.floor(mult[rowIdx] ?? 1)));
 		const cellTicks = ticksPerCellFromRow(
@@ -770,6 +989,8 @@ function buildPendingNotes(input: MidiExportInput): {
 			input.progressiveDensityMode,
 			input.deSyncJatiActive,
 			input.deSyncCycleLength,
+			fusedBarGroups,
+			deadMap,
 		);
 		const rowEffBpm = effectiveBpmForRow(
 			bpm,
@@ -781,6 +1002,7 @@ function buildPendingNotes(input: MidiExportInput): {
 			input.progressiveDensityMode,
 			input.deSyncJatiActive,
 			input.deSyncCycleLength,
+			fusedBarGroups,
 		);
 		const headSyl = headSyllableForCell(
 			rowSyl,
@@ -878,22 +1100,19 @@ function buildPendingNotes(input: MidiExportInput): {
 			for (const step of seq) {
 				if (wall > maxWall) break;
 				emitCell(step.r, step.c, 0, wall, false, 0, polyClickSlots);
-				wall +=
-					60 /
-					Math.max(
-						1e-6,
-						effectiveBpmForRow(
-							bpm,
-							step.r,
-							input.baseSyllables,
-							input.customSyllables,
-							pulseU,
-							mult,
-							input.progressiveDensityMode,
-							input.deSyncJatiActive,
-							input.deSyncCycleLength,
-						),
-					);
+				wall += getStepDurationSecondsForExport(
+					step.r,
+					input.baseSyllables,
+					input.customSyllables,
+					pulseU,
+					mult,
+					input.progressiveDensityMode,
+					input.deSyncJatiActive,
+					input.deSyncCycleLength,
+					bpm,
+					fusedBarGroups,
+					deadMap,
+				);
 			}
 			if (wall > maxWall) break;
 		}
@@ -914,27 +1133,14 @@ function buildPendingNotes(input: MidiExportInput): {
 			cellCursor: 0,
 			nextWall: 0,
 		}));
-		const lanePatternSec = lanes.map((L) => {
-			if (L.barIndices.length === 0) return 0;
-			let s = 0;
-			for (const b of L.barIndices) {
-				s += getBarTimeWindowSeconds(
-					b,
-					input.baseSyllables,
-					input.customSyllables,
-					pulseU,
-					mult,
-					input.progressiveDensityMode,
-					input.deSyncJatiActive,
-					input.deSyncCycleLength,
-					bpm,
-				);
-			}
-			return s;
-		});
+		const lanePatternSec = lanes.map((L) =>
+			lanePatternSeconds(L.barIndices, input, pulseU, mult, bpm, deadMap, V, barCount),
+		);
 		const slowest = Math.max(1e-6, ...lanePatternSec);
 		let totalGridSec = 0;
 		for (let b = 0; b < barCount; b++) {
+			const g = findGroupForBar(fusedBarGroups, b);
+			if (g && b !== g.bars[0]) continue;
 			totalGridSec += getBarTimeWindowSeconds(
 				b,
 				input.baseSyllables,
@@ -945,6 +1151,11 @@ function buildPendingNotes(input: MidiExportInput): {
 				input.deSyncJatiActive,
 				input.deSyncCycleLength,
 				bpm,
+				fusedBarGroups,
+				deadMap,
+				true,
+				V,
+				barCount,
 			);
 		}
 		const horizon = Math.min(maxWall, Math.max(slowest, totalGridSec * revolutions));
@@ -971,18 +1182,22 @@ function buildPendingNotes(input: MidiExportInput): {
 			if (!autoAlignTwoVoice && bestT > horizon) break;
 			const bar = best.barIndices[best.barCursor]!;
 			const rowSyl = getRowSyl(bar, input.baseSyllables, input.customSyllables);
-			const dBar =
-				getBarTimeWindowSeconds(
-					bar,
-					input.baseSyllables,
-					input.customSyllables,
-					pulseU,
-					mult,
-					input.progressiveDensityMode,
-					input.deSyncJatiActive,
-					input.deSyncCycleLength,
-					bpm,
-				) / Math.max(1, rowSyl);
+			const dBar = getStepDurationSecondsForExport(
+				bar,
+				input.baseSyllables,
+				input.customSyllables,
+				pulseU,
+				mult,
+				input.progressiveDensityMode,
+				input.deSyncJatiActive,
+				input.deSyncCycleLength,
+				bpm,
+				fusedBarGroups,
+				deadMap,
+				true,
+				V,
+				barCount,
+			);
 			const deadStart = deadMap[bar]?.deadStart;
 			const currentCell = best.cellCursor;
 			const laneId = best.laneId;

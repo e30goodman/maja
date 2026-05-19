@@ -26,7 +26,34 @@ import {
 	createPolySubLegacyScheduler,
 	type PolySubLegacyScheduler,
 } from './polySubLegacyScheduler';
-import type { PlayheadHighlightEvent, PlayheadPosition } from './playheadTypes';
+import {
+	applyFusedMultiplierHold,
+	barsShareFusedGroup,
+	canPlaceFusedTaAtCell,
+	computeFusedCrossLaneDeadBars,
+	decodeFusedGroupsToken,
+	isFusedGroupFirstBeatCell,
+	stripTaDingKeysForFusedGroups,
+	encodeFusedGroupsToken,
+	findGroupForBar,
+	getDisplayPulseSyllables,
+	getFusedBarTimeWindowSeconds,
+	getFusedCellDurationSeconds,
+	getLegacyNoteDurationSeconds as fusedLegacyNoteDurationSeconds,
+	type FusedTimingContext,
+	getGroupMultiplier,
+	getGroupPulseSyllables,
+	getRowSyllables as getFusedRowSyllables,
+	remapGroupsOnBarsChange,
+	syncGroupMultiplier,
+	toggleGroupGati,
+	type FusedGroupState,
+} from './fusedBarGroups';
+import {
+	playheadActiveSignature,
+	type PlayheadHighlightEvent,
+	type PlayheadPosition,
+} from './playheadTypes';
 import { createPolySubLegacyLaneIndicatorStore } from './polySubLegacyLaneIndicatorStore';
 import {
 	applyRandomizerEffectsToBar,
@@ -2524,6 +2551,8 @@ function createEmptySnapshot() {
 		panelExpanded: false,
 		/** Row r: cell duration follows PULSE_METER_BASE_SYLLABLES, not customSyllables[r]. */
 		pulseMeterUnlinked: {} as Record<number, boolean>,
+		/** Fused adjacent bars per poly lane (or one group in legacy). */
+		fusedBarGroups: [] as FusedGroupState[],
 		/** Frozen row height (number of visible bars) or null. */
 		frozenScale: null as number | null,
 		/** Potato mode (low-performance UI). */
@@ -2749,6 +2778,30 @@ function parseSnapshotRow(raw: unknown) {
 		}
 		d.pulseMeterUnlinked = next;
 	}
+	const fbgRaw = (o as { fusedBarGroups?: unknown }).fusedBarGroups;
+	if (Array.isArray(fbgRaw)) {
+		const parsed: FusedGroupState[] = [];
+		for (const item of fbgRaw) {
+			if (!item || typeof item !== 'object') continue;
+			const laneId = parseInt(String((item as { laneId?: unknown }).laneId), 10);
+			const barsRaw = (item as { bars?: unknown }).bars;
+			if (!Array.isArray(barsRaw)) continue;
+			const bars = barsRaw
+				.map((b) => parseInt(String(b), 10))
+				.filter((b) => Number.isFinite(b) && b >= 0);
+			if (bars.length === 0) continue;
+			parsed.push({
+				laneId: Number.isFinite(laneId) ? laneId : 0,
+				bars: [...bars].sort((a, b) => a - b),
+			});
+		}
+		d.fusedBarGroups = remapGroupsOnBarsChange(
+			parsed,
+			d.bars,
+			d.polyMode,
+			d.polyVoices === 3 ? 3 : 2,
+		);
+	}
 	if (typeof o.onlyAccents === 'boolean') d.onlyAccents = o.onlyAccents;
 	const parsedMixer = normalizeMixerLayerModeFromSnapshot((o as { mixerLayerMode?: unknown }).mixerLayerMode);
 	const parsedTrainer = normalizeTrainerModeFromSnapshot((o as { trainerMode?: unknown }).trainerMode);
@@ -2891,6 +2944,7 @@ function snapSlotLooksUsed(s: ReturnType<typeof createEmptySnapshot>) {
 	if (Object.keys(s.clickSoundByPolyVoice || {}).length > 0) return true;
 	if (s.panelExpanded === true) return true;
 	if (s.pulseMeterUnlinked && Object.values(s.pulseMeterUnlinked).some(Boolean)) return true;
+	if ((s as { fusedBarGroups?: FusedGroupState[] }).fusedBarGroups?.length) return true;
 	if (s.onlyAccents) return true;
 	if ((s as { mixerLayerMode?: MixerLayerMode }).mixerLayerMode && (s as { mixerLayerMode?: MixerLayerMode }).mixerLayerMode !== DEFAULT_MIXER_LAYER_MODE) return true;
 	if ((s as { trainerMode?: TrainerMode }).trainerMode && (s as { trainerMode?: TrainerMode }).trainerMode !== DEFAULT_TRAINER_MODE) return true;
@@ -2970,6 +3024,10 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		pulseMeterUnlinked: Object.fromEntries(
 			Object.entries(s.pulseMeterUnlinked || {}).filter(([, v]) => v),
 		) as Record<string, boolean>,
+		fusedBarGroups: ((s as { fusedBarGroups?: FusedGroupState[] }).fusedBarGroups ?? []).map((g) => ({
+			laneId: g.laneId,
+			bars: [...g.bars],
+		})),
 		frozenScale: s.frozenScale ?? null,
 		lowPerfMode: (s as { lowPerfMode?: boolean }).lowPerfMode === true,
 		polyMode: s.polyMode === true,
@@ -3050,7 +3108,11 @@ function encodeSnapshotClipboard(s: ReturnType<typeof createEmptySnapshot>): str
 	);
 	const flags = buildSnapshotFlags(s);
 	const soundToken = buildSnapshotSoundToken(s);
-	const compact = `${s.tempo}.${s.bars}.${s.syllables}.${gridToken}.${deadCellsToken}.${s.chaosLevel}.${flags}.${soundToken}`;
+	const fusedToken = encodeFusedGroupsToken(
+		(s as { fusedBarGroups?: FusedGroupState[] }).fusedBarGroups ?? [],
+		s.polyMode === true,
+	);
+	const compact = `${s.tempo}.${s.bars}.${s.syllables}.${gridToken}.${deadCellsToken}.${fusedToken}.${s.chaosLevel}.${flags}.${soundToken}`;
 	return SNAPSHOT_CLIPBOARD_MARKER + compact;
 }
 
@@ -3115,6 +3177,66 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 			applySnapshotSoundToken(soundRaw, d);
 			return d;
 		}
+		if (compactParts.length === 9) {
+			const [
+				tempoRaw,
+				barsRaw,
+				syllablesRaw,
+				gridTokenRaw,
+				deadCellsRaw,
+				fusedGroupsRaw,
+				chaosRaw,
+				flagsRaw,
+				soundRaw,
+			] = compactParts;
+			const d = createEmptySnapshot();
+			const tempo = parseInt(tempoRaw, 10);
+			const bars = parseInt(barsRaw, 10);
+			const syllables = parseInt(syllablesRaw, 10);
+			const chaosLevel = parseInt(chaosRaw, 10);
+			const flags = parseInt(flagsRaw, 10);
+			if (!Number.isFinite(tempo) || tempo < 20 || tempo > 400) return null;
+			if (!Number.isFinite(bars) || bars < 1 || bars > 100) return null;
+			if (!Number.isFinite(syllables) || syllables < 1 || syllables > 9) return null;
+			if (!Number.isFinite(chaosLevel) || chaosLevel < 0 || chaosLevel > 100) return null;
+			if (!Number.isFinite(flags) || flags < 0) return null;
+			d.tempo = tempo;
+			d.bars = bars;
+			d.syllables = syllables;
+			d.chaosLevel = chaosLevel;
+			applySnapshotFlags(flags, d);
+			applySnapshotSoundToken(soundRaw, d);
+			if (gridTokenRaw.startsWith('p1') || gridTokenRaw.startsWith('p2') || gridTokenRaw.startsWith('p3') || gridTokenRaw.startsWith('p4')) {
+				if (!unpackGridTokenPacked(gridTokenRaw, d)) return null;
+				d.bars = bars;
+				d.syllables = syllables;
+			} else if (gridTokenRaw.includes('|')) {
+				const [accentToken, rowSyllablesToken, subdivisionsToken, multipliersToken, pulseUnlinkedToken] =
+					gridTokenRaw.split('|');
+				d.customSyllables = decodeSparseRowNumberMap(
+					rowSyllablesToken || '0',
+					(value) => value >= 1 && value <= 9,
+				);
+				const cells = buildCellIndexMapForSnapshot(d.bars, d.syllables, d.customSyllables);
+				d.accents = hydrateAccentsFromVariableGridToken(accentToken || '0', cells);
+				d.customSubdivisions = decodeSubdivisionsToken(subdivisionsToken || '0', cells);
+				d.customMultipliers = decodeSparseRowNumberMap(
+					multipliersToken || '0',
+					(value) => value >= 1 && value <= 4 && value !== 1,
+				);
+				d.pulseMeterUnlinked = decodePulseUnlinkedRowsToken(pulseUnlinkedToken || '0');
+			} else {
+				hydrateSnapshotAccentsFromGridToken(gridTokenRaw, bars, syllables, d);
+			}
+			d.deadCells = decodeDeadCellsToken(deadCellsRaw, d.bars, d.polyMode, d.polyVoices);
+			d.fusedBarGroups = decodeFusedGroupsToken(
+				fusedGroupsRaw || '0',
+				d.polyMode,
+				d.bars,
+				d.polyVoices === 3 ? 3 : 2,
+			);
+			return d;
+		}
 		if (compactParts.length === 8) {
 			const [tempoRaw, barsRaw, syllablesRaw, gridTokenRaw, deadCellsRaw, chaosRaw, flagsRaw, soundRaw] =
 				compactParts;
@@ -3160,6 +3282,7 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 				hydrateSnapshotAccentsFromGridToken(gridTokenRaw, bars, syllables, d);
 			}
 			d.deadCells = decodeDeadCellsToken(deadCellsRaw, d.bars, d.polyMode, d.polyVoices);
+			d.fusedBarGroups = [];
 			return d;
 		}
 		if (compactParts.length === 7) {
@@ -4128,6 +4251,14 @@ export default function App() {
   const [pulseMeterUnlinked, setPulseMeterUnlinked] = useState<Record<number, boolean>>(() =>
     normalizePulseMeterUnlinked(seed.pulseMeterUnlinked),
   );
+  const [fusedBarGroups, setFusedBarGroups] = useState<FusedGroupState[]>(() =>
+    remapGroupsOnBarsChange(
+      [...((seed as { fusedBarGroups?: FusedGroupState[] }).fusedBarGroups ?? [])],
+      seed.bars,
+      seed.polyMode === true,
+      parsePolyVoices(seed.polyVoices) === 3 ? 3 : 2,
+    ),
+  );
 
   // Metronome Sound Toggles
   const seedNewModes = deriveNewModesFromLegacySnapshot({
@@ -4498,6 +4629,15 @@ export default function App() {
     (next: number) => {
       const normalizedNext = normalizeBarsForMode(next);
       const prevBars = barsRef.current;
+      const nextFused = remapGroupsOnBarsChange(
+        fusedBarGroupsRef.current,
+        normalizedNext,
+        polyModeRef.current,
+        polyVoicesRef.current === 3 ? 3 : 2,
+        prevBars,
+      );
+      fusedBarGroupsRef.current = nextFused;
+      setFusedBarGroups(nextFused);
       setBars(normalizedNext);
       barsRef.current = normalizedNext;
       // Press Matrix gate: tile/drop from frozen baseline if armed.
@@ -4689,6 +4829,9 @@ export default function App() {
     deadCellsRef.current = {};
     setCustomMultipliers({});
     customMultipliersRef.current = {};
+    setFusedBarGroups([]);
+    fusedBarGroupsRef.current = [];
+    fusedCrossLaneDeadBarsRef.current = new Set();
     setCustomSubdivisions({});
     customSubdivisionsRef.current = {};
     setCellStepMasks({});
@@ -4860,7 +5003,7 @@ export default function App() {
   const timerIDRef = useRef<number | null>(null);
   const playheadQueueRef = useRef<PlayheadHighlightEvent[]>([]);
   const playheadTimerRef = useRef<number | null>(null);
-  /** Poly sub_legacy: по одному слоту индикатора на temporal lane (см. `polySubLegacyLaneIndicatorStore`). */
+  const playheadPositionsSigRef = useRef('');
   const polySubLegacyLaneIndicatorStoreRef = useRef(createPolySubLegacyLaneIndicatorStore());
   const previewResetTimerRef = useRef<number | null>(null);
   /** Полиметр: плотный числовой ключ снижает churn строк в hot-path. */
@@ -4912,6 +5055,9 @@ export default function App() {
   const cellConfigsRef = useRef<CellConfigs>(cellConfigs);
   const customCellSyllablesRef = useRef(customCellSyllables);
   const pulseMeterUnlinkedRef = useRef(pulseMeterUnlinked);
+  const fusedBarGroupsRef = useRef(fusedBarGroups);
+  /** Bars auto-deadened because a fused block on another lane consumed their cycle slot. */
+  const fusedCrossLaneDeadBarsRef = useRef<Set<number>>(new Set());
   const prevCustomSyllablesRef = useRef<Record<number, number>>({ ...customSyllables });
   const onlyAccentsRef = useRef(onlyAccents);
   const mixerLayerModeRef = useRef<MixerLayerMode>(mixerLayerMode);
@@ -5170,6 +5316,65 @@ export default function App() {
     setCellStepMasks(nextMasks);
   }, []);
   useEffect(() => { pulseMeterUnlinkedRef.current = pulseMeterUnlinked; }, [pulseMeterUnlinked]);
+  useEffect(() => {
+    fusedBarGroupsRef.current = fusedBarGroups;
+    polySubLegacyRef.current = null;
+  }, [fusedBarGroups]);
+
+  /** Poly fused blocks: orphan cross-lane cycle mates become fully dead; restore on dissolve. */
+  useEffect(() => {
+    const polyV = polyVoices === 3 ? 3 : 2;
+    if (!polyMode) {
+      const prevShadow = fusedCrossLaneDeadBarsRef.current;
+      if (prevShadow.size === 0) return;
+      fusedCrossLaneDeadBarsRef.current = new Set();
+      setDeadCells((prev) => {
+        const out = { ...prev };
+        for (const b of prevShadow) delete out[b];
+        deadCellsRef.current = out;
+        return out;
+      });
+      return;
+    }
+    const nextShadow = new Set(
+      computeFusedCrossLaneDeadBars(fusedBarGroups, true, polyV, bars),
+    );
+    const prevShadow = fusedCrossLaneDeadBarsRef.current;
+    const toDead: number[] = [];
+    const toRestore: number[] = [];
+    for (const b of nextShadow) {
+      if (!prevShadow.has(b)) toDead.push(b);
+    }
+    for (const b of prevShadow) {
+      if (!nextShadow.has(b)) toRestore.push(b);
+    }
+    fusedCrossLaneDeadBarsRef.current = nextShadow;
+    if (toDead.length === 0 && toRestore.length === 0) return;
+    setDeadCells((prev) => {
+      const out = { ...prev };
+      for (const b of toDead) {
+        const rowSyl =
+          customSyllables[b] !== undefined ? customSyllables[b]! : syllables;
+        out[b] = { deadStart: 0, displayLen: rowSyl, baseLen: rowSyl };
+      }
+      for (const b of toRestore) {
+        delete out[b];
+      }
+      deadCellsRef.current = out;
+      return out;
+    });
+  }, [fusedBarGroups, polyMode, polyVoices, bars, customSyllables, syllables]);
+
+  /** Fused block = one bar: strip illegal taDing keys; do not use firstBeatDingSuppressedRows (that is user-only). */
+  useEffect(() => {
+    setTaDingKeys((prev) => {
+      const next = stripTaDingKeysForFusedGroups(fusedBarGroups, prev);
+      if (next.size === prev.size && [...next].every((k) => prev.has(k))) return prev;
+      taDingKeysRef.current = next;
+      return next;
+    });
+  }, [fusedBarGroups]);
+
   useEffect(() => {
     const prev = prevCustomSyllablesRef.current;
     if (isPlayingRef.current && polyModeRef.current && audioCtxRef.current && polySubLegacyRef.current) {
@@ -5628,6 +5833,17 @@ export default function App() {
 
   useEffect(() => { frozenScaleRef.current = frozenScale; }, [frozenScale]);
   useEffect(() => { polyModeRef.current = polyMode; }, [polyMode]);
+  const wasPolyModeRef = useRef(polyMode);
+  /** Hot switch poly → normal: fused groups are poly-only; drop glue state. */
+  useEffect(() => {
+    const wasPoly = wasPolyModeRef.current;
+    wasPolyModeRef.current = polyMode;
+    if (!wasPoly || polyMode) return;
+    if (fusedBarGroupsRef.current.length === 0) return;
+    fusedBarGroupsRef.current = [];
+    fusedCrossLaneDeadBarsRef.current = new Set();
+    setFusedBarGroups([]);
+  }, [polyMode]);
   useEffect(() => { polyVoicesRef.current = polyVoices; }, [polyVoices]);
   useEffect(() => {
     if (!polyMode) {
@@ -5929,6 +6145,7 @@ export default function App() {
     ),
     panelExpanded: isPanelExpandedRef.current,
     pulseMeterUnlinked: { ...pulseMeterUnlinkedRef.current },
+    fusedBarGroups: fusedBarGroupsRef.current.map((g) => ({ laneId: g.laneId, bars: [...g.bars] })),
     frozenScale: frozenScaleRef.current,
     lowPerfMode,
     polyMode: polyModeRef.current,
@@ -7140,6 +7357,15 @@ export default function App() {
     }
     const nextPulseUnlinked = normalizePulseMeterUnlinked(snap.pulseMeterUnlinked);
     setPulseMeterUnlinked(nextPulseUnlinked);
+    pulseMeterUnlinkedRef.current = nextPulseUnlinked;
+    const nextFused = remapGroupsOnBarsChange(
+      [...((snap as { fusedBarGroups?: FusedGroupState[] }).fusedBarGroups ?? [])],
+      snapBarsToPolyGrid(snap.bars, snap.polyMode === true, snapVoices),
+      snap.polyMode === true,
+      snapVoices === 3 ? 3 : 2,
+    );
+    setFusedBarGroups(nextFused);
+    fusedBarGroupsRef.current = nextFused;
     {
       const hasNewModes =
         (snap as { mixerLayerMode?: unknown }).mixerLayerMode !== undefined ||
@@ -7426,6 +7652,9 @@ export default function App() {
         cellStepMasks: src ? { ...(src.cellStepMasks || {}) } : { ...cellStepMasksRef.current },
         pulseMeterUnlinked: src ? { ...(src.pulseMeterUnlinked || {}) } : { ...pulseMeterUnlinkedRef.current },
         customMultipliers: src ? { ...src.customMultipliers } : { ...customMultipliersRef.current },
+        fusedBarGroups: src
+          ? [...((src as { fusedBarGroups?: FusedGroupState[] }).fusedBarGroups ?? [])]
+          : fusedBarGroupsRef.current.map((g) => ({ laneId: g.laneId, bars: [...g.bars] })),
         rowRuntimeContexts,
         progressiveDensityMode: src ? src.progressiveDensityMode : progressiveDensityModeRef.current,
         deSyncJatiActive: src ? src.deSyncJatiActive : deSyncJatiActiveRef.current,
@@ -7607,11 +7836,8 @@ export default function App() {
   const primaryActivePos = useMemo(() => {
     if (!polyMode || activePositions.length === 0) return activePos;
     const masters = activePositions.filter((pos) => pos.voice === 0);
-    const master =
-      masters.length > 0
-        ? masters.reduce((a, b) => (a.absR >= b.absR ? a : b))
-        : activePositions[0];
-    return { r: master.r, c: master.c, absR: master.absR };
+    if (masters.length === 0) return activePositions[0] ?? activePos;
+    return masters.reduce((a, b) => (a.absR >= b.absR ? a : b));
   }, [activePos, activePositions, polyMode]);
 
   /**
@@ -7821,6 +8047,7 @@ export default function App() {
         playheadTimerRef.current = null;
       }
       playheadQueueRef.current = [];
+      polySubLegacyLaneIndicatorStoreRef.current.clear();
       gridPreviewAudioActiveRef.current = false;
       clearPendingGridClickTimers();
       if (audioCtxRef.current) audioCtxRef.current.close().catch(() => {});
@@ -7911,26 +8138,18 @@ export default function App() {
     if (lagSec > metrics.maxLagSec) metrics.maxLagSec = lagSec;
   };
 
-  const clearPlayheadScheduling = () => {
-    if (playheadTimerRef.current !== null) {
-      window.clearTimeout(playheadTimerRef.current);
-      playheadTimerRef.current = null;
-    }
-    playheadQueueRef.current = [];
-    polySubLegacyLaneIndicatorStoreRef.current.clear();
-  };
-
   function schedulePlayheadWake() {
     if (playheadTimerRef.current !== null) {
       window.clearTimeout(playheadTimerRef.current);
       playheadTimerRef.current = null;
     }
-    if (!isPlayingRef.current || !audioCtxRef.current) return;
+    const playing = isPlayingRef.current || gridPreviewAudioActiveRef.current;
+    if (!playing || !audioCtxRef.current) return;
     const ctx = audioCtxRef.current;
     const q = playheadQueueRef.current;
     let lastPos: PlayheadPosition | null = null;
     const laneIndicatorStore = polySubLegacyLaneIndicatorStoreRef.current;
-    while (q.length > 0 && q[0].t <= ctx.currentTime) {
+    while (q.length > 0 && q[0]!.t <= ctx.currentTime) {
       const due = q.shift()!.pos;
       if (polyModeRef.current) {
         laneIndicatorStore.recordLaneEmit(due);
@@ -7940,25 +8159,41 @@ export default function App() {
     if (polyModeRef.current) {
       const nextActive = laneIndicatorStore.orderedSnapshot();
       if (nextActive.length > 0) {
-        setActivePositions(nextActive);
-        const masters = nextActive.filter((pos) => pos.voice === 0);
-        const primary =
-          masters.length > 0
-            ? masters.reduce((a, b) => (a.absR >= b.absR ? a : b))
-            : nextActive[0];
-        setActivePos({ r: primary.r, c: primary.c, absR: primary.absR });
+        const sig = playheadActiveSignature(nextActive);
+        if (playheadPositionsSigRef.current !== sig) {
+          playheadPositionsSigRef.current = sig;
+          setActivePositions(nextActive);
+          const masters = nextActive.filter((pos) => pos.voice === 0);
+          const primary =
+            masters.length > 0
+              ? masters.reduce((a, b) => (a.absR >= b.absR ? a : b))
+              : nextActive[0]!;
+          setActivePos({ r: primary.r, c: primary.c, absR: primary.absR });
+        }
       }
     } else if (lastPos !== null) {
       setActivePos({ r: lastPos.r, c: lastPos.c, absR: lastPos.absR });
       setActivePositions([]);
     }
     if (q.length === 0) return;
-    const delayMs = Math.max(0, (q[0].t - ctx.currentTime) * 1000);
+    const delayMs = Math.max(0, (q[0]!.t - ctx.currentTime) * 1000);
     playheadTimerRef.current = window.setTimeout(() => {
       playheadTimerRef.current = null;
       schedulePlayheadWake();
     }, delayMs);
   }
+
+  const clearPlayheadScheduling = () => {
+    if (playheadTimerRef.current !== null) {
+      window.clearTimeout(playheadTimerRef.current);
+      playheadTimerRef.current = null;
+    }
+    playheadQueueRef.current = [];
+    playheadPositionsSigRef.current = '';
+    polySubLegacyLaneIndicatorStoreRef.current.clear();
+    setActivePos({ r: -1, c: -1, absR: -1 });
+    setActivePositions([]);
+  };
 
   const toggleAccent = useCallback((r: number, c: number) => {
     if (isStartBarPickModeRef.current) return;
@@ -8003,6 +8238,7 @@ export default function App() {
   const toggleTaDing = useCallback((r: number, c: number) => {
     if (isStartBarPickModeRef.current) return;
     if (c < 0) return;
+    if (!canPlaceFusedTaAtCell(fusedBarGroupsRef.current, r, c)) return;
     const key = `${r}-${c}`;
     if (polyModeRef.current) {
       const lane = laneForRow(r, polyVoicesRef.current);
@@ -8256,21 +8492,33 @@ export default function App() {
       }
 
       const rowR = currentSeqItem.r;
-      // Dead-cells не должны менять внутренний множитель темпа: считаем его от базовой пульсации такта.
-      const effectiveSyllables =
-        customSyllablesRef.current[rowR] !== undefined
-          ? customSyllablesRef.current[rowR]
-          : syllablesRef.current;
-      const pulseSyllables = pulseMeterUnlinkedRef.current[rowR]
-        ? PULSE_METER_BASE_SYLLABLES
-        : effectiveSyllables;
-      const mult = customMultipliersRef.current[rowR] || 1;
-      
-      const effectiveBpm = tempoRef.current * (pulseSyllables / 4) * mult;
-      if (effectiveBpm > 0) {
-        nextNoteTimeRef.current += 60.0 / effectiveBpm;
+      const fusedGroup = findGroupForBar(fusedBarGroupsRef.current, rowR);
+      if (fusedGroup) {
+        nextNoteTimeRef.current += getFusedCellDurationSeconds(
+          fusedGroup,
+          customSyllablesRef.current,
+          syllablesRef.current,
+          pulseMeterUnlinkedRef.current,
+          customMultipliersRef.current,
+          tempoRef.current,
+          deadCellsRef.current,
+        );
       } else {
-        nextNoteTimeRef.current += 0.5;
+        // Dead-cells не должны менять внутренний множитель темпа: считаем его от базовой пульсации такта.
+        const effectiveSyllables =
+          customSyllablesRef.current[rowR] !== undefined
+            ? customSyllablesRef.current[rowR]
+            : syllablesRef.current;
+        const pulseSyllables = pulseMeterUnlinkedRef.current[rowR]
+          ? PULSE_METER_BASE_SYLLABLES
+          : effectiveSyllables;
+        const mult = customMultipliersRef.current[rowR] || 1;
+        const effectiveBpm = tempoRef.current * (pulseSyllables / 4) * mult;
+        if (effectiveBpm > 0) {
+          nextNoteTimeRef.current += 60.0 / effectiveBpm;
+        } else {
+          nextNoteTimeRef.current += 0.5;
+        }
       }
       
       const oldR = currentSeqItem.r;
@@ -8306,20 +8554,77 @@ export default function App() {
   };
 
   const getLegacyNoteDurationSeconds = useCallback((rowIdx: number) => {
-    const rowSyllables = customSyllablesRef.current[rowIdx] !== undefined ? customSyllablesRef.current[rowIdx] : syllablesRef.current;
-    const pulseSyllables = pulseMeterUnlinkedRef.current[rowIdx] ? PULSE_METER_BASE_SYLLABLES : rowSyllables;
-    const mult = customMultipliersRef.current[rowIdx] || 1;
-    const effectiveBpm = tempoRef.current * (pulseSyllables / 4) * mult;
-    if (effectiveBpm <= 0) return 0.5;
-    return 60.0 / effectiveBpm;
+    const group = findGroupForBar(fusedBarGroupsRef.current, rowIdx);
+    const cs = customSyllablesRef.current;
+    const base = syllablesRef.current;
+    const pu = pulseMeterUnlinkedRef.current;
+    const cm = customMultipliersRef.current;
+    const tempo = tempoRef.current;
+    if (group) {
+      const pulseSyl = getGroupPulseSyllables(group, cs, base, pu);
+      const mult = getGroupMultiplier(group, cm);
+      return fusedLegacyNoteDurationSeconds(pulseSyl, tempo, mult);
+    }
+    const rowSyllables = cs[rowIdx] !== undefined ? cs[rowIdx]! : base;
+    const pulseSyllables = pu[rowIdx] ? PULSE_METER_BASE_SYLLABLES : rowSyllables;
+    const mult = cm[rowIdx] || 1;
+    return fusedLegacyNoteDurationSeconds(pulseSyllables, tempo, mult);
   }, []);
 
-  const getBarTimeWindowSeconds = useCallback((rowIdx: number) => {
+  const getPeerBarTimeWindowSeconds = useCallback((rowIdx: number) => {
     const noteDuration = getLegacyNoteDurationSeconds(rowIdx);
     const rowSyllables =
-      customSyllablesRef.current[rowIdx] !== undefined ? customSyllablesRef.current[rowIdx] : syllablesRef.current;
+      customSyllablesRef.current[rowIdx] !== undefined
+        ? customSyllablesRef.current[rowIdx]!
+        : syllablesRef.current;
     return noteDuration * Math.max(1, rowSyllables);
   }, [getLegacyNoteDurationSeconds]);
+
+  const buildFusedTimingContext = useCallback((): FusedTimingContext | undefined => {
+    if (!polyModeRef.current) return undefined;
+    return {
+      polyMode: true,
+      polyVoices: polyVoicesRef.current === 3 ? 3 : 2,
+      barCount: barsRef.current,
+      getPeerBarWindowSeconds: (bar) => getPeerBarTimeWindowSeconds(bar),
+    };
+  }, [getPeerBarTimeWindowSeconds]);
+
+  const getBarTimeWindowSeconds = useCallback((rowIdx: number) => {
+    const group = findGroupForBar(fusedBarGroupsRef.current, rowIdx);
+    if (group) {
+      return getFusedBarTimeWindowSeconds(
+        group,
+        customSyllablesRef.current,
+        syllablesRef.current,
+        pulseMeterUnlinkedRef.current,
+        customMultipliersRef.current,
+        tempoRef.current,
+        buildFusedTimingContext(),
+      );
+    }
+    return getPeerBarTimeWindowSeconds(rowIdx);
+  }, [buildFusedTimingContext, getPeerBarTimeWindowSeconds]);
+
+  const getStepDurationSecondsRef = useRef((bar: number, _c: number) => 0.25);
+  getStepDurationSecondsRef.current = (bar: number, _c: number) => {
+    const group = findGroupForBar(fusedBarGroupsRef.current, bar);
+    const fusedCtx = buildFusedTimingContext();
+    if (group) {
+      return getFusedCellDurationSeconds(
+        group,
+        customSyllablesRef.current,
+        syllablesRef.current,
+        pulseMeterUnlinkedRef.current,
+        customMultipliersRef.current,
+        tempoRef.current,
+        deadCellsRef.current,
+        fusedCtx,
+      );
+    }
+    const rowSyl = getFusedRowSyllables(bar, customSyllablesRef.current, syllablesRef.current);
+    return getBarTimeWindowSeconds(bar) / Math.max(1, rowSyl);
+  };
 
   const scheduleGridCellAtTime = useCallback(
     (
@@ -8413,23 +8718,20 @@ export default function App() {
           return polyVoiceGain * roleLinear;
         };
         const accentGain = gainMulForRole('accent');
-        const firstBeatCellHitRow = resolveFirstBeatHitRow(
-          firstBeatHitPolicy,
-          on0Accent,
-          on0Ding,
-          fa,
-          supRow,
-        );
+        const isMegaBarDownbeat =
+          cIdx === 0 && isFusedGroupFirstBeatCell(fusedBarGroupsRef.current, rIdx, cIdx);
+        const firstBeatCellHitRow = isMegaBarDownbeat
+          ? resolveFirstBeatHitRow(firstBeatHitPolicy, on0Accent, on0Ding, fa, supRow)
+          : false;
         const polySlotKey = polyModeRef.current
           ? voice * 1_000_000_000_000 + rIdx * 1_000_000_000 + Math.round(subTime * 1_000_000)
           : -1;
         const shouldDedupPolyClick = polyModeRef.current && polyClickSlotsRef.current.has(polySlotKey);
-        const isFirstBarCell = cIdx === 0;
         // Accent articulation stays on the first subdivision only.
         // Subdivision tails are carried by role routing (alt/passive) for layer texture.
         const mainAccentClick = isAccent && sub === 0;
         const shouldPlayFirstBeatTa =
-          isFirstBarCell && fa && firstBeatCellHitRow && sub === 0;
+          isMegaBarDownbeat && fa && firstBeatCellHitRow && sub === 0;
         if (shouldPlayFirstBeatTa && !debugTaEngineModeRef.current && accentGain > 0) {
           playBarFirstHighClick(
             ctx,
@@ -8459,7 +8761,7 @@ export default function App() {
         const shouldPlayBeat =
           trainerTaOnly ? hasTaDingHere || shouldPlayFirstBeatTa : true;
         const isTaFirstBeatArticulation =
-          cIdx === 0 && fa && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
+          isMegaBarDownbeat && fa && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
         const sharpAsChecked = (() => {
           if (dictantActive) return mainAccentClick;
           if (muteMode === 'no_accent_sharp' && mainAccentClick && !isTaFirstBeatArticulation) return false;
@@ -8705,6 +9007,9 @@ export default function App() {
             ? customSyllablesRef.current[barIdx]!
             : syllablesRef.current,
         getDeadStart: (barIdx) => deadCellsRef.current[barIdx]?.deadStart,
+        getStepDurationSeconds: (bar, c) => getStepDurationSecondsRef.current(bar, c),
+        barsInSameFusedBlock: (a, b) => barsShareFusedGroup(a, b, fusedBarGroupsRef.current),
+        getFusedGroup: (bar) => findGroupForBar(fusedBarGroupsRef.current, bar),
         emit: (bar, c, absR, t, voice, step, dBar) => {
           if (voice === 0) {
             playAbsBarRef.current = bar;
@@ -8751,8 +9056,6 @@ export default function App() {
       }
     }
     clearPlayheadScheduling();
-    setActivePos({ r: -1, c: -1, absR: -1 });
-    setActivePositions([]);
     polyClickSlotsRef.current.clear();
     cloneClickMixerFromLibrary(soundPreset);
     const barsCount = Math.max(1, barsRef.current);
@@ -8770,6 +9073,7 @@ export default function App() {
       }
       cursor += noteDuration * Math.max(1, rowSyllables);
     }
+    schedulePlayheadWake();
     const resetDelayMs = Math.max(120, (cursor - audioCtxRef.current.currentTime) * 1000 + 80);
     previewResetTimerRef.current = window.setTimeout(() => {
       previewResetTimerRef.current = null;
@@ -9081,8 +9385,6 @@ export default function App() {
       tempoMinusHoldAteClickRef.current = false;
       tempoPlusHoldAteClickRef.current = false;
       clearPlayheadScheduling();
-      setActivePos({ r: -1, c: -1, absR: -1 });
-      setActivePositions([]);
       clearPendingGridClickTimers();
       gridPreviewAudioActiveRef.current = false;
       polyClickSlotsRef.current.clear();
@@ -9170,7 +9472,6 @@ export default function App() {
       autoscrollDisabledByUserRef.current = false;
       setAutoscrollVirtualRowsEnabled(true);
       clearPlayheadScheduling();
-      setActivePositions([]);
       coldStartRef.current = true; // Mark cold start
       applyPlaybackStartAnchor();
       
@@ -9230,6 +9531,7 @@ export default function App() {
           poly.reset(nextNoteTimeRef.current);
         }
       }
+      schedulePlayheadWake();
       scheduler();
     }
   };
@@ -9316,9 +9618,14 @@ export default function App() {
     const schedule = phraseScheduleRef.current;
     for (let r = 0; r < bars; r++) {
       const role = schedule[r];
+      const group = findGroupForBar(fusedBarGroups, r);
       const rowSylls = customSyllables[r] !== undefined ? customSyllables[r]! : syllables;
-      const pulseSyllables = pulseMeterUnlinked[r] ? PULSE_METER_BASE_SYLLABLES : rowSylls;
-      const mult = customMultipliers[r] ?? 1;
+      const pulseSyllables = group
+        ? getGroupPulseSyllables(group, customSyllables, syllables, pulseMeterUnlinked)
+        : pulseMeterUnlinked[r]
+          ? PULSE_METER_BASE_SYLLABLES
+          : rowSylls;
+      const mult = group ? getGroupMultiplier(group, customMultipliers) : (customMultipliers[r] ?? 1);
       const effectiveBpm = tempoUi * (pulseSyllables / 4) * mult;
       out[r] = {
         localJati: role?.deSyncJati ? role.localCycleLength : undefined,
@@ -9329,7 +9636,7 @@ export default function App() {
       };
     }
     return out;
-  }, [bars, customSyllables, syllables, pulseMeterUnlinked, customMultipliers, tempoUi, randomMode]);
+  }, [bars, customSyllables, syllables, pulseMeterUnlinked, customMultipliers, tempoUi, randomMode, fusedBarGroups]);
 
   // FRAGILE — grid reads flattened lane sets in poly; must match SequencerGrid taDingSig / accents bits.
   const accentsUi = useMemo(
@@ -9389,6 +9696,136 @@ export default function App() {
   const canShowDefaultTaInNormal =
     firstBeatDingSuppressedRows.size > 0 ||
     hasAnyExplicitTaOutsideFirstBeat;
+  const handleFusedMultiplierHold = useCallback((barIdx: number) => {
+    const prev = fusedBarGroupsRef.current;
+    const polyV = polyVoicesRef.current === 3 ? 3 : 2;
+    const next = applyFusedMultiplierHold(
+      prev,
+      barIdx,
+      polyModeRef.current,
+      polyV,
+      barsRef.current,
+    );
+    const nextMult = { ...customMultipliersRef.current };
+    for (const g of next) {
+      for (const b of g.bars) {
+        if (b !== g.bars[0]) delete nextMult[b];
+      }
+      delete nextMult[g.bars[0]!];
+    }
+    fusedBarGroupsRef.current = next;
+    setFusedBarGroups(next);
+    customMultipliersRef.current = nextMult;
+    setCustomMultipliers(nextMult);
+    polySubLegacyRef.current = null;
+  }, [getPeerBarTimeWindowSeconds]);
+
+  const handleCycleRowMultiplier = useCallback((barIdx: number) => {
+    const group = findGroupForBar(fusedBarGroupsRef.current, barIdx);
+    const prev = customMultipliersRef.current;
+    const cur = group ? getGroupMultiplier(group, prev) : prev[barIdx] || 1;
+    const nextMult = cur === 1 ? 2 : cur === 2 ? 3 : cur === 3 ? 4 : 1;
+    if (group) {
+      const patch = syncGroupMultiplier(fusedBarGroupsRef.current, barIdx, nextMult);
+      setCustomMultipliers((prevMap) => {
+        const out = { ...prevMap };
+        for (const [k, v] of Object.entries(patch)) {
+          const ri = parseInt(k, 10);
+          if (!Number.isFinite(ri)) continue;
+          if (v === -1) delete out[ri];
+          else out[ri] = v;
+        }
+        if (nextMult === 1) {
+          for (const b of group.bars) {
+            if (b !== group.bars[0]) delete out[b];
+          }
+          delete out[group.bars[0]!];
+        }
+        customMultipliersRef.current = out;
+        return out;
+      });
+      return;
+    }
+    setCustomMultipliers((prevMap) => {
+      const out = { ...prevMap };
+      if (nextMult === 1) delete out[barIdx];
+      else out[barIdx] = nextMult;
+      customMultipliersRef.current = out;
+      return out;
+    });
+  }, []);
+
+  const handleTogglePulseUnlinkedRow = useCallback((barIdx: number) => {
+    const group = findGroupForBar(fusedBarGroupsRef.current, barIdx);
+    if (group) {
+      const patch = toggleGroupGati(group, pulseMeterUnlinkedRef.current);
+      setPulseMeterUnlinked((prev) => {
+        const next = { ...prev, ...patch };
+        pulseMeterUnlinkedRef.current = next;
+        const nextVal = Boolean(next[group.bars[0]!]);
+        onPulseLongPressModeSwitchSideEffect(barIdx, getFusedRowSyllables(barIdx, customSyllablesRef.current, syllablesRef.current), nextVal);
+        return next;
+      });
+      return;
+    }
+    setPulseMeterUnlinked((prev) => {
+      const nextVal = !prev[barIdx];
+      const rowSyl =
+        customSyllablesRef.current[barIdx] !== undefined
+          ? customSyllablesRef.current[barIdx]!
+          : syllablesRef.current;
+      onPulseLongPressModeSwitchSideEffect(barIdx, rowSyl, nextVal);
+      const next = { ...prev, [barIdx]: nextVal };
+      pulseMeterUnlinkedRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const onPulseLongPressModeSwitchSideEffect = useCallback((
+    rowIdx: number,
+    rowSylls: number,
+    nextPulseUnlinked: boolean,
+  ) => {
+    if (randomModeRef.current !== 'parent') return;
+    if (formPresetIdRef.current !== 'progressive') return;
+    if (nextPulseUnlinked) {
+      const base = Math.max(3, Math.min(9, Math.round(rowSylls)));
+      const nearestJati = normalizeJatiCycleLength(base);
+      progressiveDensityModeRef.current = 'jati_mode';
+      deSyncJatiActiveRef.current = true;
+      deSyncCycleLengthRef.current = nearestJati;
+      setProgressiveDensityMode('jati_mode');
+      setDeSyncJatiActive(true);
+      setDeSyncCycleLength(nearestJati);
+      setJatiPulseActiveByRow((prev) => ({ ...prev, [rowIdx]: true }));
+      return;
+    }
+    setJatiPulseActiveByRow((prev) => {
+      if (!prev[rowIdx]) {
+        if (Object.keys(prev).length === 0) {
+          progressiveDensityModeRef.current = 'gati_mode';
+          deSyncJatiActiveRef.current = false;
+          deSyncCycleLengthRef.current = undefined;
+          setProgressiveDensityMode('gati_mode');
+          setDeSyncJatiActive(false);
+          setDeSyncCycleLength(undefined);
+        }
+        return prev;
+      }
+      const nextRows = { ...prev };
+      delete nextRows[rowIdx];
+      if (Object.keys(nextRows).length === 0) {
+        progressiveDensityModeRef.current = 'gati_mode';
+        deSyncJatiActiveRef.current = false;
+        deSyncCycleLengthRef.current = undefined;
+        setProgressiveDensityMode('gati_mode');
+        setDeSyncJatiActive(false);
+        setDeSyncCycleLength(undefined);
+      }
+      return nextRows;
+    });
+  }, []);
+
   sequencerGridRowActionsRef.current = {
     cellGestureMutexRef,
     isHoldingRef,
@@ -9418,49 +9855,11 @@ export default function App() {
     customMultipliersRef,
     pulseMeterUnlinkedRef,
     subdivHoldSessionRef,
-    onPulseLongPressModeSwitch: (rowIdx, rowSylls, nextPulseUnlinked) => {
-      // Возвращаем управление gati/jati в random parent без изменения пульса такта.
-      if (randomModeRef.current !== 'parent') return;
-      if (formPresetIdRef.current !== 'progressive') return;
-
-      if (nextPulseUnlinked) {
-        const base = Math.max(3, Math.min(9, Math.round(rowSylls)));
-        const nearestJati = normalizeJatiCycleLength(base);
-        progressiveDensityModeRef.current = 'jati_mode';
-        deSyncJatiActiveRef.current = true;
-        deSyncCycleLengthRef.current = nearestJati;
-        setProgressiveDensityMode('jati_mode');
-        setDeSyncJatiActive(true);
-        setDeSyncCycleLength(nearestJati);
-        setJatiPulseActiveByRow((prev) => ({ ...prev, [rowIdx]: true }));
-        return;
-      }
-
-      setJatiPulseActiveByRow((prev) => {
-        if (!prev[rowIdx]) {
-          if (Object.keys(prev).length === 0) {
-            progressiveDensityModeRef.current = 'gati_mode';
-            deSyncJatiActiveRef.current = false;
-            deSyncCycleLengthRef.current = undefined;
-            setProgressiveDensityMode('gati_mode');
-            setDeSyncJatiActive(false);
-            setDeSyncCycleLength(undefined);
-          }
-          return prev;
-        }
-        const nextRows = { ...prev };
-        delete nextRows[rowIdx];
-        if (Object.keys(nextRows).length === 0) {
-          progressiveDensityModeRef.current = 'gati_mode';
-          deSyncJatiActiveRef.current = false;
-          deSyncCycleLengthRef.current = undefined;
-          setProgressiveDensityMode('gati_mode');
-          setDeSyncJatiActive(false);
-          setDeSyncCycleLength(undefined);
-        }
-        return nextRows;
-      });
-    },
+    onPulseLongPressModeSwitch: onPulseLongPressModeSwitchSideEffect,
+    onFusedMultiplierHold: handleFusedMultiplierHold,
+    onCycleRowMultiplier: handleCycleRowMultiplier,
+    onTogglePulseUnlinkedRow: handleTogglePulseUnlinkedRow,
+    fusedBarGroupsRef,
   };
 
   const mixerButtonSurface =
@@ -10828,6 +11227,7 @@ export default function App() {
           accents={accentsUi}
           taDingKeys={visibleTaDingKeys}
           pulseMeterUnlinked={pulseMeterUnlinked}
+          fusedBarGroups={fusedBarGroups}
           jatiPulseActiveByRow={jatiPulseActiveByRow}
           isPlaying={isPlaying}
           autoscrollVirtualRowsEnabled={autoscrollVirtualRowsEnabled}
