@@ -143,6 +143,10 @@ function testFusedFlatCellIndexStitchOrder() {
 }
 
 function testFusedBarStepDisplayLabels() {
+	const duo = [{ laneId: 0, bars: [0, 1] }];
+	assert.equal(formatFusedBarStepLabel(getFusedBarStepDisplay(0, duo, 3, false, 2)), '1');
+	assert.equal(formatFusedBarStepLabel(getFusedBarStepDisplay(1, duo, 3, false, 2)), '');
+	assert.equal(formatFusedBarStepLabel(getFusedBarStepDisplay(2, duo, 3, false, 2)), '2');
 	const groups = [{ laneId: 0, bars: [0, 1, 2] }];
 	assert.equal(formatFusedBarStepLabel(getFusedBarStepDisplay(0, groups, 4, false, 2)), '1');
 	assert.equal(formatFusedBarStepLabel(getFusedBarStepDisplay(1, groups, 4, false, 2)), '');

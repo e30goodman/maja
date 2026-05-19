@@ -1512,11 +1512,13 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 						: activePos.r === rIdx
 							? activePos.c
 							: null;
-					if (fusedGroup || deadStartByRow[rIdx] === 0) {
+					if (fusedBarGroups.length > 0) {
 						const label = formatFusedBarStepLabel(
 							getFusedBarStepDisplay(rIdx, fusedBarGroups, bars, false, 2, deadStartByRow),
 						);
 						stepLabel = label === '' ? '' : label;
+					} else if (deadStartByRow[rIdx] === 0) {
+						stepLabel = '';
 					}
 				} else {
 					const voiceIdx = rIdx % polyVoices;
