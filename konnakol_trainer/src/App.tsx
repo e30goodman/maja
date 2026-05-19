@@ -4234,6 +4234,9 @@ export default function App() {
     cloneLaneSetMap((seed as { taDingKeysByLane?: Partial<Record<number, Iterable<string>>> }).taDingKeysByLane)
   );
   const [activePos, setActivePos] = useState({ r: -1, c: -1, absR: -1 });
+  /** Невидимый бегунок: полный проход по долям для автоскролла (в диктанте на сетке не рисуется). */
+  const [autoscrollActivePos, setAutoscrollActivePos] = useState({ r: -1, c: -1, absR: -1 });
+  const autoscrollActivePosRef = useRef(autoscrollActivePos);
   const [activePositions, setActivePositions] = useState<PlayheadPosition[]>([]);
   const playAbsBarRef = useRef(0);
   const [listOffset, setListOffset] = useState(0);
@@ -5005,6 +5008,7 @@ export default function App() {
   const playheadTimerRef = useRef<number | null>(null);
   const playheadPositionsSigRef = useRef('');
   const polySubLegacyLaneIndicatorStoreRef = useRef(createPolySubLegacyLaneIndicatorStore());
+  const polySubLegacyAutoscrollLaneStoreRef = useRef(createPolySubLegacyLaneIndicatorStore());
   const previewResetTimerRef = useRef<number | null>(null);
   /** Полиметр: плотный числовой ключ снижает churn строк в hot-path. */
   const polyClickSlotsRef = useRef<Set<number>>(new Set());
@@ -7021,7 +7025,7 @@ export default function App() {
   const legacyStripVirtualRowCount = useMemo(() => {
     if (polyMode || !isPlaying || allBarsFitViewport) return bars;
     if (autoscrollVirtualRowsEnabled) {
-      return Math.max(bars, activePos.absR + displayScaleBars * 2);
+      return Math.max(bars, autoscrollActivePos.absR + displayScaleBars * 2);
     }
     const limitedCycles = 3;
     return bars * limitedCycles;
@@ -7031,7 +7035,7 @@ export default function App() {
     allBarsFitViewport,
     bars,
     autoscrollVirtualRowsEnabled,
-    activePos.absR,
+    autoscrollActivePos.absR,
     displayScaleBars,
   ]);
   const disableMenuSmoothing = lowPerfMode || bars > 8 || syllables >= 9;
@@ -7808,6 +7812,10 @@ export default function App() {
   const setRowElStable = useCallback((absR: number, el: HTMLDivElement | null) => {
     rowRefs.current[absR] = el;
   }, []);
+  const commitAutoscrollActivePos = useCallback((pos: { r: number; c: number; absR: number }) => {
+    autoscrollActivePosRef.current = pos;
+    setAutoscrollActivePos(pos);
+  }, []);
   const performAutoscrollToRow = useCallback((rowEl: HTMLDivElement) => {
     if (programmaticAutoscrollFallbackTimerRef.current !== null) {
       window.clearTimeout(programmaticAutoscrollFallbackTimerRef.current);
@@ -7833,13 +7841,6 @@ export default function App() {
       programmaticAutoscrollRef.current = false;
     }, AUTOSCROLL_FALLBACK_MS);
   }, [lowPerfMode]);
-  const primaryActivePos = useMemo(() => {
-    if (!polyMode || activePositions.length === 0) return activePos;
-    const masters = activePositions.filter((pos) => pos.voice === 0);
-    if (masters.length === 0) return activePositions[0] ?? activePos;
-    return masters.reduce((a, b) => (a.absR >= b.absR ? a : b));
-  }, [activePos, activePositions, polyMode]);
-
   /**
    * Автоскролл при воспроизведении.
    * Если freeze даёт ровно **1** видимый такт (`frozenScale === 1`) и тактов в паттерне > 1:
@@ -7872,13 +7873,15 @@ export default function App() {
       frozenScale !== null && Math.min(frozenScale, 10) === 1 && bars > 1;
 
     if (frozenOneBarViewport) {
-      if (primaryActivePos.absR >= 0) {
+      if (autoscrollActivePos.absR >= 0) {
         const rowSylls =
-          customSyllables[primaryActivePos.r] !== undefined ? customSyllables[primaryActivePos.r] : syllables;
-        if (rowSylls >= 1 && primaryActivePos.c === rowSylls - 1) {
+          customSyllables[autoscrollActivePos.r] !== undefined
+            ? customSyllables[autoscrollActivePos.r]
+            : syllables;
+        if (rowSylls >= 1 && autoscrollActivePos.c === rowSylls - 1) {
           tid = window.setTimeout(() => {
             tid = null;
-            const nextAbs = primaryActivePos.absR + 1;
+            const nextAbs = autoscrollActivePosRef.current.absR + 1;
             const rowEl = rowRefs.current[nextAbs];
             if (rowEl) {
               performAutoscrollToRow(rowEl);
@@ -7893,13 +7896,13 @@ export default function App() {
       return cleanup;
     }
 
-    if (primaryActivePos.absR >= 0 && gridRef.current) {
-      let logicalPage = Math.floor(primaryActivePos.absR / scrollStride);
+    if (autoscrollActivePos.absR >= 0 && gridRef.current) {
+      let logicalPage = Math.floor(autoscrollActivePos.absR / scrollStride);
       
-      if (primaryActivePos.absR > 0 && primaryActivePos.absR % scrollStride === 0) {
-        const rIdx = primaryActivePos.absR % bars;
+      if (autoscrollActivePos.absR > 0 && autoscrollActivePos.absR % scrollStride === 0) {
+        const rIdx = autoscrollActivePos.absR % bars;
         const rowSylls = customSyllables[rIdx] !== undefined ? customSyllables[rIdx] : syllables;
-        const isPastHalfway = primaryActivePos.c >= Math.floor(rowSylls / 2);
+        const isPastHalfway = autoscrollActivePos.c >= Math.floor(rowSylls / 2);
         
         if (!isPastHalfway) {
           logicalPage -= 1;
@@ -7920,9 +7923,9 @@ export default function App() {
 
     return cleanup;
   }, [
-    primaryActivePos.absR,
-    primaryActivePos.c,
-    primaryActivePos.r,
+    autoscrollActivePos.absR,
+    autoscrollActivePos.c,
+    autoscrollActivePos.r,
     isPlaying,
     scrollStride,
     customSyllables,
@@ -7931,6 +7934,7 @@ export default function App() {
     displayScaleBars,
     legacyStripVirtualRowCount,
     performAutoscrollToRow,
+    frozenScale,
   ]);
 
   useEffect(() => {
@@ -8148,31 +8152,61 @@ export default function App() {
     const ctx = audioCtxRef.current;
     const q = playheadQueueRef.current;
     let lastPos: PlayheadPosition | null = null;
+    /** Диктант: на сетке только первая доля такта; автоскролл — по полному `lastPos`. */
+    let lastVisiblePos: PlayheadPosition | null = null;
     const laneIndicatorStore = polySubLegacyLaneIndicatorStoreRef.current;
+    const autoscrollLaneStore = polySubLegacyAutoscrollLaneStoreRef.current;
     while (q.length > 0 && q[0]!.t <= ctx.currentTime) {
       const due = q.shift()!.pos;
       if (polyModeRef.current) {
-        laneIndicatorStore.recordLaneEmit(due);
+        autoscrollLaneStore.recordLaneEmit(due);
+        if (!dictantModeRef.current || due.c === 0) {
+          laneIndicatorStore.recordLaneEmit(due);
+        }
       }
       lastPos = due;
+      if (!dictantModeRef.current || due.c === 0) {
+        lastVisiblePos = due;
+      }
     }
+    const pickPolyPrimary = (positions: PlayheadPosition[]) => {
+      const masters = positions.filter((pos) => pos.voice === 0);
+      if (masters.length > 0) {
+        return masters.reduce((a, b) => (a.absR >= b.absR ? a : b));
+      }
+      return positions[0] ?? null;
+    };
     if (polyModeRef.current) {
+      const autoscrollSnapshot = autoscrollLaneStore.orderedSnapshot();
+      const autoscrollPrimary = pickPolyPrimary(autoscrollSnapshot);
+      if (autoscrollPrimary) {
+        commitAutoscrollActivePos({
+          r: autoscrollPrimary.r,
+          c: autoscrollPrimary.c,
+          absR: autoscrollPrimary.absR,
+        });
+      }
       const nextActive = laneIndicatorStore.orderedSnapshot();
       if (nextActive.length > 0) {
         const sig = playheadActiveSignature(nextActive);
         if (playheadPositionsSigRef.current !== sig) {
           playheadPositionsSigRef.current = sig;
           setActivePositions(nextActive);
-          const masters = nextActive.filter((pos) => pos.voice === 0);
-          const primary =
-            masters.length > 0
-              ? masters.reduce((a, b) => (a.absR >= b.absR ? a : b))
-              : nextActive[0]!;
-          setActivePos({ r: primary.r, c: primary.c, absR: primary.absR });
+          const primary = pickPolyPrimary(nextActive);
+          if (primary) {
+            setActivePos({ r: primary.r, c: primary.c, absR: primary.absR });
+          }
         }
       }
     } else if (lastPos !== null) {
-      setActivePos({ r: lastPos.r, c: lastPos.c, absR: lastPos.absR });
+      commitAutoscrollActivePos({ r: lastPos.r, c: lastPos.c, absR: lastPos.absR });
+      if (lastVisiblePos !== null) {
+        setActivePos({
+          r: lastVisiblePos.r,
+          c: lastVisiblePos.c,
+          absR: lastVisiblePos.absR,
+        });
+      }
       setActivePositions([]);
     }
     if (q.length === 0) return;
@@ -8191,7 +8225,10 @@ export default function App() {
     playheadQueueRef.current = [];
     playheadPositionsSigRef.current = '';
     polySubLegacyLaneIndicatorStoreRef.current.clear();
-    setActivePos({ r: -1, c: -1, absR: -1 });
+    polySubLegacyAutoscrollLaneStoreRef.current.clear();
+    const cleared = { r: -1, c: -1, absR: -1 };
+    setActivePos(cleared);
+    commitAutoscrollActivePos(cleared);
     setActivePositions([]);
   };
 
@@ -8936,13 +8973,11 @@ export default function App() {
           emitGridSubAudio(sub, subTime);
         }
       }
-      if (!dictantModeRef.current || cIdx === 0) {
-        insertPlayheadSorted(playheadQueueRef.current, {
-          t: time,
-          pos: { r: rIdx, c: cIdx, absR, voice, step },
-        });
-        schedulePlayheadWake();
-      }
+      insertPlayheadSorted(playheadQueueRef.current, {
+        t: time,
+        pos: { r: rIdx, c: cIdx, absR, voice, step },
+      });
+      schedulePlayheadWake();
     },
     [],
   );
@@ -11231,6 +11266,7 @@ export default function App() {
           jatiPulseActiveByRow={jatiPulseActiveByRow}
           isPlaying={isPlaying}
           autoscrollVirtualRowsEnabled={autoscrollVirtualRowsEnabled}
+          virtualStripLeadingAbsR={autoscrollActivePos.absR}
           activePos={activePos}
           activePositions={activePositions}
           polyMode={polyMode}

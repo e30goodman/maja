@@ -1301,6 +1301,8 @@ export type SequencerGridProps = {
 	jatiPulseActiveByRow: Record<number, boolean>;
 	isPlaying: boolean;
 	autoscrollVirtualRowsEnabled: boolean;
+	/** Абсолютный индекс строки для роста virtual strip (в диктанте — невидимый бегунок). */
+	virtualStripLeadingAbsR: number;
 	activePos: { r: number; c: number; absR: number };
 	activePositions: PlayheadPosition[];
 	polyMode: boolean;
@@ -1349,6 +1351,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	jatiPulseActiveByRow,
 	isPlaying,
 	autoscrollVirtualRowsEnabled,
+	virtualStripLeadingAbsR,
 	activePos,
 	activePositions,
 	polyMode,
@@ -1448,11 +1451,19 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	const virtualRowCount = useMemo(() => {
 		if (polyMode || !isPlaying || allBarsFitViewport) return bars;
 		if (autoscrollVirtualRowsEnabled) {
-			return Math.max(bars, activePos.absR + displayScaleBars * 2);
+			return Math.max(bars, virtualStripLeadingAbsR + displayScaleBars * 2);
 		}
 		const limitedCycles = 3;
 		return bars * limitedCycles;
-	}, [polyMode, isPlaying, allBarsFitViewport, bars, displayScaleBars, activePos.absR, autoscrollVirtualRowsEnabled]);
+	}, [
+		polyMode,
+		isPlaying,
+		allBarsFitViewport,
+		bars,
+		displayScaleBars,
+		virtualStripLeadingAbsR,
+		autoscrollVirtualRowsEnabled,
+	]);
 	return (
 		<div className="relative flex min-h-0 flex-1 w-full">
 			{/* СТРОГО-НАСТРОГО НЕ ТРОГАТЬ (ROOT SCROLL CONTRACT):
