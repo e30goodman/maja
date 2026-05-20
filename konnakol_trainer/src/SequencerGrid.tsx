@@ -80,7 +80,7 @@ const PULSE_ROULETTE_SLOP_Y_PX = 0;
 const PULSE_MODE_TOGGLE_CANCEL_SLOP_Y_PX = 8;
 const PULSE_HOLD_MS = 450;
 const MULT_FUSED_HOLD_MS = 450;
-const CELL_HOLD_MS = 120;
+const CELL_HOLD_MS = 173;
 
 /**
  * Poly/legacy playhead on a syllable cell: border + opaque fill + text tint in one class string

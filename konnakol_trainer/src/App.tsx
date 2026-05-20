@@ -5628,6 +5628,14 @@ export default function App() {
     setPressMatrixArmSourceUi(null);
   }, [detachMobileSliderCoarseDisarm]);
 
+  /** Matrix arm UX: если freeze выключен, включаем автоматически на текущем bars. */
+  const ensureFreezeEnabledForMatrixArm = useCallback(() => {
+    if (frozenScaleRef.current !== null) return;
+    const nextFrozen = Math.max(1, barsRef.current | 0);
+    frozenScaleRef.current = nextFrozen;
+    setFrozenScale(nextFrozen);
+  }, []);
+
   disarmPressMatrixModeRef.current = disarmPressMatrixMode;
   detachMobileSliderCoarseDisarmRef.current = detachMobileSliderCoarseDisarm;
 
@@ -5641,14 +5649,16 @@ export default function App() {
   const armPressMatrixFromStar = useCallback(() => {
     detachMobileSliderCoarseDisarm();
     armPressFromState(getPressState(), 'star');
+    ensureFreezeEnabledForMatrixArm();
     setPressMatrixArmSourceUi('star');
-  }, [getPressState, detachMobileSliderCoarseDisarm]);
+  }, [getPressState, detachMobileSliderCoarseDisarm, ensureFreezeEnabledForMatrixArm]);
 
   const armPressMatrixFromSlider = useCallback(() => {
     armPressFromState(getPressState(), 'slider');
+    ensureFreezeEnabledForMatrixArm();
     setPressMatrixArmSourceUi('slider');
     attachMobileSliderCoarseDisarm();
-  }, [getPressState, attachMobileSliderCoarseDisarm]);
+  }, [getPressState, attachMobileSliderCoarseDisarm, ensureFreezeEnabledForMatrixArm]);
 
   const triggerHapticPulse = useCallback((durationMs = 50) => {
     try {
@@ -7517,6 +7527,7 @@ export default function App() {
         setPressMatrixArmSourceUi(null);
       } else {
         armPressFromState(snapPressState, snapArmSource);
+        ensureFreezeEnabledForMatrixArm();
         setPressMatrixArmSourceUi(snapArmSource);
         if (snapArmSource === 'slider') attachMobileSliderCoarseDisarm();
         else detachMobileSliderCoarseDisarmRef.current();
