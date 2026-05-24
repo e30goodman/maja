@@ -327,6 +327,23 @@ function resolveClickSoundForPolyVoice(
 	return mapped ?? master;
 }
 
+/** Lanes without an override inherit master; pin them to old master before master changes. */
+export function pinInheritedPolyClickVoicesBeforeMasterChangeForTest(
+	perVoice: ClickSoundByPolyVoice,
+	oldMaster: ClickSoundPreset,
+	newMaster: ClickSoundPreset,
+	polyVoices: 2 | 3 | 4,
+): ClickSoundByPolyVoice {
+	if (oldMaster === newMaster) return { ...perVoice };
+	const next = { ...perVoice };
+	const voiceCount = polyVoices === 3 ? 3 : 2;
+	for (let v = 1; v < voiceCount; v++) {
+		const key = v as PolyVoiceTarget;
+		if (next[key] === undefined) next[key] = oldMaster;
+	}
+	return next;
+}
+
 function laneForRow(r: number, voices: 2 | 3 | 4): LaneId {
 	return (voices === 3 ? (r % 3) : (r % 2)) as LaneId;
 }
@@ -10470,9 +10487,17 @@ export default function App() {
                                   : 0;
                                 if (polyMode) {
                                   if (targetVoice === 0) {
-                                    setClickSound(preset.mappedSound);
-                                    clickSoundRef.current = preset.mappedSound;
-                                    const next = { ...clickSoundByPolyVoiceRef.current };
+                                    const newMaster = preset.mappedSound;
+                                    const oldMaster = clickSoundRef.current;
+                                    const pinned = pinInheritedPolyClickVoicesBeforeMasterChangeForTest(
+                                      clickSoundByPolyVoiceRef.current,
+                                      oldMaster,
+                                      newMaster,
+                                      polyVoicesRef.current,
+                                    );
+                                    clickSoundRef.current = newMaster;
+                                    setClickSound(newMaster);
+                                    const next = { ...pinned };
                                     delete next[0];
                                     clickSoundByPolyVoiceRef.current = { ...next };
                                     setClickSoundByPolyVoice(next);
