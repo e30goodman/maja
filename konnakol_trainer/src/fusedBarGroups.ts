@@ -570,13 +570,15 @@ export function isFusedGroupFirstBeatCell(
 	return bar === getGroupLeaderBar(g);
 }
 
-/** Fused block = one bar: only explicit Ta allowed at leader cell 0. */
+/** Outside fused blocks explicit Ta can live on any cell; inside a fused block only leader beat 0 keeps Ta. */
 export function canPlaceFusedTaAtCell(
 	groups: FusedGroupState[],
 	bar: number,
 	col: number,
 ): boolean {
-	return isFusedGroupFirstBeatCell(groups, bar, col);
+	const g = findGroupForBar(groups, bar);
+	if (!g) return col >= 0;
+	return col === 0 && bar === getGroupLeaderBar(g);
 }
 
 export function stripTaDingKeysForFusedGroups(

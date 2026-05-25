@@ -232,6 +232,10 @@ function testFusedPolyDisplayStepUsesLeader() {
 }
 
 function testFusedTaOnlyOnLeaderBeatZero() {
+	assert.equal(canPlaceFusedTaAtCell([], 0, 0), true);
+	assert.equal(canPlaceFusedTaAtCell([], 0, 1), true);
+	assert.equal(canPlaceFusedTaAtCell([], 2, 8), true);
+
 	let g = applyFusedMultiplierHold([], 1, true, 2, 4);
 	const ta = new Set(['1-0', '3-0', '3-2', '1-1']);
 	g = applyFusedMultiplierHold(g, 3, true, 2, 4);
