@@ -481,7 +481,7 @@ const DEFAULT_POLY_VOICE_GAINS: PolyVoiceGainMap = { 0: 1, 1: 1, 2: 1 };
 const CLICK_PRESET_BUS_TWO_BARS_PREVIEW_DEBOUNCE_MS = 120;
 const APP_COMMIT_VERSION = (() => {
 	if (typeof __APP_BUILD_COMMIT__ === 'string' && __APP_BUILD_COMMIT__.length >= 7) return __APP_BUILD_COMMIT__.slice(0, 7);
-	return '2109d8b';
+	return 'f46f95f';
 })();
 const TEMPO_THROTTLE_MS = 56;
 /** Hold tempo +/-: after delay, apply step +/-5 every 0.1s. */
