@@ -511,6 +511,10 @@ const APP_COMMIT_VERSION = (() => {
 	if (typeof __APP_BUILD_COMMIT__ === 'string' && __APP_BUILD_COMMIT__.length >= 7) return __APP_BUILD_COMMIT__.slice(0, 7);
 	return 'f46f95f';
 })();
+const GLOBAL_TEMPO_RUNTIME_MULTIPLIER = 2;
+function getRuntimeTempo(uiTempo: number): number {
+	return uiTempo * GLOBAL_TEMPO_RUNTIME_MULTIPLIER;
+}
 const TEMPO_THROTTLE_MS = 56;
 /** Hold tempo +/-: after delay, apply step +/-5 every 0.1s. */
 const TEMPO_HOLD_REPEAT_MS = 100;
@@ -5089,7 +5093,7 @@ export default function App() {
   const hybridModeRef = useRef<'stable' | 'live'>('stable');
   const hybridModeLockUntilRef = useRef(0);
   const liveWindowStartedAtRef = useRef<number | null>(null);
-  const latestSubStepSecRef = useRef(60 / Math.max(1, tempo));
+  const latestSubStepSecRef = useRef(60 / Math.max(1, getRuntimeTempo(tempo)));
   const clearPendingGridClickTimers = () => {
     for (const pending of pendingGridClickDeferredRef.current) {
       window.clearTimeout(pending.id);
@@ -6340,10 +6344,10 @@ export default function App() {
         lessonLogger.reset({
           seed: compositionSeed,
           chaos,
-          tempoBpm: tempoRef.current,
+          tempoBpm: getRuntimeTempo(tempoRef.current),
           polyMode: polyModeRef.current,
           polyVoices: polyVoicesRef.current,
-          parentThemeLine: formatParentGenomeHumanLine(parentGenomeRef.current, tempoRef.current),
+          parentThemeLine: formatParentGenomeHumanLine(parentGenomeRef.current, getRuntimeTempo(tempoRef.current)),
           formPresetLabel: FORM_PRESET_LABEL[formPresetIdRef.current],
           formPresetId: formPresetIdRef.current,
           randomMode: randomModeRef.current,
@@ -6435,7 +6439,7 @@ export default function App() {
       if (didChange) any = true;
       if (parentActive && phraseScheduleRef.current[r] !== undefined) {
         lessonLogger.addBar(
-          buildBarLogForParentRow(r, phraseScheduleRef.current[r]!, tempoRef.current, syllablesDefault, {
+          buildBarLogForParentRow(r, phraseScheduleRef.current[r]!, getRuntimeTempo(tempoRef.current), syllablesDefault, {
             customSyllables: cs,
             accents: acc,
             accentsByLane: accentsByLaneRef.current,
@@ -7742,7 +7746,7 @@ export default function App() {
         };
       }
       const blob = generateMidiBlob({
-        bpm: src ? src.tempo : tempoRef.current,
+        bpm: getRuntimeTempo(src ? src.tempo : tempoRef.current),
         bars: src ? src.bars : barsRef.current,
         baseSyllables: src ? src.syllables : syllablesRef.current,
         customSyllables: src ? { ...src.customSyllables } : { ...customSyllablesRef.current },
@@ -7779,7 +7783,7 @@ export default function App() {
         twoVoiceAutoAlignByFirstNotes: autoAlignEnabled,
         twoVoiceAutoAlignMaxBars: 100,
       });
-      const exportBpm = Math.max(1, Math.round(src ? src.tempo : tempoRef.current));
+      const exportBpm = Math.max(1, Math.round(getRuntimeTempo(src ? src.tempo : tempoRef.current)));
       const exportVoices = exportPolyMode ? pv : 1;
       const name = `midi_${exportBpm}bpm_${exportVoices}v.mid`;
       const file = new File([blob], name, { type: 'audio/midi' });
@@ -8637,7 +8641,7 @@ export default function App() {
           syllablesRef.current,
           pulseMeterUnlinkedRef.current,
           customMultipliersRef.current,
-          tempoRef.current,
+          getRuntimeTempo(tempoRef.current),
           deadCellsRef.current,
         );
       } else {
@@ -8650,7 +8654,7 @@ export default function App() {
           ? effectiveSyllables
           : syllablesRef.current;
         const mult = normalizeBarMultiplier(customMultipliersRef.current[rowR]);
-        const effectiveBpm = tempoRef.current * (pulseSyllables / 4) * mult;
+        const effectiveBpm = getRuntimeTempo(tempoRef.current) * (pulseSyllables / 4) * mult;
         if (effectiveBpm > 0) {
           nextNoteTimeRef.current += 60.0 / effectiveBpm;
         } else {
@@ -8696,7 +8700,7 @@ export default function App() {
     const base = syllablesRef.current;
     const pu = pulseMeterUnlinkedRef.current;
     const cm = customMultipliersRef.current;
-    const tempo = tempoRef.current;
+    const tempo = getRuntimeTempo(tempoRef.current);
     if (group) {
       const pulseSyl = getGroupPulseSyllables(group, cs, base, pu);
       const mult = getGroupMultiplier(group, cm);
@@ -8716,7 +8720,7 @@ export default function App() {
       ? rowSyllables
       : syllablesRef.current;
     const mult = normalizeBarMultiplier(customMultipliersRef.current[rowIdx]);
-    return fusedLegacyNoteDurationSeconds(pulseSyllables, tempoRef.current, mult);
+    return fusedLegacyNoteDurationSeconds(pulseSyllables, getRuntimeTempo(tempoRef.current), mult);
   }, []);
 
   const getPeerBarTimeWindowSeconds = useCallback((rowIdx: number) => {
@@ -8747,7 +8751,7 @@ export default function App() {
         syllablesRef.current,
         pulseMeterUnlinkedRef.current,
         customMultipliersRef.current,
-        tempoRef.current,
+        getRuntimeTempo(tempoRef.current),
         buildFusedTimingContext(),
       );
     }
@@ -8765,7 +8769,7 @@ export default function App() {
         syllablesRef.current,
         pulseMeterUnlinkedRef.current,
         customMultipliersRef.current,
-        tempoRef.current,
+        getRuntimeTempo(tempoRef.current),
         deadCellsRef.current,
         fusedCtx,
       );
@@ -9781,7 +9785,7 @@ export default function App() {
           ? rowSylls
           : syllables;
       const mult = group ? getGroupMultiplier(group, customMultipliers) : normalizeBarMultiplier(customMultipliers[r]);
-      const effectiveBpm = tempoUi * (pulseSyllables / 4) * mult;
+      const effectiveBpm = getRuntimeTempo(tempoUi) * (pulseSyllables / 4) * mult;
       out[r] = {
         localJati: role?.deSyncJati ? role.localCycleLength : undefined,
         gatiTargetSub: role?.gatiTargetSub,
@@ -10847,7 +10851,7 @@ export default function App() {
                             return;
                           }
                           const fallbackMd = buildGridLessonLogMarkdown({
-                            tempoBpm: tempoRef.current,
+                            tempoBpm: getRuntimeTempo(tempoRef.current),
                             bars: barsRef.current,
                             syllablesDefault: syllablesRef.current,
                             customSyllables: customSyllablesRef.current,
@@ -10879,7 +10883,7 @@ export default function App() {
                             '',
                             '## Export Error',
                             `- message: ${safeError}`,
-                            `- tempo: ${tempoRef.current}`,
+                            `- tempo: ${getRuntimeTempo(tempoRef.current)}`,
                             `- bars: ${barsRef.current}`,
                             `- poly: ${polyModeRef.current ? `on (${polyVoicesRef.current} voices)` : 'off'}`,
                           ].join('\n');
@@ -11397,7 +11401,7 @@ export default function App() {
           firstBeatEditorSuppressedSig={firstBeatEditorSuppressedSig}
           deadStartByRow={deadStartByRow}
           deadDisplayByRow={deadDisplayByRow}
-          bpm={tempoUi}
+          bpm={getRuntimeTempo(tempoUi)}
           customSyllables={customSyllables}
           customCellSyllables={customCellSyllables}
           customSubdivisions={customSubdivisions}
