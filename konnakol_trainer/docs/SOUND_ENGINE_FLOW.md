@@ -45,6 +45,9 @@
 - envelope:
   - attack `METRO_LAYER_ATTACK_SEC = 0.002`,
   - decay экспоненциально до `metroEnvelopeEndFromPeak(peak) = max(1e-5, peak*0.001)`.
+- lifecycle cleanup:
+  - `osc.onended` выполняет teardown (`disconnect`) для `osc/gain/layerHp/layerLp`;
+  - cleanup idempotent (локальный `cleaned` флаг), чтобы исключить double-disconnect.
 
 ### 3.2 Noise-слой (`type === 'noise'`)
 
@@ -57,6 +60,9 @@
 - шум берется из `WeakMap<AudioContext, AudioBuffer>` (общий буфер на контекст);
 - буфер заполняется детерминированно (`fillChannelDeterministicWhiteNoise`);
 - peak для noise: `nVol = peakLinear * 0.5`.
+- lifecycle cleanup:
+  - `noiseSrc.onended` выполняет teardown (`disconnect`) для `noiseSrc/noiseFilter/noiseGain/layerHp/layerLp`;
+  - cleanup idempotent (локальный `cleaned` флаг).
 
 ## 4) Voice buses (групповая обработка по голосам)
 
@@ -135,12 +141,33 @@ Recovery-поведение scheduler:
 
 ## 9) Anti-artifact механики (текущее)
 
-- Start guard: `AUDIO_START_GUARD_SEC = 0.004`.
+- Start guard (hybrid): `0.001s` в normal, `0.004s` в degraded/cooldown.
 - Anti-burst spacing по голосам через `lastScheduledVoiceTimeByContext`.
 - Усиленный spacing для `passive` и post-stall cooldown на Chrome desktop.
 - Jitter старта tone-осцилляторов до `2 ms` для снижения фазового складывания.
 - Shared deterministic noise buffer (без рандом-дрейфа между вызовами).
 - Все persistent audio-структуры держатся в `WeakMap<AudioContext,...>` (без ручного глобального singleton-state).
+
+### 9.1) Hybrid guard decision matrix
+
+Назначение: защитить от pop/burst после лагов scheduler, но не ломать фазовую сетку в нормальном режиме.
+
+- `nextNoteTimeRef` остается source-of-truth для ритмической сетки (`60 / BPM`) и guard его не модифицирует.
+- Guard применяется только локально к времени старта события перед `start()`/`setValueAtTime()`.
+- Режим `normal`:
+  - условие: `catchUpBatches === 0` и нет recovery в текущем тике;
+  - guard: `+0.001s` (минимальный DC/pop safety floor).
+- Режим `degraded`:
+  - условие: `recoveredThisTick === true` ИЛИ post-stall cooldown ИЛИ `catchUpBatches > 0`;
+  - guard: `+0.004s` (агрессивная защита огибающих от схлопывания и цифрового треска).
+- Политика переключения строго бинарная (`1ms`/`4ms`), без пропорционального масштаба по нагрузке CPU.
+- `playSharpClick(...)` и `playBarFirstHighClick(...)` должны использовать одинаковую guard-логику `1:1`, иначе первая доля смещается относительно остальной сетки.
+
+Почему это нельзя "упрощать":
+
+- удаление degraded-ветки возвращает артефакты в catch-up/stall сценариях;
+- постоянный `4ms` guard без режима ухудшает ритмическую точность в нормальном ходе;
+- пропорциональный guard делает тайминг плавающим и субъективно "ломает грув".
 
 ## 10) Что считать source-of-truth
 

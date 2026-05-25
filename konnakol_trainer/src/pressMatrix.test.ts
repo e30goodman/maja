@@ -23,6 +23,7 @@ import {
 	applyBarFrame,
 	clonePressState,
 	dropPress,
+	inheritPulsationOnBarsExpand,
 	isStateEmpty,
 	laneForRow,
 	snapshotBarFrame,
@@ -393,6 +394,32 @@ function testSnapshotApplyRoundtripIdentity() {
 	assert.deepEqual(readback, frame, 'roundtrip frame must be identical');
 }
 
+/** Poly 2: 4->6 inherits pulsation per lane; accents/subdivisions untouched. */
+function testInheritPulsationPoly2() {
+	const cs: Record<number, number> = { 0: 6, 1: 5 };
+	const next = inheritPulsationOnBarsExpand(4, 6, cs, 4, true);
+	assert.ok(next);
+	assert.equal(next![4], 6, 'row 4 (lane 0) = bar 0 pulsation');
+	assert.equal(next![5], 5, 'row 5 (lane 1) = bar 1 pulsation');
+	assert.equal(next![0], 6);
+	assert.equal(next![1], 5);
+}
+
+/** Mono expand: no-op (poly-only). */
+function testInheritPulsationMonoSkipped() {
+	const cs: Record<number, number> = { 0: 6 };
+	assert.equal(inheritPulsationOnBarsExpand(2, 4, cs, 4, false), undefined);
+}
+
+/** Global syllables: new row stays sparse (no customSyllables entry). */
+function testInheritPulsationGlobalDefault() {
+	const cs: Record<number, number> = { 0: 7 };
+	const next = inheritPulsationOnBarsExpand(2, 4, cs, 4, true);
+	assert.ok(next);
+	assert.equal(next![2], 7);
+	assert.equal(next![3], undefined, 'row 3 inherits global 4 — no entry');
+}
+
 const tests: Array<[string, () => void]> = [
 	['roundtrip mono', testRoundtripMono],
 	['roundtrip poly voices=2', testRoundtripPoly2],
@@ -402,6 +429,9 @@ const tests: Array<[string, () => void]> = [
 	['tile N=3 -> M=7', testTile_N3_to_M7],
 	['tile baseline freeze', testBaselineFreeze],
 	['tile copies every layer', testTileAllLayers],
+	['inherit pulsation poly 2', testInheritPulsationPoly2],
+	['inherit pulsation mono skip', testInheritPulsationMonoSkipped],
+	['inherit pulsation global default', testInheritPulsationGlobalDefault],
 	['drop all layers', testDropAllLayers],
 	['isStateEmpty', testIsStateEmpty],
 	['tile guards (sourceN=0 / nextM<=prevN)', testTileGuards],

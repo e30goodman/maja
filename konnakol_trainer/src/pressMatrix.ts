@@ -348,6 +348,38 @@ export function tilePress(
 }
 
 /**
+ * Poly bars expand (no Press Matrix): stamp only row pulsation (`customSyllables`)
+ * onto new rows using the same srcRow = r' mod prevN rule as `tilePress`.
+ * Submotionations, accents, dead cells, etc. are untouched.
+ */
+export function inheritPulsationOnBarsExpand(
+	prevN: number,
+	nextM: number,
+	customSyllables: Record<number, number>,
+	globalSyllables: number,
+	polyMode: boolean,
+): Record<number, number> | undefined {
+	if (!polyMode || prevN < 1 || nextM <= prevN) return undefined;
+	const next = { ...customSyllables };
+	let changed = false;
+	for (let rPrime = prevN; rPrime < nextM; rPrime++) {
+		const srcRow = ((rPrime % prevN) + prevN) % prevN;
+		const srcSyl =
+			customSyllables[srcRow] !== undefined ? customSyllables[srcRow]! : globalSyllables;
+		if (srcSyl === globalSyllables) {
+			if (next[rPrime] !== undefined) {
+				delete next[rPrime];
+				changed = true;
+			}
+		} else if (next[rPrime] !== srcSyl) {
+			next[rPrime] = srcSyl;
+			changed = true;
+		}
+	}
+	return changed ? next : undefined;
+}
+
+/**
  * Drop press: removes ALL per-row / per-cell entries with r >= maxBars.
  * Used when bars decreases — by user choice this is a hard drop, not a freeze.
  */

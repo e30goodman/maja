@@ -119,6 +119,23 @@ function playheadHighlightCellClasses(
 		: 'bg-amber-950 border-2 box-border border-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.26)] z-10 text-amber-100';
 }
 
+/** Fused multiplier ring: lane colors match poly playhead (V0 emerald, V1 sky, V2 violet). */
+function fusedLaneMultiplierRingClasses(laneId: number, lowPerfMode: boolean): string {
+	if (laneId === 1) {
+		return lowPerfMode
+			? 'ring-2 ring-sky-400/90 border-sky-400/70'
+			: 'ring-2 ring-sky-400/90 border-sky-400/70 shadow-[0_0_10px_rgba(56,189,248,0.25)]';
+	}
+	if (laneId === 2) {
+		return lowPerfMode
+			? 'ring-2 ring-violet-400/90 border-violet-400/70'
+			: 'ring-2 ring-violet-400/90 border-violet-400/70 shadow-[0_0_10px_rgba(167,139,250,0.25)]';
+	}
+	return lowPerfMode
+		? 'ring-2 ring-emerald-500/90 border-emerald-500/70'
+		: 'ring-2 ring-emerald-500/90 border-emerald-500/70 shadow-[0_0_10px_rgba(16,185,129,0.25)]';
+}
+
 function rowCellLabelsEqual(a: SyllableLabel[][], b: SyllableLabel[][]): boolean {
 	if (a === b) return true;
 	if (a.length !== b.length) return false;
@@ -319,7 +336,10 @@ type SequencerGridRowProps = {
 	rowSylls: number;
 	rowMult: number;
 	displayRowSylls: number;
-	fusedMultiplierHighlight: boolean;
+	/** Poly lane id (0/1/2) when row is in a fused block; null otherwise. */
+	fusedHighlightLaneId: number | null;
+	/** Non-leader fused bar: pulse shows slice jati, not block Σ. */
+	fusedPulseIsFollower: boolean;
 	subdivSig: string;
 	rowStepMaskSig: string;
 	rowDataHash: string;
@@ -371,7 +391,8 @@ function sequencerGridRowPropsEqual(a: SequencerGridRowProps, b: SequencerGridRo
 		a.rowSylls === b.rowSylls &&
 		a.rowMult === b.rowMult &&
 		a.displayRowSylls === b.displayRowSylls &&
-		a.fusedMultiplierHighlight === b.fusedMultiplierHighlight &&
+		a.fusedHighlightLaneId === b.fusedHighlightLaneId &&
+		a.fusedPulseIsFollower === b.fusedPulseIsFollower &&
 		a.subdivSig === b.subdivSig &&
 		a.rowStepMaskSig === b.rowStepMaskSig &&
 		a.rowDataHash === b.rowDataHash &&
@@ -422,7 +443,8 @@ const SequencerGridRow = React.memo(
 			rowSylls,
 			rowMult,
 			displayRowSylls,
-			fusedMultiplierHighlight,
+			fusedHighlightLaneId,
+			fusedPulseIsFollower,
 			subdivSig,
 			rowStepMaskSig,
 			rowDataHash,
@@ -642,8 +664,8 @@ const SequencerGridRow = React.memo(
 							});
 						}}
 						className={`relative flex-1 rounded-md border flex items-center justify-center text-[9px] font-bold min-h-[50%] transition-colors ${
-							fusedMultiplierHighlight
-								? `ring-2 ring-violet-400/90 border-violet-400/70 ${lowPerfMode ? '' : 'shadow-[0_0_10px_rgba(167,139,250,0.25)]'}`
+							fusedHighlightLaneId !== null
+								? fusedLaneMultiplierRingClasses(fusedHighlightLaneId, lowPerfMode)
 								: ''
 						} ${
 							rowMult === 1
@@ -899,7 +921,9 @@ const SequencerGridRow = React.memo(
 									? `bg-teal-500/25 border-teal-400/70 text-teal-50 ring-1 ring-teal-400/80 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_8px_rgba(20,184,166,0.25),0_0_12px_rgba(45,212,191,0.2)]'}`
 								: pulseUnlinkedRow
 									? `bg-teal-500/25 border-teal-400/70 text-teal-50 ring-1 ring-teal-400/80 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_8px_rgba(20,184,166,0.25),0_0_12px_rgba(45,212,191,0.2)]'}`
-									: 'bg-[#1e2a45] border-[#2f4066] text-slate-400 hover:bg-[#253353] active:bg-[#1e2a45]'
+									: fusedPulseIsFollower
+										? 'bg-[#1a2238] border-[#2a3d66] text-slate-500'
+										: 'bg-[#1e2a45] border-[#2f4066] text-slate-400 hover:bg-[#253353] active:bg-[#1e2a45]'
 						}`}
 					>
 						{displayRowSylls}
@@ -1493,7 +1517,10 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 				const rowMult = fusedGroup
 					? getGroupMultiplier(fusedGroup, customMultipliers)
 					: customMultipliers[rIdx] || 1;
-				const fusedMultiplierHighlight = fusedGroup !== null;
+				const fusedHighlightLaneId =
+					fusedGroup !== null ? fusedGroup.laneId : null;
+				const fusedPulseIsFollower =
+					fusedGroup !== null && rIdx !== fusedGroup.bars[0]!;
 				const effectiveUseFixedFlex = useFrozenRowHeight || useFixedFlex || (isPlaying && !allBarsFitViewport);
 				const subdivSig = Array.from({ length: rowSylls }, (_, c) =>
 					String(customSubdivisions[`${rIdx}-${c}`] ?? 1),
@@ -1506,10 +1533,11 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 				const taDingSig = Array.from({ length: rowSylls }, (_, c) =>
 					taDingKeys.has(`${rIdx}-${c}`) ? '1' : '0',
 				).join('');
+				const pulseLeaderRow = fusedGroup ? fusedGroup.bars[0]! : rIdx;
 				const pulseUnlinkedRow = fusedGroup
-					? Boolean(pulseMeterUnlinked[fusedGroup.bars[0]!])
+					? Boolean(pulseMeterUnlinked[pulseLeaderRow])
 					: Boolean(pulseMeterUnlinked[rIdx]);
-				const jatiPulseActiveRow = Boolean(jatiPulseActiveByRow[rIdx]);
+				const jatiPulseActiveRow = Boolean(jatiPulseActiveByRow[pulseLeaderRow]);
 
 				let highlightCol: number | null;
 				let stepLabel: string | undefined;
@@ -1571,7 +1599,8 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 						rowSylls={rowSylls}
 						rowMult={rowMult}
 						displayRowSylls={displayRowSylls}
-						fusedMultiplierHighlight={fusedMultiplierHighlight}
+						fusedHighlightLaneId={fusedHighlightLaneId}
+						fusedPulseIsFollower={fusedPulseIsFollower}
 						subdivSig={subdivSig}
 						rowStepMaskSig={stepMaskSig}
 						rowDataHash={rowDataHash}

@@ -107,6 +107,7 @@ import {
 } from './stepMask';
 import {
 	dropPress,
+	inheritPulsationOnBarsExpand,
 	isStateEmpty as isPressStateEmpty,
 	tilePress,
 	type PressPatch,
@@ -4663,6 +4664,23 @@ export default function App() {
       // Press Matrix gate: tile/drop from frozen baseline if armed.
       // Pure functions live in `pressMatrix.ts`; closure-resolved at call time.
       handlePressOnBarsChange(prevBars, normalizedNext);
+      if (
+        normalizedNext > prevBars &&
+        polyModeRef.current &&
+        !isPressPrimed()
+      ) {
+        const nextCustomSyllables = inheritPulsationOnBarsExpand(
+          prevBars,
+          normalizedNext,
+          customSyllablesRef.current,
+          syllablesRef.current,
+          true,
+        );
+        if (nextCustomSyllables) {
+          customSyllablesRef.current = nextCustomSyllables;
+          setCustomSyllables(nextCustomSyllables);
+        }
+      }
     },
     /* `handlePressOnBarsChange` resolved via closure at call time (declared later in component body). */
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -8636,14 +8654,25 @@ export default function App() {
     return fusedLegacyNoteDurationSeconds(pulseSyllables, tempo, mult);
   }, []);
 
+  const getStandaloneBarNoteDurationSeconds = useCallback((rowIdx: number) => {
+    const cs = customSyllablesRef.current;
+    const rowSyllables =
+      cs[rowIdx] !== undefined ? cs[rowIdx]! : syllablesRef.current;
+    const pulseSyllables = pulseMeterUnlinkedRef.current[rowIdx]
+      ? PULSE_METER_BASE_SYLLABLES
+      : rowSyllables;
+    const mult = customMultipliersRef.current[rowIdx] || 1;
+    return fusedLegacyNoteDurationSeconds(pulseSyllables, tempoRef.current, mult);
+  }, []);
+
   const getPeerBarTimeWindowSeconds = useCallback((rowIdx: number) => {
-    const noteDuration = getLegacyNoteDurationSeconds(rowIdx);
+    const noteDuration = getStandaloneBarNoteDurationSeconds(rowIdx);
     const rowSyllables =
       customSyllablesRef.current[rowIdx] !== undefined
         ? customSyllablesRef.current[rowIdx]!
         : syllablesRef.current;
     return noteDuration * Math.max(1, rowSyllables);
-  }, [getLegacyNoteDurationSeconds]);
+  }, [getStandaloneBarNoteDurationSeconds]);
 
   const buildFusedTimingContext = useCallback((): FusedTimingContext | undefined => {
     if (!polyModeRef.current) return undefined;
@@ -9821,12 +9850,19 @@ export default function App() {
   const handleTogglePulseUnlinkedRow = useCallback((barIdx: number) => {
     const group = findGroupForBar(fusedBarGroupsRef.current, barIdx);
     if (group) {
+      const leader = group.bars[0]!;
       const patch = toggleGroupGati(group, pulseMeterUnlinkedRef.current);
       setPulseMeterUnlinked((prev) => {
         const next = { ...prev, ...patch };
         pulseMeterUnlinkedRef.current = next;
-        const nextVal = Boolean(next[group.bars[0]!]);
-        onPulseLongPressModeSwitchSideEffect(barIdx, getFusedRowSyllables(barIdx, customSyllablesRef.current, syllablesRef.current), nextVal);
+        const nextVal = Boolean(next[leader]);
+        const pulseSyl = getGroupPulseSyllables(
+          group,
+          customSyllablesRef.current,
+          syllablesRef.current,
+          next,
+        );
+        onPulseLongPressModeSwitchSideEffect(leader, pulseSyl, nextVal);
         return next;
       });
       return;
@@ -11017,6 +11053,15 @@ export default function App() {
                   <Snowflake size={12} />
                 </button>
               </div>
+              {/*
+                Matrix thumb arm disabled: keep activation only on snowflake hold.
+                thumbIdleArm={{
+                  holdMs: PRESS_LONG_PRESS_MS,
+                  slopPx: PRESS_BARS_SLIDER_ARM_SLOP_PX,
+                  cancelArmOnValueChange: true,
+                  onArm: handleBarsSliderThumbIdleArm,
+                }}
+              */}
               <StructuralSlider
                 label="Bars"
                 min={barsStructuralRange.min}
@@ -11028,12 +11073,6 @@ export default function App() {
                     ? '[&::-webkit-slider-thumb]:bg-violet-500 [&::-moz-range-thumb]:bg-violet-500'
                     : '[&::-webkit-slider-thumb]:bg-blue-400 [&::-moz-range-thumb]:bg-blue-400'
                 }
-                thumbIdleArm={{
-                  holdMs: PRESS_LONG_PRESS_MS,
-                  slopPx: PRESS_BARS_SLIDER_ARM_SLOP_PX,
-                  cancelArmOnValueChange: true,
-                  onArm: handleBarsSliderThumbIdleArm,
-                }}
                 onThumbPointerSessionEnd={handleBarsSliderThumbSessionEnd}
                 onBeginDrag={() => {
                   barsSliderDraggingRef.current = true;

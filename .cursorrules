@@ -1,17 +1,9 @@
-# 1. UI & Layout Debugging
-TRIGGER: Layout, alignment, overlapping, or stretching bugs.
-FORBIDDEN: Guessing, patching symptoms first, `translateX/Y`, negative offsets, fake `absolute` overlays.
-PROTOCOL:
-1. Read `docs/UI_DEBUG_GUIDE.md` & `docs/UI_DEBUG_CONFESSION_AND_SUMMARY.md`.
-2. Localize geometry top-down; preserve native flow.
-3. Change exactly ONE factor per iteration (margin OR padding OR width).
-4. Request "Traffic Light Method" (colored borders) from user.
-5. WAIT for screenshot before writing CSS fixes.
-
-# 2. Context Pollution & Deep Audit
-TRIGGER: Index 0 works but 1+ fails | 2 consecutive UI fixes failed | urge to use `useRef/useEffect/watchdogs`.
-DIAGNOSIS: Upstream data generator is likely broken (Symptom Patching Loop).
-FORBIDDEN: Modifying `useMemo/React.memo/JSX` before proving upstream data validity.
-PROTOCOL:
-1. STOP coding UI.
-2. Run Differential A/B Trace (see `docs/AI_DEEP_AUDIT_GUIDE.md`).
+# UI & Layout Debugging
+TRIGGER: User reports layout issues, alignment bugs, overlapping, or elements not stretching properly.
+ACTION: DO NOT guess. DO NOT patch visual symptoms first.
+FORBIDDEN ALWAYS FOR UI: `translateX/Y`, magic pixel offsets (`right: -20px`), fake/invisible extension layers, absolute overlay hacks.
+1. Read `docs/UI_DEBUG_GUIDE.md`.
+2. Read `docs/UI_DEBUG_CONFESSION_AND_SUMMARY.md`.
+3. Ask user to apply "The Traffic Light Method" (colored borders).
+4. Wait for screenshot before writing CSS fix.
+5. Debug top-down (root -> parent -> target -> children), keep native flow, one variable per experiment.

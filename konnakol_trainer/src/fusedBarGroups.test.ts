@@ -23,6 +23,7 @@ import {
 	getFusedBarTimeWindowSeconds,
 	getFusedCellDurationSeconds,
 	getFusedTotalLiveCells,
+	getDisplayPulseSyllables,
 	getLegacyNoteDurationSeconds,
 	remapGroupsOnBarsChange,
 	sumGroupJati,
@@ -43,7 +44,26 @@ function testHoldCreateExtendDissolve() {
 	g = applyFusedMultiplierHold(g, 3, false, 2, 4);
 	assert.deepEqual(g[0]!.bars, [0, 1, 2, 3]);
 	g = applyFusedMultiplierHold(g, 2, false, 2, 4);
+	assert.deepEqual(g[0]!.bars, [0, 1]);
+	assert.equal(findGroupForBar(g, 3), null);
+	g = applyFusedMultiplierHold(g, 0, false, 2, 4);
+	assert.equal(findGroupForBar(g, 1), null);
 	assert.equal(g.length, 0);
+}
+
+function testHoldDetachSingleBarNotWholeGroup() {
+	let g = applyFusedMultiplierHold([], 0, false, 2, 6);
+	g = applyFusedMultiplierHold(g, 1, false, 2, 6);
+	g = applyFusedMultiplierHold(g, 2, false, 2, 6);
+	assert.deepEqual(g[0]!.bars, [0, 1, 2]);
+	g = applyFusedMultiplierHold(g, 2, false, 2, 6);
+	assert.deepEqual(g[0]!.bars, [0, 1]);
+	assert.equal(findGroupForBar(g, 2), null);
+	g = applyFusedMultiplierHold(g, 1, false, 2, 6);
+	assert.equal(g.length, 0);
+	let solo = applyFusedMultiplierHold([], 0, false, 2, 6);
+	solo = applyFusedMultiplierHold(solo, 0, false, 2, 6);
+	assert.equal(solo.length, 0);
 }
 
 function testPolyLanesSeparate() {
@@ -54,6 +74,24 @@ function testPolyLanesSeparate() {
 	assert.deepEqual(findGroupForBar(g, 1)!.bars, [1]);
 	g = applyFusedMultiplierHold(g, 2, true, 2, 6);
 	assert.deepEqual(findGroupForBar(g, 0)!.bars, [0, 2]);
+}
+
+function testPolyFusedCrossLaneGroupsCanBothExtend() {
+	let g = applyFusedMultiplierHold([], 0, true, 2, 6);
+	g = applyFusedMultiplierHold(g, 1, true, 2, 6);
+	assert.deepEqual(findGroupForBar(g, 0)!.bars, [0]);
+	assert.deepEqual(findGroupForBar(g, 1)!.bars, [1]);
+	g = applyFusedMultiplierHold(g, 2, true, 2, 6);
+	assert.deepEqual(findGroupForBar(g, 0)!.bars, [0, 2]);
+	g = applyFusedMultiplierHold(g, 3, true, 2, 6);
+	assert.deepEqual(findGroupForBar(g, 1)!.bars, [1, 5]);
+	assert.deepEqual(computeFusedCrossLaneDeadBars(g, true, 2, 6), [3, 4]);
+
+	let other = applyFusedMultiplierHold([], 1, true, 2, 4);
+	other = applyFusedMultiplierHold(other, 3, true, 2, 4);
+	assert.deepEqual(findGroupForBar(other, 1)!.bars, [1, 3]);
+	other = applyFusedMultiplierHold(other, 2, true, 2, 4);
+	assert.deepEqual(findGroupForBar(other, 2)!.bars, [2]);
 }
 
 function testCannotSkipBar() {
@@ -131,6 +169,29 @@ function testPolyFusedWindowMatchesAnchorPeer() {
 	assert.ok(Math.abs(dCell * 10 - win) < 1e-9);
 	const peerStep = peerWin / 4;
 	assert.ok(Math.abs(peerStep / dCell - 2.5) < 1e-6, '4:10 step ratio');
+}
+
+function testSimultaneousPolyFusedGroupsShareCycleWindow() {
+	const lane0 = { laneId: 0, bars: [0, 2] };
+	const lane1 = { laneId: 1, bars: [1, 3] };
+	const cs = { 0: 5, 1: 4, 2: 4, 3: 4 };
+	const tempo = 120;
+	const standaloneWindow = (bar: number) => {
+		const row = cs[bar as keyof typeof cs] ?? 4;
+		return getLegacyNoteDurationSeconds(row, tempo, 1) * row;
+	};
+	const ctx = {
+		polyMode: true as const,
+		polyVoices: 2 as const,
+		barCount: 4,
+		getPeerBarWindowSeconds: standaloneWindow,
+	};
+	const win0 = getFusedBarTimeWindowSeconds(lane0, cs, 4, {}, {}, tempo, ctx);
+	const win1 = getFusedBarTimeWindowSeconds(lane1, cs, 4, {}, {}, tempo, ctx);
+	assert.ok(Math.abs(win0 - win1) < 1e-9, `windows must align: ${win0} vs ${win1}`);
+	assert.ok(Math.abs(win0 - standaloneWindow(0)) < 1e-9);
+	assert.ok(Math.abs(getFusedCellDurationSeconds(lane0, cs, 4, {}, {}, tempo, {}, ctx) * 9 - win0) < 1e-9);
+	assert.ok(Math.abs(getFusedCellDurationSeconds(lane1, cs, 4, {}, {}, tempo, {}, ctx) * 8 - win1) < 1e-9);
 }
 
 function testFusedFlatCellIndexStitchOrder() {
@@ -223,9 +284,19 @@ function testCrossLaneDeadOnFusedExtend() {
 	assert.deepEqual(computeFusedCrossLaneDeadBars(singleOnly, true, 2, 4), []);
 }
 
+function testDisplayPulseSyllablesUsesGroupSumOnAllRows() {
+	const group = { laneId: 0, bars: [0, 2] };
+	const cs = { 0: 9, 2: 2 };
+	assert.equal(getDisplayPulseSyllables(0, cs, 4, group), 11);
+	assert.equal(getDisplayPulseSyllables(2, cs, 4, group), 11);
+	assert.equal(getDisplayPulseSyllables(1, cs, 4, null), 4);
+}
+
 function run() {
 	testHoldCreateExtendDissolve();
+	testHoldDetachSingleBarNotWholeGroup();
 	testPolyLanesSeparate();
+	testPolyFusedCrossLaneGroupsCanBothExtend();
 	testCannotSkipBar();
 	testFusedTimingEqualsSingleBar();
 	testSnapshotRoundtrip();
@@ -238,7 +309,9 @@ function run() {
 	testFusedTaOnlyOnLeaderBeatZero();
 	testFusedJatiCarryAcrossBars();
 	testCrossLaneDeadOnFusedExtend();
+	testDisplayPulseSyllablesUsesGroupSumOnAllRows();
 	testPolyFusedWindowMatchesAnchorPeer();
+	testSimultaneousPolyFusedGroupsShareCycleWindow();
 	console.log('fusedBarGroups.test.ts: all passed');
 }
 

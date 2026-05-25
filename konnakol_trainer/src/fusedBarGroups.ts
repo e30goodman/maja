@@ -77,7 +77,7 @@ export function computeFusedCrossLaneDeadBars(
 			for (let lid = 0; lid < lanes.length; lid++) {
 				if (lid === g.laneId) continue;
 				const cross = lanes[lid]![cycleIdx];
-				if (cross !== undefined) dead.add(cross);
+				if (cross !== undefined && !findGroupForBar(groups, cross)) dead.add(cross);
 			}
 		}
 	}
@@ -255,6 +255,11 @@ export function getGroupPulseSyllables(
 	return sumGroupJati(group, customSyllables, baseSyllables);
 }
 
+export function isFusedGroupFollowerBar(group: FusedGroupState, bar: number): boolean {
+	return group.bars.includes(bar) && bar !== getGroupLeaderBar(group);
+}
+
+/** Pulse meter: every fused row shows the same Σ jati for the whole block. */
 export function getDisplayPulseSyllables(
 	bar: number,
 	customSyllables: Record<number, number>,
@@ -619,7 +624,131 @@ export function canAddBarToGroup(
 	return barPos === minPos - 1 || barPos === maxPos + 1;
 }
 
-/** Hold on multiplier: create / extend / dissolve. */
+function findNearestAddableBarForGroup(
+	group: FusedGroupState,
+	requestedBar: number,
+	laneBarIndices: number[],
+	groups: FusedGroupState[],
+	allowNearestFallback: boolean,
+): number | null {
+	if (canAddBarToGroup(group, requestedBar, laneBarIndices)) return requestedBar;
+	if (!allowNearestFallback) return null;
+	const positions = group.bars.map((b) => laneBarIndices.indexOf(b)).filter((p) => p >= 0);
+	if (positions.length === 0) return null;
+	const requestedPos = laneBarIndices.indexOf(requestedBar);
+	const minPos = Math.min(...positions);
+	const maxPos = Math.max(...positions);
+	const candidates = [minPos - 1, maxPos + 1]
+		.filter((p) => p >= 0 && p < laneBarIndices.length)
+		.map((p) => laneBarIndices[p]!)
+		.filter((b) => {
+			const owner = findGroupForBar(groups, b);
+			return owner === null || owner === group;
+		});
+	if (candidates.length === 0) return null;
+	const distance = (bar: number) => {
+		const pos = laneBarIndices.indexOf(bar);
+		if (requestedPos >= 0 && pos >= 0) return Math.abs(pos - requestedPos);
+		return Math.abs(bar - requestedBar);
+	};
+	return candidates.sort((a, b) => distance(a) - distance(b))[0] ?? null;
+}
+
+function buildReservableLaneBarIndices(
+	groups: FusedGroupState[],
+	currentGroup: FusedGroupState,
+	laneId: number,
+	laneBarIndices: number[],
+	polyMode: boolean,
+	polyVoices: PolyVoicesCount,
+	barCount: number,
+): number[] {
+	if (!polyMode || barCount <= 0) return laneBarIndices;
+	const lanes = buildLaneBarIndices(barCount, polyVoices);
+	const reserved = new Set<number>();
+	for (const g of groups) {
+		if (g === currentGroup || g.laneId === laneId) continue;
+		const otherLaneBars = lanes[g.laneId];
+		if (!otherLaneBars) continue;
+		const leader = getGroupLeaderBar(g);
+		for (const b of g.bars) {
+			if (b === leader) continue;
+			const cycleIdx = otherLaneBars.indexOf(b);
+			if (cycleIdx < 0) continue;
+			const cross = laneBarIndices[cycleIdx];
+			if (cross !== undefined) reserved.add(cross);
+		}
+	}
+	return laneBarIndices.filter((b) => {
+		if (currentGroup.bars.includes(b)) return true;
+		const owner = findGroupForBar(groups, b);
+		if (owner !== null && owner !== currentGroup) return false;
+		return !reserved.has(b);
+	});
+}
+
+function findNearestGroupForLane(
+	groups: FusedGroupState[],
+	laneId: number,
+	requestedBar: number,
+	laneBarIndices: number[],
+): FusedGroupState | null {
+	const laneGroups = groups.filter((g) => g.laneId === laneId);
+	if (laneGroups.length === 0) return null;
+	const requestedPos = laneBarIndices.indexOf(requestedBar);
+	const distance = (group: FusedGroupState) => {
+		const positions = group.bars.map((b) => laneBarIndices.indexOf(b)).filter((p) => p >= 0);
+		if (positions.length === 0) return Number.POSITIVE_INFINITY;
+		if (requestedPos >= 0) return Math.min(...positions.map((p) => Math.abs(p - requestedPos)));
+		return Math.min(...group.bars.map((b) => Math.abs(b - requestedBar)));
+	};
+	return laneGroups.sort((a, b) => distance(a) - distance(b))[0] ?? null;
+}
+
+/** After removing a bar, keep only contiguous runs with 2+ bars (singleton = unfused). */
+function splitIntoContiguousRuns(bars: number[], laneBarIndices: number[]): number[][] {
+	const sorted = sortBarsByLaneOrder(bars, laneBarIndices);
+	if (sorted.length === 0) return [];
+	const runs: number[][] = [];
+	let current: number[] = [sorted[0]!];
+	for (let i = 1; i < sorted.length; i++) {
+		const b = sorted[i]!;
+		const prevPos = laneBarIndices.indexOf(current[current.length - 1]!);
+		const pos = laneBarIndices.indexOf(b);
+		if (pos >= 0 && prevPos >= 0 && pos === prevPos + 1) {
+			current.push(b);
+		} else {
+			runs.push(current);
+			current = [b];
+		}
+	}
+	runs.push(current);
+	return runs;
+}
+
+function removeBarFromFusedGroup(
+	groups: FusedGroupState[],
+	existing: FusedGroupState,
+	bar: number,
+	laneId: number,
+	laneBars: number[],
+): FusedGroupState[] {
+	const remaining = existing.bars.filter((b) => b !== bar);
+	const without = groups.filter((g) => g !== existing);
+	if (remaining.length === 0) return without;
+	const runs = splitIntoContiguousRuns(remaining, laneBars);
+	const nextGroups: FusedGroupState[] = [];
+	for (const run of runs) {
+		if (run.length < 2) continue;
+		const normalized = normalizeGroupBars(run, laneBars);
+		if (normalized.length >= 2) {
+			nextGroups.push({ laneId, bars: normalized });
+		}
+	}
+	return [...without, ...nextGroups];
+}
+
+/** Hold on multiplier: create / extend / detach held bar only. */
 export function applyFusedMultiplierHold(
 	groups: FusedGroupState[],
 	bar: number,
@@ -628,17 +757,42 @@ export function applyFusedMultiplierHold(
 	barCount: number,
 ): FusedGroupState[] {
 	const laneId = getLaneId(bar, polyMode, polyVoices);
-	const existing = findGroupForBar(groups, bar);
-	if (existing) {
-		return groups.filter((g) => g !== existing);
-	}
-	const laneGroup = findGroupForLane(groups, laneId);
 	const laneBars = polyMode
 		? buildLaneBarIndices(barCount, polyVoices)[laneId]!
 		: Array.from({ length: barCount }, (_, i) => i);
+	const existing = findGroupForBar(groups, bar);
+	if (existing) {
+		const reservableLaneBars = buildReservableLaneBarIndices(
+			groups,
+			existing,
+			laneId,
+			laneBars,
+			polyMode,
+			polyVoices,
+			barCount,
+		);
+		return removeBarFromFusedGroup(groups, existing, bar, laneId, reservableLaneBars);
+	}
+	const laneGroup = findNearestGroupForLane(groups, laneId, bar, laneBars);
 	if (laneGroup) {
-		if (canAddBarToGroup(laneGroup, bar, laneBars)) {
-			const nextBars = normalizeGroupBars([...laneGroup.bars, bar], laneBars);
+		const reservableLaneBars = buildReservableLaneBarIndices(
+			groups,
+			laneGroup,
+			laneId,
+			laneBars,
+			polyMode,
+			polyVoices,
+			barCount,
+		);
+		const addBar = findNearestAddableBarForGroup(
+			laneGroup,
+			bar,
+			reservableLaneBars,
+			groups,
+			polyMode && reservableLaneBars.length !== laneBars.length,
+		);
+		if (addBar !== null) {
+			const nextBars = normalizeGroupBars([...laneGroup.bars, addBar], reservableLaneBars);
 			if (nextBars.length === 0) return groups;
 			return groups.map((g) => (g === laneGroup ? { laneId, bars: nextBars } : g));
 		}
