@@ -13,6 +13,8 @@ import {
 	getFusedCellDurationSeconds,
 	getGroupMultiplier,
 	getGroupPulseSyllables,
+	isRowPulseUnlinkedEffective,
+	normalizeBarMultiplier,
 	type FusedGroupState,
 	type FusedTimingContext,
 } from './fusedBarGroups';
@@ -21,7 +23,6 @@ import { advancePolyLaneAfterEmit, buildLaneBarIndices, type PolyVoicesCount } f
 import { buildRowCellSyllableLabels, type KalamMap, type RowRuntimeContext } from './sequencerLabels';
 import { resolveEffectiveStepMask, type CellStepMasks } from './stepMask';
 
-const PULSE_METER_BASE_SYLLABLES = 4;
 const LEGACY_TICK_OFFSET = 3840;
 
 export type MidiSquarePlaybackMode = 'passive_no_alt' | 'full_mix' | 'ta_only';
@@ -300,10 +301,10 @@ export function effectiveBpmForRow(
 	const pulseSyllables =
 		jatiCycle !== null
 			? jatiCycle
-			: pulseMeterUnlinked?.[rowIdx]
-				? PULSE_METER_BASE_SYLLABLES
-				: rowSyllables;
-	const mult = customMultipliers?.[rowIdx] ?? 1;
+			: isRowPulseUnlinkedEffective(pulseMeterUnlinked, rowIdx)
+				? rowSyllables
+				: baseSyllables;
+	const mult = normalizeBarMultiplier(customMultipliers?.[rowIdx]);
 	return bpm * (pulseSyllables / 4) * mult;
 }
 
@@ -429,6 +430,7 @@ export function classifyGridCellHits(args: {
 	trainerHoldMute?: boolean;
 	firstBeatRequiresExplicitMark?: boolean;
 	firstBeatHitPolicy?: FirstBeatHitPolicy;
+	suppressWhiteFrameSound?: boolean;
 }): ClassifiedHits {
 	const {
 		rowIdx,
@@ -449,8 +451,10 @@ export function classifyGridCellHits(args: {
 		trainerHoldMute,
 		firstBeatRequiresExplicitMark,
 		firstBeatHitPolicy,
+		suppressWhiteFrameSound,
 	} = args;
 	const layerMuted = trainerHoldMute === true;
+	const suppressWhite = suppressWhiteFrameSound === true;
 
 	const out: ClassifiedHits = { taHigh: false, accent: false, altShadow: false, passive: false };
 	const shouldDedupPolyClick = polyMode && polyClickSlots.has(polyDedupKey);
@@ -469,13 +473,13 @@ export function classifyGridCellHits(args: {
 	const sub = 0;
 	const mainAccentClick = isAccent && (subdivs > 1 || sub === 0);
 	const shouldPlayFirstBeatTa =
-		colIdx === 0 && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
-	const isTaDingCell = colIdx >= 1 && taDingKeys.has(`${rowIdx}-${colIdx}`);
+		!suppressWhite && colIdx === 0 && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
+	const isTaDingCell = !suppressWhite && colIdx >= 1 && taDingKeys.has(`${rowIdx}-${colIdx}`);
 	const shouldPlayTaDingSound = isTaDingCell && (subdivs > 1 || sub === 0);
-	const hasTaDingHere = taDingKeys.has(`${rowIdx}-${colIdx}`);
+	const hasTaDingHere = !suppressWhite && taDingKeys.has(`${rowIdx}-${colIdx}`);
 
 	const isTaFirstBeatArticulation =
-		colIdx === 0 && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
+		!suppressWhite && colIdx === 0 && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
 	const sharpAsChecked = (() => {
 		if (dictantActive) return mainAccentClick;
 		if (muteMode === 'no_accent_sharp' && mainAccentClick && !isTaFirstBeatArticulation) return false;
@@ -635,6 +639,17 @@ function getBarTimeWindowSeconds(
 	);
 }
 
+function getBarRepeatCountForExport(
+	bar: number,
+	customMultipliers: Record<number, number> | undefined,
+	fusedBarGroups: FusedGroupState[] = [],
+): number {
+	const group = findGroupForBar(fusedBarGroups, bar);
+	return group
+		? getGroupMultiplier(group, customMultipliers ?? {})
+		: normalizeBarMultiplier(customMultipliers?.[bar]);
+}
+
 function getStepDurationSecondsForExport(
 	bar: number,
 	baseSyllables: number,
@@ -721,7 +736,7 @@ function lanePatternSeconds(
 		const b = barIndices[i]!;
 		const g = findGroupForBar(fused, b);
 		if (g && b !== g.bars[0]) continue;
-		s += getBarTimeWindowSeconds(
+		const windowSec = getBarTimeWindowSeconds(
 			b,
 			input.baseSyllables,
 			input.customSyllables,
@@ -737,6 +752,7 @@ function lanePatternSeconds(
 			polyVoices,
 			barCount,
 		);
+		s += windowSec * getBarRepeatCountForExport(b, mult, fused);
 	}
 	return s;
 }
@@ -899,7 +915,7 @@ function buildPendingNotes(input: MidiExportInput): {
 					: input.laneRoleGains?.[laneIdx]?.passive;
 		const gain = Number.isFinite(roleGain as number) ? Math.max(0, roleGain as number) : 1;
 		const vel = Math.max(1, Math.min(127, Math.round(velBase * gain)));
-		// Keep note lengths proportional to bar-speed multipliers (x2/x3/x4 => shorter notes).
+		// Keep note lengths proportional to bar-speed multipliers (x2/x4 => shorter notes).
 		const scaledDurTicks = Math.max(1, Math.round(drumDurTicks / Math.max(1, rowMultiplier)));
 		pushNote(
 			pending,
@@ -928,6 +944,7 @@ function buildPendingNotes(input: MidiExportInput): {
 		polyMode: boolean,
 		polyVoice: number,
 		polyClickSlots: Set<string>,
+		repeatIndex = 0,
 	) => {
 		const rowSyl = getRowSyl(rowIdx, input.baseSyllables, input.customSyllables);
 		const subdivs = input.customSubdivisions[`${rowIdx}-${colIdx}`] ?? 1;
@@ -960,6 +977,7 @@ function buildPendingNotes(input: MidiExportInput): {
 			dictantActive,
 			trainerHoldMute,
 			firstBeatHitPolicy: firstBeatPolicy,
+			suppressWhiteFrameSound: repeatIndex > 0,
 		});
 		const on0Accent = rowAccents.has(`${rowIdx}-0`);
 		const on0Ding = rowTaDing.has(`${rowIdx}-0`);
@@ -975,9 +993,10 @@ function buildPendingNotes(input: MidiExportInput): {
 					suppressed.has(rowIdx),
 				)
 			: false;
-		const shouldPlayFirstBeatTa = isMegaBarDownbeat && firstBeatCellHitRow && (subdivs > 1 || 0 === 0);
+		const shouldPlayFirstBeatTa =
+			repeatIndex <= 0 && isMegaBarDownbeat && firstBeatCellHitRow && (subdivs > 1 || 0 === 0);
 		const mainAccent = isAccent;
-		const rowMultiplier = Math.max(1, Math.min(4, Math.floor(mult[rowIdx] ?? 1)));
+		const rowMultiplier = normalizeBarMultiplier(mult[rowIdx]);
 		const cellTicks = ticksPerCellFromRow(
 			bpm,
 			rowIdx,
@@ -1094,12 +1113,13 @@ function buildPendingNotes(input: MidiExportInput): {
 			undefined,
 			input.customSubdivisions,
 			input.cellStepMasks,
+			mult,
 		);
 		let wall = 0;
 		for (let rev = 0; rev < revolutions; rev++) {
 			for (const step of seq) {
 				if (wall > maxWall) break;
-				emitCell(step.r, step.c, 0, wall, false, 0, polyClickSlots);
+				emitCell(step.r, step.c, 0, wall, false, 0, polyClickSlots, step.repeatIndex ?? 0);
 				wall += getStepDurationSecondsForExport(
 					step.r,
 					input.baseSyllables,
@@ -1124,6 +1144,7 @@ function buildPendingNotes(input: MidiExportInput): {
 			barIndices: number[];
 			barCursor: number;
 			cellCursor: number;
+			barRepeatCursor: number;
 			nextWall: number;
 		};
 		const lanes: Lane[] = laneBarIdx.map((barIndices, laneId) => ({
@@ -1131,6 +1152,7 @@ function buildPendingNotes(input: MidiExportInput): {
 			barIndices,
 			barCursor: 0,
 			cellCursor: 0,
+			barRepeatCursor: 0,
 			nextWall: 0,
 		}));
 		const lanePatternSec = lanes.map((L) =>
@@ -1141,7 +1163,7 @@ function buildPendingNotes(input: MidiExportInput): {
 		for (let b = 0; b < barCount; b++) {
 			const g = findGroupForBar(fusedBarGroups, b);
 			if (g && b !== g.bars[0]) continue;
-			totalGridSec += getBarTimeWindowSeconds(
+			const windowSec = getBarTimeWindowSeconds(
 				b,
 				input.baseSyllables,
 				input.customSyllables,
@@ -1157,6 +1179,7 @@ function buildPendingNotes(input: MidiExportInput): {
 				V,
 				barCount,
 			);
+			totalGridSec += windowSec * getBarRepeatCountForExport(b, mult, fusedBarGroups);
 		}
 		const horizon = Math.min(maxWall, Math.max(slowest, totalGridSec * revolutions));
 		const polyClickSlots = new Set<string>();
@@ -1214,12 +1237,13 @@ function buildPendingNotes(input: MidiExportInput): {
 			}
 			const rowFullyDead = typeof deadStart === 'number' && deadStart <= 0;
 			if (!rowFullyDead) {
-				emitCell(bar, currentCell, best.laneId, bestT, true, best.laneId, polyClickSlots);
+				emitCell(bar, currentCell, best.laneId, bestT, true, best.laneId, polyClickSlots, best.barRepeatCursor);
 			}
 			if (rowFullyDead) {
 				crossedBars += 1;
 				best.barCursor = (best.barCursor + 1) % best.barIndices.length;
 				best.cellCursor = 0;
+				best.barRepeatCursor = 0;
 				// Truncation policy: fully-dead bar consumes zero physical time.
 				continue;
 			}
@@ -1234,9 +1258,26 @@ function buildPendingNotes(input: MidiExportInput): {
 			const advanceLaneBar =
 				!laneHeadSingleLiveHold && (advanceBar || (!advanceBar && nextCWithHeadHold === 0));
 			if (advanceLaneBar) {
+				const prevBar = bar;
+				const prevCursor = best.barCursor;
+				const nextCursor = (best.barCursor + 1) % best.barIndices.length;
+				const nextBar = best.barIndices[nextCursor]!;
+				const sameFused = Boolean(findGroupForBar(fusedBarGroups, prevBar)?.bars.includes(nextBar));
+				const repeats = getBarRepeatCountForExport(prevBar, mult, fusedBarGroups);
+				if (!sameFused && best.barRepeatCursor + 1 < repeats) {
+					best.barRepeatCursor += 1;
+					const fusedGroup = findGroupForBar(fusedBarGroups, prevBar);
+					const repeatStartBar = fusedGroup?.bars[0] ?? prevBar;
+					const repeatStartCursor = best.barIndices.indexOf(repeatStartBar);
+					best.barCursor = repeatStartCursor >= 0 ? repeatStartCursor : prevCursor;
+					best.cellCursor = 0;
+					best.nextWall += dBar;
+					continue;
+				}
 				crossedBars += 1;
-				best.barCursor = (best.barCursor + 1) % best.barIndices.length;
+				best.barCursor = nextCursor;
 				best.cellCursor = 0;
+				if (!sameFused) best.barRepeatCursor = 0;
 			} else {
 				best.cellCursor = nextCWithHeadHold;
 			}

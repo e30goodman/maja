@@ -1,6 +1,7 @@
 import React, { useMemo, useCallback, useRef, useEffect } from 'react';
 import {
 	buildRowCellSyllableLabels,
+	getSyllablesForGati,
 	getSyllableStyles,
 	type KalamMap,
 	type RowRuntimeContext,
@@ -18,6 +19,9 @@ import {
 	getGroupPulseSyllables,
 	incrementFusedGroupJatiFromBar,
 	isFusedGroupFirstBeatCell,
+	isRowPulseUnlinkedEffective,
+	cycleBarMultiplier,
+	normalizeBarMultiplier,
 	sumGroupJati,
 	type FusedGroupState,
 } from './fusedBarGroups';
@@ -91,12 +95,23 @@ function playheadHighlightCellClasses(
 	polyMode: boolean,
 	isPlaying: boolean,
 	polyVoiceIdx: number,
+	rowMult: number,
 	lowPerfMode: boolean,
 ): string {
 	if (isDead) {
 		return lowPerfMode
 			? 'bg-slate-800 border-2 box-border border-slate-500 z-10 text-slate-400'
 			: 'bg-slate-800 border-2 box-border border-slate-500 shadow-[0_0_10px_rgba(100,116,139,0.22)] z-10 text-slate-300';
+	}
+	if (rowMult === 2) {
+		return lowPerfMode
+			? 'bg-blue-950 border-2 box-border border-blue-500 z-10 text-blue-100'
+			: 'bg-blue-950 border-2 box-border border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.3)] z-10 text-blue-100';
+	}
+	if (rowMult === 4) {
+		return lowPerfMode
+			? 'bg-amber-950 border-2 box-border border-amber-400 z-10 text-amber-100'
+			: 'bg-amber-950 border-2 box-border border-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.28)] z-10 text-amber-100';
 	}
 	const polyActive = polyMode && isPlaying;
 	if (!polyActive || polyVoiceIdx === 0) {
@@ -154,8 +169,6 @@ function rowCellLabelsEqual(a: SyllableLabel[][], b: SyllableLabel[][]): boolean
 	return true;
 }
 
-const PULSE_METER_BASE_SYLLABLES = 4;
-
 function effectiveBpmForGridRow(
 	bpm: number,
 	rowIdx: number,
@@ -172,8 +185,8 @@ function effectiveBpmForGridRow(
 		return bpm * (pulseSyl / 4) * mult;
 	}
 	const rowSyllables = customSyllables[rowIdx] !== undefined ? customSyllables[rowIdx]! : baseSyllables;
-	const pulseSyllables = pulseMeterUnlinked[rowIdx] ? PULSE_METER_BASE_SYLLABLES : rowSyllables;
-	const mult = customMultipliers[rowIdx] ?? 1;
+	const pulseSyllables = isRowPulseUnlinkedEffective(pulseMeterUnlinked, rowIdx) ? rowSyllables : baseSyllables;
+	const mult = normalizeBarMultiplier(customMultipliers[rowIdx]);
 	return bpm * (pulseSyllables / 4) * mult;
 }
 
@@ -215,7 +228,7 @@ function useStableRowCellLabelsCache(
 					...(rowRuntimeContexts[r] ?? {}),
 					rowMultiplier: findGroupForBar(fusedBarGroups, r)
 						? getGroupMultiplier(findGroupForBar(fusedBarGroups, r)!, customMultipliers)
-						: (customMultipliers[r] ?? 1),
+						: normalizeBarMultiplier(customMultipliers[r]),
 					effectiveBpm: effectiveBpmForGridRow(
 						bpm,
 						r,
@@ -345,7 +358,7 @@ type SequencerGridRowProps = {
 	rowDataHash: string;
 	accentSig: string;
 	taDingSig: string;
-	pulseUnlinkedRow: boolean;
+	pulseHeldRow: boolean;
 	jatiPulseActiveRow: boolean;
 	activeEditRow: number | null;
 	activeEditCell: string | null;
@@ -398,7 +411,7 @@ function sequencerGridRowPropsEqual(a: SequencerGridRowProps, b: SequencerGridRo
 		a.rowDataHash === b.rowDataHash &&
 		a.accentSig === b.accentSig &&
 		a.taDingSig === b.taDingSig &&
-		a.pulseUnlinkedRow === b.pulseUnlinkedRow &&
+		a.pulseHeldRow === b.pulseHeldRow &&
 		a.jatiPulseActiveRow === b.jatiPulseActiveRow &&
 		a.activeEditRow === b.activeEditRow &&
 		a.activeEditCell === b.activeEditCell &&
@@ -450,7 +463,7 @@ const SequencerGridRow = React.memo(
 			rowDataHash,
 			accentSig,
 			taDingSig,
-			pulseUnlinkedRow,
+			pulseHeldRow,
 			jatiPulseActiveRow,
 			activeEditRow,
 			activeEditCell,
@@ -643,8 +656,7 @@ const SequencerGridRow = React.memo(
 								return;
 							}
 							a.setCustomMultipliers((prev) => {
-								const m = prev[rIdx] || 1;
-								const next = m === 1 ? 2 : m === 2 ? 3 : m === 3 ? 4 : 1;
+								const next = cycleBarMultiplier(prev[rIdx]);
 								if (next === 1) {
 									const copy = { ...prev };
 									delete copy[rIdx];
@@ -672,9 +684,7 @@ const SequencerGridRow = React.memo(
 								? 'bg-[#1e2a45] border-[#2f4066] text-slate-300 hover:bg-[#253353] active:bg-[#1a253c]'
 								: rowMult === 2
 									? `bg-blue-900/40 border-blue-500/50 text-blue-300 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_3px_rgba(59,130,246,0.1)]'}`
-									: rowMult === 3
-										? `bg-rose-900/40 border-rose-500/50 text-rose-300 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_3px_rgba(244,63,94,0.1)]'}`
-										: `bg-amber-900/40 border-amber-500/50 text-amber-200 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_3px_rgba(245,158,11,0.12)]'}`
+									: `bg-amber-900/40 border-amber-500/50 text-amber-200 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_3px_rgba(245,158,11,0.12)]'}`
 						}`}
 					>
 						{stepLabel !== undefined ? (
@@ -727,10 +737,12 @@ const SequencerGridRow = React.memo(
 										a.onTogglePulseUnlinkedRow(rIdx);
 									} else {
 										a.setPulseMeterUnlinked((prev) => {
-											const nextVal = !prev[rIdx];
+											const nextVal = !isRowPulseUnlinkedEffective(prev, rIdx);
 											a.onPulseLongPressModeSwitch?.(rIdx, rowSylls, nextVal);
-											const next = { ...prev, [rIdx]: nextVal };
-											a.pulseMeterUnlinkedRef.current = { ...next };
+											const next = { ...prev };
+											if (nextVal) next[rIdx] = true;
+											else delete next[rIdx];
+											a.pulseMeterUnlinkedRef.current = next;
 											return next;
 										});
 									}
@@ -919,7 +931,7 @@ const SequencerGridRow = React.memo(
 								? `ring-2 ring-purple-500 ${lowPerfMode ? '' : 'shadow-purple-500/30'} bg-[#1e2a45] border-[#2f4066] text-slate-400`
 								: jatiPulseActiveRow
 									? `bg-teal-500/25 border-teal-400/70 text-teal-50 ring-1 ring-teal-400/80 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_8px_rgba(20,184,166,0.25),0_0_12px_rgba(45,212,191,0.2)]'}`
-								: pulseUnlinkedRow
+								: pulseHeldRow
 									? `bg-teal-500/25 border-teal-400/70 text-teal-50 ring-1 ring-teal-400/80 ${lowPerfMode ? '' : 'shadow-[inset_0_1px_8px_rgba(20,184,166,0.25),0_0_12px_rgba(45,212,191,0.2)]'}`
 									: fusedPulseIsFollower
 										? 'bg-[#1a2238] border-[#2a3d66] text-slate-500'
@@ -936,12 +948,33 @@ const SequencerGridRow = React.memo(
 					aria-disabled={isStartBarPickMode}
 				>
 					<div className="absolute inset-x-0 -top-[2px] -bottom-[2px] w-full flex gap-1 items-stretch">
-					{Array.from({ length: Math.max(rowSylls, deadDisplayByRow[rIdx] ?? rowSylls) }).map((_, cIdx) => {
-						const checkKey = `${rIdx}-${cIdx}`;
+					{Array.from({
+						length:
+							rowSylls === 2 &&
+							(rowMult === 2 || rowMult === 4) &&
+							fusedHighlightLaneId === null &&
+							(rowSubdivs[0] ?? 1) === 1 &&
+							(rowSubdivs[1] ?? 1) === 1
+								? 1
+								: Math.max(rowSylls, deadDisplayByRow[rIdx] ?? rowSylls),
+					}).map((_, cIdx) => {
+						const mergedPulse2MultCell =
+							rowSylls === 2 &&
+							(rowMult === 2 || rowMult === 4) &&
+							fusedHighlightLaneId === null &&
+							(rowSubdivs[0] ?? 1) === 1 &&
+							(rowSubdivs[1] ?? 1) === 1;
+						const sourceCIdx = mergedPulse2MultCell ? 0 : cIdx;
+						const mergedSourceCells = mergedPulse2MultCell ? [0, 1] : [sourceCIdx];
+						const checkKey = `${rIdx}-${sourceCIdx}`;
 						const deadStart = deadStartByRow[rIdx];
-						const isDead = typeof deadStart === 'number' ? cIdx >= deadStart : cIdx >= rowSylls;
-						const isAccent = accentBits[cIdx] === '1';
-						const isTaDing = taDingBits[cIdx] === '1';
+						const isDead = mergedPulse2MultCell
+							? typeof deadStart === 'number' && deadStart <= 0
+							: typeof deadStart === 'number'
+								? sourceCIdx >= deadStart
+								: sourceCIdx >= rowSylls;
+						const isAccent = mergedSourceCells.some((idx) => accentBits[idx] === '1');
+						const isTaDing = mergedSourceCells.some((idx) => taDingBits[idx] === '1');
 						// FRAGILE — showEditorDing / showNonEditorDing gate all white-ring styling; must stay aligned with emitGridSubAudio Ta paths.
 						// ACCENT CONTRACT (read before changing):
 						// - showEditorDing (Ta editor): default col0 Ta + explicit taDing markers.
@@ -952,13 +985,13 @@ const SequencerGridRow = React.memo(
 						/** In Ta editor, legacy mode must show default Ta on beat 1 (unless explicitly suppressed). */
 						const showEditorDing =
 							isTaDing ||
-							(cIdx === 0 &&
+							(sourceCIdx === 0 &&
 								!isDead &&
 								fusedAllowsFirstBeatTa &&
 								!firstBeatRowSuppressed.has(rIdx) &&
 								forceFirstBeatEditorFrames);
 						const showLegacyDefaultInNormal =
-							cIdx === 0 &&
+							sourceCIdx === 0 &&
 							!isDead &&
 							fusedAllowsFirstBeatTa &&
 							forceFirstBeatEditorFrames &&
@@ -966,15 +999,20 @@ const SequencerGridRow = React.memo(
 							!firstBeatRowSuppressed.has(rIdx);
 						const showNonEditorDing = !isDead && isTaDing;
 						const showNonEditorDingWithLegacy = showNonEditorDing || showLegacyDefaultInNormal;
-						const isActive = highlightCol === cIdx;
-						const subdivs = isDead ? 1 : (rowSubdivs[cIdx] ?? 1);
-						const cellLabels = rowCellLabels[cIdx] ?? [];
-						const cellMaskBits = rowMaskBits[cIdx] ?? '';
+						const isActive = mergedPulse2MultCell
+							? highlightCol === 0 || highlightCol === 1
+							: highlightCol === sourceCIdx;
+						const forcedVisualSubdivs = mergedPulse2MultCell ? (rowMult === 2 ? 4 : 8) : null;
+						const subdivs = isDead ? 1 : (forcedVisualSubdivs ?? rowSubdivs[sourceCIdx] ?? 1);
+						const displayCellLabels: SyllableLabel[] = forcedVisualSubdivs
+							? getSyllablesForGati(forcedVisualSubdivs, 'medium').map((syl) => ({ syl, accent: isAccent }))
+							: (rowCellLabels[sourceCIdx] ?? []);
+						const cellMaskBits = mergedPulse2MultCell ? '' : (rowMaskBits[sourceCIdx] ?? '');
 						const cellFullyMuted =
 							!isDead &&
 							cellMaskBits.length > 0 &&
 							!cellMaskBits.includes('1');
-						const visualSubdivs = cellFullyMuted ? 1 : subdivs;
+						const visualSubdivs = forcedVisualSubdivs ?? (cellFullyMuted ? 1 : subdivs);
 						const cellBorder2 = 'border-2 box-border border-[#2f4066]';
 						const taPressedOverlayClasses =
 							'relative overflow-hidden active:after:content-[\'\'] active:after:absolute active:after:inset-0 active:after:bg-white/30 active:after:pointer-events-none';
@@ -1017,6 +1055,7 @@ const SequencerGridRow = React.memo(
 								polyMode,
 								isPlaying,
 								polyVoiceIdx,
+								rowMult,
 								lowPerfMode,
 							);
 						}
@@ -1044,7 +1083,7 @@ const SequencerGridRow = React.memo(
 								}`}
 							>
 								{Array.from({ length: visualSubdivs }).map((_, i) => {
-									const syl = rowCellLabels[cIdx]?.[i]?.syl ?? '';
+									const syl = displayCellLabels[i]?.syl ?? '';
 									const mutedGlyph = syl === '-' || syl === '–';
 									return (
 										<span
@@ -1054,7 +1093,7 @@ const SequencerGridRow = React.memo(
 												if (isStartBarPickMode) return;
 												if (!e.shiftKey) return;
 												e.stopPropagation();
-												actionsRef.current?.toggleCellStepMute(checkKey, i);
+												if (!mergedPulse2MultCell) actionsRef.current?.toggleCellStepMute(checkKey, i);
 											}}
 											className={`flex items-center justify-center w-full h-full min-w-0 overflow-hidden text-center px-px font-sans ${getSyllableStyles(rowSylls, subdivs)} ${
 												isDead
@@ -1063,7 +1102,7 @@ const SequencerGridRow = React.memo(
 														? lowPerfMode
 															? 'text-inherit'
 															: 'text-inherit drop-shadow-md'
-														: (accentForGlyph || rowCellLabels[cIdx]?.[i]?.accent === true)
+														: (accentForGlyph || displayCellLabels[i]?.accent === true)
 															? (lowPerfMode ? 'text-white' : 'drop-shadow-md')
 															: 'text-slate-300'
 											} ${visualSubdivs > 1 ? 'border-[0.5px] border-[#2f4066]/50' : ''}`}
@@ -1141,11 +1180,11 @@ const SequencerGridRow = React.memo(
 										if (cellFullyMuted) {
 											// Divs=0 long-press must affect only this exact cell.
 											// Use per-cell intent path (no row/neighbor side-effects).
-											a.applyCellIntent(rIdx, cIdx, { type: 'SET_SUBDIVS', nextSubdivs: 1 });
+											a.applyCellIntent(rIdx, sourceCIdx, { type: 'SET_SUBDIVS', nextSubdivs: 1 });
 											return;
 										}
 										const next = nextSubdivLongPress(subdivs, panelExpanded);
-										a.applyCellIntent(rIdx, cIdx, { type: 'LONG_PRESS', nextSubdivs: next });
+										a.applyCellIntent(rIdx, sourceCIdx, { type: 'LONG_PRESS', nextSubdivs: next });
 										a.subdivHoldSessionRef.current = {
 											key: checkKey,
 											startY: Number.isFinite(armedStartY) ? armedStartY : e.clientY,
@@ -1183,7 +1222,7 @@ const SequencerGridRow = React.memo(
 									if (deltaSteps === s.lastDeltaSteps) return;
 									s.lastDeltaSteps = deltaSteps;
 									const next = stepSubdivByDelta(s.baseSubdiv, deltaSteps, s.panelExpanded);
-									a.applyCellIntent(rIdx, cIdx, { type: 'LONG_PRESS', nextSubdivs: next });
+									a.applyCellIntent(rIdx, sourceCIdx, { type: 'LONG_PRESS', nextSubdivs: next });
 								}}
 								onPointerUp={(e) => {
 									const a = actionsRef.current;
@@ -1246,9 +1285,9 @@ const SequencerGridRow = React.memo(
 									// Normal mode -> accent layer; Ta editor -> Ta layer.
 									if (cellFullyMuted) {
 										if (isTaEditorMode) {
-											a.toggleTaDing(rIdx, cIdx);
+											a.toggleTaDing(rIdx, sourceCIdx);
 										} else {
-											a.toggleAccent(rIdx, cIdx);
+											a.toggleAccent(rIdx, sourceCIdx);
 										}
 										a.isHoldingRef.current = false;
 										a.cellGestureMutexRef.current = null;
@@ -1256,7 +1295,7 @@ const SequencerGridRow = React.memo(
 									}
 									if (isDeadCellsEditorMode) {
 										if (isDead) a.restoreDeadRow(rIdx);
-										else a.triggerDeadCut(rIdx, cIdx);
+										else a.triggerDeadCut(rIdx, sourceCIdx);
 										return;
 									}
 									if (isDead) {
@@ -1273,11 +1312,11 @@ const SequencerGridRow = React.memo(
 										return;
 									}
 									if (isTaEditorMode) {
-										a.toggleTaDing(rIdx, cIdx);
+										a.toggleTaDing(rIdx, sourceCIdx);
 										a.cellGestureMutexRef.current = null;
 										return;
 									}
-									a.toggleAccent(rIdx, cIdx);
+									a.toggleAccent(rIdx, sourceCIdx);
 									a.cellGestureMutexRef.current = null;
 								}}
 								onContextMenu={(e) => e.preventDefault()}
@@ -1516,7 +1555,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 				const rowCellLabels = rowCellLabelsCache[rIdx] ?? [];
 				const rowMult = fusedGroup
 					? getGroupMultiplier(fusedGroup, customMultipliers)
-					: customMultipliers[rIdx] || 1;
+					: normalizeBarMultiplier(customMultipliers[rIdx]);
 				const fusedHighlightLaneId =
 					fusedGroup !== null ? fusedGroup.laneId : null;
 				const fusedPulseIsFollower =
@@ -1534,9 +1573,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 					taDingKeys.has(`${rIdx}-${c}`) ? '1' : '0',
 				).join('');
 				const pulseLeaderRow = fusedGroup ? fusedGroup.bars[0]! : rIdx;
-				const pulseUnlinkedRow = fusedGroup
-					? Boolean(pulseMeterUnlinked[pulseLeaderRow])
-					: Boolean(pulseMeterUnlinked[rIdx]);
+				const pulseHeldRow = isRowPulseUnlinkedEffective(pulseMeterUnlinked, pulseLeaderRow);
 				const jatiPulseActiveRow = Boolean(jatiPulseActiveByRow[pulseLeaderRow]);
 
 				let highlightCol: number | null;
@@ -1606,7 +1643,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 						rowDataHash={rowDataHash}
 						accentSig={accentSig}
 						taDingSig={taDingSig}
-						pulseUnlinkedRow={pulseUnlinkedRow}
+						pulseHeldRow={pulseHeldRow}
 						jatiPulseActiveRow={jatiPulseActiveRow}
 						activeEditRow={activeEditRow}
 						activeEditCell={activeEditCell}

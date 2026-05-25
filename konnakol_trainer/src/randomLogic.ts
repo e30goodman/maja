@@ -12,6 +12,7 @@
  */
 
 import { resolveEffectiveStepMask, type CellStepMasks } from './stepMask';
+import { normalizeBarMultiplier } from './fusedBarGroups';
 
 export const CHAOS_SLIDER_MAX = 100;
 
@@ -212,7 +213,14 @@ export type BarRandomizerMutable = {
 	deadCells: DeadCellsMap;
 };
 
-export type SequencerSeqItem = { r: number; c: number; activeSyllables: number };
+export type SequencerSeqItem = {
+	r: number;
+	c: number;
+	activeSyllables: number;
+	/** 0-based replay pass for x2/x4 bar-repeat scheduling. */
+	repeatIndex?: number;
+	repeatCount?: number;
+};
 
 /**
  * Порядок долей в legacy (не poly): только живые клетки `c < deadStart`.
@@ -227,21 +235,26 @@ export function buildLegacyPlaybackSequence(
 	customCellSyllables?: Record<string, string>,
 	customSubdivisions?: Record<string, number>,
 	cellStepMasks?: CellStepMasks,
+	customMultipliers?: Record<number, number>,
 ): SequencerSeqItem[] {
 	void customCellSyllables;
 	const seq: SequencerSeqItem[] = [];
 	for (let r = 0; r < barCount; r++) {
 		const syls = customSyllables[r] !== undefined ? customSyllables[r] : baseSyllables;
+		const repeatCount = normalizeBarMultiplier(customMultipliers?.[r]);
 		const ds = deadCells[r]?.deadStart;
 		const lastLiveExclusive =
 			typeof ds === 'number' ? Math.min(Math.max(0, Math.floor(ds)), syls) : syls;
-		for (let c = 0; c < lastLiveExclusive; c++) {
-			const cellKey = `${r}-${c}`;
-			const subdivs = customSubdivisions?.[cellKey] ?? 1;
-			const stepMask = resolveEffectiveStepMask(cellKey, subdivs, cellStepMasks);
-			// Divs=0 (all-false mask) must stay in timing grid:
-			// mute is handled in audio emit path, not by removing cell from sequence.
-			seq.push({ r, c, activeSyllables: syls });
+		for (let repeatIndex = 0; repeatIndex < repeatCount; repeatIndex++) {
+			for (let c = 0; c < lastLiveExclusive; c++) {
+				const cellKey = `${r}-${c}`;
+				const subdivs = customSubdivisions?.[cellKey] ?? 1;
+				const stepMask = resolveEffectiveStepMask(cellKey, subdivs, cellStepMasks);
+				void stepMask;
+				// Divs=0 (all-false mask) must stay in timing grid:
+				// mute is handled in audio emit path, not by removing cell from sequence.
+				seq.push({ r, c, activeSyllables: syls, repeatIndex, repeatCount });
+			}
 		}
 	}
 	return seq;

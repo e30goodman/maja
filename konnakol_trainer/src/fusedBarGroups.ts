@@ -6,6 +6,7 @@
 import type { DeadCellsMap } from './randomLogic';
 
 export const PULSE_METER_BASE_SYLLABLES = 4;
+export type BarMultiplier = 1 | 2 | 4;
 
 export type FusedGroupState = {
 	laneId: number;
@@ -13,6 +14,20 @@ export type FusedGroupState = {
 	/** Lane bars cut when global `bars` shrank; merged back when `bars` grows again. */
 	shrinkDetachedBars?: number[];
 };
+
+export function normalizeBarMultiplier(raw: unknown): BarMultiplier {
+	const n = Math.floor(Number(raw));
+	return n === 2 || n === 4 ? n : 1;
+}
+
+export function shouldStoreBarMultiplier(raw: unknown): raw is 2 | 4 {
+	return normalizeBarMultiplier(raw) !== 1;
+}
+
+export function cycleBarMultiplier(raw: unknown): BarMultiplier {
+	const cur = normalizeBarMultiplier(raw);
+	return cur === 1 ? 2 : cur === 2 ? 4 : 1;
+}
 
 export type PolyVoicesCount = 2 | 3;
 
@@ -242,7 +257,14 @@ export function isGroupGati(
 	pulseMeterUnlinked: Record<number, boolean>,
 ): boolean {
 	const leader = group.bars[0]!;
-	return Boolean(pulseMeterUnlinked[leader]);
+	return isRowPulseUnlinkedEffective(pulseMeterUnlinked, leader);
+}
+
+export function isRowPulseUnlinkedEffective(
+	pulseMeterUnlinked: Record<number, boolean> | undefined,
+	rowIdx: number,
+): boolean {
+	return pulseMeterUnlinked?.[rowIdx] === true;
 }
 
 export function getGroupPulseSyllables(
@@ -251,8 +273,8 @@ export function getGroupPulseSyllables(
 	baseSyllables: number,
 	pulseMeterUnlinked: Record<number, boolean>,
 ): number {
-	if (isGroupGati(group, pulseMeterUnlinked)) return PULSE_METER_BASE_SYLLABLES;
-	return sumGroupJati(group, customSyllables, baseSyllables);
+	if (isGroupGati(group, pulseMeterUnlinked)) return sumGroupJati(group, customSyllables, baseSyllables);
+	return baseSyllables;
 }
 
 export function isFusedGroupFollowerBar(group: FusedGroupState, bar: number): boolean {
@@ -361,7 +383,7 @@ export function getGroupMultiplier(
 	group: FusedGroupState,
 	customMultipliers: Record<number, number>,
 ): number {
-	return customMultipliers[getGroupLeaderBar(group)] ?? 1;
+	return normalizeBarMultiplier(customMultipliers[getGroupLeaderBar(group)]);
 }
 
 export function getLegacyNoteDurationSeconds(
@@ -369,7 +391,7 @@ export function getLegacyNoteDurationSeconds(
 	tempo: number,
 	mult: number,
 ): number {
-	const effectiveBpm = tempo * (pulseSyllables / 4) * mult;
+	const effectiveBpm = tempo * (pulseSyllables / 4) * normalizeBarMultiplier(mult);
 	if (effectiveBpm <= 0) return 0.5;
 	return 60.0 / effectiveBpm;
 }
@@ -816,14 +838,15 @@ export function syncGroupMultiplier(
 	if (!g) return {};
 	const out: Record<number, number> = {};
 	const leader = getGroupLeaderBar(g);
-	if (mult === 1) {
+	const normalized = normalizeBarMultiplier(mult);
+	if (normalized === 1) {
 		for (const b of g.bars) {
 			if (b !== leader) out[b] = -1;
 		}
 		return out;
 	}
 	for (const b of g.bars) {
-		out[b] = mult;
+		out[b] = normalized;
 	}
 	return out;
 }

@@ -395,6 +395,30 @@ function testLegacySequenceKeepsDiv0CellsInTimingGrid() {
 	);
 }
 
+function testLegacySequenceRepeatsOnlyX2AndX4Bars() {
+	const seq = buildLegacyPlaybackSequence(3, {}, 2, {}, {}, {}, {}, { 0: 2, 1: 3, 2: 4 });
+	assert.deepEqual(
+		seq.map((x) => `${x.r}-${x.c}:${x.repeatIndex ?? 0}/${x.repeatCount ?? 1}`),
+		[
+			'0-0:0/2',
+			'0-1:0/2',
+			'0-0:1/2',
+			'0-1:1/2',
+			'1-0:0/1',
+			'1-1:0/1',
+			'2-0:0/4',
+			'2-1:0/4',
+			'2-0:1/4',
+			'2-1:1/4',
+			'2-0:2/4',
+			'2-1:2/4',
+			'2-0:3/4',
+			'2-1:3/4',
+		],
+		'x2/x4 repeat bars; x3 is removed and behaves like x1',
+	);
+}
+
 testChangeProbCurvesMonotoneAndBounded();
 testCellSpeedHitPContinuityAt25();
 testSmoothstep();
@@ -416,4 +440,5 @@ testCellSpeedExtendedBlendEndpoints();
 testDeadCellsIndependentOfAccents();
 testSpeedFillsAllCellsIndependentOfAccents();
 testLegacySequenceKeepsDiv0CellsInTimingGrid();
+testLegacySequenceRepeatsOnlyX2AndX4Bars();
 console.log('randomCurves.test.ts: ok');

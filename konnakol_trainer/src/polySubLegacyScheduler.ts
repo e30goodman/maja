@@ -15,6 +15,7 @@ export type PolySubLegacyEmit = (
 	voice: number,
 	step: number,
 	dBar: number,
+	repeatIndex: number,
 ) => void;
 
 export type PolySubLegacyDeps = {
@@ -25,6 +26,8 @@ export type PolySubLegacyDeps = {
 	getDeadStart: (bar: number) => number | undefined;
 	/** Per-cell step duration (fused block uses constant dCell across member bars). */
 	getStepDurationSeconds: (bar: number, c: number) => number;
+	/** x2/x4 replays the current bar or fused block before the lane advances. */
+	getBarRepeatCount?: (bar: number) => number;
 	/** When false, advancing to next bar on lane does not fire `onLaneBarBoundary` (same fused block). */
 	barsInSameFusedBlock?: (prevBar: number, nextBar: number) => boolean;
 	getFusedGroup?: (bar: number) => { bars: number[] } | null;
@@ -83,6 +86,7 @@ export type PolyLaneState = {
 	barIndices: number[];
 	barCursor: number;
 	cellCursor: number;
+	barRepeatCursor: number;
 	nextTime: number;
 };
 
@@ -125,6 +129,7 @@ export function createPolySubLegacyScheduler(deps: PolySubLegacyDeps): PolySubLe
 			barIndices,
 			barCursor: 0,
 			cellCursor: 0,
+			barRepeatCursor: 0,
 			nextTime: 0,
 		}));
 	};
@@ -134,6 +139,7 @@ export function createPolySubLegacyScheduler(deps: PolySubLegacyDeps): PolySubLe
 		for (const L of lanes) {
 			L.barCursor = 0;
 			L.cellCursor = 0;
+			L.barRepeatCursor = 0;
 			L.nextTime = startTime;
 		}
 	};
@@ -155,6 +161,7 @@ export function createPolySubLegacyScheduler(deps: PolySubLegacyDeps): PolySubLe
 				L.barCursor = laneBarCursorForPatternBar(L.barIndices, anchor);
 			}
 			L.cellCursor = 0;
+			L.barRepeatCursor = 0;
 			L.nextTime = startTime;
 		}
 	};
@@ -168,6 +175,7 @@ export function createPolySubLegacyScheduler(deps: PolySubLegacyDeps): PolySubLe
 		for (const L of lanes) {
 			L.barCursor = Math.min(L.barCursor, Math.max(0, L.barIndices.length - 1));
 			L.cellCursor = 0;
+			L.barRepeatCursor = 0;
 			L.nextTime = t0;
 		}
 	};
@@ -283,13 +291,14 @@ export function createPolySubLegacyScheduler(deps: PolySubLegacyDeps): PolySubLe
 
 			const rowFullyDead = typeof deadStart === 'number' && deadStart <= 0;
 			if (!rowFullyDead) {
-				deps.emit(bar, c, bar, bestT, voice, chunkStep, stepDur);
+				deps.emit(bar, c, bar, bestT, voice, chunkStep, stepDur, best.barRepeatCursor);
 			}
 			if (rowFullyDead) {
 				const prevBar = bar;
 				const prevCursor = best.barCursor;
 				best.barCursor = (best.barCursor + 1) % best.barIndices.length;
 				best.cellCursor = 0;
+				best.barRepeatCursor = 0;
 				const wrappedPattern =
 					best.barCursor === 0 && prevCursor === best.barIndices.length - 1;
 				deps.onLaneBarBoundary?.(prevBar, best.laneId, wrappedPattern);
@@ -310,12 +319,25 @@ export function createPolySubLegacyScheduler(deps: PolySubLegacyDeps): PolySubLe
 			if (advanceLaneBar) {
 				const prevBar = bar;
 				const prevCursor = best.barCursor;
-				best.barCursor = (best.barCursor + 1) % best.barIndices.length;
-				best.cellCursor = 0;
-				const nextBar = best.barIndices[best.barCursor]!;
+				const nextCursor = (best.barCursor + 1) % best.barIndices.length;
+				const nextBar = best.barIndices[nextCursor]!;
 				const wrappedPattern =
-					best.barCursor === 0 && prevCursor === best.barIndices.length - 1;
+					nextCursor === 0 && prevCursor === best.barIndices.length - 1;
 				const sameFused = deps.barsInSameFusedBlock?.(prevBar, nextBar) ?? false;
+				const repeats = Math.max(1, Math.floor(deps.getBarRepeatCount?.(prevBar) ?? 1));
+				if (!sameFused && best.barRepeatCursor + 1 < repeats) {
+					best.barRepeatCursor += 1;
+					const fusedGroup = deps.getFusedGroup?.(prevBar) ?? null;
+					const repeatStartBar = fusedGroup?.bars[0] ?? prevBar;
+					const repeatStartCursor = best.barIndices.indexOf(repeatStartBar);
+					best.barCursor = repeatStartCursor >= 0 ? repeatStartCursor : prevCursor;
+					best.cellCursor = 0;
+					best.nextTime += stepDur;
+					continue;
+				}
+				best.barCursor = nextCursor;
+				best.cellCursor = 0;
+				if (!sameFused) best.barRepeatCursor = 0;
 				if (!sameFused) {
 					deps.onLaneBarBoundary?.(prevBar, best.laneId, wrappedPattern);
 				}

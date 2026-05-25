@@ -42,6 +42,11 @@ function testTicksPerCell() {
 	const ppq = 960;
 	const t1 = ticksPerCellFromRow(120, 0, 4, {}, undefined, undefined, ppq);
 	assert.equal(t1, ppq);
+	const tJati3NoHold = ticksPerCellFromRow(120, 0, 3, { 0: 3 }, undefined, undefined, ppq);
+	const tJati4NoHold = ticksPerCellFromRow(120, 1, 3, { 1: 4 }, undefined, undefined, ppq);
+	const tJati4AfterHold = ticksPerCellFromRow(120, 1, 3, { 1: 4 }, { 1: true }, undefined, ppq);
+	assert.equal(tJati4NoHold, tJati3NoHold, 'unheld jati changes cell count/labels, not note duration');
+	assert.ok(tJati4AfterHold < tJati3NoHold, 'held jati=4 must be faster than unheld/global jati=3');
 	const t2 = ticksPerCellFromRow(
 		120,
 		0,
@@ -220,6 +225,30 @@ function testClassifyFirstBeatTaNeverAltShadow() {
 	assert.equal(hits.altShadow, false);
 }
 
+function testClassifyRepeatSuppressesWhiteFrameOnly() {
+	const hits = classifyGridCellHits({
+		rowIdx: 0,
+		colIdx: 2,
+		subdivs: 1,
+		isAccent: true,
+		taDingKeys: new Set(['0-2']),
+		accents: new Set(['0-2']),
+		firstBeatAccent: true,
+		suppressedRow: false,
+		polyMode: false,
+		polyDedupKey: 'repeat',
+		polyClickSlots: new Set<string>(),
+		mixerLayerMode: 'full_mix',
+		trainerMode: 'normal',
+		muteMode: 'off',
+		dictantActive: false,
+		suppressWhiteFrameSound: true,
+	});
+	assert.equal(hits.taHigh, false, 'repeat pass must not replay white Ta/Ding');
+	assert.equal(hits.accent, true, 'purple accent remains audible on repeat pass');
+	assert.equal(hits.altShadow, true, 'without white-frame routing, purple accent keeps normal alt shadow');
+}
+
 function testFirstBeatPolicyParityRuntimeVsMidi() {
 	assert.equal(resolveFirstBeatHitRow('legacy', false, false, true, false), true);
 	/* Suppressed row: plain 0-accent must not trigger Ta hit. */
@@ -351,6 +380,32 @@ function testFirstSubstepMaskBlocksPrimaryHits() {
 	assert.equal(cellEvents.some((e) => e.role === 'taHigh' || e.role === 'accent'), false);
 }
 
+function testMultiplierRepeatExportsTaDingOnce() {
+	const { events } = buildMidiParityEvents({
+		bpm: 120,
+		bars: 1,
+		baseSyllables: 2,
+		customSyllables: {},
+		customSubdivisions: {},
+		customMultipliers: { 0: 2 },
+		accents: new Set<string>(),
+		taDingKeys: new Set<string>(['0-1']),
+		firstBeatAccent: false,
+		firstBeatDingSuppressedRows: new Set<number>(),
+		deadCells: {},
+		polyMode: false,
+		polyVoices: 2,
+		humanize: false,
+		seed: 7,
+		ppq: 960,
+		maxNoteEvents: 1000,
+		maxWallSeconds: 30,
+		patternRevolutions: 1,
+	});
+	const taDingHits = events.filter((e) => e.row === 1 && e.cell === 2 && e.role === 'taHigh');
+	assert.equal(taDingHits.length, 1, 'x2 repeats the bar but exports Ta/Ding only on first pass');
+}
+
 function testBuildWriterEventsStrictOrderAndOffEvents() {
 	const { events } = buildWriterEvents({
 		bpm: 120,
@@ -415,6 +470,7 @@ function run() {
 	testClassifyPolyLane1AccentOnlyNoTa();
 	testClassifyLane0LegacyDefaultFirstBeat();
 	testClassifyFirstBeatTaNeverAltShadow();
+	testClassifyRepeatSuppressesWhiteFrameOnly();
 	testFirstBeatPolicyParityRuntimeVsMidi();
 	testBuildLaneBarIndices();
 	testGenerateMidiSmoke();
@@ -422,6 +478,7 @@ function run() {
 	testParityNoAltOnExplicitTaDingCell();
 	testLaneRoleMidiNotes();
 	testFirstSubstepMaskBlocksPrimaryHits();
+	testMultiplierRepeatExportsTaDingOnce();
 	testBuildWriterEventsStrictOrderAndOffEvents();
 	testMonoRegressionSmoke();
 	console.log('midiExport.test.ts: all passed');

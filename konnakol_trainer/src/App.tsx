@@ -44,7 +44,11 @@ import {
 	getGroupMultiplier,
 	getGroupPulseSyllables,
 	getRowSyllables as getFusedRowSyllables,
+	cycleBarMultiplier,
+	isRowPulseUnlinkedEffective,
+	normalizeBarMultiplier,
 	remapGroupsOnBarsChange,
+	shouldStoreBarMultiplier,
 	syncGroupMultiplier,
 	toggleGroupGati,
 	type FusedGroupState,
@@ -273,10 +277,34 @@ function normalizePulseMeterUnlinked(raw: unknown): Record<number, boolean> {
 	const out: Record<number, boolean> = {};
 	for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
 		const ri = parseInt(k, 10);
-		if (Number.isFinite(ri) && ri >= 0) out[ri] = Boolean(v);
+		if (Number.isFinite(ri) && ri >= 0 && Boolean(v) === true) out[ri] = true;
 	}
 	return out;
 }
+
+function withPulseHeldRows(
+	rows: Record<number, boolean>,
+	fromInclusive: number,
+	toExclusive: number,
+): Record<number, boolean> {
+	const out = { ...rows };
+	const from = Math.max(0, Math.floor(fromInclusive));
+	const to = Math.max(from, Math.floor(toExclusive));
+	for (let r = from; r < to; r++) out[r] = true;
+	return out;
+}
+
+function normalizeCustomMultipliers(raw: unknown): Record<number, number> {
+	if (!raw || typeof raw !== 'object') return {};
+	const out: Record<number, number> = {};
+	for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+		const ri = parseInt(k, 10);
+		const mult = normalizeBarMultiplier(v);
+		if (Number.isFinite(ri) && ri >= 0 && mult !== 1) out[ri] = mult;
+	}
+	return out;
+}
+
 function parsePolyVoices(raw: unknown): 2 | 3 | 4 {
 	const n = parseInt(String(raw), 10);
 	// return n === 3 || n === 4 ? n : 2;
@@ -494,13 +522,13 @@ const TEMPO_SLIDER_INLINE_HOLD_MS = 420;
 const TEMPO_MANUAL_MAX_MOVE_PX = 14;
 /*
  * Do not modify this block without a migration plan.
- * The marker, regex, field order, p1/p2/p3 layout, 0xFE handling, V2 and legacy compatibility
+ * The marker, regex, field order, p1..p6 layout, 0xFE handling, V2 and legacy compatibility
  * are tightly coupled: encodeSnapshotClipboard / tryDecodeSnapshotClipboard / packGridTokenPacked.
  */
 /**
  * FRAGILE — compact clipboard snapshot format (high regression risk).
  * Do not change marker string, SNAPSHOT_CLIPBOARD_MARKER_REGEX character class, dot-separated field
- * order/count, p1/p2/p3 binary layout in pack/unpack, or flag bit meanings without a migration plan.
+ * order/count, p1..p6 binary layout in pack/unpack, or flag bit meanings without a migration plan.
  * Reference: konnakol_trainer/docs/reserve-hub/01-snapshot-clipboard-cipher.md
  */
 /** Clipboard export: kawaii magic marker for compact preset payload. */
@@ -1911,13 +1939,13 @@ function encodePulseUnlinkedRowsToken(rows: Record<number, boolean>): string {
 	return out.join('_');
 }
 
-function decodePulseUnlinkedRowsToken(token: string): Record<number, boolean> {
+function decodePulseUnlinkedRowsToken(token: string, linkedExceptions = false): Record<number, boolean> {
 	if (!token || token === '0') return {};
 	const out: Record<number, boolean> = {};
 	for (const piece of token.split('_')) {
 		const row = parseInt(piece, 36);
 		if (!Number.isFinite(row) || row < 0) continue;
-		out[row] = true;
+		out[row] = linkedExceptions ? false : true;
 	}
 	return out;
 }
@@ -2095,10 +2123,7 @@ function packGridTokenPacked(
 	const out: number[] = [];
 	const bars = Math.max(1, Math.min(255, snapshot.bars));
 	const syllables = Math.max(1, Math.min(9, snapshot.syllables));
-	const useV2 = (snapshot.accentMapVersion ?? 0) >= 1;
-	const useV3 = true; // v3: adds taDing bitmap; backward parser keeps p1/p2 support.
-	const hasStepMasks = Object.keys(snapshot.cellStepMasks || {}).length > 0;
-	const gridVersion = hasStepMasks ? 0x04 : (useV3 ? 0x03 : useV2 ? 0x02 : 0x01);
+	const gridVersion: number = 0x06; // v6: pulse rows encode explicit hold/unlinked(true) rows.
 	out.push(0x50, gridVersion, bars, syllables);
 
 	const rowEntries = Object.entries(snapshot.customSyllables)
@@ -2154,7 +2179,7 @@ function packGridTokenPacked(
 
 	const multEntries = Object.entries(snapshot.customMultipliers)
 		.map(([k, v]) => [parseInt(k, 10), parseInt(String(v), 10)] as const)
-		.filter(([r, v]) => Number.isFinite(r) && r >= 0 && r < bars && Number.isFinite(v) && v >= 2 && v <= 4)
+		.filter(([r, v]) => Number.isFinite(r) && r >= 0 && r < bars && Number.isFinite(v) && shouldStoreBarMultiplier(v))
 		.sort((a, b) => a[0] - b[0]);
 	out.push(Math.min(255, multEntries.length));
 	for (let i = 0; i < Math.min(255, multEntries.length); i++) {
@@ -2173,7 +2198,7 @@ function packGridTokenPacked(
 	// p3: always write map-version byte (0/1), so decode never falls back to legacy=0 and does not auto-draw Ta on beat 0.
 	if (gridVersion >= 0x03) {
 		out.push(((snapshot.accentMapVersion ?? 0) >= 1 ? 1 : 0) & 0xff);
-	} else if (useV2) {
+	} else if ((snapshot.accentMapVersion ?? 0) >= 1) {
 		out.push(Math.min(255, Math.max(0, Math.floor(snapshot.accentMapVersion ?? 1))) & 0xff);
 	}
 	if (gridVersion >= 0x04) {
@@ -2197,8 +2222,7 @@ function packGridTokenPacked(
 		}
 	}
 
-	const prefix = gridVersion === 0x04 ? 'p4' : gridVersion === 0x03 ? 'p3' : useV2 ? 'p2' : 'p1';
-	return `${prefix}${toBase64Url(new Uint8Array(out))}`;
+	return `p6${toBase64Url(new Uint8Array(out))}`;
 }
 
 /** FRAGILE — must stay symmetric to packGridTokenPacked; invalid lengths silently corrupt grids. */
@@ -2207,7 +2231,9 @@ function unpackGridTokenPacked(
 	d: ReturnType<typeof createEmptySnapshot>,
 ): boolean {
 	let b64 = token;
-	if (token.startsWith('p4')) b64 = token.slice(2);
+	if (token.startsWith('p6')) b64 = token.slice(2);
+	else if (token.startsWith('p5')) b64 = token.slice(2);
+	else if (token.startsWith('p4')) b64 = token.slice(2);
 	else if (token.startsWith('p3')) b64 = token.slice(2);
 	else if (token.startsWith('p2')) b64 = token.slice(2);
 	else if (token.startsWith('p1')) b64 = token.slice(2);
@@ -2217,7 +2243,7 @@ function unpackGridTokenPacked(
 	let off = 0;
 	const magic = bytes[off++]!;
 	const version = bytes[off++]!;
-	if (magic !== 0x50 || (version !== 0x01 && version !== 0x02 && version !== 0x03 && version !== 0x04)) return false;
+	if (magic !== 0x50 || ![0x01, 0x02, 0x03, 0x04, 0x05, 0x06].includes(version)) return false;
 	const bars = bytes[off++]!;
 	const syllables = bytes[off++]!;
 	if (bars < 1 || bars > 100 || syllables < 1 || syllables > 9) return false;
@@ -2282,7 +2308,7 @@ function unpackGridTokenPacked(
 		if (off + 1 >= bytes.length) return false;
 		const r = bytes[off++]!;
 		const v = bytes[off++]!;
-		if (r < bars && v >= 2 && v <= 4) nextMult[r] = v;
+		if (r < bars && shouldStoreBarMultiplier(v)) nextMult[r] = v;
 	}
 	d.customMultipliers = nextMult;
 
@@ -2292,7 +2318,7 @@ function unpackGridTokenPacked(
 	for (let i = 0; i < pulseCount; i++) {
 		if (off >= bytes.length) return false;
 		const r = bytes[off++]!;
-		if (r < bars) nextPulse[r] = true;
+		if (r < bars) nextPulse[r] = version === 0x05 ? false : true;
 	}
 	d.pulseMeterUnlinked = nextPulse;
 	if (version === 0x02) {
@@ -2302,7 +2328,7 @@ function unpackGridTokenPacked(
 		} else {
 			d.accentMapVersion = 1;
 		}
-	} else if (version === 0x03 || version === 0x04) {
+	} else if (version >= 0x03) {
 		// In p3, Ta bit-map is explicit; without trailing byte, old blobs are still treated as explicit map (not legacy).
 		if (off < bytes.length) {
 			const v = bytes[off++]!;
@@ -2567,7 +2593,7 @@ function createEmptySnapshot() {
 		polyVoiceGains: { ...DEFAULT_POLY_VOICE_GAINS },
 		/** Top panel: tempo + slider (Chevron) section expanded. */
 		panelExpanded: false,
-		/** Row r: cell duration follows PULSE_METER_BASE_SYLLABLES, not customSyllables[r]. */
+		/** Sparse hold state: missing row follows row jati; `true` unlinks pulse to the base-4 meter. */
 		pulseMeterUnlinked: {} as Record<number, boolean>,
 		/** Fused adjacent bars per poly lane (or one group in legacy). */
 		fusedBarGroups: [] as FusedGroupState[],
@@ -2719,8 +2745,8 @@ function parseSnapshotRow(raw: unknown) {
 	if (cm && typeof cm === 'object') {
 		for (const [k, v] of Object.entries(cm as Record<string, unknown>)) {
 			const ri = parseInt(k, 10);
-			const vi = Number(v);
-			if (Number.isFinite(ri) && Number.isFinite(vi) && vi >= 1 && vi <= 4) d.customMultipliers[ri] = vi;
+			const vi = normalizeBarMultiplier(v);
+			if (Number.isFinite(ri) && vi !== 1) d.customMultipliers[ri] = vi;
 		}
 	}
 	const cd = o.customSubdivisions;
@@ -2787,15 +2813,7 @@ function parseSnapshotRow(raw: unknown) {
 	if (o.sequencerCells && typeof o.sequencerCells === 'object') {
 		hydrateSequencerFromCells(o.sequencerCells, d);
 	}
-	const pu = o.pulseMeterUnlinked;
-	if (pu && typeof pu === 'object') {
-		const next: Record<number, boolean> = {};
-		for (const [k, v] of Object.entries(pu as Record<string, unknown>)) {
-			const ri = parseInt(k, 10);
-			if (Number.isFinite(ri) && ri >= 0) next[ri] = Boolean(v);
-		}
-		d.pulseMeterUnlinked = next;
-	}
+	d.pulseMeterUnlinked = normalizePulseMeterUnlinked(o.pulseMeterUnlinked);
 	const fbgRaw = (o as { fusedBarGroups?: unknown }).fusedBarGroups;
 	if (Array.isArray(fbgRaw)) {
 		const parsed: FusedGroupState[] = [];
@@ -2961,7 +2979,7 @@ function snapSlotLooksUsed(s: ReturnType<typeof createEmptySnapshot>) {
 	if (s.clickSound !== 'classic') return true;
 	if (Object.keys(s.clickSoundByPolyVoice || {}).length > 0) return true;
 	if (s.panelExpanded === true) return true;
-	if (s.pulseMeterUnlinked && Object.values(s.pulseMeterUnlinked).some(Boolean)) return true;
+	if (s.pulseMeterUnlinked && Object.values(s.pulseMeterUnlinked).some((v) => v === true)) return true;
 	if ((s as { fusedBarGroups?: FusedGroupState[] }).fusedBarGroups?.length) return true;
 	if (s.onlyAccents) return true;
 	if ((s as { mixerLayerMode?: MixerLayerMode }).mixerLayerMode && (s as { mixerLayerMode?: MixerLayerMode }).mixerLayerMode !== DEFAULT_MIXER_LAYER_MODE) return true;
@@ -3040,7 +3058,7 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		},
 		panelExpanded: s.panelExpanded,
 		pulseMeterUnlinked: Object.fromEntries(
-			Object.entries(s.pulseMeterUnlinked || {}).filter(([, v]) => v),
+			Object.entries(s.pulseMeterUnlinked || {}).filter(([, v]) => v === true),
 		) as Record<string, boolean>,
 		fusedBarGroups: ((s as { fusedBarGroups?: FusedGroupState[] }).fusedBarGroups ?? []).map((g) => ({
 			laneId: g.laneId,
@@ -3187,7 +3205,7 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 			d.customSubdivisions = decodeSubdivisionsToken(subdivisionsToken, cells);
 			d.customMultipliers = decodeSparseRowNumberMap(
 				multipliersToken,
-				(value) => value >= 1 && value <= 4 && value !== 1,
+				(value) => shouldStoreBarMultiplier(value),
 			);
 			d.pulseMeterUnlinked = decodePulseUnlinkedRowsToken(pulseUnlinkedToken);
 			d.chaosLevel = chaosLevel;
@@ -3224,7 +3242,7 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 			d.chaosLevel = chaosLevel;
 			applySnapshotFlags(flags, d);
 			applySnapshotSoundToken(soundRaw, d);
-			if (gridTokenRaw.startsWith('p1') || gridTokenRaw.startsWith('p2') || gridTokenRaw.startsWith('p3') || gridTokenRaw.startsWith('p4')) {
+			if (gridTokenRaw.startsWith('p1') || gridTokenRaw.startsWith('p2') || gridTokenRaw.startsWith('p3') || gridTokenRaw.startsWith('p4') || gridTokenRaw.startsWith('p5') || gridTokenRaw.startsWith('p6')) {
 				if (!unpackGridTokenPacked(gridTokenRaw, d)) return null;
 				d.bars = bars;
 				d.syllables = syllables;
@@ -3240,7 +3258,7 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 				d.customSubdivisions = decodeSubdivisionsToken(subdivisionsToken || '0', cells);
 				d.customMultipliers = decodeSparseRowNumberMap(
 					multipliersToken || '0',
-					(value) => value >= 1 && value <= 4 && value !== 1,
+					(value) => shouldStoreBarMultiplier(value),
 				);
 				d.pulseMeterUnlinked = decodePulseUnlinkedRowsToken(pulseUnlinkedToken || '0');
 			} else {
@@ -3275,7 +3293,7 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 			d.chaosLevel = chaosLevel;
 			applySnapshotFlags(flags, d);
 			applySnapshotSoundToken(soundRaw, d);
-			if (gridTokenRaw.startsWith('p1') || gridTokenRaw.startsWith('p2') || gridTokenRaw.startsWith('p3') || gridTokenRaw.startsWith('p4')) {
+			if (gridTokenRaw.startsWith('p1') || gridTokenRaw.startsWith('p2') || gridTokenRaw.startsWith('p3') || gridTokenRaw.startsWith('p4') || gridTokenRaw.startsWith('p5') || gridTokenRaw.startsWith('p6')) {
 				if (!unpackGridTokenPacked(gridTokenRaw, d)) return null;
 				// Some shared compact strings have outer bars/syllables that are newer than packed p3 internals.
 				// Keep explicit outer geometry to preserve user-intended layout on paste.
@@ -3293,7 +3311,7 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 				d.customSubdivisions = decodeSubdivisionsToken(subdivisionsToken || '0', cells);
 				d.customMultipliers = decodeSparseRowNumberMap(
 					multipliersToken || '0',
-					(value) => value >= 1 && value <= 4 && value !== 1,
+					(value) => shouldStoreBarMultiplier(value),
 				);
 				d.pulseMeterUnlinked = decodePulseUnlinkedRowsToken(pulseUnlinkedToken || '0');
 			} else {
@@ -3322,7 +3340,7 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 			d.chaosLevel = chaosLevel;
 			applySnapshotFlags(flags, d);
 			applySnapshotSoundToken(soundRaw, d);
-			if (gridTokenRaw.startsWith('p1') || gridTokenRaw.startsWith('p2') || gridTokenRaw.startsWith('p3') || gridTokenRaw.startsWith('p4')) {
+			if (gridTokenRaw.startsWith('p1') || gridTokenRaw.startsWith('p2') || gridTokenRaw.startsWith('p3') || gridTokenRaw.startsWith('p4') || gridTokenRaw.startsWith('p5') || gridTokenRaw.startsWith('p6')) {
 				if (!unpackGridTokenPacked(gridTokenRaw, d)) return null;
 				// Keep explicit compact header geometry for compatibility with externally edited short snapshots.
 				d.bars = bars;
@@ -3339,7 +3357,7 @@ function tryDecodeSnapshotClipboard(text: string): ReturnType<typeof createEmpty
 				d.customSubdivisions = decodeSubdivisionsToken(subdivisionsToken || '0', cells);
 				d.customMultipliers = decodeSparseRowNumberMap(
 					multipliersToken || '0',
-					(value) => value >= 1 && value <= 4 && value !== 1,
+					(value) => shouldStoreBarMultiplier(value),
 				);
 				d.pulseMeterUnlinked = decodePulseUnlinkedRowsToken(pulseUnlinkedToken || '0');
 			} else {
@@ -4449,11 +4467,11 @@ export default function App() {
         accents: new Set(s.accents),
         customSyllables: { ...s.customSyllables },
         deadCells: { ...((s as { deadCells?: DeadCellsMap }).deadCells || {}) },
-        customMultipliers: { ...s.customMultipliers },
+        customMultipliers: normalizeCustomMultipliers(s.customMultipliers),
         customSubdivisions: { ...s.customSubdivisions },
         customCellSyllables: { ...((s as { customCellSyllables?: Record<string, string> }).customCellSyllables || {}) },
         panelExpanded: s.panelExpanded === true,
-        pulseMeterUnlinked: { ...(s.pulseMeterUnlinked || {}) },
+        pulseMeterUnlinked: normalizePulseMeterUnlinked(s.pulseMeterUnlinked),
         frozenScale: typeof s.frozenScale === 'number' && s.frozenScale >= 1 ? s.frozenScale : null,
         polyMode: s.polyMode === true,
         polyVoices: parsePolyVoices(s.polyVoices),
@@ -4661,6 +4679,11 @@ export default function App() {
       setFusedBarGroups(nextFused);
       setBars(normalizedNext);
       barsRef.current = normalizedNext;
+      if (normalizedNext > prevBars && polyModeRef.current) {
+        const nextPulse = withPulseHeldRows(pulseMeterUnlinkedRef.current, prevBars, normalizedNext);
+        pulseMeterUnlinkedRef.current = nextPulse;
+        setPulseMeterUnlinked(nextPulse);
+      }
       // Press Matrix gate: tile/drop from frozen baseline if armed.
       // Pure functions live in `pressMatrix.ts`; closure-resolved at call time.
       handlePressOnBarsChange(prevBars, normalizedNext);
@@ -4879,8 +4902,9 @@ export default function App() {
     setCustomCellSyllables({});
     customCellSyllablesRef.current = {};
     // Keep per-voice click assignments on clear (eraser should reset pattern, not voice timbres).
-    setPulseMeterUnlinked({});
-    pulseMeterUnlinkedRef.current = {};
+    const nextPulseDefaults = polyModeRef.current ? withPulseHeldRows({}, 0, defaultBars) : {};
+    setPulseMeterUnlinked(nextPulseDefaults);
+    pulseMeterUnlinkedRef.current = nextPulseDefaults;
     setJatiPulseActiveByRow({});
     activeJatiPhraseIdRef.current = null;
     progressiveDensityModeRef.current = 'gati_mode';
@@ -5296,7 +5320,7 @@ export default function App() {
   }, [clickPresetBusGains, clickPresetBusGainsByVoice]);
   /* Прямые присваивания (без spread) для ref-first путей (poly randomizer и т.п.):
    * ref === state → мутации переживают перерендеры и долетают до setState({...ref}). */
-  useEffect(() => { customMultipliersRef.current = customMultipliers; }, [customMultipliers]);
+  useEffect(() => { customMultipliersRef.current = normalizeCustomMultipliers(customMultipliers); }, [customMultipliers]);
   useEffect(() => { customSubdivisionsRef.current = customSubdivisions; }, [customSubdivisions]);
   useEffect(() => { cellStepMasksRef.current = cellStepMasks; }, [cellStepMasks]);
   useEffect(() => {
@@ -5535,8 +5559,9 @@ export default function App() {
       setCustomSyllables(patch.customSyllables);
     }
     if (patch.customMultipliers) {
-      customMultipliersRef.current = patch.customMultipliers;
-      setCustomMultipliers(patch.customMultipliers);
+      const nextMultipliers = normalizeCustomMultipliers(patch.customMultipliers);
+      customMultipliersRef.current = nextMultipliers;
+      setCustomMultipliers(nextMultipliers);
     }
     if (patch.customSubdivisions) {
       customSubdivisionsRef.current = patch.customSubdivisions;
@@ -5577,8 +5602,9 @@ export default function App() {
       setFirstBeatDingSuppressedRows(patch.firstBeatDingSuppressedRows);
     }
     if (patch.pulseMeterUnlinked) {
-      pulseMeterUnlinkedRef.current = patch.pulseMeterUnlinked;
-      setPulseMeterUnlinked(patch.pulseMeterUnlinked);
+      const nextPulse = normalizePulseMeterUnlinked(patch.pulseMeterUnlinked);
+      pulseMeterUnlinkedRef.current = nextPulse;
+      setPulseMeterUnlinked(nextPulse);
     }
     if (patch.deadCells) {
       deadCellsRef.current = patch.deadCells;
@@ -5883,6 +5909,20 @@ export default function App() {
   useEffect(() => { frozenScaleRef.current = frozenScale; }, [frozenScale]);
   useEffect(() => { polyModeRef.current = polyMode; }, [polyMode]);
   const wasPolyModeRef = useRef(polyMode);
+  const polyPulseDefaultsInitializedRef = useRef(false);
+  useEffect(() => {
+    if (!polyMode) {
+      polyPulseDefaultsInitializedRef.current = false;
+      return;
+    }
+    if (polyPulseDefaultsInitializedRef.current) return;
+    polyPulseDefaultsInitializedRef.current = true;
+    setPulseMeterUnlinked((prev) => {
+      const next = withPulseHeldRows(prev, 0, barsRef.current);
+      pulseMeterUnlinkedRef.current = next;
+      return next;
+    });
+  }, [polyMode]);
   /** Hot switch poly → normal: fused groups are poly-only; drop glue state. */
   useEffect(() => {
     const wasPoly = wasPolyModeRef.current;
@@ -6841,7 +6881,7 @@ export default function App() {
     taDingKeysByLaneRef.current = cloneLaneSetMap(nextTaByLane);
     const nextCellSyl = { ...customCellSyllablesRef.current };
 
-    const nextMult = { ...customMultipliersRef.current };
+    const nextMult = normalizeCustomMultipliers(customMultipliersRef.current);
     for (const rk of Object.keys(nextMult)) {
       const r = Number(rk);
       if (!Number.isFinite(r) || r < 0 || r >= nBars) {
@@ -6886,6 +6926,7 @@ export default function App() {
       nextCellSyl,
       customSubdivisionsRef.current,
       cellStepMasksRef.current,
+      nextMult,
     );
 
     if (sequenceRef.current.length > 0 && newSeq.length > 0) {
@@ -7053,7 +7094,7 @@ export default function App() {
       const next = { ...prev };
       for (const k of Object.keys(next)) {
         const ri = Number(k);
-        if (ri >= bars) {
+        if (ri >= bars || next[ri] !== true) {
           delete next[ri];
           changed = true;
         }
@@ -7095,8 +7136,9 @@ export default function App() {
         customCellSyllables,
         customSubdivisions,
         cellStepMasks,
+        customMultipliers,
       ),
-    [bars, syllables, customSyllables, deadCells, customCellSyllables, customSubdivisions, cellStepMasks],
+    [bars, syllables, customSyllables, deadCells, customCellSyllables, customSubdivisions, cellStepMasks, customMultipliers],
   );
 
   const sequenceRef = useRef(sequence);
@@ -7328,7 +7370,9 @@ export default function App() {
       setCustomSyllables({ ...snap.customSyllables });
       setDeadCells({ ...((snap as { deadCells?: DeadCellsMap }).deadCells || {}) });
       deadCellsRef.current = { ...((snap as { deadCells?: DeadCellsMap }).deadCells || {}) };
-      setCustomMultipliers({ ...(snap.customMultipliers || {}) });
+      const nextMultipliers = normalizeCustomMultipliers(snap.customMultipliers);
+      setCustomMultipliers(nextMultipliers);
+      customMultipliersRef.current = nextMultipliers;
       const nextSubdivs = { ...(snap.customSubdivisions || {}) };
       const nextMasks = { ...(snap.cellStepMasks || {}) };
       const nextConfigs = buildCellConfigsFromLegacy(nextSubdivs, nextMasks);
@@ -7404,12 +7448,16 @@ export default function App() {
         return updated;
       });
     }
-    const nextPulseUnlinked = normalizePulseMeterUnlinked(snap.pulseMeterUnlinked);
+    const nextSnapBars = snapBarsToPolyGrid(snap.bars, snap.polyMode === true, snapVoices);
+    const nextPulseUnlinked =
+      snap.polyMode === true
+        ? withPulseHeldRows(normalizePulseMeterUnlinked(snap.pulseMeterUnlinked), 0, nextSnapBars)
+        : normalizePulseMeterUnlinked(snap.pulseMeterUnlinked);
     setPulseMeterUnlinked(nextPulseUnlinked);
     pulseMeterUnlinkedRef.current = nextPulseUnlinked;
     const nextFused = remapGroupsOnBarsChange(
       [...((snap as { fusedBarGroups?: FusedGroupState[] }).fusedBarGroups ?? [])],
-      snapBarsToPolyGrid(snap.bars, snap.polyMode === true, snapVoices),
+      nextSnapBars,
       snap.polyMode === true,
       snapVoices === 3 ? 3 : 2,
     );
@@ -7477,7 +7525,7 @@ export default function App() {
       setFormPresetId(fp);
     }
     {
-      // Snapshot may restore pulse-unlink rows, but jatiPulseActiveByRow is runtime-only.
+      // Snapshot may restore explicit pulse-unlinked rows, but jatiPulseActiveByRow is runtime-only.
       // Rebuild it deterministically to avoid stale "stuck pulse menu" rows from previous session.
       const allowPulseJati = nextRandomMode === 'parent' && nextFormPresetId === 'progressive';
       if (!allowPulseJati) {
@@ -7492,7 +7540,7 @@ export default function App() {
         const nextJatiRows: Record<number, boolean> = {};
         for (const [k, v] of Object.entries(nextPulseUnlinked)) {
           const ri = parseInt(k, 10);
-          if (Number.isFinite(ri) && ri >= 0 && v) nextJatiRows[ri] = true;
+          if (Number.isFinite(ri) && ri >= 0 && v === true) nextJatiRows[ri] = true;
         }
         setJatiPulseActiveByRow(nextJatiRows);
       }
@@ -7541,7 +7589,7 @@ export default function App() {
         polyMode: snap.polyMode === true,
         polyVoices: snapVoices,
         customSyllables: { ...snap.customSyllables },
-        customMultipliers: { ...(snap.customMultipliers || {}) },
+        customMultipliers: normalizeCustomMultipliers(snap.customMultipliers),
         customSubdivisions: { ...(snap.customSubdivisions || {}) },
         cellStepMasks: { ...((snap as { cellStepMasks?: CellStepMasks }).cellStepMasks || {}) },
         customCellSyllables: { ...((snap as { customCellSyllables?: Record<string, string> }).customCellSyllables || {}) },
@@ -7589,7 +7637,7 @@ export default function App() {
       s.taDingKeys instanceof Set ? new Set(s.taDingKeys) : new Set(Array.isArray(s.taDingKeys) ? s.taDingKeys : []),
     customSyllables: { ...s.customSyllables },
     deadCells: { ...((s as { deadCells?: DeadCellsMap }).deadCells || {}) },
-    customMultipliers: { ...s.customMultipliers },
+    customMultipliers: normalizeCustomMultipliers(s.customMultipliers),
     customSubdivisions: { ...s.customSubdivisions },
     cellStepMasks: { ...(s.cellStepMasks || {}) },
     customCellSyllables: { ...((s as { customCellSyllables?: Record<string, string> }).customCellSyllables || {}) },
@@ -7599,7 +7647,7 @@ export default function App() {
       parsePolyVoiceGainsFromUnknown((s as { polyVoiceGains?: unknown }).polyVoiceGains) ?? {
         ...DEFAULT_POLY_VOICE_GAINS,
       },
-    pulseMeterUnlinked: { ...(s.pulseMeterUnlinked || {}) },
+    pulseMeterUnlinked: normalizePulseMeterUnlinked(s.pulseMeterUnlinked),
     frozenScale: typeof s.frozenScale === 'number' && s.frozenScale >= 1 ? s.frozenScale : null,
     lowPerfMode: (s as { lowPerfMode?: unknown }).lowPerfMode === true,
     polyMode: s.polyMode === true,
@@ -8470,7 +8518,12 @@ export default function App() {
       let currentSeqItem = seq[currentStepRef.current];
 
       // Randomizer Orchestration at bar boundary
-      if (currentSeqItem && currentSeqItem.c === 0 && isPlayingRef.current) {
+      if (
+        currentSeqItem &&
+        currentSeqItem.c === 0 &&
+        (currentSeqItem.repeatIndex ?? 0) === 0 &&
+        isPlayingRef.current
+      ) {
         if (coldStartRef.current) {
           coldStartRef.current = false;
         } else if (
@@ -8535,6 +8588,7 @@ export default function App() {
               customCellSyllablesRef.current,
               customSubdivisionsRef.current,
               cellStepMasksRef.current,
+              customMultipliersRef.current,
             );
             
             const targetStepIndex = sequenceRef.current.findIndex(item => item.r === targetR && item.c === 0);
@@ -8592,10 +8646,10 @@ export default function App() {
           customSyllablesRef.current[rowR] !== undefined
             ? customSyllablesRef.current[rowR]
             : syllablesRef.current;
-        const pulseSyllables = pulseMeterUnlinkedRef.current[rowR]
-          ? PULSE_METER_BASE_SYLLABLES
-          : effectiveSyllables;
-        const mult = customMultipliersRef.current[rowR] || 1;
+        const pulseSyllables = isRowPulseUnlinkedEffective(pulseMeterUnlinkedRef.current, rowR)
+          ? effectiveSyllables
+          : syllablesRef.current;
+        const mult = normalizeBarMultiplier(customMultipliersRef.current[rowR]);
         const effectiveBpm = tempoRef.current * (pulseSyllables / 4) * mult;
         if (effectiveBpm > 0) {
           nextNoteTimeRef.current += 60.0 / effectiveBpm;
@@ -8649,8 +8703,8 @@ export default function App() {
       return fusedLegacyNoteDurationSeconds(pulseSyl, tempo, mult);
     }
     const rowSyllables = cs[rowIdx] !== undefined ? cs[rowIdx]! : base;
-    const pulseSyllables = pu[rowIdx] ? PULSE_METER_BASE_SYLLABLES : rowSyllables;
-    const mult = cm[rowIdx] || 1;
+    const pulseSyllables = isRowPulseUnlinkedEffective(pu, rowIdx) ? rowSyllables : base;
+    const mult = normalizeBarMultiplier(cm[rowIdx]);
     return fusedLegacyNoteDurationSeconds(pulseSyllables, tempo, mult);
   }, []);
 
@@ -8658,10 +8712,10 @@ export default function App() {
     const cs = customSyllablesRef.current;
     const rowSyllables =
       cs[rowIdx] !== undefined ? cs[rowIdx]! : syllablesRef.current;
-    const pulseSyllables = pulseMeterUnlinkedRef.current[rowIdx]
-      ? PULSE_METER_BASE_SYLLABLES
-      : rowSyllables;
-    const mult = customMultipliersRef.current[rowIdx] || 1;
+    const pulseSyllables = isRowPulseUnlinkedEffective(pulseMeterUnlinkedRef.current, rowIdx)
+      ? rowSyllables
+      : syllablesRef.current;
+    const mult = normalizeBarMultiplier(customMultipliersRef.current[rowIdx]);
     return fusedLegacyNoteDurationSeconds(pulseSyllables, tempoRef.current, mult);
   }, []);
 
@@ -8730,11 +8784,13 @@ export default function App() {
       step: number,
       noteDuration: number,
       forcedSoundPreset?: ClickSoundPreset,
+      repeatIndex = 0,
     ) => {
       if (!audioCtxRef.current) return;
       const subdivs = customSubdivisionsRef.current[`${rIdx}-${cIdx}`] || 1;
       const stepMask = resolveEffectiveStepMask(`${rIdx}-${cIdx}`, subdivs, cellStepMasksRef.current);
       const subDuration = Math.max(0.001, noteDuration / Math.max(1, subdivs));
+      const suppressTaDingOnRepeat = repeatIndex > 0;
       const taStableRoutingActive = debugTaEngineModeRef.current;
       const laneTaDingEarly = getLaneTaSetRef(rIdx);
       const laneFirstBeatEarly = getLaneFirstBeatRef(rIdx);
@@ -8748,8 +8804,9 @@ export default function App() {
         firstBeatDingSuppressedRowsRef.current.has(rIdx),
       );
       const taCellScheduled =
-        (cIdx === 0 && laneFirstBeatEarly && firstBeatHitRowEarly) ||
-        (laneFirstBeatEarly && cIdx >= 1 && laneTaDingEarly.has(`${rIdx}-${cIdx}`));
+        !suppressTaDingOnRepeat &&
+        ((cIdx === 0 && laneFirstBeatEarly && firstBeatHitRowEarly) ||
+          (laneFirstBeatEarly && cIdx >= 1 && laneTaDingEarly.has(`${rIdx}-${cIdx}`)));
       const forceStableForTaCell = taStableRoutingActive && taCellScheduled;
 
       const isPauseSyllableToken = (raw: unknown): boolean => {
@@ -8825,7 +8882,7 @@ export default function App() {
         // Subdivision tails are carried by role routing (alt/passive) for layer texture.
         const mainAccentClick = isAccent && sub === 0;
         const shouldPlayFirstBeatTa =
-          isMegaBarDownbeat && fa && firstBeatCellHitRow && sub === 0;
+          !suppressTaDingOnRepeat && isMegaBarDownbeat && fa && firstBeatCellHitRow && sub === 0;
         if (shouldPlayFirstBeatTa && !debugTaEngineModeRef.current && accentGain > 0) {
           playBarFirstHighClick(
             ctx,
@@ -8846,16 +8903,16 @@ export default function App() {
         const trainerMode: TrainerMode = isClickSelectorPreview ? 'normal' : trainerModeRef.current;
         const trainerMuted = isClickSelectorPreview ? false : trainerHoldMuteRef.current;
         const taEnabled = laneFirstBeat;
-        const isTaDingCell = taEnabled && cIdx >= 1 && laneTaDing.has(`${rIdx}-${cIdx}`);
+        const isTaDingCell = !suppressTaDingOnRepeat && taEnabled && cIdx >= 1 && laneTaDing.has(`${rIdx}-${cIdx}`);
         /** Accent articulation should stay single-hit even on subdivided cells. */
         const shouldPlayTaDingSound = isTaDingCell && sub === 0;
-        const hasTaDingHere = taEnabled && laneTaDing.has(`${rIdx}-${cIdx}`);
+        const hasTaDingHere = !suppressTaDingOnRepeat && taEnabled && laneTaDing.has(`${rIdx}-${cIdx}`);
         const dictantActive = trainerMode === 'dictation';
         const trainerTaOnly = trainerMode === 'ta_only';
         const shouldPlayBeat =
           trainerTaOnly ? hasTaDingHere || shouldPlayFirstBeatTa : true;
         const isTaFirstBeatArticulation =
-          isMegaBarDownbeat && fa && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
+          !suppressTaDingOnRepeat && isMegaBarDownbeat && fa && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
         const sharpAsChecked = (() => {
           if (dictantActive) return mainAccentClick;
           if (muteMode === 'no_accent_sharp' && mainAccentClick && !isTaFirstBeatArticulation) return false;
@@ -9100,13 +9157,19 @@ export default function App() {
             : syllablesRef.current,
         getDeadStart: (barIdx) => deadCellsRef.current[barIdx]?.deadStart,
         getStepDurationSeconds: (bar, c) => getStepDurationSecondsRef.current(bar, c),
+        getBarRepeatCount: (bar) => {
+          const group = findGroupForBar(fusedBarGroupsRef.current, bar);
+          return group
+            ? getGroupMultiplier(group, customMultipliersRef.current)
+            : normalizeBarMultiplier(customMultipliersRef.current[bar]);
+        },
         barsInSameFusedBlock: (a, b) => barsShareFusedGroup(a, b, fusedBarGroupsRef.current),
         getFusedGroup: (bar) => findGroupForBar(fusedBarGroupsRef.current, bar),
-        emit: (bar, c, absR, t, voice, step, dBar) => {
+        emit: (bar, c, absR, t, voice, step, dBar, repeatIndex) => {
           if (voice === 0) {
             playAbsBarRef.current = bar;
           }
-          scheduleGridCellAtTime(bar, c, absR, t, voice, step, dBar);
+          scheduleGridCellAtTime(bar, c, absR, t, voice, step, dBar, undefined, repeatIndex);
         },
         onLaneBarBoundary: polyHandleLaneBarBoundary,
       });
@@ -9209,7 +9272,7 @@ export default function App() {
 
     const { r: rIdx, c: cIdx } = currentSeqItem;
     const noteDuration = getLegacyNoteDurationSeconds(rIdx);
-    scheduleGridCellAtTime(rIdx, cIdx, absR, time, 0, stepIdx, noteDuration);
+    scheduleGridCellAtTime(rIdx, cIdx, absR, time, 0, stepIdx, noteDuration, undefined, currentSeqItem.repeatIndex ?? 0);
   };
 
   const scheduler = () => {
@@ -9656,7 +9719,7 @@ export default function App() {
   taDingKeysByLaneRef.current = taDingKeysByLane;
   customSyllablesRef.current = customSyllables;
   deadCellsRef.current = deadCells;
-  customMultipliersRef.current = customMultipliers;
+  customMultipliersRef.current = normalizeCustomMultipliers(customMultipliers);
   customSubdivisionsRef.current = customSubdivisions;
   customCellSyllablesRef.current = customCellSyllables;
   pulseMeterUnlinkedRef.current = pulseMeterUnlinked;
@@ -9714,10 +9777,10 @@ export default function App() {
       const rowSylls = customSyllables[r] !== undefined ? customSyllables[r]! : syllables;
       const pulseSyllables = group
         ? getGroupPulseSyllables(group, customSyllables, syllables, pulseMeterUnlinked)
-        : pulseMeterUnlinked[r]
-          ? PULSE_METER_BASE_SYLLABLES
-          : rowSylls;
-      const mult = group ? getGroupMultiplier(group, customMultipliers) : (customMultipliers[r] ?? 1);
+        : isRowPulseUnlinkedEffective(pulseMeterUnlinked, r)
+          ? rowSylls
+          : syllables;
+      const mult = group ? getGroupMultiplier(group, customMultipliers) : normalizeBarMultiplier(customMultipliers[r]);
       const effectiveBpm = tempoUi * (pulseSyllables / 4) * mult;
       out[r] = {
         localJati: role?.deSyncJati ? role.localCycleLength : undefined,
@@ -9798,7 +9861,7 @@ export default function App() {
       polyV,
       barsRef.current,
     );
-    const nextMult = { ...customMultipliersRef.current };
+    const nextMult = normalizeCustomMultipliers(customMultipliersRef.current);
     for (const g of next) {
       for (const b of g.bars) {
         if (b !== g.bars[0]) delete nextMult[b];
@@ -9815,8 +9878,8 @@ export default function App() {
   const handleCycleRowMultiplier = useCallback((barIdx: number) => {
     const group = findGroupForBar(fusedBarGroupsRef.current, barIdx);
     const prev = customMultipliersRef.current;
-    const cur = group ? getGroupMultiplier(group, prev) : prev[barIdx] || 1;
-    const nextMult = cur === 1 ? 2 : cur === 2 ? 3 : cur === 3 ? 4 : 1;
+    const cur = group ? getGroupMultiplier(group, prev) : normalizeBarMultiplier(prev[barIdx]);
+    const nextMult = cycleBarMultiplier(cur);
     if (group) {
       const patch = syncGroupMultiplier(fusedBarGroupsRef.current, barIdx, nextMult);
       setCustomMultipliers((prevMap) => {
@@ -9853,9 +9916,15 @@ export default function App() {
       const leader = group.bars[0]!;
       const patch = toggleGroupGati(group, pulseMeterUnlinkedRef.current);
       setPulseMeterUnlinked((prev) => {
-        const next = { ...prev, ...patch };
+        const next = { ...prev };
+        for (const [k, v] of Object.entries(patch)) {
+          const r = parseInt(k, 10);
+          if (!Number.isFinite(r)) continue;
+          if (v) next[r] = true;
+          else delete next[r];
+        }
         pulseMeterUnlinkedRef.current = next;
-        const nextVal = Boolean(next[leader]);
+        const nextVal = isRowPulseUnlinkedEffective(next, leader);
         const pulseSyl = getGroupPulseSyllables(
           group,
           customSyllablesRef.current,
@@ -9868,13 +9937,15 @@ export default function App() {
       return;
     }
     setPulseMeterUnlinked((prev) => {
-      const nextVal = !prev[barIdx];
+      const nextVal = !isRowPulseUnlinkedEffective(prev, barIdx);
       const rowSyl =
         customSyllablesRef.current[barIdx] !== undefined
           ? customSyllablesRef.current[barIdx]!
           : syllablesRef.current;
       onPulseLongPressModeSwitchSideEffect(barIdx, rowSyl, nextVal);
-      const next = { ...prev, [barIdx]: nextVal };
+      const next = { ...prev };
+      if (nextVal) next[barIdx] = true;
+      else delete next[barIdx];
       pulseMeterUnlinkedRef.current = next;
       return next;
     });

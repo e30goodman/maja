@@ -314,10 +314,70 @@ function testEmitPlayheadStepUsesPhysicalBarIndex() {
 	assert.equal(bar3!.r, 3, 'playhead row index follows physical bar');
 }
 
+function testBarMultiplierRepeatsLaneBarBeforeAdvance() {
+	const events: { bar: number; c: number; t: number }[] = [];
+	const boundaries: number[] = [];
+	const sch = createPolySubLegacyScheduler(
+		withDefaultStepDur({
+			polyVoices: () => 2,
+			barCount: () => 2,
+			getBarTimeWindowSeconds: () => 1,
+			getRowSyllables: () => 2,
+			getDeadStart: () => undefined,
+			getStepDurationSeconds: () => 0.25,
+			getBarRepeatCount: (bar) => (bar === 0 ? 2 : 1),
+			emit: (bar, c, _absR, t) => {
+				events.push({ bar, c, t });
+			},
+			onLaneBarBoundary: (prevBar) => {
+				boundaries.push(prevBar);
+			},
+		}),
+	);
+	sch.reset(0);
+	sch.fillLookahead(1);
+	assert.deepEqual(
+		events.filter((e) => e.bar === 0).map((e) => e.c),
+		[0, 1, 0, 1],
+		'x2 lane bar emits two full passes',
+	);
+	assert.deepEqual(boundaries.filter((bar) => bar === 0), [0], 'bar boundary fires after final repeat only');
+}
+
+function testFusedMultiplierRepeatsWholeFusedBlock() {
+	const group = { laneId: 0, bars: [0, 2] };
+	const events: { bar: number; c: number }[] = [];
+	const sch = createPolySubLegacyScheduler(
+		withDefaultStepDur({
+			polyVoices: () => 2,
+			barCount: () => 4,
+			getBarTimeWindowSeconds: () => 1,
+			getRowSyllables: () => 1,
+			getDeadStart: () => undefined,
+			getStepDurationSeconds: () => 0.25,
+			getBarRepeatCount: (bar) => (group.bars.includes(bar) ? 2 : 1),
+			barsInSameFusedBlock: (a, b) => group.bars.includes(a) && group.bars.includes(b),
+			getFusedGroup: (bar) => (group.bars.includes(bar) ? group : null),
+			emit: (bar, c) => {
+				events.push({ bar, c });
+			},
+		}),
+	);
+	sch.reset(0);
+	sch.fillLookahead(1);
+	assert.deepEqual(
+		events.filter((e) => group.bars.includes(e.bar)).map((e) => `${e.bar}-${e.c}`),
+		['0-0', '2-0', '0-0', '2-0'],
+		'fused x2 repeats from group leader, not the last member bar',
+	);
+}
+
 testBuildLaneBarIndices();
 testAdvancePolyLaneAfterEmit();
 testFusedBarsShareOneWindowOnLane();
 testEmitPlayheadStepUsesPhysicalBarIndex();
+testBarMultiplierRepeatsLaneBarBeforeAdvance();
+testFusedMultiplierRepeatsWholeFusedBlock();
 testFillLookaheadMonotone();
 testFillLookaheadSingleLiveCellNotStuck();
 testLaneHeadSingleLiveCellInsertsPhantomSecondCell();
