@@ -516,7 +516,8 @@ function getRuntimeTempo(uiTempo: number): number {
 	return uiTempo * GLOBAL_TEMPO_RUNTIME_MULTIPLIER;
 }
 const TEMPO_THROTTLE_MS = 56;
-/** Hold tempo +/-: after delay, apply step +/-5 every 0.1s. */
+/** Hold tempo +/-: wait past normal click duration, then apply step +/-5 every 0.1s. */
+const TEMPO_HOLD_START_MS = 350;
 const TEMPO_HOLD_REPEAT_MS = 100;
 const TEMPO_HOLD_REPEAT_STEP = 5;
 /** Long press on tempo slider track (without much move) → inline BPM on thumb. */
@@ -4527,6 +4528,8 @@ export default function App() {
   const pendingTempoRef = useRef<number | null>(null);
   const tempoHoldTimeoutRef = useRef<number | null>(null);
   const tempoHoldIntervalRef = useRef<number | null>(null);
+  const tempoHoldSessionRef = useRef(0);
+  const tempoHoldPointerCaptureRef = useRef<{ element: HTMLButtonElement; pointerId: number } | null>(null);
   const tempoMinusHoldAteClickRef = useRef(false);
   const tempoPlusHoldAteClickRef = useRef(false);
   const showClipboardToast = (message: string) => {
@@ -6010,6 +6013,7 @@ export default function App() {
   }, []);
 
   const clearTempoHoldRepeat = useCallback(() => {
+    tempoHoldSessionRef.current += 1;
     if (tempoHoldTimeoutRef.current !== null) {
       window.clearTimeout(tempoHoldTimeoutRef.current);
       tempoHoldTimeoutRef.current = null;
@@ -6017,6 +6021,15 @@ export default function App() {
     if (tempoHoldIntervalRef.current !== null) {
       window.clearInterval(tempoHoldIntervalRef.current);
       tempoHoldIntervalRef.current = null;
+    }
+    const captured = tempoHoldPointerCaptureRef.current;
+    if (captured !== null) {
+      try {
+        captured.element.releasePointerCapture(captured.pointerId);
+      } catch {
+        /* pointer capture may already be gone */
+      }
+      tempoHoldPointerCaptureRef.current = null;
     }
   }, []);
 
@@ -6041,47 +6054,56 @@ export default function App() {
     return lastResync > lastDeSync;
   }, []);
 
-  const beginTempoMinusHold = useCallback(() => {
-    tempoMinusHoldAteClickRef.current = false;
-    clearTempoHoldRepeat();
-    tempoHoldTimeoutRef.current = window.setTimeout(() => {
-      tempoHoldTimeoutRef.current = null;
-      tempoMinusHoldAteClickRef.current = true;
-      if (canResetDeSyncStateFromTempoHold()) {
-        progressiveDensityModeRef.current = 'gati_mode';
-        deSyncJatiActiveRef.current = false;
-        deSyncCycleLengthRef.current = undefined;
-        setProgressiveDensityMode('gati_mode');
-        setDeSyncJatiActive(false);
-        setDeSyncCycleLength(undefined);
-      }
-      applyTempoImmediate(tempoRef.current - TEMPO_HOLD_REPEAT_STEP);
-      tempoHoldIntervalRef.current = window.setInterval(() => {
-        applyTempoImmediate(tempoRef.current - TEMPO_HOLD_REPEAT_STEP);
-      }, TEMPO_HOLD_REPEAT_MS);
-    }, TEMPO_HOLD_REPEAT_MS);
-  }, [applyTempoImmediate, canResetDeSyncStateFromTempoHold, clearTempoHoldRepeat]);
+  const beginTempoHoldRepeat = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>, direction: -1 | 1) => {
+      if (!e.isPrimary) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
 
-  const beginTempoPlusHold = useCallback(() => {
-    tempoPlusHoldAteClickRef.current = false;
-    clearTempoHoldRepeat();
-    tempoHoldTimeoutRef.current = window.setTimeout(() => {
-      tempoHoldTimeoutRef.current = null;
-      tempoPlusHoldAteClickRef.current = true;
-      if (canResetDeSyncStateFromTempoHold()) {
-        progressiveDensityModeRef.current = 'gati_mode';
-        deSyncJatiActiveRef.current = false;
-        deSyncCycleLengthRef.current = undefined;
-        setProgressiveDensityMode('gati_mode');
-        setDeSyncJatiActive(false);
-        setDeSyncCycleLength(undefined);
+      const ateClickRef = direction < 0 ? tempoMinusHoldAteClickRef : tempoPlusHoldAteClickRef;
+      ateClickRef.current = false;
+      clearTempoHoldRepeat();
+
+      const button = e.currentTarget;
+      const session = tempoHoldSessionRef.current + 1;
+      tempoHoldSessionRef.current = session;
+      try {
+        button.setPointerCapture(e.pointerId);
+        tempoHoldPointerCaptureRef.current = { element: button, pointerId: e.pointerId };
+      } catch {
+        tempoHoldPointerCaptureRef.current = null;
       }
-      applyTempoImmediate(tempoRef.current + TEMPO_HOLD_REPEAT_STEP);
-      tempoHoldIntervalRef.current = window.setInterval(() => {
-        applyTempoImmediate(tempoRef.current + TEMPO_HOLD_REPEAT_STEP);
-      }, TEMPO_HOLD_REPEAT_MS);
-    }, TEMPO_HOLD_REPEAT_MS);
-  }, [applyTempoImmediate, canResetDeSyncStateFromTempoHold, clearTempoHoldRepeat]);
+
+      tempoHoldTimeoutRef.current = window.setTimeout(() => {
+        if (tempoHoldSessionRef.current !== session) return;
+        tempoHoldTimeoutRef.current = null;
+        ateClickRef.current = true;
+        if (canResetDeSyncStateFromTempoHold()) {
+          progressiveDensityModeRef.current = 'gati_mode';
+          deSyncJatiActiveRef.current = false;
+          deSyncCycleLengthRef.current = undefined;
+          setProgressiveDensityMode('gati_mode');
+          setDeSyncJatiActive(false);
+          setDeSyncCycleLength(undefined);
+        }
+        applyTempoImmediate(tempoRef.current + direction * TEMPO_HOLD_REPEAT_STEP);
+        tempoHoldIntervalRef.current = window.setInterval(() => {
+          if (tempoHoldSessionRef.current !== session) return;
+          applyTempoImmediate(tempoRef.current + direction * TEMPO_HOLD_REPEAT_STEP);
+        }, TEMPO_HOLD_REPEAT_MS);
+      }, TEMPO_HOLD_START_MS);
+    },
+    [applyTempoImmediate, canResetDeSyncStateFromTempoHold, clearTempoHoldRepeat],
+  );
+
+  const beginTempoMinusHold = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
+    tempoMinusHoldAteClickRef.current = false;
+    beginTempoHoldRepeat(e, -1);
+  }, [beginTempoHoldRepeat]);
+
+  const beginTempoPlusHold = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
+    tempoPlusHoldAteClickRef.current = false;
+    beginTempoHoldRepeat(e, 1);
+  }, [beginTempoHoldRepeat]);
 
   const endTempoHoldRepeat = useCallback(() => {
     clearTempoHoldRepeat();
