@@ -23,7 +23,7 @@ export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   const buildCommit = normalizeSha7(env.VITE_APP_COMMIT) || gitSha7();
   return {
-    base: mode === 'production' ? '/maja/konnakol/trainer/' : '/',
+    base: mode === 'production' ? '/maja/' : '/',
     plugins: [react(), tailwindcss()],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
