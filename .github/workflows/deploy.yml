@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - test
   workflow_dispatch:
 
 permissions:
@@ -13,6 +14,8 @@ permissions:
 
 concurrency:
   group: "pages"
+  # Queue deployments to avoid GitHub Pages API 400:
+  # "due to in progress deployment".
   cancel-in-progress: false
 
 jobs:
@@ -21,21 +24,25 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
           cache-dependency-path: maja/package-lock.json
       
       - name: Install dependencies
         working-directory: ./maja
         run: npm ci
-      
+
       - name: Build
         working-directory: ./maja
         env:
@@ -43,19 +50,13 @@ jobs:
         run: npm run build
       
       - name: Setup Pages
-        uses: actions/configure-pages@v4
-      
+        uses: actions/configure-pages@v6
+
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: './maja/dist'
       
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
-
-
-
-
-
-
+        uses: actions/deploy-pages@v5
