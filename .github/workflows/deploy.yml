@@ -37,14 +37,14 @@ jobs:
         with:
           node-version: '24'
           cache: 'npm'
-          cache-dependency-path: konnakol_trainer/package-lock.json
+          cache-dependency-path: maja/package-lock.json
       
       - name: Install dependencies
-        working-directory: ./konnakol_trainer
+        working-directory: ./maja
         run: npm ci
 
       - name: Build
-        working-directory: ./konnakol_trainer
+        working-directory: ./maja
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: npm run build
@@ -55,7 +55,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v4
         with:
-          path: './konnakol_trainer/dist'
+          path: './maja/dist'
       
       - name: Deploy to GitHub Pages
         id: deployment
