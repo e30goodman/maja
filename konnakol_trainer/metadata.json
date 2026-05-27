@@ -1,0 +1,6 @@
+{
+  "name": "Rhythm Sequencer",
+  "description": "A rhythm sequencer UI with dynamic rows and syllables adjustment.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
