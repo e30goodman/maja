@@ -20,9 +20,7 @@ concurrency:
 
 jobs:
   deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    # No named `environment:` — repo rule "github-pages" often allows only main; deploy-pages works with permissions below.
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -37,26 +35,45 @@ jobs:
         with:
           node-version: '24'
           cache: 'npm'
-          cache-dependency-path: maja/package-lock.json
+          cache-dependency-path: konnakol_trainer/package-lock.json
       
       - name: Install dependencies
-        working-directory: ./maja
+        working-directory: ./konnakol_trainer
         run: npm ci
 
+      - name: UI geometry anti-cycle guard
+        working-directory: ./konnakol_trainer
+        run: npm run ui:guard -- --range "${{ github.event.before }}..${{ github.sha }}"
+      
       - name: Build
-        working-directory: ./maja
+        working-directory: ./konnakol_trainer
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          VITE_APP_COMMIT: ${{ github.sha }}
         run: npm run build
       
       - name: Setup Pages
         uses: actions/configure-pages@v6
 
+      - name: Prepare Pages artifact structure
+        run: |
+          rm -rf pages-artifact
+          mkdir -p pages-artifact/konnakol/trainer
+          cp -R konnakol_trainer/dist/. pages-artifact/konnakol/trainer/
+          cp maja/index.html pages-artifact/index.html
+          cp -R maja/public/images pages-artifact/images
+          cp maja/public/instagram-icon.png pages-artifact/instagram-icon.png
+          cp maja/public/youtube-icon.png pages-artifact/youtube-icon.png
+          cp maja/public/promo.html pages-artifact/promo.html
+      
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v4
         with:
-          path: './maja/dist'
+          path: './pages-artifact'
       
       - name: Deploy to GitHub Pages
-        id: deployment
         uses: actions/deploy-pages@v5
+        with:
+          timeout: 600000
+          error_count: 30
+          reporting_interval: 10000
