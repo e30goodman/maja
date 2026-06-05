@@ -33,15 +33,22 @@
             ></iframe>
         </div>
 
-        <a
-            href="https://wa.me/41782205262?text=Bonjour%20Artem%2C%20vos%20cours%20m%27int%C3%A9ressent.%20Discutons%20des%20d%C3%A9tails."
-            target="_blank"
-            rel="noopener noreferrer"
-            class="inline-flex items-center justify-center gap-2 w-full px-6 py-4 rounded-xl font-semibold text-sm uppercase tracking-wide bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-lg shadow-emerald-900/40 transition-all hover:scale-[1.02] active:scale-[0.98] border border-emerald-400/30"
-        >
-            <i data-lucide="message-circle" class="w-5 h-5"></i>
-            Écrire sur WhatsApp
-        </a>
+        <div class="w-full space-y-3">
+            <p class="text-center text-sm text-slate-400 leading-relaxed">
+                Message WhatsApp&nbsp;:
+                <span class="block mt-1 text-slate-200">«&nbsp;Bonjour Artem, vos cours m'intéressent. Discutons des détails.&nbsp;»</span>
+            </p>
+            <a
+                id="whatsapp-cta"
+                href="https://api.whatsapp.com/send?phone=41782205262&amp;text=Bonjour%20Artem%2C%20vos%20cours%20m%27int%C3%A9ressent.%20Discutons%20des%20d%C3%A9tails."
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex items-center justify-center gap-2 w-full px-6 py-4 rounded-xl font-semibold text-sm uppercase tracking-wide bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-lg shadow-emerald-900/40 transition-all hover:scale-[1.02] active:scale-[0.98] border border-emerald-400/30"
+            >
+                <i data-lucide="message-circle" class="w-5 h-5"></i>
+                Écrire sur WhatsApp
+            </a>
+        </div>
     </main>
 
     <script>lucide.createIcons();</script>
