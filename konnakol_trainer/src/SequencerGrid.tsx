@@ -348,8 +348,8 @@ type SequencerGridRowProps = {
 	polyVoices: 2 | 3 | 4;
 	rowSylls: number;
 	rowMult: number;
-	/** Default x2 bar reprise is active for this row. */
-	rowRepriseEnabled: boolean;
+	/** x-mult > 1 and reprise not disabled: show R2/R4 badge on multiplier button. */
+	rowRepriseBadge: number | null;
 	displayRowSylls: number;
 	/** Poly lane id (0/1/2) when row is in a fused block; null otherwise. */
 	fusedHighlightLaneId: number | null;
@@ -405,7 +405,7 @@ function sequencerGridRowPropsEqual(a: SequencerGridRowProps, b: SequencerGridRo
 		a.polyVoices === b.polyVoices &&
 		a.rowSylls === b.rowSylls &&
 		a.rowMult === b.rowMult &&
-		a.rowRepriseEnabled === b.rowRepriseEnabled &&
+		a.rowRepriseBadge === b.rowRepriseBadge &&
 		a.displayRowSylls === b.displayRowSylls &&
 		a.fusedHighlightLaneId === b.fusedHighlightLaneId &&
 		a.fusedPulseIsFollower === b.fusedPulseIsFollower &&
@@ -458,7 +458,7 @@ const SequencerGridRow = React.memo(
 			polyVoices,
 			rowSylls,
 			rowMult,
-			rowRepriseEnabled,
+			rowRepriseBadge,
 			displayRowSylls,
 			fusedHighlightLaneId,
 			fusedPulseIsFollower,
@@ -703,9 +703,9 @@ const SequencerGridRow = React.memo(
 							</span>
 						)}
 						x{rowMult}
-						{rowRepriseEnabled ? (
+						{rowRepriseBadge !== null ? (
 							<span className="absolute bottom-[2px] right-[2px] text-[7px] text-violet-300/90 font-mono pointer-events-none leading-none">
-								R2
+								R{rowRepriseBadge}
 							</span>
 						) : null}
 					</button>
@@ -1567,7 +1567,8 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 				const rowMult = fusedGroup
 					? getGroupMultiplier(fusedGroup, customMultipliers)
 					: normalizeBarMultiplier(customMultipliers[rIdx]);
-				const rowRepriseEnabled = repriseDisabledRows[rIdx] !== true;
+				const rowRepriseBadge =
+					rowMult > 1 && repriseDisabledRows[rIdx] !== true ? rowMult : null;
 				const fusedHighlightLaneId =
 					fusedGroup !== null ? fusedGroup.laneId : null;
 				const fusedPulseIsFollower =
@@ -1647,7 +1648,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 						isPolyRow={isPolyRow}
 						rowSylls={rowSylls}
 						rowMult={rowMult}
-						rowRepriseEnabled={rowRepriseEnabled}
+						rowRepriseBadge={rowRepriseBadge}
 						displayRowSylls={displayRowSylls}
 						fusedHighlightLaneId={fusedHighlightLaneId}
 						fusedPulseIsFollower={fusedPulseIsFollower}

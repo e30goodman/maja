@@ -388,7 +388,6 @@ function testLegacySequenceKeepsDiv0CellsInTimingGrid() {
 			'0-1': [false],
 		},
 		{},
-		{ 0: true },
 	);
 	assert.deepEqual(
 		seq.map((x) => `${x.r}-${x.c}`),
@@ -397,18 +396,26 @@ function testLegacySequenceKeepsDiv0CellsInTimingGrid() {
 	);
 }
 
-function testLegacySequenceDefaultRepriseTwiceUnlessDisabled() {
-	const seqDefault = buildLegacyPlaybackSequence(2, {}, 2, {}, {}, {}, {}, {}, {});
+function testLegacySequenceRepriseFollowsMultiplierUnlessDisabled() {
+	const seqX2 = buildLegacyPlaybackSequence(1, {}, 2, {}, {}, {}, {}, { 0: 2 }, {});
 	assert.deepEqual(
-		seqDefault.map((x) => `${x.r}-${x.c}:${x.repeatIndex ?? 0}/${x.repeatCount ?? 1}`),
-		['0-0:0/2', '0-1:0/2', '0-0:1/2', '0-1:1/2', '1-0:0/2', '1-1:0/2', '1-0:1/2', '1-1:1/2'],
-		'default reprise x2 for every bar',
+		seqX2.map((x) => `${x.r}-${x.c}:${x.repeatIndex ?? 0}/${x.repeatCount ?? 1}`),
+		['0-0:0/2', '0-1:0/2', '0-0:1/2', '0-1:1/2'],
+		'x2 multiplier repeats bar twice',
 	);
-	const seqOff = buildLegacyPlaybackSequence(2, {}, 2, {}, {}, {}, {}, {}, { 0: true });
+	const seqX4 = buildLegacyPlaybackSequence(1, {}, 2, {}, {}, {}, {}, { 0: 4 }, {});
+	assert.equal(seqX4.filter((x) => x.r === 0).length, 8, 'x4 multiplier repeats bar four times (2 cells x 4)');
+	const seqOff = buildLegacyPlaybackSequence(1, {}, 2, {}, {}, {}, {}, { 0: 2 }, { 0: true });
 	assert.deepEqual(
-		seqOff.map((x) => `${x.r}-${x.c}:${x.repeatIndex ?? 0}/${x.repeatCount ?? 1}`),
-		['0-0:0/1', '0-1:0/1', '1-0:0/2', '1-1:0/2', '1-0:1/2', '1-1:1/2'],
-		'long-press disabled row plays once; others still x2',
+		seqOff.map((x) => `${x.r}-${x.c}`),
+		['0-0', '0-1'],
+		'long-press disabled reprise plays once even at x2',
+	);
+	const seqX1 = buildLegacyPlaybackSequence(1, {}, 2, {}, {}, {}, {}, {}, {});
+	assert.deepEqual(
+		seqX1.map((x) => `${x.r}-${x.c}`),
+		['0-0', '0-1'],
+		'x1 has no reprise',
 	);
 }
 
@@ -433,5 +440,5 @@ testCellSpeedExtendedBlendEndpoints();
 testDeadCellsIndependentOfAccents();
 testSpeedFillsAllCellsIndependentOfAccents();
 testLegacySequenceKeepsDiv0CellsInTimingGrid();
-testLegacySequenceDefaultRepriseTwiceUnlessDisabled();
+testLegacySequenceRepriseFollowsMultiplierUnlessDisabled();
 console.log('randomCurves.test.ts: ok');

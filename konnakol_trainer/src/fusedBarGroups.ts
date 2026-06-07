@@ -8,17 +8,31 @@ import type { DeadCellsMap } from './randomLogic';
 /** UI/runtime gate: fused logic stays in repo but is inactive while false. */
 export const FUSED_BAR_GROUPS_ENABLED = false;
 
-/** Default bar reprise: each bar plays twice unless explicitly disabled per row. */
-export const DEFAULT_BAR_REPRISE_COUNT = 2;
-
 export type RepriseDisabledRows = Record<number, true>;
 
 export function isBarRepriseDisabled(repriseDisabled: RepriseDisabledRows, bar: number): boolean {
 	return repriseDisabled[bar] === true;
 }
 
-export function getBarRepriseCount(repriseDisabled: RepriseDisabledRows, bar: number): number {
-	return isBarRepriseDisabled(repriseDisabled, bar) ? 1 : DEFAULT_BAR_REPRISE_COUNT;
+/** Reprise count follows x-mult (1/2/4); long-press on x-mult can force a single pass. */
+export function getBarRepriseCountForBar(
+	bar: number,
+	repriseDisabled: RepriseDisabledRows,
+	customMultipliers: Record<number, number>,
+	group: FusedGroupState | null = null,
+): number {
+	if (isBarRepriseDisabled(repriseDisabled, bar)) return 1;
+	const mult = group ? getGroupMultiplier(group, customMultipliers) : normalizeBarMultiplier(customMultipliers[bar]);
+	return mult;
+}
+
+/** @deprecated Use getBarRepriseCountForBar */
+export function getBarRepriseCount(
+	repriseDisabled: RepriseDisabledRows,
+	bar: number,
+	customMultipliers: Record<number, number> = {},
+): number {
+	return getBarRepriseCountForBar(bar, repriseDisabled, customMultipliers, null);
 }
 
 export const PULSE_METER_BASE_SYLLABLES = 4;

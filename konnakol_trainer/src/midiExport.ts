@@ -9,7 +9,7 @@ import MidiWriter from 'midi-writer-js';
 import {
 	findGroupForBar,
 	FUSED_BAR_GROUPS_ENABLED,
-	getBarRepriseCount,
+	getBarRepriseCountForBar,
 	getFusedBarTimeWindowSeconds,
 	isFusedGroupFirstBeatCell,
 	getFusedCellDurationSeconds,
@@ -647,8 +647,11 @@ function getBarTimeWindowSeconds(
 function getBarRepeatCountForExport(
 	bar: number,
 	repriseDisabled: RepriseDisabledRows | undefined,
+	customMultipliers: Record<number, number> | undefined,
+	fusedBarGroups: FusedGroupState[] = [],
 ): number {
-	return getBarRepriseCount(repriseDisabled ?? {}, bar);
+	const group = findGroupForBar(fusedBarGroups, bar);
+	return getBarRepriseCountForBar(bar, repriseDisabled ?? {}, customMultipliers ?? {}, group);
 }
 
 function getStepDurationSecondsForExport(
@@ -753,7 +756,7 @@ function lanePatternSeconds(
 			polyVoices,
 			barCount,
 		);
-		s += windowSec * getBarRepeatCountForExport(b, input.repriseDisabledRows);
+		s += windowSec * getBarRepeatCountForExport(b, input.repriseDisabledRows, mult, fused);
 	}
 	return s;
 }
@@ -1181,7 +1184,7 @@ function buildPendingNotes(input: MidiExportInput): {
 				V,
 				barCount,
 			);
-			totalGridSec += windowSec * getBarRepeatCountForExport(b, input.repriseDisabledRows);
+			totalGridSec += windowSec * getBarRepeatCountForExport(b, input.repriseDisabledRows, mult, fusedBarGroups);
 		}
 		const horizon = Math.min(maxWall, Math.max(slowest, totalGridSec * revolutions));
 		const polyClickSlots = new Set<string>();
@@ -1265,7 +1268,7 @@ function buildPendingNotes(input: MidiExportInput): {
 				const nextCursor = (best.barCursor + 1) % best.barIndices.length;
 				const nextBar = best.barIndices[nextCursor]!;
 				const sameFused = Boolean(findGroupForBar(fusedBarGroups, prevBar)?.bars.includes(nextBar));
-				const repeats = getBarRepeatCountForExport(prevBar, input.repriseDisabledRows);
+				const repeats = getBarRepeatCountForExport(prevBar, input.repriseDisabledRows, mult, fusedBarGroups);
 				if (!sameFused && best.barRepeatCursor + 1 < repeats) {
 					best.barRepeatCursor += 1;
 					const fusedGroup = findGroupForBar(fusedBarGroups, prevBar);

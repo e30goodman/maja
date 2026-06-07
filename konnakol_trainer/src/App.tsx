@@ -35,7 +35,7 @@ import {
 	stripTaDingKeysForFusedGroups,
 	encodeFusedGroupsToken,
 	findGroupForBar,
-	getBarRepriseCount,
+	getBarRepriseCountForBar,
 	getDisplayPulseSyllables,
 	getFusedBarTimeWindowSeconds,
 	getFusedCellDurationSeconds,
@@ -9259,7 +9259,17 @@ export default function App() {
             : syllablesRef.current,
         getDeadStart: (barIdx) => deadCellsRef.current[barIdx]?.deadStart,
         getStepDurationSeconds: (bar, c) => getStepDurationSecondsRef.current(bar, c),
-        getBarRepeatCount: (bar) => getBarRepriseCount(repriseDisabledRowsRef.current, bar),
+        getBarRepeatCount: (bar) => {
+          const group = FUSED_BAR_GROUPS_ENABLED
+            ? findGroupForBar(fusedBarGroupsRef.current, bar)
+            : null;
+          return getBarRepriseCountForBar(
+            bar,
+            repriseDisabledRowsRef.current,
+            customMultipliersRef.current,
+            group,
+          );
+        },
         barsInSameFusedBlock: (a, b) =>
           FUSED_BAR_GROUPS_ENABLED ? barsShareFusedGroup(a, b, fusedBarGroupsRef.current) : false,
         getFusedGroup: (bar) =>
@@ -9951,7 +9961,8 @@ export default function App() {
     firstBeatDingSuppressedRows.size > 0 ||
     hasAnyExplicitTaOutsideFirstBeat;
   const handleToggleBarRepriseDisabled = useCallback((barIdx: number) => {
-    // Long-press on x-mult: toggle per-row reprise off (default is x2 via DEFAULT_BAR_REPRISE_COUNT).
+    const mult = normalizeBarMultiplier(customMultipliersRef.current[barIdx]);
+    if (mult === 1) return;
     setRepriseDisabledRows((prev) => {
       const out = { ...prev };
       if (out[barIdx]) delete out[barIdx];
@@ -9995,6 +10006,16 @@ export default function App() {
       customMultipliersRef.current = out;
       return out;
     });
+    if (nextMult === 1) {
+      setRepriseDisabledRows((prev) => {
+        if (!prev[barIdx]) return prev;
+        const out = { ...prev };
+        delete out[barIdx];
+        repriseDisabledRowsRef.current = out;
+        return out;
+      });
+    }
+    polySubLegacyRef.current = null;
   }, []);
 
   const handleTogglePulseUnlinkedRow = useCallback((barIdx: number) => {
