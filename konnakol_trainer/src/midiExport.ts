@@ -639,15 +639,9 @@ function getBarTimeWindowSeconds(
 	);
 }
 
-function getBarRepeatCountForExport(
-	bar: number,
-	customMultipliers: Record<number, number> | undefined,
-	fusedBarGroups: FusedGroupState[] = [],
-): number {
-	const group = findGroupForBar(fusedBarGroups, bar);
-	return group
-		? getGroupMultiplier(group, customMultipliers ?? {})
-		: normalizeBarMultiplier(customMultipliers?.[bar]);
+/** x-mult affects step/bar duration only; bar reprise is not tied to multiplier. */
+function getBarRepeatCountForExport(): number {
+	return 1;
 }
 
 function getStepDurationSecondsForExport(
@@ -752,7 +746,7 @@ function lanePatternSeconds(
 			polyVoices,
 			barCount,
 		);
-		s += windowSec * getBarRepeatCountForExport(b, mult, fused);
+		s += windowSec * getBarRepeatCountForExport();
 	}
 	return s;
 }
@@ -1179,7 +1173,7 @@ function buildPendingNotes(input: MidiExportInput): {
 				V,
 				barCount,
 			);
-			totalGridSec += windowSec * getBarRepeatCountForExport(b, mult, fusedBarGroups);
+			totalGridSec += windowSec * getBarRepeatCountForExport();
 		}
 		const horizon = Math.min(maxWall, Math.max(slowest, totalGridSec * revolutions));
 		const polyClickSlots = new Set<string>();
@@ -1263,7 +1257,7 @@ function buildPendingNotes(input: MidiExportInput): {
 				const nextCursor = (best.barCursor + 1) % best.barIndices.length;
 				const nextBar = best.barIndices[nextCursor]!;
 				const sameFused = Boolean(findGroupForBar(fusedBarGroups, prevBar)?.bars.includes(nextBar));
-				const repeats = getBarRepeatCountForExport(prevBar, mult, fusedBarGroups);
+				const repeats = getBarRepeatCountForExport();
 				if (!sameFused && best.barRepeatCursor + 1 < repeats) {
 					best.barRepeatCursor += 1;
 					const fusedGroup = findGroupForBar(fusedBarGroups, prevBar);

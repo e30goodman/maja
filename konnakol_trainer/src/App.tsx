@@ -9183,12 +9183,7 @@ export default function App() {
             : syllablesRef.current,
         getDeadStart: (barIdx) => deadCellsRef.current[barIdx]?.deadStart,
         getStepDurationSeconds: (bar, c) => getStepDurationSecondsRef.current(bar, c),
-        getBarRepeatCount: (bar) => {
-          const group = findGroupForBar(fusedBarGroupsRef.current, bar);
-          return group
-            ? getGroupMultiplier(group, customMultipliersRef.current)
-            : normalizeBarMultiplier(customMultipliersRef.current[bar]);
-        },
+        getBarRepeatCount: () => 1,
         barsInSameFusedBlock: (a, b) => barsShareFusedGroup(a, b, fusedBarGroupsRef.current),
         getFusedGroup: (bar) => findGroupForBar(fusedBarGroupsRef.current, bar),
         emit: (bar, c, absR, t, voice, step, dBar, repeatIndex) => {

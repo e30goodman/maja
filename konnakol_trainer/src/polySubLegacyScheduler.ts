@@ -26,7 +26,7 @@ export type PolySubLegacyDeps = {
 	getDeadStart: (bar: number) => number | undefined;
 	/** Per-cell step duration (fused block uses constant dCell across member bars). */
 	getStepDurationSeconds: (bar: number, c: number) => number;
-	/** x2/x4 replays the current bar or fused block before the lane advances. */
+	/** Optional bar reprise hook; x-mult speed is separate from repeat count in App. */
 	getBarRepeatCount?: (bar: number) => number;
 	/** When false, advancing to next bar on lane does not fire `onLaneBarBoundary` (same fused block). */
 	barsInSameFusedBlock?: (prevBar: number, nextBar: number) => boolean;
