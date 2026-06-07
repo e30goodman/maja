@@ -387,6 +387,8 @@ function testLegacySequenceKeepsDiv0CellsInTimingGrid() {
 		{
 			'0-1': [false],
 		},
+		{},
+		{ 0: true },
 	);
 	assert.deepEqual(
 		seq.map((x) => `${x.r}-${x.c}`),
@@ -395,12 +397,18 @@ function testLegacySequenceKeepsDiv0CellsInTimingGrid() {
 	);
 }
 
-function testLegacySequenceDoesNotRepeatBarsByMultiplier() {
-	const seq = buildLegacyPlaybackSequence(3, {}, 2, {}, {}, {}, {}, { 0: 2, 1: 3, 2: 4 });
+function testLegacySequenceDefaultRepriseTwiceUnlessDisabled() {
+	const seqDefault = buildLegacyPlaybackSequence(2, {}, 2, {}, {}, {}, {}, {}, {});
 	assert.deepEqual(
-		seq.map((x) => `${x.r}-${x.c}`),
-		['0-0', '0-1', '1-0', '1-1', '2-0', '2-1'],
-		'x-mult affects tempo only; sequence has one pass per bar',
+		seqDefault.map((x) => `${x.r}-${x.c}:${x.repeatIndex ?? 0}/${x.repeatCount ?? 1}`),
+		['0-0:0/2', '0-1:0/2', '0-0:1/2', '0-1:1/2', '1-0:0/2', '1-1:0/2', '1-0:1/2', '1-1:1/2'],
+		'default reprise x2 for every bar',
+	);
+	const seqOff = buildLegacyPlaybackSequence(2, {}, 2, {}, {}, {}, {}, {}, { 0: true });
+	assert.deepEqual(
+		seqOff.map((x) => `${x.r}-${x.c}:${x.repeatIndex ?? 0}/${x.repeatCount ?? 1}`),
+		['0-0:0/1', '0-1:0/1', '1-0:0/2', '1-1:0/2', '1-0:1/2', '1-1:1/2'],
+		'long-press disabled row plays once; others still x2',
 	);
 }
 
@@ -425,5 +433,5 @@ testCellSpeedExtendedBlendEndpoints();
 testDeadCellsIndependentOfAccents();
 testSpeedFillsAllCellsIndependentOfAccents();
 testLegacySequenceKeepsDiv0CellsInTimingGrid();
-testLegacySequenceDoesNotRepeatBarsByMultiplier();
+testLegacySequenceDefaultRepriseTwiceUnlessDisabled();
 console.log('randomCurves.test.ts: ok');

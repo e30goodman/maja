@@ -8,6 +8,8 @@
 import MidiWriter from 'midi-writer-js';
 import {
 	findGroupForBar,
+	FUSED_BAR_GROUPS_ENABLED,
+	getBarRepriseCount,
 	getFusedBarTimeWindowSeconds,
 	isFusedGroupFirstBeatCell,
 	getFusedCellDurationSeconds,
@@ -17,6 +19,7 @@ import {
 	normalizeBarMultiplier,
 	type FusedGroupState,
 	type FusedTimingContext,
+	type RepriseDisabledRows,
 } from './fusedBarGroups';
 import { buildLegacyPlaybackSequence, type DeadCellsMap } from './randomLogic';
 import { advancePolyLaneAfterEmit, buildLaneBarIndices, type PolyVoicesCount } from './polySubLegacyScheduler';
@@ -124,6 +127,7 @@ export interface MidiExportInput {
 	cellStepMasks?: CellStepMasks;
 	pulseMeterUnlinked?: Record<number, boolean>;
 	customMultipliers?: Record<number, number>;
+	repriseDisabledRows?: RepriseDisabledRows;
 	fusedBarGroups?: FusedGroupState[];
 	accents: Set<string> | Iterable<string>;
 	accentsByLane?: Partial<Record<0 | 1 | 2, Set<string> | Iterable<string>>>;
@@ -639,9 +643,12 @@ function getBarTimeWindowSeconds(
 	);
 }
 
-/** x-mult affects step/bar duration only; bar reprise is not tied to multiplier. */
-function getBarRepeatCountForExport(): number {
-	return 1;
+/** Bar reprise count (default x2); independent from speed multiplier. */
+function getBarRepeatCountForExport(
+	bar: number,
+	repriseDisabled: RepriseDisabledRows | undefined,
+): number {
+	return getBarRepriseCount(repriseDisabled ?? {}, bar);
 }
 
 function getStepDurationSecondsForExport(
@@ -746,7 +753,7 @@ function lanePatternSeconds(
 			polyVoices,
 			barCount,
 		);
-		s += windowSec * getBarRepeatCountForExport();
+		s += windowSec * getBarRepeatCountForExport(b, input.repriseDisabledRows);
 	}
 	return s;
 }
@@ -861,7 +868,7 @@ function buildPendingNotes(input: MidiExportInput): {
 	const deadMap = toDeadCellsMap(input.deadCells);
 	const pulseU = input.pulseMeterUnlinked ?? {};
 	const mult = input.customMultipliers ?? {};
-	const fusedBarGroups = input.fusedBarGroups ?? [];
+	const fusedBarGroups = FUSED_BAR_GROUPS_ENABLED ? (input.fusedBarGroups ?? []) : [];
 
 	const V: PolyVoicesCount = input.polyVoices === 3 ? 3 : 2;
 	const laneCount = input.polyMode ? (V === 3 ? 3 : 2) : 1;
@@ -1108,6 +1115,7 @@ function buildPendingNotes(input: MidiExportInput): {
 			input.customSubdivisions,
 			input.cellStepMasks,
 			mult,
+			input.repriseDisabledRows,
 		);
 		let wall = 0;
 		for (let rev = 0; rev < revolutions; rev++) {
@@ -1173,7 +1181,7 @@ function buildPendingNotes(input: MidiExportInput): {
 				V,
 				barCount,
 			);
-			totalGridSec += windowSec * getBarRepeatCountForExport();
+			totalGridSec += windowSec * getBarRepeatCountForExport(b, input.repriseDisabledRows);
 		}
 		const horizon = Math.min(maxWall, Math.max(slowest, totalGridSec * revolutions));
 		const polyClickSlots = new Set<string>();
@@ -1257,7 +1265,7 @@ function buildPendingNotes(input: MidiExportInput): {
 				const nextCursor = (best.barCursor + 1) % best.barIndices.length;
 				const nextBar = best.barIndices[nextCursor]!;
 				const sameFused = Boolean(findGroupForBar(fusedBarGroups, prevBar)?.bars.includes(nextBar));
-				const repeats = getBarRepeatCountForExport();
+				const repeats = getBarRepeatCountForExport(prevBar, input.repriseDisabledRows);
 				if (!sameFused && best.barRepeatCursor + 1 < repeats) {
 					best.barRepeatCursor += 1;
 					const fusedGroup = findGroupForBar(fusedBarGroups, prevBar);

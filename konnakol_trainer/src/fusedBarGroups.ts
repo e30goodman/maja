@@ -5,6 +5,22 @@
 
 import type { DeadCellsMap } from './randomLogic';
 
+/** UI/runtime gate: fused logic stays in repo but is inactive while false. */
+export const FUSED_BAR_GROUPS_ENABLED = false;
+
+/** Default bar reprise: each bar plays twice unless explicitly disabled per row. */
+export const DEFAULT_BAR_REPRISE_COUNT = 2;
+
+export type RepriseDisabledRows = Record<number, true>;
+
+export function isBarRepriseDisabled(repriseDisabled: RepriseDisabledRows, bar: number): boolean {
+	return repriseDisabled[bar] === true;
+}
+
+export function getBarRepriseCount(repriseDisabled: RepriseDisabledRows, bar: number): number {
+	return isBarRepriseDisabled(repriseDisabled, bar) ? 1 : DEFAULT_BAR_REPRISE_COUNT;
+}
+
 export const PULSE_METER_BASE_SYLLABLES = 4;
 export type BarMultiplier = 1 | 2 | 4;
 

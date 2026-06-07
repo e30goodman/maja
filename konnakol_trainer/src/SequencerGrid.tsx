@@ -329,7 +329,7 @@ export type SequencerGridRowActions = {
 	} | null>;
 	/** Long-press on Pulse: switch progressive mode to jati/de-sync mode. */
 	onPulseLongPressModeSwitch?: (rowIdx: number, rowSylls: number, nextPulseUnlinked: boolean) => void;
-	/** Long-press on multiplier: fused group create / extend / dissolve. */
+	/** Long-press on multiplier: toggle default x2 bar reprise off/on for this row. */
 	onFusedMultiplierHold?: (rowIdx: number) => void;
 	/** Long-press on pulse: gati/jati for fused block or single row. */
 	onTogglePulseUnlinkedRow?: (rowIdx: number) => void;
@@ -348,6 +348,8 @@ type SequencerGridRowProps = {
 	polyVoices: 2 | 3 | 4;
 	rowSylls: number;
 	rowMult: number;
+	/** Default x2 bar reprise is active for this row. */
+	rowRepriseEnabled: boolean;
 	displayRowSylls: number;
 	/** Poly lane id (0/1/2) when row is in a fused block; null otherwise. */
 	fusedHighlightLaneId: number | null;
@@ -403,6 +405,7 @@ function sequencerGridRowPropsEqual(a: SequencerGridRowProps, b: SequencerGridRo
 		a.polyVoices === b.polyVoices &&
 		a.rowSylls === b.rowSylls &&
 		a.rowMult === b.rowMult &&
+		a.rowRepriseEnabled === b.rowRepriseEnabled &&
 		a.displayRowSylls === b.displayRowSylls &&
 		a.fusedHighlightLaneId === b.fusedHighlightLaneId &&
 		a.fusedPulseIsFollower === b.fusedPulseIsFollower &&
@@ -455,6 +458,7 @@ const SequencerGridRow = React.memo(
 			polyVoices,
 			rowSylls,
 			rowMult,
+			rowRepriseEnabled,
 			displayRowSylls,
 			fusedHighlightLaneId,
 			fusedPulseIsFollower,
@@ -699,6 +703,11 @@ const SequencerGridRow = React.memo(
 							</span>
 						)}
 						x{rowMult}
+						{rowRepriseEnabled ? (
+							<span className="absolute bottom-[2px] right-[2px] text-[7px] text-violet-300/90 font-mono pointer-events-none leading-none">
+								R2
+							</span>
+						) : null}
 					</button>
 					<button
 						type="button"
@@ -1356,6 +1365,7 @@ export type SequencerGridProps = {
 	cellStepMasks: CellStepMasks;
 	cellConfigs: CellConfigs;
 	customMultipliers: Record<number, number>;
+	repriseDisabledRows: Record<number, true>;
 	accents: Set<string>;
 	taDingKeys: Set<string>;
 	pulseMeterUnlinked: Record<number, boolean>;
@@ -1406,6 +1416,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	cellStepMasks,
 	cellConfigs,
 	customMultipliers,
+	repriseDisabledRows,
 	accents,
 	taDingKeys,
 	pulseMeterUnlinked,
@@ -1556,6 +1567,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 				const rowMult = fusedGroup
 					? getGroupMultiplier(fusedGroup, customMultipliers)
 					: normalizeBarMultiplier(customMultipliers[rIdx]);
+				const rowRepriseEnabled = repriseDisabledRows[rIdx] !== true;
 				const fusedHighlightLaneId =
 					fusedGroup !== null ? fusedGroup.laneId : null;
 				const fusedPulseIsFollower =
@@ -1635,6 +1647,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 						isPolyRow={isPolyRow}
 						rowSylls={rowSylls}
 						rowMult={rowMult}
+						rowRepriseEnabled={rowRepriseEnabled}
 						displayRowSylls={displayRowSylls}
 						fusedHighlightLaneId={fusedHighlightLaneId}
 						fusedPulseIsFollower={fusedPulseIsFollower}

@@ -315,6 +315,7 @@ function testParityNoAltOnFirstBeatTaCell() {
 		humanize: false,
 		seed: 1,
 		ppq: 960,
+		repriseDisabledRows: { 0: true },
 	});
 	const taCellEvents = events.filter((e) => e.row === 1 && e.cell === 1);
 	assert.ok(taCellEvents.some((e) => e.role === 'taHigh'));
@@ -338,6 +339,7 @@ function testParityNoAltOnExplicitTaDingCell() {
 		humanize: false,
 		seed: 1,
 		ppq: 960,
+		repriseDisabledRows: { 0: true },
 	});
 	const taDingCellEvents = events.filter((e) => e.row === 1 && e.cell === 3);
 	assert.ok(taDingCellEvents.some((e) => e.role === 'taHigh'));
@@ -375,6 +377,7 @@ function testFirstSubstepMaskBlocksPrimaryHits() {
 		humanize: false,
 		seed: 1,
 		ppq: 960,
+		repriseDisabledRows: { 0: true },
 	});
 	const cellEvents = events.filter((e) => e.row === 1 && e.cell === 1);
 	assert.equal(cellEvents.some((e) => e.role === 'taHigh' || e.role === 'accent'), false);
