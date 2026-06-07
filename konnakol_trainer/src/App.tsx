@@ -3440,6 +3440,16 @@ export function decodeSnapshotClipboardForReport(text: string) {
   return tryDecodeSnapshotClipboard(text);
 }
 
+/** Test helper: default snapshot shell for clipboard round-trip checks. */
+export function createEmptySnapshotForTest(): ReturnType<typeof createEmptySnapshot> {
+  return createEmptySnapshot();
+}
+
+/** Test helper: compact clipboard encode (includes gridToken v7 reprise tail). */
+export function encodeSnapshotClipboardForTest(s: ReturnType<typeof createEmptySnapshot>): string {
+  return encodeSnapshotClipboard(s);
+}
+
 type CompactSnapshotStoragePayload = {
 	v: 1;
 	activeSnapshot?: number;
@@ -7135,6 +7145,7 @@ export default function App() {
       sequencerCells: raw.sequencerCells,
       customSyllables: raw.customSyllables,
       customMultipliers: raw.customMultipliers,
+      repriseDisabledRows: (raw as { repriseDisabledRows?: unknown }).repriseDisabledRows,
       customSubdivisions: raw.customSubdivisions,
       // Critical for clipboard round-trip from non-active snapshot slots:
       // without explicit masks, muted cells (Divs=0) collapse to plain subdiv values.
@@ -7188,6 +7199,20 @@ export default function App() {
         }
       }
       return changed ? next : prev;
+    });
+    setRepriseDisabledRows((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const k of Object.keys(next)) {
+        const ri = Number(k);
+        if (ri >= bars) {
+          delete next[ri];
+          changed = true;
+        }
+      }
+      if (!changed) return prev;
+      repriseDisabledRowsRef.current = next;
+      return next;
     });
   }, [bars]);
 
@@ -7267,6 +7292,7 @@ export default function App() {
           customSyllables,
           deadCells,
           customMultipliers,
+          repriseDisabledRows: { ...repriseDisabledRows },
           customSubdivisions,
           cellStepMasks,
           customCellSyllables,
@@ -7335,6 +7361,7 @@ export default function App() {
     customSyllables,
     deadCells,
     customMultipliers,
+    repriseDisabledRows,
     customSubdivisions,
     cellStepMasks,
     customCellSyllables,
@@ -7734,6 +7761,9 @@ export default function App() {
     customSyllables: { ...s.customSyllables },
     deadCells: { ...((s as { deadCells?: DeadCellsMap }).deadCells || {}) },
     customMultipliers: normalizeCustomMultipliers(s.customMultipliers),
+    repriseDisabledRows: normalizeRepriseDisabledRows(
+      (s as { repriseDisabledRows?: unknown }).repriseDisabledRows,
+    ),
     customSubdivisions: { ...s.customSubdivisions },
     cellStepMasks: { ...(s.cellStepMasks || {}) },
     customCellSyllables: { ...((s as { customCellSyllables?: Record<string, string> }).customCellSyllables || {}) },

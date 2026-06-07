@@ -539,6 +539,13 @@ const SequencerGridRow = React.memo(
 			(!polyMode
 				? rIdx === startBarPickHighlight
 				: Math.floor(rIdx / polyStepVoices) === Math.floor(startBarPickHighlight / polyStepVoices));
+		const mergedPulse2MultCell =
+			rowSylls === 2 &&
+			(rowMult === 2 || rowMult === 4) &&
+			fusedHighlightLaneId === null &&
+			(rowSubdivs[0] ?? 1) === 1 &&
+			(rowSubdivs[1] ?? 1) === 1 &&
+			rowRepriseBadge !== null;
 		const commitBarPickFromRow = () => {
 			const now = Date.now();
 			if (now - barPickHandledAtRef.current < 300) return;
@@ -958,21 +965,10 @@ const SequencerGridRow = React.memo(
 				>
 					<div className="absolute inset-x-0 -top-[2px] -bottom-[2px] w-full flex gap-1 items-stretch">
 					{Array.from({
-						length:
-							rowSylls === 2 &&
-							(rowMult === 2 || rowMult === 4) &&
-							fusedHighlightLaneId === null &&
-							(rowSubdivs[0] ?? 1) === 1 &&
-							(rowSubdivs[1] ?? 1) === 1
+						length: mergedPulse2MultCell
 								? 1
 								: Math.max(rowSylls, deadDisplayByRow[rIdx] ?? rowSylls),
 					}).map((_, cIdx) => {
-						const mergedPulse2MultCell =
-							rowSylls === 2 &&
-							(rowMult === 2 || rowMult === 4) &&
-							fusedHighlightLaneId === null &&
-							(rowSubdivs[0] ?? 1) === 1 &&
-							(rowSubdivs[1] ?? 1) === 1;
 						const sourceCIdx = mergedPulse2MultCell ? 0 : cIdx;
 						const mergedSourceCells = mergedPulse2MultCell ? [0, 1] : [sourceCIdx];
 						const checkKey = `${rIdx}-${sourceCIdx}`;
