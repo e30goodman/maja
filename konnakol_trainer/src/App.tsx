@@ -527,6 +527,10 @@ const GLOBAL_TEMPO_RUNTIME_MULTIPLIER = 2;
 function getRuntimeTempo(uiTempo: number): number {
 	return uiTempo * GLOBAL_TEMPO_RUNTIME_MULTIPLIER;
 }
+
+function getUiTempoFromRuntimeBpm(runtimeBpm: number): number {
+	return Math.round(runtimeBpm / GLOBAL_TEMPO_RUNTIME_MULTIPLIER);
+}
 const TEMPO_THROTTLE_MS = 56;
 /** Hold tempo +/-: wait past normal click duration, then apply step +/-5 every 0.1s. */
 const TEMPO_HOLD_START_MS = 350;
@@ -4912,8 +4916,9 @@ export default function App() {
         totalInterval += (tapTimesRef.current[i] - tapTimesRef.current[i - 1]);
       }
       const averageInterval = totalInterval / (tapTimesRef.current.length - 1);
-      const newTempo = Math.round(60000 / averageInterval);
-      
+      const runtimeBpm = 60000 / averageInterval;
+      const newTempo = getUiTempoFromRuntimeBpm(runtimeBpm);
+
       // Clamp between 20 and 400
       setTempo(Math.min(400, Math.max(20, newTempo)));
     }
