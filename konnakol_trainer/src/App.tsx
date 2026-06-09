@@ -45,15 +45,17 @@ import {
 	getGroupPulseSyllables,
 	getRowSyllables as getFusedRowSyllables,
 	cycleBarMultiplier,
+	cycleBarRepriseCount,
 	FUSED_BAR_GROUPS_ENABLED,
 	isRowPulseUnlinkedEffective,
 	normalizeBarMultiplier,
+	normalizeBarRepriseCounts,
 	remapGroupsOnBarsChange,
 	shouldStoreBarMultiplier,
 	syncGroupMultiplier,
 	toggleGroupGati,
+	type BarRepriseCounts,
 	type FusedGroupState,
-	type RepriseDisabledRows,
 } from './fusedBarGroups';
 import {
 	playheadActiveSignature,
@@ -293,16 +295,6 @@ function withPulseHeldRows(
 	const from = Math.max(0, Math.floor(fromInclusive));
 	const to = Math.max(from, Math.floor(toExclusive));
 	for (let r = from; r < to; r++) out[r] = true;
-	return out;
-}
-
-function normalizeRepriseDisabledRows(raw: unknown): RepriseDisabledRows {
-	if (!raw || typeof raw !== 'object') return {};
-	const out: RepriseDisabledRows = {};
-	for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-		const ri = parseInt(k, 10);
-		if (Number.isFinite(ri) && ri >= 0 && v === true) out[ri] = true;
-	}
 	return out;
 }
 
@@ -2144,7 +2136,7 @@ function packGridTokenPacked(
 	const out: number[] = [];
 	const bars = Math.max(1, Math.min(255, snapshot.bars));
 	const syllables = Math.max(1, Math.min(9, snapshot.syllables));
-	const gridVersion: number = 0x07; // v7: sparse rows with bar reprise disabled (default reprise stays x2).
+	const gridVersion: number = 0x09; // v9: sparse (row,count) reprise overrides (2=R2, 4=R4; default single pass).
 	out.push(0x50, gridVersion, bars, syllables);
 
 	const rowEntries = Object.entries(snapshot.customSyllables)
@@ -2243,8 +2235,29 @@ function packGridTokenPacked(
 		}
 	}
 
-	if (gridVersion >= 0x07) {
-		const repriseOffRows = Object.entries(snapshot.repriseDisabledRows || {})
+	if (gridVersion >= 0x09) {
+		const repriseEntries = Object.entries(snapshot.barRepriseCounts || {})
+			.map(([k, v]) => [parseInt(k, 10), v] as const)
+			.filter(
+				([r, v]) =>
+					Number.isFinite(r) && r >= 0 && r < bars && (v === 2 || v === 4),
+			)
+			.sort((a, b) => a[0] - b[0]);
+		out.push(Math.min(255, repriseEntries.length));
+		for (let i = 0; i < Math.min(255, repriseEntries.length); i++) {
+			const [r, v] = repriseEntries[i]!;
+			out.push(r & 0xff, v & 0xff);
+		}
+	} else if (gridVersion >= 0x08) {
+		const repriseFourRows = Object.entries(snapshot.barRepriseCounts || {})
+			.map(([k, v]) => [parseInt(k, 10), v] as const)
+			.filter(([r, v]) => Number.isFinite(r) && r >= 0 && r < bars && v === 4)
+			.map(([r]) => r)
+			.sort((a, b) => a - b);
+		out.push(Math.min(255, repriseFourRows.length));
+		for (let i = 0; i < Math.min(255, repriseFourRows.length); i++) out.push(repriseFourRows[i]! & 0xff);
+	} else if (gridVersion >= 0x07) {
+		const repriseOffRows = Object.entries((snapshot as { repriseDisabledRows?: Record<number, true> }).repriseDisabledRows || {})
 			.map(([k, v]) => [parseInt(k, 10), v] as const)
 			.filter(([r, v]) => Number.isFinite(r) && r >= 0 && r < bars && v === true)
 			.map(([r]) => r)
@@ -2274,7 +2287,7 @@ function unpackGridTokenPacked(
 	let off = 0;
 	const magic = bytes[off++]!;
 	const version = bytes[off++]!;
-	if (magic !== 0x50 || ![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07].includes(version)) return false;
+	if (magic !== 0x50 || ![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09].includes(version)) return false;
 	const bars = bytes[off++]!;
 	const syllables = bytes[off++]!;
 	if (bars < 1 || bars > 100 || syllables < 1 || syllables > 9) return false;
@@ -2389,16 +2402,35 @@ function unpackGridTokenPacked(
 		d.cellStepMasks = nextMasks;
 	}
 
-	if (version >= 0x07) {
+	if (version >= 0x09) {
 		if (off >= bytes.length) return false;
-		const repriseOffCount = bytes[off++]!;
-		const nextRepriseOff: RepriseDisabledRows = {};
-		for (let i = 0; i < repriseOffCount; i++) {
+		const repriseEntryCount = bytes[off++]!;
+		const nextReprise: BarRepriseCounts = {};
+		for (let i = 0; i < repriseEntryCount; i++) {
+			if (off + 1 >= bytes.length) return false;
+			const r = bytes[off++]!;
+			const c = bytes[off++]!;
+			if (r < bars && (c === 2 || c === 4)) nextReprise[r] = c;
+		}
+		d.barRepriseCounts = nextReprise;
+	} else if (version >= 0x08) {
+		if (off >= bytes.length) return false;
+		const repriseFourCount = bytes[off++]!;
+		const nextReprise: BarRepriseCounts = {};
+		for (let i = 0; i < repriseFourCount; i++) {
 			if (off >= bytes.length) return false;
 			const r = bytes[off++]!;
-			if (r < bars) nextRepriseOff[r] = true;
+			if (r < bars) nextReprise[r] = 4;
 		}
-		d.repriseDisabledRows = nextRepriseOff;
+		d.barRepriseCounts = nextReprise;
+	} else if (version >= 0x07) {
+		if (off >= bytes.length) return false;
+		const repriseOffCount = bytes[off++]!;
+		for (let i = 0; i < repriseOffCount; i++) {
+			if (off >= bytes.length) return false;
+			off++;
+		}
+		d.barRepriseCounts = {};
 	}
 	return true;
 }
@@ -2640,8 +2672,8 @@ function createEmptySnapshot() {
 		pulseMeterUnlinked: {} as Record<number, boolean>,
 		/** Fused adjacent bars per poly lane (or one group in legacy). */
 		fusedBarGroups: [] as FusedGroupState[],
-		/** Rows where default x2 bar reprise is turned off (long-press on x-mult). */
-		repriseDisabledRows: {} as RepriseDisabledRows,
+		/** Per-bar reprise override (sparse): 2=R2, 4=R4; default single pass. Long-press x-mult cycles off→R2→R4→off. */
+		barRepriseCounts: {} as BarRepriseCounts,
 		/** Frozen row height (number of visible bars) or null. */
 		frozenScale: null as number | null,
 		/** Potato mode (low-performance UI). */
@@ -2794,9 +2826,11 @@ function parseSnapshotRow(raw: unknown) {
 			if (Number.isFinite(ri) && vi !== 1) d.customMultipliers[ri] = vi;
 		}
 	}
-	const rdr = (o as { repriseDisabledRows?: unknown }).repriseDisabledRows;
-	if (rdr && typeof rdr === 'object') {
-		d.repriseDisabledRows = normalizeRepriseDisabledRows(rdr);
+	const brc = (o as { barRepriseCounts?: unknown }).barRepriseCounts;
+	if (brc && typeof brc === 'object') {
+		d.barRepriseCounts = normalizeBarRepriseCounts(brc);
+	} else {
+		d.barRepriseCounts = {};
 	}
 	const cd = o.customSubdivisions;
 	if (cd && typeof cd === 'object') {
@@ -3019,7 +3053,7 @@ function snapSlotLooksUsed(s: ReturnType<typeof createEmptySnapshot>) {
 	if (s.taDingKeys.size > 0) return true;
 	if (Object.keys(s.customSyllables).length > 0) return true;
 	if (Object.keys(s.customMultipliers).length > 0) return true;
-	if (Object.keys(s.repriseDisabledRows || {}).length > 0) return true;
+	if (Object.keys(s.barRepriseCounts || {}).length > 0) return true;
 	if (Object.keys(s.customSubdivisions).length > 0) return true;
 	if (Object.keys(s.cellStepMasks || {}).length > 0) return true;
 	if (Object.keys((s as { customCellSyllables?: Record<string, string> }).customCellSyllables || {}).length > 0)
@@ -3092,7 +3126,7 @@ function snapshotToJSON(s: ReturnType<typeof createEmptySnapshot>) {
 		sequencerCells: buildSequencerCellsForSnapshot(s),
 		customSyllables: s.customSyllables,
 		customMultipliers: s.customMultipliers,
-		repriseDisabledRows: { ...(s.repriseDisabledRows || {}) },
+		barRepriseCounts: { ...(s.barRepriseCounts || {}) },
 		customSubdivisions: s.customSubdivisions,
 		cellStepMasks: s.cellStepMasks,
 		customCellSyllables: { ...((s as { customCellSyllables?: Record<string, string> }).customCellSyllables || {}) },
@@ -4342,8 +4376,8 @@ export default function App() {
   const [customSyllables, setCustomSyllables] = useState<Record<number, number>>(() => ({ ...seed.customSyllables }));
   const [deadCells, setDeadCells] = useState<DeadCellsMap>(() => ({ ...((seed as { deadCells?: DeadCellsMap }).deadCells || {}) }));
   const [customMultipliers, setCustomMultipliers] = useState<Record<number, number>>(() => ({ ...seed.customMultipliers }));
-  const [repriseDisabledRows, setRepriseDisabledRows] = useState<RepriseDisabledRows>(() =>
-    normalizeRepriseDisabledRows((seed as { repriseDisabledRows?: unknown }).repriseDisabledRows),
+  const [barRepriseCounts, setBarRepriseCounts] = useState<BarRepriseCounts>(() =>
+    normalizeBarRepriseCounts((seed as { barRepriseCounts?: unknown }).barRepriseCounts),
   );
   const [customSubdivisions, setCustomSubdivisions] = useState<Record<string, number>>(() => ({ ...seed.customSubdivisions }));
   const [cellStepMasks, setCellStepMasks] = useState<CellStepMasks>(() => ({ ...(seed.cellStepMasks || {}) }));
@@ -4536,7 +4570,7 @@ export default function App() {
         customSyllables: { ...s.customSyllables },
         deadCells: { ...((s as { deadCells?: DeadCellsMap }).deadCells || {}) },
         customMultipliers: normalizeCustomMultipliers(s.customMultipliers),
-        repriseDisabledRows: normalizeRepriseDisabledRows((s as { repriseDisabledRows?: unknown }).repriseDisabledRows),
+        barRepriseCounts: normalizeBarRepriseCounts((s as { barRepriseCounts?: unknown }).barRepriseCounts),
         customSubdivisions: { ...s.customSubdivisions },
         customCellSyllables: { ...((s as { customCellSyllables?: Record<string, string> }).customCellSyllables || {}) },
         panelExpanded: s.panelExpanded === true,
@@ -4964,8 +4998,8 @@ export default function App() {
     deadCellsRef.current = {};
     setCustomMultipliers({});
     customMultipliersRef.current = {};
-    setRepriseDisabledRows({});
-    repriseDisabledRowsRef.current = {};
+    setBarRepriseCounts({});
+    barRepriseCountsRef.current = {};
     setFusedBarGroups([]);
     fusedBarGroupsRef.current = [];
     fusedCrossLaneDeadBarsRef.current = new Set();
@@ -5189,7 +5223,7 @@ export default function App() {
   const customSyllablesRef = useRef(customSyllables);
   const deadCellsRef = useRef<DeadCellsMap>(deadCells);
   const customMultipliersRef = useRef(customMultipliers);
-  const repriseDisabledRowsRef = useRef(repriseDisabledRows);
+  const barRepriseCountsRef = useRef(barRepriseCounts);
   const customSubdivisionsRef = useRef(customSubdivisions);
   const cellStepMasksRef = useRef<CellStepMasks>(cellStepMasks);
   const cellConfigsRef = useRef<CellConfigs>(cellConfigs);
@@ -5398,7 +5432,7 @@ export default function App() {
   /* Прямые присваивания (без spread) для ref-first путей (poly randomizer и т.п.):
    * ref === state → мутации переживают перерендеры и долетают до setState({...ref}). */
   useEffect(() => { customMultipliersRef.current = normalizeCustomMultipliers(customMultipliers); }, [customMultipliers]);
-  useEffect(() => { repriseDisabledRowsRef.current = normalizeRepriseDisabledRows(repriseDisabledRows); }, [repriseDisabledRows]);
+  useEffect(() => { barRepriseCountsRef.current = normalizeBarRepriseCounts(barRepriseCounts); }, [barRepriseCounts]);
   useEffect(() => { customSubdivisionsRef.current = customSubdivisions; }, [customSubdivisions]);
   useEffect(() => { cellStepMasksRef.current = cellStepMasks; }, [cellStepMasks]);
   useEffect(() => {
@@ -6300,7 +6334,7 @@ export default function App() {
     taDingKeysByLane: cloneLaneSetMap(taDingKeysByLaneRef.current),
     customSyllables: { ...customSyllablesRef.current },
     customMultipliers: { ...customMultipliersRef.current },
-    repriseDisabledRows: { ...repriseDisabledRowsRef.current },
+    barRepriseCounts: { ...barRepriseCountsRef.current },
     customSubdivisions: { ...customSubdivisionsRef.current },
     cellStepMasks: { ...cellStepMasksRef.current },
     customCellSyllables: { ...customCellSyllablesRef.current },
@@ -7029,7 +7063,7 @@ export default function App() {
       customSubdivisionsRef.current,
       cellStepMasksRef.current,
       nextMult,
-      repriseDisabledRowsRef.current,
+      barRepriseCountsRef.current,
     );
 
     if (sequenceRef.current.length > 0 && newSeq.length > 0) {
@@ -7150,7 +7184,7 @@ export default function App() {
       sequencerCells: raw.sequencerCells,
       customSyllables: raw.customSyllables,
       customMultipliers: raw.customMultipliers,
-      repriseDisabledRows: (raw as { repriseDisabledRows?: unknown }).repriseDisabledRows,
+      barRepriseCounts: (raw as { barRepriseCounts?: unknown }).barRepriseCounts,
       customSubdivisions: raw.customSubdivisions,
       // Critical for clipboard round-trip from non-active snapshot slots:
       // without explicit masks, muted cells (Divs=0) collapse to plain subdiv values.
@@ -7205,7 +7239,7 @@ export default function App() {
       }
       return changed ? next : prev;
     });
-    setRepriseDisabledRows((prev) => {
+    setBarRepriseCounts((prev) => {
       let changed = false;
       const next = { ...prev };
       for (const k of Object.keys(next)) {
@@ -7216,7 +7250,7 @@ export default function App() {
         }
       }
       if (!changed) return prev;
-      repriseDisabledRowsRef.current = next;
+      barRepriseCountsRef.current = next;
       return next;
     });
   }, [bars]);
@@ -7255,9 +7289,9 @@ export default function App() {
         customSubdivisions,
         cellStepMasks,
         customMultipliers,
-        repriseDisabledRows,
+        barRepriseCounts,
       ),
-    [bars, syllables, customSyllables, deadCells, customCellSyllables, customSubdivisions, cellStepMasks, customMultipliers, repriseDisabledRows],
+    [bars, syllables, customSyllables, deadCells, customCellSyllables, customSubdivisions, cellStepMasks, customMultipliers, barRepriseCounts],
   );
 
   const sequenceRef = useRef(sequence);
@@ -7297,7 +7331,7 @@ export default function App() {
           customSyllables,
           deadCells,
           customMultipliers,
-          repriseDisabledRows: { ...repriseDisabledRows },
+          barRepriseCounts: { ...barRepriseCounts },
           customSubdivisions,
           cellStepMasks,
           customCellSyllables,
@@ -7366,7 +7400,7 @@ export default function App() {
     customSyllables,
     deadCells,
     customMultipliers,
-    repriseDisabledRows,
+    barRepriseCounts,
     customSubdivisions,
     cellStepMasks,
     customCellSyllables,
@@ -7586,11 +7620,11 @@ export default function App() {
       : [];
     setFusedBarGroups(nextFused);
     fusedBarGroupsRef.current = nextFused;
-    const nextRepriseDisabled = normalizeRepriseDisabledRows(
-      (snap as { repriseDisabledRows?: unknown }).repriseDisabledRows,
+    const nextBarRepriseCounts = normalizeBarRepriseCounts(
+      (snap as { barRepriseCounts?: unknown }).barRepriseCounts,
     );
-    setRepriseDisabledRows(nextRepriseDisabled);
-    repriseDisabledRowsRef.current = nextRepriseDisabled;
+    setBarRepriseCounts(nextBarRepriseCounts);
+    barRepriseCountsRef.current = nextBarRepriseCounts;
     {
       const hasNewModes =
         (snap as { mixerLayerMode?: unknown }).mixerLayerMode !== undefined ||
@@ -7766,8 +7800,8 @@ export default function App() {
     customSyllables: { ...s.customSyllables },
     deadCells: { ...((s as { deadCells?: DeadCellsMap }).deadCells || {}) },
     customMultipliers: normalizeCustomMultipliers(s.customMultipliers),
-    repriseDisabledRows: normalizeRepriseDisabledRows(
-      (s as { repriseDisabledRows?: unknown }).repriseDisabledRows,
+    barRepriseCounts: normalizeBarRepriseCounts(
+      (s as { barRepriseCounts?: unknown }).barRepriseCounts,
     ),
     customSubdivisions: { ...s.customSubdivisions },
     cellStepMasks: { ...(s.cellStepMasks || {}) },
@@ -7881,9 +7915,9 @@ export default function App() {
         cellStepMasks: src ? { ...(src.cellStepMasks || {}) } : { ...cellStepMasksRef.current },
         pulseMeterUnlinked: src ? { ...(src.pulseMeterUnlinked || {}) } : { ...pulseMeterUnlinkedRef.current },
         customMultipliers: src ? { ...src.customMultipliers } : { ...customMultipliersRef.current },
-        repriseDisabledRows: src
-          ? normalizeRepriseDisabledRows((src as { repriseDisabledRows?: unknown }).repriseDisabledRows)
-          : { ...repriseDisabledRowsRef.current },
+        barRepriseCounts: src
+          ? normalizeBarRepriseCounts((src as { barRepriseCounts?: unknown }).barRepriseCounts)
+          : { ...barRepriseCountsRef.current },
         fusedBarGroups: FUSED_BAR_GROUPS_ENABLED
           ? src
             ? [...((src as { fusedBarGroups?: FusedGroupState[] }).fusedBarGroups ?? [])]
@@ -8725,7 +8759,7 @@ export default function App() {
               customSubdivisionsRef.current,
               cellStepMasksRef.current,
               customMultipliersRef.current,
-              repriseDisabledRowsRef.current,
+              barRepriseCountsRef.current,
             );
             
             const targetStepIndex = sequenceRef.current.findIndex(item => item.r === targetR && item.c === 0);
@@ -8924,10 +8958,10 @@ export default function App() {
       repeatIndex = 0,
     ) => {
       if (!audioCtxRef.current) return;
+      void repeatIndex;
       const subdivs = customSubdivisionsRef.current[`${rIdx}-${cIdx}`] || 1;
       const stepMask = resolveEffectiveStepMask(`${rIdx}-${cIdx}`, subdivs, cellStepMasksRef.current);
       const subDuration = Math.max(0.001, noteDuration / Math.max(1, subdivs));
-      const suppressTaDingOnRepeat = repeatIndex > 0;
       const taStableRoutingActive = debugTaEngineModeRef.current;
       const laneTaDingEarly = getLaneTaSetRef(rIdx);
       const laneFirstBeatEarly = getLaneFirstBeatRef(rIdx);
@@ -8941,9 +8975,8 @@ export default function App() {
         firstBeatDingSuppressedRowsRef.current.has(rIdx),
       );
       const taCellScheduled =
-        !suppressTaDingOnRepeat &&
-        ((cIdx === 0 && laneFirstBeatEarly && firstBeatHitRowEarly) ||
-          (laneFirstBeatEarly && cIdx >= 1 && laneTaDingEarly.has(`${rIdx}-${cIdx}`)));
+        (cIdx === 0 && laneFirstBeatEarly && firstBeatHitRowEarly) ||
+        (laneFirstBeatEarly && cIdx >= 1 && laneTaDingEarly.has(`${rIdx}-${cIdx}`));
       const forceStableForTaCell = taStableRoutingActive && taCellScheduled;
 
       const isPauseSyllableToken = (raw: unknown): boolean => {
@@ -9019,7 +9052,7 @@ export default function App() {
         // Subdivision tails are carried by role routing (alt/passive) for layer texture.
         const mainAccentClick = isAccent && sub === 0;
         const shouldPlayFirstBeatTa =
-          !suppressTaDingOnRepeat && isMegaBarDownbeat && fa && firstBeatCellHitRow && sub === 0;
+          isMegaBarDownbeat && fa && firstBeatCellHitRow && sub === 0;
         if (shouldPlayFirstBeatTa && !debugTaEngineModeRef.current && accentGain > 0) {
           playBarFirstHighClick(
             ctx,
@@ -9040,16 +9073,16 @@ export default function App() {
         const trainerMode: TrainerMode = isClickSelectorPreview ? 'normal' : trainerModeRef.current;
         const trainerMuted = isClickSelectorPreview ? false : trainerHoldMuteRef.current;
         const taEnabled = laneFirstBeat;
-        const isTaDingCell = !suppressTaDingOnRepeat && taEnabled && cIdx >= 1 && laneTaDing.has(`${rIdx}-${cIdx}`);
+        const isTaDingCell = taEnabled && cIdx >= 1 && laneTaDing.has(`${rIdx}-${cIdx}`);
         /** Accent articulation should stay single-hit even on subdivided cells. */
         const shouldPlayTaDingSound = isTaDingCell && sub === 0;
-        const hasTaDingHere = !suppressTaDingOnRepeat && taEnabled && laneTaDing.has(`${rIdx}-${cIdx}`);
+        const hasTaDingHere = taEnabled && laneTaDing.has(`${rIdx}-${cIdx}`);
         const dictantActive = trainerMode === 'dictation';
         const trainerTaOnly = trainerMode === 'ta_only';
         const shouldPlayBeat =
           trainerTaOnly ? hasTaDingHere || shouldPlayFirstBeatTa : true;
         const isTaFirstBeatArticulation =
-          !suppressTaDingOnRepeat && isMegaBarDownbeat && fa && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
+          isMegaBarDownbeat && fa && firstBeatCellHitRow && (subdivs > 1 || sub === 0);
         const sharpAsChecked = (() => {
           if (dictantActive) return mainAccentClick;
           if (muteMode === 'no_accent_sharp' && mainAccentClick && !isTaFirstBeatArticulation) return false;
@@ -9300,8 +9333,7 @@ export default function App() {
             : null;
           return getBarRepriseCountForBar(
             bar,
-            repriseDisabledRowsRef.current,
-            customMultipliersRef.current,
+            barRepriseCountsRef.current,
             group,
           );
         },
@@ -9995,14 +10027,18 @@ export default function App() {
   const canShowDefaultTaInNormal =
     firstBeatDingSuppressedRows.size > 0 ||
     hasAnyExplicitTaOutsideFirstBeat;
-  const handleToggleBarRepriseDisabled = useCallback((barIdx: number) => {
-    const mult = normalizeBarMultiplier(customMultipliersRef.current[barIdx]);
-    if (mult === 1) return;
-    setRepriseDisabledRows((prev) => {
+  const handleCycleBarRepriseCount = useCallback((barIdx: number) => {
+    const group = findGroupForBar(fusedBarGroupsRef.current, barIdx);
+    const leader = group ? group.bars[0]! : barIdx;
+    const barsToSync = group ? group.bars : [barIdx];
+    setBarRepriseCounts((prev) => {
       const out = { ...prev };
-      if (out[barIdx]) delete out[barIdx];
-      else out[barIdx] = true;
-      repriseDisabledRowsRef.current = out;
+      const next = cycleBarRepriseCount(out[leader]);
+      for (const b of barsToSync) {
+        if (next === 1) delete out[b];
+        else out[b] = next as 2 | 4;
+      }
+      barRepriseCountsRef.current = out;
       return out;
     });
     polySubLegacyRef.current = null;
@@ -10041,15 +10077,6 @@ export default function App() {
       customMultipliersRef.current = out;
       return out;
     });
-    if (nextMult === 1) {
-      setRepriseDisabledRows((prev) => {
-        if (!prev[barIdx]) return prev;
-        const out = { ...prev };
-        delete out[barIdx];
-        repriseDisabledRowsRef.current = out;
-        return out;
-      });
-    }
     polySubLegacyRef.current = null;
   }, []);
 
@@ -10169,7 +10196,7 @@ export default function App() {
     pulseMeterUnlinkedRef,
     subdivHoldSessionRef,
     onPulseLongPressModeSwitch: onPulseLongPressModeSwitchSideEffect,
-    onFusedMultiplierHold: handleToggleBarRepriseDisabled,
+    onFusedMultiplierHold: handleCycleBarRepriseCount,
     onCycleRowMultiplier: handleCycleRowMultiplier,
     onTogglePulseUnlinkedRow: handleTogglePulseUnlinkedRow,
     fusedBarGroupsRef,
@@ -11547,7 +11574,7 @@ export default function App() {
           cellStepMasks={cellStepMasks}
           cellConfigs={cellConfigs}
           customMultipliers={customMultipliers}
-          repriseDisabledRows={repriseDisabledRows}
+          barRepriseCounts={barRepriseCounts}
           rowRuntimeContexts={rowRuntimeContexts}
           accents={accentsUi}
           taDingKeys={visibleTaDingKeys}

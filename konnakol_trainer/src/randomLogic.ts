@@ -12,7 +12,7 @@
  */
 
 import { resolveEffectiveStepMask, type CellStepMasks } from './stepMask';
-import { getBarRepriseCountForBar, type RepriseDisabledRows } from './fusedBarGroups';
+import { getBarRepriseCountForBar, type BarRepriseCounts } from './fusedBarGroups';
 
 export const CHAOS_SLIDER_MAX = 100;
 
@@ -236,15 +236,15 @@ export function buildLegacyPlaybackSequence(
 	customSubdivisions?: Record<string, number>,
 	cellStepMasks?: CellStepMasks,
 	customMultipliers?: Record<number, number>,
-	repriseDisabledRows?: RepriseDisabledRows,
+	barRepriseCounts?: BarRepriseCounts,
 ): SequencerSeqItem[] {
 	void customCellSyllables;
-	const repriseOff = repriseDisabledRows ?? {};
-	const multMap = customMultipliers ?? {};
+	void customMultipliers;
+	const repriseMap = barRepriseCounts ?? {};
 	const seq: SequencerSeqItem[] = [];
 	for (let r = 0; r < barCount; r++) {
 		const syls = customSyllables[r] !== undefined ? customSyllables[r] : baseSyllables;
-		const repeatCount = getBarRepriseCountForBar(r, repriseOff, multMap, null);
+		const repeatCount = getBarRepriseCountForBar(r, repriseMap, null);
 		const ds = deadCells[r]?.deadStart;
 		const lastLiveExclusive =
 			typeof ds === 'number' ? Math.min(Math.max(0, Math.floor(ds)), syls) : syls;

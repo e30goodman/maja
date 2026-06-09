@@ -8,31 +8,58 @@ import type { DeadCellsMap } from './randomLogic';
 /** UI/runtime gate: fused logic stays in repo but is inactive while false. */
 export const FUSED_BAR_GROUPS_ENABLED = false;
 
+/** Sparse bar reprise overrides: missing row = single pass; 2 = R2; 4 = R4. */
+export type BarRepriseCounts = Record<number, 2 | 4>;
+/** Default playback passes per bar when no override is stored. */
+export const DEFAULT_BAR_REPRISE_COUNT = 1 as const;
+
+/** @deprecated v7 snapshots only; use BarRepriseCounts. */
 export type RepriseDisabledRows = Record<number, true>;
 
-export function isBarRepriseDisabled(repriseDisabled: RepriseDisabledRows, bar: number): boolean {
-	return repriseDisabled[bar] === true;
+export function resolveBarRepriseCount(
+	bar: number,
+	barRepriseCounts: BarRepriseCounts,
+): 1 | 2 | 4 {
+	const v = barRepriseCounts[bar];
+	if (v === 2 || v === 4) return v;
+	return DEFAULT_BAR_REPRISE_COUNT;
 }
 
-/** Reprise count follows x-mult (1/2/4); long-press on x-mult can force a single pass. */
+export function normalizeBarRepriseCounts(raw: unknown): BarRepriseCounts {
+	if (!raw || typeof raw !== 'object') return {};
+	const out: BarRepriseCounts = {};
+	for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+		const ri = parseInt(k, 10);
+		const n = Math.floor(Number(v));
+		if (!Number.isFinite(ri) || ri < 0) continue;
+		if (n === 2 || n === 4) out[ri] = n;
+	}
+	return out;
+}
+
+/** Long-press cycle on x-mult: off (default) → R2 → R4 → off. */
+export function cycleBarRepriseCount(raw: unknown): 1 | 2 | 4 {
+	if (raw === 2) return 4;
+	if (raw === 4) return 1;
+	return 2;
+}
+
+/** Bar reprise (R2/R4/off) is independent from x-mult speed. */
 export function getBarRepriseCountForBar(
 	bar: number,
-	repriseDisabled: RepriseDisabledRows,
-	customMultipliers: Record<number, number>,
+	barRepriseCounts: BarRepriseCounts,
 	group: FusedGroupState | null = null,
 ): number {
-	if (isBarRepriseDisabled(repriseDisabled, bar)) return 1;
-	const mult = group ? getGroupMultiplier(group, customMultipliers) : normalizeBarMultiplier(customMultipliers[bar]);
-	return mult;
+	const leader = group ? group.bars[0]! : bar;
+	return resolveBarRepriseCount(leader, barRepriseCounts);
 }
 
 /** @deprecated Use getBarRepriseCountForBar */
 export function getBarRepriseCount(
-	repriseDisabled: RepriseDisabledRows,
+	barRepriseCounts: BarRepriseCounts,
 	bar: number,
-	customMultipliers: Record<number, number> = {},
 ): number {
-	return getBarRepriseCountForBar(bar, repriseDisabled, customMultipliers, null);
+	return getBarRepriseCountForBar(bar, barRepriseCounts, null);
 }
 
 export const PULSE_METER_BASE_SYLLABLES = 4;

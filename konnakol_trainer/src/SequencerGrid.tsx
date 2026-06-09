@@ -22,6 +22,7 @@ import {
 	isRowPulseUnlinkedEffective,
 	cycleBarMultiplier,
 	normalizeBarMultiplier,
+	resolveBarRepriseCount,
 	sumGroupJati,
 	type FusedGroupState,
 } from './fusedBarGroups';
@@ -329,7 +330,7 @@ export type SequencerGridRowActions = {
 	} | null>;
 	/** Long-press on Pulse: switch progressive mode to jati/de-sync mode. */
 	onPulseLongPressModeSwitch?: (rowIdx: number, rowSylls: number, nextPulseUnlinked: boolean) => void;
-	/** Long-press on multiplier: toggle default x2 bar reprise off/on for this row. */
+	/** Long-press on multiplier: cycle bar reprise R2→R4→off→R2 (independent from x-mult speed). */
 	onFusedMultiplierHold?: (rowIdx: number) => void;
 	/** Long-press on pulse: gati/jati for fused block or single row. */
 	onTogglePulseUnlinkedRow?: (rowIdx: number) => void;
@@ -348,7 +349,7 @@ type SequencerGridRowProps = {
 	polyVoices: 2 | 3 | 4;
 	rowSylls: number;
 	rowMult: number;
-	/** x-mult > 1 and reprise not disabled: show R2/R4 badge on multiplier button. */
+	/** R2/R4 badge on multiplier button; null when reprise off (single pass). */
 	rowRepriseBadge: number | null;
 	displayRowSylls: number;
 	/** Poly lane id (0/1/2) when row is in a fused block; null otherwise. */
@@ -1361,7 +1362,7 @@ export type SequencerGridProps = {
 	cellStepMasks: CellStepMasks;
 	cellConfigs: CellConfigs;
 	customMultipliers: Record<number, number>;
-	repriseDisabledRows: Record<number, true>;
+	barRepriseCounts: Record<number, 2 | 4>;
 	accents: Set<string>;
 	taDingKeys: Set<string>;
 	pulseMeterUnlinked: Record<number, boolean>;
@@ -1412,7 +1413,7 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 	cellStepMasks,
 	cellConfigs,
 	customMultipliers,
-	repriseDisabledRows,
+	barRepriseCounts,
 	accents,
 	taDingKeys,
 	pulseMeterUnlinked,
@@ -1563,8 +1564,8 @@ export const SequencerGrid = React.memo(function SequencerGrid({
 				const rowMult = fusedGroup
 					? getGroupMultiplier(fusedGroup, customMultipliers)
 					: normalizeBarMultiplier(customMultipliers[rIdx]);
-				const rowRepriseBadge =
-					rowMult > 1 && repriseDisabledRows[rIdx] !== true ? rowMult : null;
+				const rowRepriseCount = resolveBarRepriseCount(rIdx, barRepriseCounts);
+				const rowRepriseBadge = rowRepriseCount >= 2 ? rowRepriseCount : null;
 				const fusedHighlightLaneId =
 					fusedGroup !== null ? fusedGroup.laneId : null;
 				const fusedPulseIsFollower =
