@@ -439,16 +439,14 @@ Points clés :
     pentatoniques majeures pour colorer l'harmonie.
 
 Schéma : /maja/images/Screenshot_42.png
-Métronome pratique : https://e30goodman.github.io/maja/konnakol/trainer/
 (Leçon 13 ouverte par défaut dans l'UI — expandedLessons)
 
 Pratique (PRATIQUE DE LA LEÇON 13) :
-  1. Transformer le groove habituel et le jouer de manière stable
-     dans les métriques suivantes : 5, 7, 9 et 10.
-  2. Vocalisation : Prononcer les temps ou les syllabes rythmiques
-     à voix haute EN MÊME TEMPS que le jeu du groove.
-  3. Organisation du groove dans différentes superpositions modales :
-     - Jouer la pentatonique majeure depuis le 2ème degré (couleur
-       Lydienne avec la note #4).
-     - Jouer la pentatonique majeure depuis le 5ème degré (couleur
-       stable : notes 3, 5, 6, 7, 2).
+  Thème : Jeu en pulsation 4 avec changement des accents internes.
+  Objectif : Jouer les exercices présentés dans la vidéo.
+  Plan :
+    1) Écouter et observer la pulsation de base
+    2) Repérer où se déplacent les accents internes
+    3) Reproduire chaque variation à la basse
+  Vidéo :
+    https://www.youtube.com/watch?v=luaHpx3GNWs
