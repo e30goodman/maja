@@ -798,6 +798,51 @@
                                 ]
                             }
                         ]
+                    },
+                    {
+                        id: 'm2-l13',
+                        title: 'Leçon 13 — Métrique du Groove et Superposition Pentatonique',
+                        description: 'Altération métrique du groove, indépendance rythmique par la vocalisation et rafraîchissement des structures pentatoniques.',
+                        showScheme: true,
+                        schemeUrl: '/maja/images/Screenshot_42.png',
+                        details: [
+                            'Métrique asymétrique : Modifier la structure d\'un groove familier pour l\'adapter à des mesures impaires et mixtes (5, 7, 9, 10).',
+                            'Indépendance rythmique : Vocaliser (chanter/parler) les pulsations ou subdivisions simultanément avec le jeu à la basse.',
+                            'Rappel harmonique : Rafraîchir en mémoire l\'utilisation des formes pentatoniques majeures pour colorer l\'harmonie.'
+                        ],
+                        tasks: []
+                    },
+                    {
+                        id: 'm2-l13-prac',
+                        title: 'PRATIQUE DE LA LEÇON 13',
+                        description: 'Groove en mesures impaires, vocalisation simultanée et superpositions pentatoniques modales.',
+                        isPractice: true,
+                        parentLessonId: 'm2-l13',
+                        showMetronome: true,
+                        metronomeUrl: 'https://e30goodman.github.io/maja/konnakol/trainer/',
+                        details: [],
+                        tasks: [
+                            {
+                                id: 't2-13-prac-1',
+                                text: 'Transformer le groove habituel et le jouer de manière stable dans les métriques suivantes : 5, 7, 9 et 10.',
+                                details: 'Adapter votre groove de référence aux métriques 5, 7, 9 et 10. Cherchez la stabilité avant la vitesse.'
+                            },
+                            {
+                                id: 't2-13-prac-2',
+                                text: 'Vocalisation : Prononcer les temps ou les syllabes rythmiques à voix haute EN MÊME TEMPS que le jeu du groove.',
+                                details: 'Développer l\'indépendance : la voix tient la pulsation ou la subdivision pendant que les mains jouent le groove.'
+                            },
+                            {
+                                id: 't2-13-prac-3',
+                                text: 'Organisation du groove : jouer la pentatonique majeure depuis le 2ème degré (couleur Lydienne avec la note #4).',
+                                details: 'Superposer la pentatonique majeure depuis le 2ème degré pour amener la couleur Lydienne (note #4).'
+                            },
+                            {
+                                id: 't2-13-prac-4',
+                                text: 'Organisation du groove : jouer la pentatonique majeure depuis le 5ème degré (couleur stable : 3, 5, 6, 7, 2).',
+                                details: 'Même groove, autre superposition : pentatonique majeure depuis le 5ème degré pour une couleur stable (notes 3, 5, 6, 7, 2).'
+                            }
+                        ]
                     }
                 ]
             },
@@ -932,7 +977,7 @@
         // 2. STATE MANAGEMENT (Variable Storage)
         // ==========================================
         let completedTasks = new Set(JSON.parse(localStorage.getItem('maja_bass_progress_v2') || '[]'));
-        let expandedLessons = new Set(['m2-l12', 'm2-l12-prac']);
+        let expandedLessons = new Set(['m2-l13', 'm2-l13-prac']);
         let expandedTaskDetails = new Set();
         // Default photos for task t1-1-2
         const DEFAULT_PHOTOS = [
@@ -1050,7 +1095,7 @@
                     }
                     
                     const isPractice = lesson.isPractice;
-                    const isCurrent = lesson.id === 'm2-l12-prac';
+                    const isCurrent = lesson.id === 'm2-l13-prac';
                     const isLessonLocked = !!lesson.locked;
                     const isExpanded = expandedLessons.has(lesson.id);
                     

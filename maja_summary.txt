@@ -1,8 +1,48 @@
 ====================================================================
-MAJA — RÉSUMÉ DES LEÇONS (Internal Notes)
-Programme : Blocs Harmoniques, Groove & Soloing
+MAJA / BassMastery — RÉSUMÉ (notes internes)
+Programme : Blocs Harmoniques, Groove, Soloing, Rythme & Konnakol
+Dernière synchro avec le site : juin 2026
 ====================================================================
 
+----------------------------------------------------------------------
+SITE & DÉPLOIEMENT
+----------------------------------------------------------------------
+Produit UI        : BassMastery — Espace Maja (cours complet, FR)
+Promo / vitrine   : BassMastery — Espace Demo (page funnel)
+Repo              : https://github.com/e30goodman/maja.git
+Déploiement       : GitHub Pages, branche main (.github/workflows/deploy.yml)
+
+URLs publiques :
+  - Cours complet : https://e30goodman.github.io/maja/
+  - Promo funnel  : https://e30goodman.github.io/maja/promo.html
+  - Konnakol app  : https://e30goodman.github.io/maja/konnakol/trainer/
+
+Fichiers sources déployés :
+  - maja/index.html          → index (COURSE_DATA + rendu)
+  - maja/public/promo.html   → promo.html
+  - maja/public/images/      → images/
+  - konnakol_trainer/dist/   → konnakol/trainer/
+
+Promo (état actuel) :
+  - Contenu : 1 vidéo YouTube Shorts intégrée + bouton WhatsApp
+  - Vidéo   : https://youtube.com/shorts/w5RbbqGoh0Q
+  - WhatsApp: +41 78 220 52 62 (Artem)
+  - Message preset :
+    « Bonjour Artem, vos cours m'intéressent. Pourrions-nous en discuter ? »
+  - Lien    : https://api.whatsapp.com/send?phone=41782205262&text=...
+
+Cours complet (pied de page) :
+  - Texte : « Pour toute question, n'hésitez pas à écrire à Artem sur WhatsApp. »
+  - Bouton : Ouvrir l'app Konnakol → konnakol/trainer/
+
+Stockage local (navigateur) :
+  - maja_bass_progress_v2   — tâches cochées (JSON array d'id)
+  - maja_bass_user_images   — photos uploadées par l'élève
+
+Modules visibles sur le site : MODULE 1 et MODULE 2
+
+
+====================================================================
 MODULE 1 : CARTE HARMONIQUE DU MANCHE (BLOCS)
 ====================================================================
 
@@ -42,11 +82,13 @@ Points clés :
   - Mouvement vers le haut depuis deux blocs mineurs : +1/2 ton
   - Mouvement vers le bas depuis les blocs mineurs : +1 ton
 
+Schéma : /maja/images/scheme_blocks.jpg
+
 Tâches :
   1. Jouer une séquence de blocs sur tout le manche
   2. Connecter les blocs
 
-Pratique :
+Pratique (PRATIQUE DE LA LEÇON 2) :
   - Objectif : Fluidité de navigation sur les 4 formes
   - Séquence : Accords → Arpèges → Aléatoire
   - Étape 1 : Jeu en Accords (Positions fixes)
@@ -91,7 +133,7 @@ LYDIEN :
     - Head Over Heels — Tears For Fears
     - Dreams — Fleetwood Mac
 
-Pratique :
+Pratique (PRATIQUE DE LA LEÇON 3) :
   1. Jouer une séquence à chacun des trois modes
   2. Écouter les exemples et identifier le vibe commun
   3. Trouver la note fondamentale, le bloc du mode et deux voisins
@@ -143,12 +185,14 @@ LOCRIEN :
     - Painkiller (Intro) — Judas Priest
     - Spinning in Daffodils — Them Crooked Vultures
 
-Pratique (avec métronome) :
+Pratique (PRATIQUE DE LA LEÇON 4, avec métronome) :
   1. Vidéo avec mission : visualisation des positions des blocs
   2. Enregistrer vidéo séquence par blocs (avec métronome)
   3. Écouter les exemples, identifier le vibe
   4. Regarder les blocs pour chaque mode
   5. Analyser : trouver fondamentale + paire de blocs voisins
+
+Métronome conseillé : Soundbrenner (lien App Store dans le cours)
 
 Vidéo :
   - https://youtu.be/F_m3IEVoccQ
@@ -164,8 +208,8 @@ Points clés :
   - Transition : visualisation théorique → application réelle
   - Création et intégration de "fills" via les structures de blocs
 
-Pratique (avec métronome) :
-  1. Vidéo (Mission Groove + Fills)
+Pratique (PRATIQUE DE LA LEÇON 5, avec métronome) :
+  1. Vidéo (Mission Groove + Fills) — enregistrement avec métronome
   2. Développer sa bibliothèque personnelle de fills
   3. Tâche additionnelle : Points d'ancrage — Tritons
   4. Tâche optionnelle : Mémoriser tritons + construire bloc avec
@@ -197,7 +241,7 @@ Points clés :
     (basse + aigue du bloc) et phrases courtes. Développe le sens
     de la composition.
 
-Pratique :
+Pratique (PRATIQUE DE LA LEÇON 6) :
   1. Pratiquer avec le Backing Track (E Mixolydian)
      🎯 Question : Quel mode supplémentaire apparaît dans ce minus ?
   2. Vidéo (Target Notes & Phrasé)
@@ -232,7 +276,7 @@ Points clés :
     (Ionien, Dorien, Phrygien, etc.) qui dicte l'emplacement exact
     de nos blocs sur le manche.
 
-Pratique :
+Pratique (PRATIQUE DE LA LEÇON 7) :
   1. Vidéo d'explication (Navigation à travers les modes parallèles)
   2. Backing Track (E Mixo / E Dorian — changements de positions)
      Rappel : les changements d'accords dans le minus indiquent
@@ -257,6 +301,154 @@ Audio :
   - https://drive.google.com/file/d/1fWyUGtoom8H663tfl3x2cG3_b4DS0e73
 
 
+----------------------------------------------------------------------
+LEÇON 8 — L'Architecture du Groove : Pentatonique & Palm Mute
+----------------------------------------------------------------------
+Thème : Transition vers le jeu rythmique — technique main droite
+        et notes communes des gammes majeures.
+
+Points clés :
+  - Technique Main Droite (Mute & Pluck) :
+    Position du Mute : près du chevalet = moins étouffé ;
+    vers le manche = plus étouffé.
+    Index droit (pas de crochet), attaque par le dessus.
+  - Théorie : Pentatonique Majeure = notes communes aux 3 modes majeurs
+    (Ionien, Lydien, Mixolydien). Formule : 1 - 2 - 3 - 5 - 6.
+
+Schéma : /maja/images/pentatonic.png
+
+Pratique (PRATIQUE DE LA LEÇON 8) :
+  1. Regarder la vidéo d'explication
+  2. Pratiquer avec le Backing Track (No Bass)
+  3. Tâche additionnelle : Faire une petite vidéo de votre progrès
+
+Vidéo :
+  - https://youtu.be/mGwUU-aWJUg
+Audio :
+  - https://drive.google.com/file/d/1V9NcoaxQYwaxI0wL4Vlyjkt8mXSnL_O_
+
+
+----------------------------------------------------------------------
+LEÇON 9 — Géométrie Pentatonique Avancée
+----------------------------------------------------------------------
+Thème : Architecture sur 2 cordes (petits blocs). Superposition
+        pentatonique depuis différentes positions majeures.
+
+Points clés :
+  - Petits blocs : géométrie sur deux cordes comme base mobile.
+  - Superposition : l'improvisateur définit la couleur modale en
+    choisissant les positions pentatoniques à superposer.
+  - Positions par mode :
+    Ionien     : pentatonique sur 1er, 4ème et 5ème degrés
+    Lydien     : pentatonique sur 1er, 2ème et 5ème degrés
+    Mixolydien : pentatonique sur 1er, 7ème et 4ème degrés
+
+Schéma : /maja/images/Screenshot_42.png
+
+Pratique (PRATIQUE DE LA LEÇON 9, avec métronome) :
+  1. Préparatoire : mini-blocs et patterns pentatoniques (3 cordes)
+  2. Arpèges selon les patterns à trois cordes (pose des doigts)
+  3. Séquence finale au métronome (55–60 BPM)
+
+Vidéos :
+  - https://www.youtube.com/watch?v=UNd106-IuLQ
+  - https://www.youtube.com/shorts/zCPzwCeq-qo
+  - https://www.youtube.com/shorts/VM5KtDUQtm4
+
+
 ====================================================================
-FIN DU RÉSUMÉ — 7 leçons complétées
+MODULE 2 : LE TEMPS ET LE RYTHME
 ====================================================================
+
+----------------------------------------------------------------------
+LEÇON 10 — Le Métronome et les Bases du Konnakol
+----------------------------------------------------------------------
+Thème : Initiation Konnakol (pyramides 1 à 9) et travail au métronome
+        pour développer le timing interne.
+
+Points clés :
+  - Bases du Konnakol : syllabes pour intérioriser les pulsations
+  - Routine de réduction du clic (100 BPM → 50 BPM) :
+    espacer les clics jusqu'à un seul repère sur plusieurs mesures
+  - Déplacement du clic (Displacement) :
+    le clic n'est plus le "1" mais le 2ème ou 3ème temps
+
+Schéma : /maja/images/konnakol-basic-patterns.jpg
+
+Pratique (PRATIQUE DE LA LEÇON 10) :
+  1. Pratique vocale : pyramide Konnakol (subdivisions 1 à 9)
+  2. Métronome réducteur : routine 100 BPM → 50 BPM
+  3. Déplacement du repère : clic sur le 2ème puis 3ème temps
+  4. Routine quotidienne : intégrer Konnakol et timing interne
+
+
+----------------------------------------------------------------------
+LEÇON 11 — Fingerstyle Percussif et Maîtrise du Riff
+----------------------------------------------------------------------
+Thème : Percussion sur basse, perfectionnement du riff principal,
+        Konnakol avancé avec métronome.
+
+Points clés :
+  - Fingerstyle percussif : muting main droite + main gauche
+  - Frappe main gauche sur le manche (slap) pour accentuer le rythme
+  - Contrôle des résonances : index gauche en contact permanent
+  - Konnakol et variations : subdivisions de 4 + dead notes aléatoires
+
+Pratique (PRATIQUE DE LA LEÇON 11) — sessions de 2 minutes :
+  - JOUR A — Extraction du Son : timbre et dynamique des 3 premières notes
+  - Statistiques : 10 succès consécutifs sans erreur
+  - JOUR B — Vitesse Éclair : 3 notes comme un bloc rythmique unique
+  - Développement de la vélocité au métronome
+
+
+----------------------------------------------------------------------
+LEÇON 12 — Konnakol, Tala et Dictée Rythmique
+----------------------------------------------------------------------
+Thème : Dictée rythmique ludique, coordination voix/pulsation,
+        transfert du Tala (comptage mains) sur la basse.
+
+Points clés :
+  - Konnakol-métronome : dictées et exercices en jeu
+  - Subdivisions non standard : 5, 6, 7, etc.
+  - Pulsation et polyrythmie : basse = Ta Ki Ta, voix = subdivisions
+    différentes (4, 5, 7, 9, 10, 11…) pour l'indépendance rythmique
+
+Schéma : /maja/images/konnakol-basic-patterns.jpg
+Métronome pratique : https://e30goodman.github.io/maja/konnakol/trainer/
+(Leçon 12 ouverte par défaut dans l'UI — expandedLessons)
+
+Pratique (PRATIQUE DE LA LEÇON 12) :
+  - Cycle 3 + 3 + 2 : chanter les syllabes konnakol + varier sur basse
+  - Structure : rythme 3+3+2 (huit temps), tirets = silence/pause
+  - Référence vidéo :
+    https://youtu.be/xLdeQwi-zh0
+
+
+----------------------------------------------------------------------
+LEÇON 13 — Métrique du Groove et Superposition Pentatonique
+----------------------------------------------------------------------
+Thème : Altération métrique du groove, indépendance rythmique par la
+        vocalisation et rafraîchissement des structures pentatoniques.
+
+Points clés :
+  - Métrique asymétrique : Modifier la structure d'un groove familier
+    pour l'adapter à des mesures impaires et mixtes (5, 7, 9, 10).
+  - Indépendance rythmique : Vocaliser (chanter/parler) les pulsations
+    ou subdivisions simultanément avec le jeu à la basse.
+  - Rappel harmonique : Rafraîchir en mémoire l'utilisation des formes
+    pentatoniques majeures pour colorer l'harmonie.
+
+Schéma : /maja/images/Screenshot_42.png
+Métronome pratique : https://e30goodman.github.io/maja/konnakol/trainer/
+(Leçon 13 ouverte par défaut dans l'UI — expandedLessons)
+
+Pratique (PRATIQUE DE LA LEÇON 13) :
+  1. Transformer le groove habituel et le jouer de manière stable
+     dans les métriques suivantes : 5, 7, 9 et 10.
+  2. Vocalisation : Prononcer les temps ou les syllabes rythmiques
+     à voix haute EN MÊME TEMPS que le jeu du groove.
+  3. Organisation du groove dans différentes superpositions modales :
+     - Jouer la pentatonique majeure depuis le 2ème degré (couleur
+       Lydienne avec la note #4).
+     - Jouer la pentatonique majeure depuis le 5ème degré (couleur
+       stable : notes 3, 5, 6, 7, 2).
