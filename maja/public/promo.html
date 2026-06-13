@@ -13,6 +13,11 @@
         background-color: #0f172a;
         color: #e2e8f0;
       }
+      .lang-btn-active {
+        background: rgba(124, 58, 237, 0.35);
+        border-color: rgba(167, 139, 250, 0.55);
+        color: #e9d5ff;
+      }
     </style>
 </head>
 <body class="min-h-screen relative overflow-x-hidden">
@@ -22,6 +27,11 @@
     </div>
 
     <main class="relative z-10 max-w-md mx-auto px-4 py-10 md:py-14 flex flex-col items-center gap-8">
+        <div class="w-full flex justify-end gap-2">
+            <button type="button" id="lang-fr" class="lang-btn lang-btn-active px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest border border-slate-600 text-slate-300 transition-colors">FR</button>
+            <button type="button" id="lang-en" class="lang-btn px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest border border-slate-600 text-slate-400 hover:text-slate-200 transition-colors">EN</button>
+        </div>
+
         <div class="w-full rounded-2xl overflow-hidden border border-slate-700 shadow-2xl shadow-violet-900/20 bg-black aspect-[9/16]">
             <iframe
                 class="w-full h-full"
@@ -34,15 +44,15 @@
         </div>
 
         <section class="w-full space-y-3">
-            <h2 class="text-center text-xs font-bold uppercase tracking-widest text-slate-500">Catégories</h2>
+            <h2 id="categories-heading" class="text-center text-xs font-bold uppercase tracking-widest text-slate-500">Catégories</h2>
             <div class="flex flex-wrap justify-center gap-2">
-                <a href="./promo/jazz-funk.html" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold bg-violet-600/20 text-violet-200 border border-violet-500/40 hover:bg-violet-600/30 hover:border-violet-400/60 transition-colors">Jazz / Funk</a>
-                <a href="./promo/fusion.html" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold bg-violet-600/20 text-violet-200 border border-violet-500/40 hover:bg-violet-600/30 hover:border-violet-400/60 transition-colors">Fusion</a>
-                <a href="./promo/metal.html" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold bg-violet-600/20 text-violet-200 border border-violet-500/40 hover:bg-violet-600/30 hover:border-violet-400/60 transition-colors">Metal</a>
-                <a href="./promo/rock.html" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold bg-violet-600/20 text-violet-200 border border-violet-500/40 hover:bg-violet-600/30 hover:border-violet-400/60 transition-colors">Rock</a>
-                <a href="./promo/exercices.html" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold bg-violet-600/20 text-violet-200 border border-violet-500/40 hover:bg-violet-600/30 hover:border-violet-400/60 transition-colors">Exercices</a>
-                <a href="./promo/jam.html" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold bg-violet-600/20 text-violet-200 border border-violet-500/40 hover:bg-violet-600/30 hover:border-violet-400/60 transition-colors">Jam / Improvisation</a>
-                <a href="./promo/bass-seul.html" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold bg-violet-600/20 text-violet-200 border border-violet-500/40 hover:bg-violet-600/30 hover:border-violet-400/60 transition-colors">Bass seul</a>
+                <a href="./promo/jazz-funk.html" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold bg-violet-600/20 text-violet-200 border border-violet-500/40 hover:bg-violet-600/30 hover:border-violet-400/60 transition-colors" data-i18n="cat.jazz">Jazz / Funk</a>
+                <a href="./promo/fusion.html" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold bg-violet-600/20 text-violet-200 border border-violet-500/40 hover:bg-violet-600/30 hover:border-violet-400/60 transition-colors" data-i18n="cat.fusion">Fusion</a>
+                <a href="./promo/metal.html" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold bg-violet-600/20 text-violet-200 border border-violet-500/40 hover:bg-violet-600/30 hover:border-violet-400/60 transition-colors" data-i18n="cat.metal">Metal</a>
+                <a href="./promo/rock.html" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold bg-violet-600/20 text-violet-200 border border-violet-500/40 hover:bg-violet-600/30 hover:border-violet-400/60 transition-colors" data-i18n="cat.rock">Rock</a>
+                <a href="./promo/exercices.html" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold bg-violet-600/20 text-violet-200 border border-violet-500/40 hover:bg-violet-600/30 hover:border-violet-400/60 transition-colors" data-i18n="cat.exercices">Exercices</a>
+                <a href="./promo/jam.html" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold bg-violet-600/20 text-violet-200 border border-violet-500/40 hover:bg-violet-600/30 hover:border-violet-400/60 transition-colors" data-i18n="cat.jam">Jam / Improvisation</a>
+                <a href="./promo/bass-seul.html" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold bg-violet-600/20 text-violet-200 border border-violet-500/40 hover:bg-violet-600/30 hover:border-violet-400/60 transition-colors" data-i18n="cat.bass">Bass seul</a>
             </div>
         </section>
 
@@ -55,19 +65,94 @@
                 class="inline-flex items-center justify-center gap-2 w-full px-6 py-4 rounded-xl font-semibold text-sm uppercase tracking-wide bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-lg shadow-emerald-900/40 transition-all hover:scale-[1.02] active:scale-[0.98] border border-emerald-400/30"
             >
                 <i data-lucide="message-circle" class="w-5 h-5"></i>
-                Écrire sur WhatsApp
+                <span id="whatsapp-label">Écrire sur WhatsApp</span>
             </a>
         </div>
 
-        <section class="w-full rounded-2xl border border-slate-700 bg-slate-900/60 px-5 py-6 space-y-4 text-sm text-slate-300 leading-relaxed">
-            <h2 class="text-lg font-bold text-slate-100">Salut, je suis Artem&nbsp;!</h2>
-            <p>Que tu n'aies jamais touché une basse ou que tu cherches à perfectionner ton groove, je suis là pour t'accompagner. Avec plus de 20 ans d'expérience, j'ai eu la chance de jouer sur de grandes scènes et d'enregistrer des albums. Aujourd'hui, je souhaite partager cette passion avec toi.</p>
-            <p>Mon approche est simple&nbsp;: on avance à ton rythme. Si tu débutes, nous verrons ensemble les bases pour te familiariser avec l'instrument. Si tu as déjà de l'expérience, nous explorerons des techniques plus avancées pour rendre ton jeu fluide et expressif. Le tout, en jouant la musique que tu aimes&nbsp;: mes leçons sont toujours adaptées à tes goûts, que tu veuilles reprendre tes morceaux préférés ou composer tes propres lignes.</p>
-            <p>Au-delà de la technique, nous travaillerons l'oreille musicale et l'état d'esprit. Apprendre la musique peut parfois être intimidant, c'est pourquoi je m'efforce de créer un environnement détendu, sans pression, pour que tu puisses surmonter les blocages et simplement profiter du voyage.</p>
-            <p class="text-slate-200">Je suis persuadé que chacun a un potentiel musical à exploiter. Si mon approche te parle, n'hésite pas à m'envoyer un message pour qu'on discute de tes objectifs&nbsp;!</p>
+        <section id="bio-section" class="w-full rounded-2xl border border-slate-700 bg-slate-900/60 px-5 py-6 space-y-4 text-sm text-slate-300 leading-relaxed">
+            <h2 id="bio-title" class="text-lg font-bold text-slate-100">Salut, je suis Artem&nbsp;!</h2>
+            <p id="bio-p1">Que tu n'aies jamais touché une basse ou que tu cherches à perfectionner ton groove, je suis là pour t'accompagner. Avec plus de 20 ans d'expérience, j'ai eu la chance de jouer sur de grandes scènes et d'enregistrer des albums. Aujourd'hui, je souhaite partager cette passion avec toi.</p>
+            <p id="bio-p2">Mon approche est simple&nbsp;: on avance à ton rythme. Si tu débutes, nous verrons ensemble les bases pour te familiariser avec l'instrument. Si tu as déjà de l'expérience, nous explorerons des techniques plus avancées pour rendre ton jeu fluide et expressif. Le tout, en jouant la musique que tu aimes&nbsp;: mes leçons sont toujours adaptées à tes goûts, que tu veuilles reprendre tes morceaux préférés ou composer tes propres lignes.</p>
+            <p id="bio-p3">Au-delà de la technique, nous travaillerons l'oreille musicale et l'état d'esprit. Apprendre la musique peut parfois être intimidant, c'est pourquoi je m'efforce de créer un environnement détendu, sans pression, pour que tu puisses surmonter les blocages et simplement profiter du voyage.</p>
+            <p id="bio-p4" class="text-slate-200">Je suis persuadé que chacun a un potentiel musical à exploiter. Si mon approche te parle, n'hésite pas à m'envoyer un message pour qu'on discute de tes objectifs&nbsp;!</p>
         </section>
     </main>
 
-    <script>lucide.createIcons();</script>
+    <script>
+      const WHATSAPP_FR = 'https://api.whatsapp.com/send?phone=41782205262&text=Bonjour%20Artem%2C%20vos%20cours%20m%27int%C3%A9ressent.%20Pourrions-nous%20en%20discuter%20%3F';
+      const WHATSAPP_EN = 'https://api.whatsapp.com/send?phone=41782205262&text=Hi%20Artem%2C%20your%20lessons%20interest%20me.%20Could%20we%20discuss%20the%20details%3F';
+
+      const I18N = {
+        fr: {
+          title: 'BassMastery - Espace Demo',
+          categories: 'Catégories',
+          whatsapp: 'Écrire sur WhatsApp',
+          'cat.jazz': 'Jazz / Funk',
+          'cat.fusion': 'Fusion',
+          'cat.metal': 'Metal',
+          'cat.rock': 'Rock',
+          'cat.exercices': 'Exercices',
+          'cat.jam': 'Jam / Improvisation',
+          'cat.bass': 'Bass seul',
+          bioTitle: 'Salut, je suis Artem\u00a0!',
+          bioP1: 'Que tu n\'aies jamais touché une basse ou que tu cherches à perfectionner ton groove, je suis là pour t\'accompagner. Avec plus de 20 ans d\'expérience, j\'ai eu la chance de jouer sur de grandes scènes et d\'enregistrer des albums. Aujourd\'hui, je souhaite partager cette passion avec toi.',
+          bioP2: 'Mon approche est simple\u00a0: on avance à ton rythme. Si tu débutes, nous verrons ensemble les bases pour te familiariser avec l\'instrument. Si tu as déjà de l\'expérience, nous explorerons des techniques plus avancées pour rendre ton jeu fluide et expressif. Le tout, en jouant la musique que tu aimes\u00a0: mes leçons sont toujours adaptées à tes goûts, que tu veuilles reprendre tes morceaux préférés ou composer tes propres lignes.',
+          bioP3: 'Au-delà de la technique, nous travaillerons l\'oreille musicale et l\'état d\'esprit. Apprendre la musique peut parfois être intimidant, c\'est pourquoi je m\'efforce de créer un environnement détendu, sans pression, pour que tu puisses surmonter les blocages et simplement profiter du voyage.',
+          bioP4: 'Je suis persuadé que chacun a un potentiel musical à exploiter. Si mon approche te parle, n\'hésite pas à m\'envoyer un message pour qu\'on discute de tes objectifs\u00a0!'
+        },
+        en: {
+          title: 'BassMastery - Demo Space',
+          categories: 'Categories',
+          whatsapp: 'Message on WhatsApp',
+          'cat.jazz': 'Jazz / Funk',
+          'cat.fusion': 'Fusion',
+          'cat.metal': 'Metal',
+          'cat.rock': 'Rock',
+          'cat.exercices': 'Exercises',
+          'cat.jam': 'Jam / Improvisation',
+          'cat.bass': 'Solo Bass',
+          bioTitle: 'Hi, I\'m Artem!',
+          bioP1: 'Whether you\'ve never touched a bass or you\'re looking to perfect your groove, I\'m here to support you. With over 20 years of experience, I\'ve had the chance to play on big stages and record albums. Today, I want to share that passion with you.',
+          bioP2: 'My approach is simple: we move at your pace. If you\'re a beginner, we\'ll work through the basics together to get you comfortable with the instrument. If you already have experience, we\'ll explore more advanced techniques to make your playing fluid and expressive — all while playing the music you love. My lessons are always tailored to your tastes, whether you want to revisit your favorite songs or write your own lines.',
+          bioP3: 'Beyond technique, we\'ll work on your musical ear and mindset. Learning music can sometimes feel intimidating, which is why I strive to create a relaxed, pressure-free environment so you can overcome blocks and simply enjoy the journey.',
+          bioP4: 'I\'m convinced everyone has musical potential to unlock. If my approach resonates with you, feel free to send me a message so we can talk about your goals!'
+        }
+      };
+
+      const langFrBtn = document.getElementById('lang-fr');
+      const langEnBtn = document.getElementById('lang-en');
+
+      const setLang = (lang) => {
+        const t = I18N[lang];
+        document.documentElement.lang = lang;
+        document.title = t.title;
+        document.getElementById('categories-heading').textContent = t.categories;
+        document.getElementById('whatsapp-label').textContent = t.whatsapp;
+        document.getElementById('whatsapp-cta').href = lang === 'en' ? WHATSAPP_EN : WHATSAPP_FR;
+        document.getElementById('bio-title').textContent = t.bioTitle;
+        document.getElementById('bio-p1').textContent = t.bioP1;
+        document.getElementById('bio-p2').textContent = t.bioP2;
+        document.getElementById('bio-p3').textContent = t.bioP3;
+        document.getElementById('bio-p4').textContent = t.bioP4;
+        document.querySelectorAll('[data-i18n]').forEach((el) => {
+          const key = el.getAttribute('data-i18n');
+          if (t[key]) el.textContent = t[key];
+        });
+        langFrBtn.classList.toggle('lang-btn-active', lang === 'fr');
+        langEnBtn.classList.toggle('lang-btn-active', lang === 'en');
+        try { localStorage.setItem('promo_lang', lang); } catch (_) {}
+      };
+
+      langFrBtn.addEventListener('click', () => setLang('fr'));
+      langEnBtn.addEventListener('click', () => setLang('en'));
+
+      let savedLang = 'fr';
+      try {
+        const stored = localStorage.getItem('promo_lang');
+        if (stored === 'en' || stored === 'fr') savedLang = stored;
+      } catch (_) {}
+      setLang(savedLang);
+      lucide.createIcons();
+    </script>
 </body>
 </html>
