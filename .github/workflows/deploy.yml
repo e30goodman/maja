@@ -66,7 +66,7 @@ jobs:
           cp maja/public/youtube-icon.png pages-artifact/youtube-icon.png
           cp maja/public/promo.html pages-artifact/promo.html
           mkdir -p pages-artifact/promo
-          cp maja/public/promo/jazz-funk.html pages-artifact/promo/jazz-funk.html
+          cp maja/public/promo/*.html pages-artifact/promo/
       
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v4

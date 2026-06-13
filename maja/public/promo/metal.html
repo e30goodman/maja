@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BassMastery — Metal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+      body {
+        font-family: 'Inter', sans-serif;
+        background-color: #0f172a;
+        color: #e2e8f0;
+      }
+    </style>
+</head>
+<body class="min-h-screen relative overflow-x-hidden">
+    <div class="fixed top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
+        <div class="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-blue-900/20 blur-[100px]"></div>
+        <div class="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-violet-900/20 blur-[100px]"></div>
+    </div>
+
+    <main class="relative z-10 max-w-md mx-auto px-4 py-10 md:py-14 flex flex-col items-center gap-8">
+        <a href="../promo.html" class="self-start inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-violet-300 transition-colors">
+            <i data-lucide="arrow-left" class="w-4 h-4"></i>
+            Retour
+        </a>
+
+        <div class="text-center">
+            <p class="text-xs font-bold uppercase tracking-widest text-violet-400 mb-1">Catégorie</p>
+            <h1 class="text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-slate-100 via-violet-200 to-blue-200">Metal</h1>
+        </div>
+
+        <div class="w-full space-y-6">
+            <article class="space-y-2">
+                <p class="text-xs uppercase tracking-widest text-slate-500 text-center">Metal</p>
+                <div class="w-full rounded-2xl overflow-hidden border border-slate-700 shadow-2xl shadow-violet-900/20 bg-black aspect-video">
+                    <iframe
+                        class="w-full h-full"
+                        src="https://www.youtube.com/embed/OMUiHeNq_8g?rel=0&modestbranding=1"
+                        title="BassMastery — Metal"
+                        frameborder="0"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        allowfullscreen
+                    ></iframe>
+                </div>
+            </article>
+
+            <article class="space-y-2">
+                <p class="text-xs uppercase tracking-widest text-slate-500 text-center">Metal — Short</p>
+                <div class="w-full rounded-2xl overflow-hidden border border-slate-700 shadow-2xl shadow-violet-900/20 bg-black aspect-[9/16]">
+                    <iframe
+                        class="w-full h-full"
+                        src="https://www.youtube.com/embed/Jp2lNrrQIfk?rel=0&modestbranding=1"
+                        title="BassMastery — Metal Short"
+                        frameborder="0"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        allowfullscreen
+                    ></iframe>
+                </div>
+            </article>
+        </div>
+
+        <div class="w-full space-y-3">
+            <p class="text-center text-sm text-slate-400 leading-relaxed">
+                Message WhatsApp&nbsp;:
+                <span class="block mt-1 text-slate-200">&laquo;&nbsp;Bonjour Artem, vos cours m'intéressent. Pourrions-nous en discuter&nbsp;?&nbsp;&raquo;</span>
+            </p>
+            <a
+                href="https://api.whatsapp.com/send?phone=41782205262&amp;text=Bonjour%20Artem%2C%20vos%20cours%20m%27int%C3%A9ressent.%20Pourrions-nous%20en%20discuter%20%3F"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex items-center justify-center gap-2 w-full px-6 py-4 rounded-xl font-semibold text-sm uppercase tracking-wide bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-lg shadow-emerald-900/40 transition-all hover:scale-[1.02] active:scale-[0.98] border border-emerald-400/30"
+            >
+                <i data-lucide="message-circle" class="w-5 h-5"></i>
+                Écrire sur WhatsApp
+            </a>
+        </div>
+    </main>
+
+    <script>lucide.createIcons();</script>
+</body>
+</html>
