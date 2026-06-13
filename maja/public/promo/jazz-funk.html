@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BassMastery - Espace Demo</title>
+    <title>BassMastery — Jazz / Funk</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
@@ -22,37 +22,33 @@
     </div>
 
     <main class="relative z-10 max-w-md mx-auto px-4 py-10 md:py-14 flex flex-col items-center gap-8">
+        <a href="../promo.html" class="self-start inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-violet-300 transition-colors">
+            <i data-lucide="arrow-left" class="w-4 h-4"></i>
+            Retour
+        </a>
+
+        <div class="text-center">
+            <p class="text-xs font-bold uppercase tracking-widest text-violet-400 mb-1">Catégorie</p>
+            <h1 class="text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-slate-100 via-violet-200 to-blue-200">Jazz / Funk</h1>
+        </div>
+
         <div class="w-full rounded-2xl overflow-hidden border border-slate-700 shadow-2xl shadow-violet-900/20 bg-black aspect-[9/16]">
             <iframe
                 class="w-full h-full"
-                src="https://www.youtube.com/embed/w5RbbqGoh0Q?rel=0&modestbranding=1"
-                title="BassMastery — Voronka"
+                src="https://www.youtube.com/embed/u7S49K02nZQ?rel=0&modestbranding=1"
+                title="BassMastery — Jazz / Funk"
                 frameborder="0"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                 allowfullscreen
             ></iframe>
         </div>
 
-        <section class="w-full space-y-3">
-            <h2 class="text-center text-xs font-bold uppercase tracking-widest text-slate-500">Catégories</h2>
-            <div class="flex flex-wrap justify-center gap-2">
-                <a href="./promo/jazz-funk.html" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold bg-violet-600/20 text-violet-200 border border-violet-500/40 hover:bg-violet-600/30 hover:border-violet-400/60 transition-colors">
-                    <i data-lucide="music" class="w-4 h-4"></i>
-                    Jazz / Funk
-                </a>
-                <span class="inline-flex items-center px-3 py-2 rounded-xl text-sm font-medium bg-slate-800/50 text-slate-500 border border-slate-700 cursor-not-allowed">Metal</span>
-                <span class="inline-flex items-center px-3 py-2 rounded-xl text-sm font-medium bg-slate-800/50 text-slate-500 border border-slate-700 cursor-not-allowed">Rock</span>
-                <span class="inline-flex items-center px-3 py-2 rounded-xl text-sm font-medium bg-slate-800/50 text-slate-500 border border-slate-700 cursor-not-allowed">Improvisation / Exercices</span>
-            </div>
-        </section>
-
         <div class="w-full space-y-3">
             <p class="text-center text-sm text-slate-400 leading-relaxed">
                 Message WhatsApp&nbsp;:
-                <span class="block mt-1 text-slate-200">«&nbsp;Bonjour Artem, vos cours m'intéressent. Pourrions-nous en discuter&nbsp;?&nbsp;»</span>
+                <span class="block mt-1 text-slate-200">&laquo;&nbsp;Bonjour Artem, vos cours m'intéressent. Pourrions-nous en discuter&nbsp;?&nbsp;&raquo;</span>
             </p>
             <a
-                id="whatsapp-cta"
                 href="https://api.whatsapp.com/send?phone=41782205262&amp;text=Bonjour%20Artem%2C%20vos%20cours%20m%27int%C3%A9ressent.%20Pourrions-nous%20en%20discuter%20%3F"
                 target="_blank"
                 rel="noopener noreferrer"

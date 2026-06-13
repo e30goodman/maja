@@ -65,6 +65,8 @@ jobs:
           cp maja/public/instagram-icon.png pages-artifact/instagram-icon.png
           cp maja/public/youtube-icon.png pages-artifact/youtube-icon.png
           cp maja/public/promo.html pages-artifact/promo.html
+          mkdir -p pages-artifact/promo
+          cp maja/public/promo/jazz-funk.html pages-artifact/promo/jazz-funk.html
       
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v4
