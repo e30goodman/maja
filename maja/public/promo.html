@@ -56,7 +56,7 @@
             </div>
         </section>
 
-        <div class="w-full">
+        <div class="w-full space-y-3">
             <a
                 id="whatsapp-cta"
                 href="https://api.whatsapp.com/send?phone=41782205262&amp;text=Bonjour%20Artem%2C%20vos%20cours%20m%27int%C3%A9ressent.%20Pourrions-nous%20en%20discuter%20%3F"
@@ -67,6 +67,37 @@
                 <i data-lucide="message-circle" class="w-5 h-5"></i>
                 <span id="whatsapp-label">Écrire sur WhatsApp</span>
             </a>
+
+            <button
+                type="button"
+                id="email-toggle"
+                class="inline-flex items-center justify-center gap-2 w-full px-6 py-4 rounded-xl font-semibold text-sm uppercase tracking-wide bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-500 hover:to-blue-500 text-white shadow-lg shadow-violet-900/40 transition-all hover:scale-[1.02] active:scale-[0.98] border border-violet-400/30"
+            >
+                <i data-lucide="mail" class="w-5 h-5"></i>
+                <span id="email-toggle-label">Écrire par e-mail</span>
+                <i data-lucide="chevron-down" id="email-chevron" class="w-4 h-4 ml-1 transition-transform"></i>
+            </button>
+
+            <div id="email-form-panel" class="hidden w-full rounded-2xl border border-slate-700 bg-slate-900/70 p-4 space-y-3">
+                <form id="email-form" class="space-y-3">
+                    <div>
+                        <label for="email-from" id="email-from-label" class="block text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1.5">Votre e-mail</label>
+                        <input type="email" id="email-from" required autocomplete="email" class="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-600 text-slate-100 text-sm focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500" />
+                    </div>
+                    <div>
+                        <label for="email-subject" id="email-subject-label" class="block text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1.5">Sujet</label>
+                        <input type="text" id="email-subject" required class="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-600 text-slate-100 text-sm focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500" />
+                    </div>
+                    <div>
+                        <label for="email-body" id="email-body-label" class="block text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1.5">Message</label>
+                        <textarea id="email-body" required rows="4" class="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-600 text-slate-100 text-sm resize-y focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"></textarea>
+                    </div>
+                    <button type="submit" class="inline-flex items-center justify-center gap-2 w-full px-5 py-3 rounded-xl font-semibold text-sm uppercase tracking-wide bg-violet-600 hover:bg-violet-500 text-white border border-violet-400/30 transition-colors">
+                        <i data-lucide="send" class="w-4 h-4"></i>
+                        <span id="email-send-label">Envoyer l'e-mail</span>
+                    </button>
+                </form>
+            </div>
         </div>
 
         <section id="bio-section" class="w-full rounded-2xl border border-slate-700 bg-slate-900/60 px-5 py-6 space-y-4 text-sm text-slate-300 leading-relaxed">
@@ -81,12 +112,31 @@
     <script>
       const WHATSAPP_FR = 'https://api.whatsapp.com/send?phone=41782205262&text=Bonjour%20Artem%2C%20vos%20cours%20m%27int%C3%A9ressent.%20Pourrions-nous%20en%20discuter%20%3F';
       const WHATSAPP_EN = 'https://api.whatsapp.com/send?phone=41782205262&text=Hi%20Artem%2C%20your%20lessons%20interest%20me.%20Could%20we%20discuss%20the%20details%3F';
+      const EMAIL_TO = 'e30goodman@gmail.com';
+
+      const EMAIL_PRESETS = {
+        fr: {
+          subject: 'Cours de basse — BassMastery',
+          body: 'Bonjour Artem, vos cours m\'intéressent. Pourrions-nous en discuter ?',
+          replyLabel: 'E-mail de réponse'
+        },
+        en: {
+          subject: 'Bass lessons — BassMastery',
+          body: 'Hi Artem, your lessons interest me. Could we discuss the details?',
+          replyLabel: 'Reply-to email'
+        }
+      };
 
       const I18N = {
         fr: {
           title: 'BassMastery - Espace Demo',
           categories: 'Catégories',
           whatsapp: 'Écrire sur WhatsApp',
+          emailToggle: 'Écrire par e-mail',
+          emailFrom: 'Votre e-mail',
+          emailSubject: 'Sujet',
+          emailBody: 'Message',
+          emailSend: 'Envoyer l\'e-mail',
           'cat.jazz': 'Jazz / Funk',
           'cat.fusion': 'Fusion',
           'cat.metal': 'Metal',
@@ -104,6 +154,11 @@
           title: 'BassMastery - Demo Space',
           categories: 'Categories',
           whatsapp: 'Message on WhatsApp',
+          emailToggle: 'Write by email',
+          emailFrom: 'Your email',
+          emailSubject: 'Subject',
+          emailBody: 'Message',
+          emailSend: 'Send email',
           'cat.jazz': 'Jazz / Funk',
           'cat.fusion': 'Fusion',
           'cat.metal': 'Metal',
@@ -121,14 +176,36 @@
 
       const langFrBtn = document.getElementById('lang-fr');
       const langEnBtn = document.getElementById('lang-en');
+      const emailToggle = document.getElementById('email-toggle');
+      const emailPanel = document.getElementById('email-form-panel');
+      const emailChevron = document.getElementById('email-chevron');
+      const emailForm = document.getElementById('email-form');
+      const emailFromInput = document.getElementById('email-from');
+      const emailSubjectInput = document.getElementById('email-subject');
+      const emailBodyInput = document.getElementById('email-body');
+
+      let currentLang = 'fr';
+
+      const applyEmailPresets = (lang) => {
+        const preset = EMAIL_PRESETS[lang];
+        emailSubjectInput.value = preset.subject;
+        emailBodyInput.value = preset.body;
+      };
 
       const setLang = (lang) => {
+        currentLang = lang;
         const t = I18N[lang];
         document.documentElement.lang = lang;
         document.title = t.title;
         document.getElementById('categories-heading').textContent = t.categories;
         document.getElementById('whatsapp-label').textContent = t.whatsapp;
         document.getElementById('whatsapp-cta').href = lang === 'en' ? WHATSAPP_EN : WHATSAPP_FR;
+        document.getElementById('email-toggle-label').textContent = t.emailToggle;
+        document.getElementById('email-from-label').textContent = t.emailFrom;
+        document.getElementById('email-subject-label').textContent = t.emailSubject;
+        document.getElementById('email-body-label').textContent = t.emailBody;
+        document.getElementById('email-send-label').textContent = t.emailSend;
+        applyEmailPresets(lang);
         document.getElementById('bio-title').textContent = t.bioTitle;
         document.getElementById('bio-p1').textContent = t.bioP1;
         document.getElementById('bio-p2').textContent = t.bioP2;
@@ -145,6 +222,26 @@
 
       langFrBtn.addEventListener('click', () => setLang('fr'));
       langEnBtn.addEventListener('click', () => setLang('en'));
+
+      emailToggle.addEventListener('click', () => {
+        const isHidden = emailPanel.classList.contains('hidden');
+        emailPanel.classList.toggle('hidden', !isHidden);
+        emailChevron.classList.toggle('rotate-180', isHidden);
+        if (isHidden) emailFromInput.focus();
+      });
+
+      emailForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const preset = EMAIL_PRESETS[currentLang];
+        const from = emailFromInput.value.trim();
+        const subject = emailSubjectInput.value.trim();
+        const body = emailBodyInput.value.trim();
+        if (!from || !subject || !body) return;
+
+        const fullBody = `${body}\n\n---\n${preset.replyLabel}: ${from}`;
+        const mailto = `mailto:${EMAIL_TO}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(fullBody)}`;
+        window.location.href = mailto;
+      });
 
       let savedLang = 'fr';
       try {
