@@ -96,8 +96,9 @@
                         <i data-lucide="send" class="w-4 h-4"></i>
                         <span id="email-send-label">Envoyer l'e-mail</span>
                     </button>
-                    <p id="email-status" class="hidden text-center text-sm rounded-lg px-3 py-2"></p>
+                    <p id="email-error-status" class="hidden text-center text-sm rounded-lg px-3 py-2 bg-red-900/40 text-red-200 border border-red-500/40"></p>
                 </form>
+                <p id="email-success-banner" class="hidden text-center text-sm rounded-lg px-4 py-4 bg-emerald-900/40 text-emerald-200 border border-emerald-500/40"></p>
             </div>
         </div>
 
@@ -192,18 +193,38 @@
       const emailSubjectInput = document.getElementById('email-subject');
       const emailBodyInput = document.getElementById('email-body');
       const emailSendBtn = document.getElementById('email-send-btn');
-      const emailStatus = document.getElementById('email-status');
+      const emailErrorStatus = document.getElementById('email-error-status');
+      const emailSuccessBanner = document.getElementById('email-success-banner');
 
       let currentLang = 'fr';
+      let emailSuccessTimer = null;
 
-      const showEmailStatus = (message, type) => {
-        emailStatus.textContent = message;
-        emailStatus.classList.remove('hidden', 'bg-emerald-900/40', 'text-emerald-200', 'border', 'border-emerald-500/40', 'bg-red-900/40', 'text-red-200', 'border-red-500/40');
-        if (type === 'success') {
-          emailStatus.classList.add('bg-emerald-900/40', 'text-emerald-200', 'border', 'border-emerald-500/40');
-        } else {
-          emailStatus.classList.add('bg-red-900/40', 'text-red-200', 'border', 'border-red-500/40');
+      const resetEmailPanel = () => {
+        if (emailSuccessTimer) {
+          clearTimeout(emailSuccessTimer);
+          emailSuccessTimer = null;
         }
+        emailForm.classList.remove('hidden');
+        emailSuccessBanner.classList.add('hidden');
+        emailErrorStatus.classList.add('hidden');
+      };
+
+      const showEmailSuccess = (message) => {
+        emailErrorStatus.classList.add('hidden');
+        emailForm.classList.add('hidden');
+        emailSuccessBanner.textContent = message;
+        emailSuccessBanner.classList.remove('hidden');
+        if (emailSuccessTimer) clearTimeout(emailSuccessTimer);
+        emailSuccessTimer = setTimeout(() => {
+          emailPanel.classList.add('hidden');
+          emailChevron.classList.remove('rotate-180');
+          resetEmailPanel();
+        }, 5000);
+      };
+
+      const showEmailError = (message) => {
+        emailErrorStatus.textContent = message;
+        emailErrorStatus.classList.remove('hidden');
       };
 
       const applyEmailPresets = (lang) => {
@@ -245,9 +266,16 @@
 
       emailToggle.addEventListener('click', () => {
         const isHidden = emailPanel.classList.contains('hidden');
-        emailPanel.classList.toggle('hidden', !isHidden);
-        emailChevron.classList.toggle('rotate-180', isHidden);
-        if (isHidden) emailFromInput.focus();
+        if (!isHidden) {
+          emailPanel.classList.add('hidden');
+          emailChevron.classList.remove('rotate-180');
+          resetEmailPanel();
+          return;
+        }
+        resetEmailPanel();
+        emailPanel.classList.remove('hidden');
+        emailChevron.classList.add('rotate-180');
+        emailFromInput.focus();
       });
 
       emailForm.addEventListener('submit', async (event) => {
@@ -260,7 +288,7 @@
         if (!from || !subject || !body) return;
 
         emailSendBtn.disabled = true;
-        emailStatus.classList.add('hidden');
+        emailErrorStatus.classList.add('hidden');
         const sendLabel = document.getElementById('email-send-label');
         sendLabel.textContent = t.emailSending;
 
@@ -285,11 +313,11 @@
 
           if (!response.ok) throw new Error('send failed');
 
-          showEmailStatus(t.emailSuccess, 'success');
+          showEmailSuccess(t.emailSuccess);
           applyEmailPresets(currentLang);
           emailFromInput.value = '';
         } catch (_) {
-          showEmailStatus(t.emailError, 'error');
+          showEmailError(t.emailError);
         } finally {
           emailSendBtn.disabled = false;
           sendLabel.textContent = I18N[currentLang].emailSend;
