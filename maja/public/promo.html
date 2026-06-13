@@ -92,10 +92,11 @@
                         <label for="email-body" id="email-body-label" class="block text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1.5">Message</label>
                         <textarea id="email-body" required rows="4" class="w-full px-3 py-2.5 rounded-lg bg-slate-800 border border-slate-600 text-slate-100 text-sm resize-y focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"></textarea>
                     </div>
-                    <button type="submit" class="inline-flex items-center justify-center gap-2 w-full px-5 py-3 rounded-xl font-semibold text-sm uppercase tracking-wide bg-violet-600 hover:bg-violet-500 text-white border border-violet-400/30 transition-colors">
+                    <button type="submit" id="email-send-btn" class="inline-flex items-center justify-center gap-2 w-full px-5 py-3 rounded-xl font-semibold text-sm uppercase tracking-wide bg-violet-600 hover:bg-violet-500 disabled:opacity-60 disabled:cursor-not-allowed text-white border border-violet-400/30 transition-colors">
                         <i data-lucide="send" class="w-4 h-4"></i>
                         <span id="email-send-label">Envoyer l'e-mail</span>
                     </button>
+                    <p id="email-status" class="hidden text-center text-sm rounded-lg px-3 py-2"></p>
                 </form>
             </div>
         </div>
@@ -113,6 +114,7 @@
       const WHATSAPP_FR = 'https://api.whatsapp.com/send?phone=41782205262&text=Bonjour%20Artem%2C%20vos%20cours%20m%27int%C3%A9ressent.%20Pourrions-nous%20en%20discuter%20%3F';
       const WHATSAPP_EN = 'https://api.whatsapp.com/send?phone=41782205262&text=Hi%20Artem%2C%20your%20lessons%20interest%20me.%20Could%20we%20discuss%20the%20details%3F';
       const EMAIL_TO = 'e30goodman@gmail.com';
+      const FORMSUBMIT_URL = `https://formsubmit.co/ajax/${EMAIL_TO}`;
 
       const EMAIL_PRESETS = {
         fr: {
@@ -137,6 +139,9 @@
           emailSubject: 'Sujet',
           emailBody: 'Message',
           emailSend: 'Envoyer l\'e-mail',
+          emailSending: 'Envoi en cours…',
+          emailSuccess: 'E-mail envoyé. Merci, Artem vous répondra bientôt.',
+          emailError: 'Erreur d\'envoi. Réessayez ou utilisez WhatsApp.',
           'cat.jazz': 'Jazz / Funk',
           'cat.fusion': 'Fusion',
           'cat.metal': 'Metal',
@@ -159,6 +164,9 @@
           emailSubject: 'Subject',
           emailBody: 'Message',
           emailSend: 'Send email',
+          emailSending: 'Sending…',
+          emailSuccess: 'Email sent. Thanks — Artem will reply soon.',
+          emailError: 'Could not send. Please try again or use WhatsApp.',
           'cat.jazz': 'Jazz / Funk',
           'cat.fusion': 'Fusion',
           'cat.metal': 'Metal',
@@ -183,8 +191,20 @@
       const emailFromInput = document.getElementById('email-from');
       const emailSubjectInput = document.getElementById('email-subject');
       const emailBodyInput = document.getElementById('email-body');
+      const emailSendBtn = document.getElementById('email-send-btn');
+      const emailStatus = document.getElementById('email-status');
 
       let currentLang = 'fr';
+
+      const showEmailStatus = (message, type) => {
+        emailStatus.textContent = message;
+        emailStatus.classList.remove('hidden', 'bg-emerald-900/40', 'text-emerald-200', 'border', 'border-emerald-500/40', 'bg-red-900/40', 'text-red-200', 'border-red-500/40');
+        if (type === 'success') {
+          emailStatus.classList.add('bg-emerald-900/40', 'text-emerald-200', 'border', 'border-emerald-500/40');
+        } else {
+          emailStatus.classList.add('bg-red-900/40', 'text-red-200', 'border', 'border-red-500/40');
+        }
+      };
 
       const applyEmailPresets = (lang) => {
         const preset = EMAIL_PRESETS[lang];
@@ -230,17 +250,50 @@
         if (isHidden) emailFromInput.focus();
       });
 
-      emailForm.addEventListener('submit', (event) => {
+      emailForm.addEventListener('submit', async (event) => {
         event.preventDefault();
+        const t = I18N[currentLang];
         const preset = EMAIL_PRESETS[currentLang];
         const from = emailFromInput.value.trim();
         const subject = emailSubjectInput.value.trim();
         const body = emailBodyInput.value.trim();
         if (!from || !subject || !body) return;
 
+        emailSendBtn.disabled = true;
+        emailStatus.classList.add('hidden');
+        const sendLabel = document.getElementById('email-send-label');
+        sendLabel.textContent = t.emailSending;
+
         const fullBody = `${body}\n\n---\n${preset.replyLabel}: ${from}`;
-        const mailto = `mailto:${EMAIL_TO}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(fullBody)}`;
-        window.location.href = mailto;
+
+        try {
+          const response = await fetch(FORMSUBMIT_URL, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+              email: from,
+              _replyto: from,
+              _subject: subject,
+              message: fullBody,
+              _captcha: 'false',
+              _template: 'table'
+            })
+          });
+
+          if (!response.ok) throw new Error('send failed');
+
+          showEmailStatus(t.emailSuccess, 'success');
+          applyEmailPresets(currentLang);
+          emailFromInput.value = '';
+        } catch (_) {
+          showEmailStatus(t.emailError, 'error');
+        } finally {
+          emailSendBtn.disabled = false;
+          sendLabel.textContent = I18N[currentLang].emailSend;
+        }
       });
 
       let savedLang = 'fr';
