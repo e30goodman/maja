@@ -4,6 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BassMastery - Espace Demo</title>
+    <script src="./js/analytics-config.js"></script>
+    <script src="./js/analytics.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
@@ -59,6 +61,8 @@
         <div class="w-full space-y-3">
             <a
                 id="whatsapp-cta"
+                data-track="whatsapp_click"
+                data-track-label="main_cta"
                 href="https://api.whatsapp.com/send?phone=41782205262&amp;text=Bonjour%20Artem%2C%20vos%20cours%20m%27int%C3%A9ressent.%20Pourrions-nous%20en%20discuter%20%3F"
                 target="_blank"
                 rel="noopener noreferrer"
@@ -71,6 +75,8 @@
             <button
                 type="button"
                 id="email-toggle"
+                data-track="email_open"
+                data-track-label="main_cta"
                 class="inline-flex items-center justify-center gap-2 w-full px-6 py-4 rounded-xl font-semibold text-sm uppercase tracking-wide bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-500 hover:to-blue-500 text-white shadow-lg shadow-violet-900/40 transition-all hover:scale-[1.02] active:scale-[0.98] border border-violet-400/30"
             >
                 <i data-lucide="mail" class="w-5 h-5"></i>
@@ -318,6 +324,10 @@
           });
 
           if (!response.ok) throw new Error('send failed');
+
+          if (typeof majaTrack === 'function') {
+            majaTrack('email_submit', { event_category: 'promo', event_label: 'main_cta' });
+          }
 
           showEmailSuccess(t.emailSuccess);
           applyEmailPresets(currentLang);

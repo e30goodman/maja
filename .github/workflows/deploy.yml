@@ -65,6 +65,7 @@ jobs:
           cp maja/public/instagram-icon.png pages-artifact/instagram-icon.png
           cp maja/public/youtube-icon.png pages-artifact/youtube-icon.png
           cp maja/public/promo.html pages-artifact/promo.html
+          cp -R maja/public/js pages-artifact/js
           mkdir -p pages-artifact/promo
           cp -R maja/public/promo/. pages-artifact/promo/
       
