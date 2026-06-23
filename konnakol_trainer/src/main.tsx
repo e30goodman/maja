@@ -1,6 +1,7 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
+import {initAnalytics, trackSessionEnd} from './analytics.ts';
 import './index.css';
 
 declare global {
@@ -10,6 +11,14 @@ declare global {
 }
 
 if (typeof window !== 'undefined') {
+  initAnalytics();
+
+  const onPageLeave = () => trackSessionEnd();
+  window.addEventListener('pagehide', onPageLeave);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') onPageLeave();
+  });
+
   window.addEventListener(
     'contextmenu',
     (e) => {

@@ -15,6 +15,7 @@ import {
 	ClipboardPaste,
 } from 'lucide-react';
 import { SequencerGrid, type SequencerGridRowActions } from './SequencerGrid';
+import { trackPlaybackStart, trackPlaybackStop } from './analytics';
 import {
 	getMetraSchedulerConfig,
 	getMetronomeSummingInput,
@@ -9701,6 +9702,7 @@ export default function App() {
       previewResetTimerRef.current = null;
     }
     if (isPlaying) {
+      trackPlaybackStop();
       endLiveControlWindow();
       setIsPlaying(false);
       setAutoscrollVirtualRowsEnabled(false);
@@ -9864,6 +9866,12 @@ export default function App() {
       }
       schedulePlayheadWake();
       scheduler();
+      trackPlaybackStart({
+        tempo,
+        bars,
+        polyMode,
+        polyVoices: polyMode ? polyVoices : undefined,
+      });
     }
   };
   togglePlaybackRef.current = togglePlayback;

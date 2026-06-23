@@ -1,4 +1,4 @@
-// Идентификатор потока данных GA4 (promo + Konnakol Trainer).
+// Идентификатор потока данных GA4 — поток metronome (Konnakol Trainer).
 window.MAJA_ANALYTICS = {
-  gaMeasurementId: 'G-YDSQYNCF78',
+  gaMeasurementId: 'G-4EB387RBPC',
 };
