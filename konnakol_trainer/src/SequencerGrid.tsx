@@ -85,6 +85,8 @@ const PULSE_ROULETTE_SLOP_Y_PX = 0;
 const PULSE_MODE_TOGGLE_CANCEL_SLOP_Y_PX = 8;
 const PULSE_HOLD_MS = 450;
 const MULT_FUSED_HOLD_MS = 450;
+/** After reprise long-press, block contextmenu from resetting x-mult (touch browsers fire both). */
+const MULT_REPRISE_CONTEXT_MENU_GUARD_MS = 1000;
 const CELL_HOLD_MS = 250;
 
 /**
@@ -531,6 +533,8 @@ const SequencerGridRow = React.memo(
 		} | null>(null);
 		const multFusedHoldTimerRef = useRef<number | null>(null);
 		const multFusedHoldFiredRef = useRef(false);
+		const multRepriseHoldSuppressContextMenuRef = useRef(false);
+		const multRepriseHoldSuppressTimerRef = useRef<number | null>(null);
 		const barPickHandledAtRef = useRef(0);
 		const barPickOverlayRef = useRef<HTMLDivElement>(null);
 		const polyStepVoices = polyVoices === 3 ? 3 : 2;
@@ -635,9 +639,22 @@ const SequencerGridRow = React.memo(
 							const a = actionsRef.current;
 							if (!a) return;
 							multFusedHoldFiredRef.current = false;
+							multRepriseHoldSuppressContextMenuRef.current = false;
+							if (multRepriseHoldSuppressTimerRef.current) {
+								clearTimeout(multRepriseHoldSuppressTimerRef.current);
+								multRepriseHoldSuppressTimerRef.current = null;
+							}
 							if (multFusedHoldTimerRef.current) clearTimeout(multFusedHoldTimerRef.current);
 							multFusedHoldTimerRef.current = window.setTimeout(() => {
 								multFusedHoldFiredRef.current = true;
+								multRepriseHoldSuppressContextMenuRef.current = true;
+								if (multRepriseHoldSuppressTimerRef.current) {
+									clearTimeout(multRepriseHoldSuppressTimerRef.current);
+								}
+								multRepriseHoldSuppressTimerRef.current = window.setTimeout(() => {
+									multRepriseHoldSuppressContextMenuRef.current = false;
+									multRepriseHoldSuppressTimerRef.current = null;
+								}, MULT_REPRISE_CONTEXT_MENU_GUARD_MS);
 								a.onFusedMultiplierHold?.(rIdx);
 								triggerHapticPulse(50);
 								multFusedHoldTimerRef.current = null;
@@ -679,6 +696,12 @@ const SequencerGridRow = React.memo(
 						}}
 						onContextMenu={(e) => {
 							e.preventDefault();
+							if (
+								multRepriseHoldSuppressContextMenuRef.current ||
+								multFusedHoldFiredRef.current
+							) {
+								return;
+							}
 							const a = actionsRef.current;
 							if (!a) return;
 							a.setCustomMultipliers((prev) => {
