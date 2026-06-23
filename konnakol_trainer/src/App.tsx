@@ -15,7 +15,7 @@ import {
 	ClipboardPaste,
 } from 'lucide-react';
 import { SequencerGrid, type SequencerGridRowActions } from './SequencerGrid';
-import { trackPlaybackStart, trackPlaybackStop } from './analytics';
+import { trackPlaybackStart, trackPlaybackStop, trackUi } from './analytics';
 import {
 	getMetraSchedulerConfig,
 	getMetronomeSummingInput,
@@ -6084,6 +6084,7 @@ export default function App() {
       }
       setTempo(next);
       tempoRef.current = next;
+      trackUi('set', 'tempo', { tempo: getUiTempoFromRuntimeBpm(next), source: 'step' });
     },
     [clampTempo],
   );
@@ -6118,6 +6119,7 @@ export default function App() {
     if (pending === null) return;
     setTempo(pending);
     tempoRef.current = pending;
+    trackUi('set', 'tempo', { tempo: getUiTempoFromRuntimeBpm(pending), source: 'slider' });
   }, []);
 
   const clearTempoHoldRepeat = useCallback(() => {
@@ -7837,6 +7839,7 @@ export default function App() {
       const payload = getSnapshotPayloadForSlotExport(slot);
       await navigator.clipboard.writeText(encodeSnapshotClipboard(payload));
       showClipboardToast('Settings copied to clipboard!');
+      trackUi('action', 'preset_copy', { slot });
       closeSnapshotClipMenu();
     } catch (e) {
       console.warn('[konnakol_trainer] clipboard write failed', e);
@@ -7846,6 +7849,7 @@ export default function App() {
   };
 
   const handleExportMidi = async (opts?: { autoAlignTwoVoice?: boolean }) => {
+    trackUi('action', 'midi_export', { auto_align: opts?.autoAlignTwoVoice === true });
     try {
       let exportSnapshot: ReturnType<typeof createEmptySnapshot> | null = null;
       try {
@@ -8008,6 +8012,7 @@ export default function App() {
       setActiveSnapshot(slot);
       applySnapshotDataToUi(stored, { preservePanel: true });
       showClipboardToast('Preset applied!');
+      trackUi('action', 'preset_paste', { slot });
     } catch (e) {
       console.warn('[konnakol_trainer] apply preset failed', e);
       showClipboardToast('Could not apply preset');
@@ -10261,9 +10266,11 @@ export default function App() {
             ref={settingsGearButtonRef}
             onClick={() => {
               if (!showRandomSettings) {
+                trackUi('open', 'settings');
                 setShowRandomSettings(true);
                 setIsPanelExpanded(true);
               } else {
+                trackUi('close', 'settings');
                 setShowRandomSettings(false);
               }
             }}
@@ -10381,6 +10388,7 @@ export default function App() {
                 setIsDeadCellsEditorMode((prev) => {
                   const next = !prev;
                   if (next) setIsTaEditorMode(false);
+                  trackUi(next ? 'open' : 'close', 'dead_cells_editor');
                   return next;
                 });
               }, SNAPSHOT_MENU_HOLD_MS);
@@ -10448,7 +10456,10 @@ export default function App() {
                       <div className="absolute left-3 right-3 top-3 flex items-center justify-between pointer-events-none">
                         <button
                           type="button"
-                          onClick={() => setIsClickSoundSelectorOpen(false)}
+                          onClick={() => {
+                            trackUi('close', 'click_sound_selector');
+                            setIsClickSoundSelectorOpen(false);
+                          }}
                           onPointerDown={() => {}}
                           className="w-8 h-8 rounded-lg bg-[#131722] border border-[#1f2438] flex items-center justify-center text-[#5b6385] hover:text-[#c0c5db] hover:bg-[#1a2030] transition-colors pointer-events-auto"
                         >
@@ -10814,6 +10825,11 @@ export default function App() {
                                   });
                                 });
                                 playTwoBarsPreviewFromGrid(preset.mappedSound);
+                                trackUi('set', 'click_sound', {
+                                  sound: preset.mappedSound,
+                                  label: preset.label,
+                                  poly_voice: polyMode ? targetVoice : -1,
+                                });
                               }}
                               className={`rounded-xl border p-3 min-h-[64px] text-center flex items-center justify-center transition-all ${
                                 isSelected
@@ -10948,7 +10964,10 @@ export default function App() {
                     <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5">
                       <button
                         type="button"
-                        onClick={() => setIsClickSoundSelectorOpen(true)}
+                        onClick={() => {
+                          trackUi('open', 'click_sound_selector');
+                          setIsClickSoundSelectorOpen(true);
+                        }}
                         className="group flex min-w-0 max-w-[min(100%,11rem)] flex-1 items-center justify-center rounded-lg border border-[#2f4066]/50 bg-[#0b101e] px-2 py-1 transition-all hover:bg-[#151d2f] sm:max-w-[13rem]"
                       >
                         <span className="truncate text-center text-[11px] font-semibold text-slate-300 transition-colors group-hover:text-white">
@@ -10962,7 +10981,13 @@ export default function App() {
                   <div className="w-1/2 self-center flex items-center justify-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setLowPerfMode((v) => !v)}
+                      onClick={() => {
+                        setLowPerfMode((v) => {
+                          const next = !v;
+                          trackUi('toggle', 'low_perf_mode', { enabled: next });
+                          return next;
+                        });
+                      }}
                       className={`flex-1 flex items-center justify-center py-1.5 px-2 rounded-md text-[11px] font-bold transition-colors border ${
                         lowPerfMode
                           ? 'bg-emerald-500/20 border-emerald-300/70 text-emerald-200'
@@ -11077,7 +11102,11 @@ export default function App() {
                         type="button"
                         onClick={() => {
                           flushSync(() => {
-                            setPolyMode((prev) => !prev);
+                            setPolyMode((prev) => {
+                              const next = !prev;
+                              trackUi('toggle', 'poly_mode', { enabled: next });
+                              return next;
+                            });
                           });
                         }}
                         className={`px-3 py-1.5 rounded-md text-[11px] font-bold border transition-colors ${
@@ -11100,6 +11129,7 @@ export default function App() {
                               flushSync(() => {
                                 setPolyVoices(parsePolyVoices(voices));
                               });
+                              trackUi('set', 'poly_voices', { voices });
                             }}
                             className={`py-1.5 rounded-md text-xs font-bold border transition-colors ${
                               polyVoices === voices
@@ -11527,7 +11557,9 @@ export default function App() {
               }
               setIsPanelExpanded((prev) => {
                 if (panelCollapseFrozenRef.current && prev) return true;
-                return !prev;
+                const next = !prev;
+                trackUi(next ? 'expand' : 'collapse', 'settings_panel');
+                return next;
               });
             }}
             className={`group absolute bottom-0 left-4 z-30 flex h-8 w-8 translate-y-1/2 touch-none select-none items-center justify-center overflow-hidden rounded-full border shadow-lg ${
@@ -11735,8 +11767,10 @@ export default function App() {
                 cancelTaHoldFillAnim();
                 if (isTaEditorModeRef.current) {
                   setIsTaEditorMode(false);
+                  trackUi('close', 'ta_editor');
                 } else {
                   setIsTaEditorMode(true);
+                  trackUi('open', 'ta_editor');
                 }
               }, TA_EDITOR_HOLD_MS);
             }}
@@ -11820,6 +11854,7 @@ export default function App() {
               setMixerLayerMode((prev) => {
                 const next = nextMixerLayerMode(prev);
                 mixerLayerModeRef.current = next;
+                trackUi('set', 'mixer_mode', { value: next });
                 return next;
               });
             }}
@@ -11904,6 +11939,7 @@ export default function App() {
                   const next = nextTrainerMode(prev);
                   trainerModeRef.current = next;
                   dictantModeRef.current = next === 'dictation';
+                  trackUi('set', 'trainer_mode', { value: next });
                   return next;
                 });
                 setTrainerHoldMute(false);

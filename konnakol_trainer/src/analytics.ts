@@ -69,6 +69,14 @@ function gtagEvent(eventName: string, params?: AnalyticsParams): void {
   });
 }
 
+export function trackUi(action: string, target: string, params?: AnalyticsParams): void {
+  gtagEvent('trainer_ui', {
+    action,
+    target,
+    ...params,
+  });
+}
+
 export function initAnalytics(): void {
   if (initialized || typeof window === 'undefined') return;
   if (!import.meta.env.PROD) return;
