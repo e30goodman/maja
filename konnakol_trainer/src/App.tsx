@@ -15,6 +15,7 @@ import {
 	ClipboardPaste,
 } from 'lucide-react';
 import { SequencerGrid, type SequencerGridRowActions } from './SequencerGrid';
+import { trackPlaybackStart, trackPlaybackStop } from './analytics';
 import {
 	getMetraSchedulerConfig,
 	getMetronomeSummingInput,
@@ -513,7 +514,7 @@ const DEFAULT_POLY_VOICE_GAINS: PolyVoiceGainMap = { 0: 1, 1: 1, 2: 1 };
 const CLICK_PRESET_BUS_TWO_BARS_PREVIEW_DEBOUNCE_MS = 120;
 const APP_COMMIT_VERSION = (() => {
 	if (typeof __APP_BUILD_COMMIT__ === 'string' && __APP_BUILD_COMMIT__.length >= 7) return __APP_BUILD_COMMIT__.slice(0, 7);
-	return '8e77b45';
+	return 'ec320e0';
 })();
 const GLOBAL_TEMPO_RUNTIME_MULTIPLIER = 2;
 function getRuntimeTempo(uiTempo: number): number {
@@ -9701,6 +9702,7 @@ export default function App() {
       previewResetTimerRef.current = null;
     }
     if (isPlaying) {
+      trackPlaybackStop();
       endLiveControlWindow();
       setIsPlaying(false);
       setAutoscrollVirtualRowsEnabled(false);
@@ -9864,6 +9866,12 @@ export default function App() {
       }
       schedulePlayheadWake();
       scheduler();
+      trackPlaybackStart({
+        tempo,
+        bars,
+        polyMode,
+        polyVoices: polyMode ? polyVoices : undefined,
+      });
     }
   };
   togglePlaybackRef.current = togglePlayback;
