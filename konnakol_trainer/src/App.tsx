@@ -21,7 +21,13 @@ import {
 	getMetronomeSummingInput,
 	type MetraSchedulerProfile,
 } from './metraAudioBus';
+import { applyVoiceBusParallelWetLevels } from './metroSoundBus';
 import { applyVoiceGroupChain, getVoiceLayerSumInput, type MetroVoiceKey } from './metroSoundBus';
+import {
+	applyTaAccentParallelChain,
+	BAKED_VOICE_PARALLEL_LIMITER,
+	getTaAccentParallelInput,
+} from './taAccentParallel';
 import { metroEnvelopeEndFromPeak, scheduleLayerToBus } from './metroLayerGraph';
 import {
 	createPolySubLegacyScheduler,
@@ -3602,6 +3608,16 @@ function getClassicOldschoolLoudnessBoost(soundType: ClickSoundPreset): number {
   return 1;
 }
 
+/** Accent Ta sample trim per preset (pre-baked buffer path in `playBarFirstHighClick`). */
+const ACCENT_TA_SAMPLE_GAIN_TRIM_BY_PRESET: Partial<Record<ClickSoundPreset, number>> = {
+  hi_hat: 0.5,
+};
+
+function getAccentTaSampleGainTrim(soundType: ClickSoundPreset): number {
+  const trim = ACCENT_TA_SAMPLE_GAIN_TRIM_BY_PRESET[soundType];
+  return typeof trim === 'number' && Number.isFinite(trim) ? Math.max(0, trim) : 1;
+}
+
 async function renderTaHiHatBuffer(ctx: AudioContext): Promise<AudioBuffer | null> {
   const OfflineCtor = (window as unknown as { OfflineAudioContext?: typeof OfflineAudioContext }).OfflineAudioContext;
   if (!OfflineCtor) return null;
@@ -3683,6 +3699,7 @@ const playSharpClick = (
   accentOnlyPlayback = false,
   voiceRole: 'accent' | 'base' | 'alt' = isChecked ? 'accent' : 'base',
   voiceGainMul = 1,
+  sumInputOverride?: GainNode,
 ) => {
   // USER-SOURCE-OF-TRUTH: render only the role explicitly requested by scheduler from user grid state.
   const cfg = CLICK_SOUND_LIBRARY[soundType] ?? CLICK_SOUND_LIBRARY.classic;
@@ -3706,7 +3723,7 @@ const playSharpClick = (
   // into the exact same timestamp (audible as random digital clipping on dense passive patterns).
   const t0 = Math.max(baseT0, lastByVoice[voiceKey] + minSpacingSec);
   lastByVoice[voiceKey] = t0;
-  const busIn = getVoiceLayerSumInput(ctx, voiceKey);
+  const busIn = sumInputOverride ?? getVoiceLayerSumInput(ctx, voiceKey);
   const libLayers = (cfg.layers ?? buildLegacyVoiceLayers(cfg))[voiceKey];
   const cachedForPreset = clickMixerLayerClonesByPresetRef.current[soundType];
   const layers = cachedForPreset?.[voiceKey] ?? libLayers;
@@ -3740,15 +3757,18 @@ const playBarFirstHighClick = (
       void ensureTaHiHatBuffer(ctx);
       return;
     }
-    const busIn = getVoiceLayerSumInput(ctx, 'accent');
+    const taIn = getTaAccentParallelInput(ctx, soundType);
     const src = ctx.createBufferSource();
     const gain = ctx.createGain();
     src.buffer = cached;
     gain.gain.cancelScheduledValues(now);
     gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(voiceGainMul * presetBoost, t0 + CLICK_ENV_ATTACK_SEC);
+    gain.gain.linearRampToValueAtTime(
+      voiceGainMul * presetBoost * getAccentTaSampleGainTrim(soundType),
+      t0 + CLICK_ENV_ATTACK_SEC,
+    );
     src.connect(gain);
-    gain.connect(busIn);
+    gain.connect(taIn);
     src.start(t0);
     src.onended = () => {
       src.disconnect();
@@ -3756,7 +3776,7 @@ const playBarFirstHighClick = (
     };
     return;
   }
-  const masterIn = getMetronomeSummingInput(ctx);
+  const taIn = getTaAccentParallelInput(ctx, soundType);
   if (soundType === 'classic') {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
@@ -3779,7 +3799,7 @@ const playBarFirstHighClick = (
     osc.connect(gain);
     gain.connect(hpFilter);
     hpFilter.connect(lpFilter);
-    lpFilter.connect(masterIn);
+    lpFilter.connect(taIn);
     osc.start(t0);
     osc.stop(t0 + 0.06);
     return;
@@ -3806,12 +3826,12 @@ const playBarFirstHighClick = (
     osc.connect(gain);
     gain.connect(hpFilter);
     hpFilter.connect(lpFilter);
-    lpFilter.connect(masterIn);
+    lpFilter.connect(taIn);
     osc.start(t0);
     osc.stop(t0 + 0.06);
     return;
   }
-  playSharpClick(ctx, time, true, soundType, false, 'accent', voiceGainMul);
+  playSharpClick(ctx, time, true, soundType, false, 'accent', voiceGainMul, taIn);
 };
 
 /** Long-press на рукоятке: `holdMs` до `onArm`; до срабатывания можно отменить жест (slop / смена value). */
@@ -5411,6 +5431,76 @@ export default function App() {
   useEffect(() => {
     clickPresetBusGainsByVoiceRef.current = { ...clickPresetBusGainsByVoice };
   }, [clickPresetBusGainsByVoice]);
+
+  const accentFaderForSoundPreset = useCallback((soundPreset: ClickSoundPreset): number => {
+    if (!polyModeRef.current) {
+      if (clickSoundRef.current !== soundPreset) return 1;
+      return getClickPresetBusGainsForVoicePreset(
+        clickPresetBusGainsByVoiceRef.current,
+        clickPresetBusGainsRef.current,
+        0,
+        soundPreset,
+      ).accent;
+    }
+    for (const voice of [0, 1, 2] as const) {
+      const resolved = resolveClickSoundForPolyVoice(
+        voice,
+        true,
+        clickSoundByPolyVoiceRef.current,
+        clickSoundRef.current,
+      );
+      if (resolved !== soundPreset) continue;
+      return getClickPresetBusGainsForVoicePreset(
+        clickPresetBusGainsByVoiceRef.current,
+        clickPresetBusGainsRef.current,
+        voice,
+        soundPreset,
+      ).accent;
+    }
+    return 1;
+  }, []);
+
+  const syncTaAccentParallel = useCallback(() => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    for (const preset of CLICK_SOUND_PRESET_ORDER) {
+      getTaAccentParallelInput(ctx, preset);
+      applyTaAccentParallelChain(ctx, preset, accentFaderForSoundPreset(preset));
+    }
+  }, [accentFaderForSoundPreset]);
+
+  const syncVoiceBusParallelWet = useCallback(() => {
+    const ctx = audioCtxRef.current;
+    if (!ctx) return;
+    const busVoice = (polyModeRef.current ? activeClickVoiceTargetRef.current : 0) as 0 | 1 | 2;
+    const soundPreset = resolveClickSoundForPolyVoice(
+      busVoice,
+      polyModeRef.current,
+      clickSoundByPolyVoiceRef.current,
+      clickSoundRef.current,
+    );
+    const busG = getClickPresetBusGainsForVoicePreset(
+      clickPresetBusGainsByVoiceRef.current,
+      clickPresetBusGainsRef.current,
+      busVoice,
+      soundPreset,
+    );
+    applyVoiceBusParallelWetLevels(ctx, busG, BAKED_VOICE_PARALLEL_LIMITER);
+    syncTaAccentParallel();
+  }, [syncTaAccentParallel]);
+
+  useEffect(() => {
+    syncVoiceBusParallelWet();
+  }, [
+    clickPresetBusGains,
+    clickPresetBusGainsByVoice,
+    activeClickVoiceTarget,
+    clickSound,
+    clickSoundByPolyVoice,
+    polyMode,
+    syncVoiceBusParallelWet,
+  ]);
+
   useEffect(() => {
     try {
       localStorage.setItem(POLY_VOICE_GAINS_STORAGE_KEY, JSON.stringify(polyVoiceGains));
@@ -9385,12 +9475,14 @@ export default function App() {
       if (soundPreset === 'hi_hat') {
         void ensureTaHiHatBuffer(ctxBoot);
       }
-      if (gBoot) {
+        if (gBoot) {
         for (const v of ['accent', 'alt', 'passive'] as const) {
           getVoiceLayerSumInput(ctxBoot, v);
           applyVoiceGroupChain(ctxBoot, v, gBoot[v].groupHpHz, gBoot[v].groupLpHz, gBoot[v].groupMasterLinear);
         }
       }
+      getMetronomeSummingInput(ctxBoot);
+      syncVoiceBusParallelWet();
     }
     clearPlayheadScheduling();
     polyClickSlotsRef.current.clear();
@@ -9420,7 +9512,7 @@ export default function App() {
       setActivePos({ r: -1, c: -1, absR: -1 });
       setActivePositions([]);
     }, resetDelayMs);
-  }, [clearPlayheadScheduling, getLegacyNoteDurationSeconds, scheduleGridCellAtTime]);
+  }, [clearPlayheadScheduling, getLegacyNoteDurationSeconds, scheduleGridCellAtTime, syncVoiceBusParallelWet]);
 
   /** After bus 1/2/3 moves: same two-bar grid preview as preset selection (debounced). If preview is already running, restart immediately to reflect slider movement live. */
   const scheduleClickPresetBusTwoBarsPreview = useCallback(() => {
@@ -9840,6 +9932,10 @@ export default function App() {
             applyVoiceGroupChain(ctxBoot, v, gBoot[v].groupHpHz, gBoot[v].groupLpHz, gBoot[v].groupMasterLinear);
           }
         }
+        if (ctxBoot) {
+          getMetronomeSummingInput(ctxBoot);
+          syncVoiceBusParallelWet();
+        }
       }
       // Guarantee loop limits if grid resized
       if (polyModeRef.current) {
@@ -10252,7 +10348,6 @@ export default function App() {
   const matrixInnerBlockSurfaceClass = isMatrixUiActive
     ? `bg-violet-500/12 border-violet-500/45 ${lowPerfMode ? '' : 'shadow-[inset_0_0_10px_rgba(167,139,250,0.16)]'}`
     : 'bg-[#161f33] border-[#23314f]';
-
   return (
     <div className="h-[100dvh] bg-[#0b101e] sm:bg-black/95 text-slate-200 p-0 sm:p-6 font-sans flex flex-col items-center justify-center">
       {/* Phone emulator container */}

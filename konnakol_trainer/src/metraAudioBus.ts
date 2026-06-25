@@ -1,12 +1,16 @@
 /**
- * METRA-style master path: linear sum of all metronome layers -> **master limiter** -> destination.
- * Web Audio has no dedicated LimiterNode: use `DynamicsCompressor` with peak-limiter settings.
- * One chain per AudioContext (WeakMap); safe when context is closed/GC'd.
+ * METRA-style master path: linear sum of all voice buses -> safety limiter -> destination.
+ * Parallel compression lives on each voice bus (see metroSoundBus.ts).
  */
 
-const masterBusByContext = new WeakMap<AudioContext, { summing: GainNode; masterLimiter: DynamicsCompressorNode }>();
+type MasterBusEntry = {
+	summing: GainNode;
+	outputLimiter: DynamicsCompressorNode;
+};
 
-function createMasterPeakLimiter(ctx: AudioContext): DynamicsCompressorNode {
+const masterBusByContext = new WeakMap<AudioContext, MasterBusEntry>();
+
+function createSafetyLimiter(ctx: AudioContext): DynamicsCompressorNode {
 	const lim = ctx.createDynamicsCompressor();
 	lim.threshold.value = -0.1;
 	lim.knee.value = 0;
@@ -65,17 +69,16 @@ export function getMetraSchedulerConfig(profile: MetraSchedulerProfile): MetraSc
 	return METRA_SCHEDULER_PROFILES[profile];
 }
 
-/** Input node: connect all layer tails here (linear sum). */
+/** Input node: connect all per-voice bus outputs here (linear sum). */
 export function getMetronomeSummingInput(ctx: AudioContext): GainNode {
 	let entry = masterBusByContext.get(ctx);
 	if (!entry) {
 		const summing = ctx.createGain();
-		// Keep headroom before limiter; avoid pre-limiter overload as default state.
 		summing.gain.value = 0.85;
-		const masterLimiter = createMasterPeakLimiter(ctx);
-		summing.connect(masterLimiter);
-		masterLimiter.connect(ctx.destination);
-		entry = { summing, masterLimiter };
+		const outputLimiter = createSafetyLimiter(ctx);
+		summing.connect(outputLimiter);
+		outputLimiter.connect(ctx.destination);
+		entry = { summing, outputLimiter };
 		masterBusByContext.set(ctx, entry);
 	}
 	return entry.summing;

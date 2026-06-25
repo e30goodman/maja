@@ -1,17 +1,20 @@
 /**
- * Per-voice sound buses: sum of layer tails → group HP → group LP → group master → metronome summing.
+ * Per-voice sound buses:
+ * layer sum → group HP → group LP → group delay → group master → parallel limiter → metronome summing.
  */
 
 import { getMetronomeSummingInput } from './metraAudioBus';
+import {
+	applyBakedParallelChain,
+	BAKED_VOICE_PARALLEL_LIMITER,
+	createParallelBusChain,
+	type ParallelBusChainNodes,
+	type ParallelLimiterSettings,
+} from './parallelBusChain';
 
 export type MetroVoiceKey = 'accent' | 'alt' | 'passive';
 const MIN_HP_HZ = 20;
 
-/**
- * Anti-phase micro-delays per voice bus (seconds).
- * Values are intentionally tiny: audible alignment stays intact,
- * but mono cancellation risk between voices is reduced.
- */
 const VOICE_MICRO_DELAY_SEC: Record<MetroVoiceKey, number> = {
 	accent: 0,
 	alt: 0.00045,
@@ -25,6 +28,7 @@ type VoiceBus = {
 	groupLp: BiquadFilterNode;
 	groupDelay: DelayNode;
 	groupMaster: GainNode;
+	parallel: ParallelBusChainNodes;
 };
 
 const voiceBusesByContext = new WeakMap<AudioContext, Record<MetroVoiceKey, VoiceBus>>();
@@ -33,7 +37,7 @@ function ensureVoiceBuses(ctx: AudioContext): Record<MetroVoiceKey, VoiceBus> {
 	const cached = voiceBusesByContext.get(ctx);
 	if (cached) return cached;
 	const masterIn = getMetronomeSummingInput(ctx);
-	const mk = (): VoiceBus => {
+	const mk = (voice: MetroVoiceKey): VoiceBus => {
 		const layerSum = ctx.createGain();
 		layerSum.gain.value = 1;
 		const groupHp = ctx.createBiquadFilter();
@@ -52,13 +56,15 @@ function ensureVoiceBuses(ctx: AudioContext): Record<MetroVoiceKey, VoiceBus> {
 		groupHp.connect(groupLp);
 		groupLp.connect(groupDelay);
 		groupDelay.connect(groupMaster);
-		groupMaster.connect(masterIn);
-		return { layerSum, groupHp, groupLp, groupDelay, groupMaster };
+		const parallel = createParallelBusChain(ctx, groupMaster, masterIn);
+		const bus: VoiceBus = { layerSum, groupHp, groupLp, groupDelay, groupMaster, parallel };
+		applyBakedParallelChain(ctx, parallel, BAKED_VOICE_PARALLEL_LIMITER, 1);
+		return bus;
 	};
 	const buses: Record<MetroVoiceKey, VoiceBus> = {
-		accent: mk(),
-		alt: mk(),
-		passive: mk(),
+		accent: mk('accent'),
+		alt: mk('alt'),
+		passive: mk('passive'),
 	};
 	voiceBusesByContext.set(ctx, buses);
 	return buses;
@@ -89,4 +95,26 @@ export function applyVoiceGroupChain(
 	b.groupDelay.delayTime.setValueAtTime(microDelaySec, t);
 	const g = Math.max(0, Math.min(4, masterLinear));
 	b.groupMaster.gain.setValueAtTime(g, t);
+}
+
+export type VoiceBusFaderLevels = {
+	accent: number;
+	alt: number;
+	passive: number;
+};
+
+/** Couple parallel wet to per-bus UI faders; fader 0 → wet 0. */
+export function applyVoiceBusParallelWetLevels(
+	ctx: AudioContext | null | undefined,
+	busFaders: VoiceBusFaderLevels,
+	chainSettings: ParallelLimiterSettings = BAKED_VOICE_PARALLEL_LIMITER,
+): void {
+	if (!ctx) return;
+	const buses = voiceBusesByContext.get(ctx);
+	if (!buses) return;
+	const voices: MetroVoiceKey[] = ['accent', 'alt', 'passive'];
+	for (const voice of voices) {
+		const fader = busFaders[voice];
+		applyBakedParallelChain(ctx, buses[voice].parallel, chainSettings, fader);
+	}
 }
