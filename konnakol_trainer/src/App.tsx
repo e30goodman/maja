@@ -3545,9 +3545,61 @@ type CompactSnapshotStoragePayload = {
 		{
 			lowPerfMode?: boolean;
 			frozenScale?: number | null;
+			/** Rows where default col0 Ta was removed in Ta editor (not in p6 grid token). */
+			firstBeatDingSuppressedRows?: number[];
 		}
 	>;
 };
+
+function suppressedRowsToArray(raw: unknown): number[] {
+	if (raw instanceof Set) return [...raw].filter((r) => Number.isFinite(r));
+	if (Array.isArray(raw)) {
+		return raw
+			.map((x) => parseInt(String(x), 10))
+			.filter((r) => Number.isFinite(r) && r >= 0);
+	}
+	return [];
+}
+
+/** After compact decode: restore suppressed rows from slotUi sidecar, else legacy full JSON. */
+function overlayFirstBeatDingSuppressedRowsFromStorage(
+	snapshots: Record<number, ReturnType<typeof createEmptySnapshot>>,
+	compactSlotUi: CompactSnapshotStoragePayload['slotUi'],
+): void {
+	const slotsMissingSidecar = new Set<number>();
+	for (let i = 1; i <= SNAPSHOT_SLOT_COUNT; i++) {
+		const uiRaw = compactSlotUi?.[String(i)] ?? (compactSlotUi as Record<number, unknown> | undefined)?.[i];
+		if (uiRaw && typeof uiRaw === 'object' && 'firstBeatDingSuppressedRows' in uiRaw) {
+			const snap = snapshots[i];
+			if (!snap) continue;
+			snap.firstBeatDingSuppressedRows = normalizeSuppressedRows(
+				(uiRaw as { firstBeatDingSuppressedRows?: unknown }).firstBeatDingSuppressedRows,
+				snap.bars,
+			);
+			continue;
+		}
+		slotsMissingSidecar.add(i);
+	}
+	if (slotsMissingSidecar.size === 0) return;
+	try {
+		const rawJson = localStorage.getItem(SNAPSHOT_STORAGE_KEY);
+		if (!rawJson) return;
+		const data = JSON.parse(rawJson) as { snapshots?: Record<string, unknown> };
+		const bag = data.snapshots;
+		if (!bag || typeof bag !== 'object') return;
+		for (const i of slotsMissingSidecar) {
+			const snap = snapshots[i];
+			if (!snap || (snap.firstBeatDingSuppressedRows?.size ?? 0) > 0) continue;
+			const row = bag[String(i)] ?? (bag as Record<number, unknown>)[i];
+			if (!row || typeof row !== 'object') continue;
+			const supIn = (row as { firstBeatDingSuppressedRows?: unknown }).firstBeatDingSuppressedRows;
+			if (supIn === undefined) continue;
+			snap.firstBeatDingSuppressedRows = normalizeSuppressedRows(supIn, snap.bars);
+		}
+	} catch {
+		/* keep compact decode */
+	}
+}
 
 function loadSnapshotStorage(): {
 	activeSnapshot: number;
@@ -3598,7 +3650,10 @@ function loadSnapshotStorage(): {
 					snapshots[i] = parsed;
 					restoredAny = true;
 				}
-				if (restoredAny) return { activeSnapshot, snapshots };
+				if (restoredAny) {
+					overlayFirstBeatDingSuppressedRowsFromStorage(snapshots, compactSlotUi);
+					return { activeSnapshot, snapshots };
+				}
 			}
 		}
 		const raw = localStorage.getItem(SNAPSHOT_STORAGE_KEY);
@@ -4536,7 +4591,12 @@ export default function App() {
   /** Pick-mode UI highlight: pattern bar N, or null (no ring / legacy viewport on commit bar 0). */
   const [startBarPickHighlight, setStartBarPickHighlight] = useState<number | null>(null);
   /** В режиме Ta-редактора: строки, где пользователь снял дефолтную белую метку на первой доле (без ключа taDing). */
-  const [firstBeatDingSuppressedRows, setFirstBeatDingSuppressedRows] = useState<Set<number>>(() => new Set());
+  const [firstBeatDingSuppressedRows, setFirstBeatDingSuppressedRows] = useState<Set<number>>(() =>
+    normalizeSuppressedRows(
+      (seed as { firstBeatDingSuppressedRows?: unknown }).firstBeatDingSuppressedRows,
+      seed.bars,
+    ),
+  );
 
   // Randomizer States
   const [randomModeEnabled, setRandomModeEnabled] = useState(seed.randomModeEnabled);
@@ -4704,6 +4764,10 @@ export default function App() {
             return new Set(raw.filter((x): x is string => typeof x === 'string'));
           return new Set<string>();
         })(),
+        firstBeatDingSuppressedRows: normalizeSuppressedRows(
+          (s as { firstBeatDingSuppressedRows?: unknown }).firstBeatDingSuppressedRows,
+          s.bars,
+        ),
         clickSoundByPolyVoice: normalizeClickSoundByPolyVoice(
           (s as { clickSoundByPolyVoice?: unknown }).clickSoundByPolyVoice,
         ),
@@ -7811,6 +7875,9 @@ export default function App() {
           compactSlotUi[String(i)] = {
             lowPerfMode: (s as { lowPerfMode?: boolean }).lowPerfMode === true,
             frozenScale: typeof s.frozenScale === 'number' && s.frozenScale >= 1 ? s.frozenScale : null,
+            firstBeatDingSuppressedRows: suppressedRowsToArray(
+              (s as { firstBeatDingSuppressedRows?: unknown }).firstBeatDingSuppressedRows,
+            ),
           };
         }
         const compactPayload: CompactSnapshotStoragePayload = {
@@ -8061,12 +8128,14 @@ export default function App() {
      * `firstBeatDingSuppressedRows` can arrive as Set (runtime snapshot) or Array (JSON/clipboard).
      * Always normalize both shapes, otherwise suppressed rows are lost and default first-beat marks come back.
      */
-    setFirstBeatDingSuppressedRows(
-      normalizeSuppressedRows(
+    {
+      const nextSuppressed = normalizeSuppressedRows(
         (snap as { firstBeatDingSuppressedRows?: unknown }).firstBeatDingSuppressedRows,
         snap.bars,
-      ),
-    );
+      );
+      setFirstBeatDingSuppressedRows(nextSuppressed);
+      firstBeatDingSuppressedRowsRef.current = nextSuppressed;
+    }
     const nextMute = normalizeSyllableReadMuteModeFromSnapshot(
       snap.syllableReadMuteMode,
       (snap as { syllableReadMuteLatched?: boolean }).syllableReadMuteLatched,
