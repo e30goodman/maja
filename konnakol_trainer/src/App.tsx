@@ -40,6 +40,7 @@ import {
 	loadSoundPresetCalibrationStore,
 	NATIVE_ENVELOPE_UI,
 	persistSoundPresetCalibrationStore,
+	preferShippedCalibrationOnly,
 	setSoundPresetCalibrationRuntime,
 	type CalibrationVoiceKey,
 	type SoundPresetCalibrationId,
@@ -208,7 +209,6 @@ const DEFAULT_TRAINER_MODE: TrainerMode = 'normal';
 
 /** Dev UI: per-preset calibration panel (hidden in production UI). See `docs/SOUND_PRESET_CALIBRATION.md`. */
 // Вернуть панель: раскомментировать блок ниже и выставить true.
-// const SHOW_SOUND_PRESET_CALIBRATION_PANEL = true;
 const SHOW_SOUND_PRESET_CALIBRATION_PANEL = false;
 
 function nextMixerLayerMode(mode: MixerLayerMode): MixerLayerMode {
@@ -9001,7 +9001,6 @@ export default function App() {
           const hadKey = laneSet.has(key);
           const suppressed = firstBeatDingSuppressedRowsRef.current.has(r);
           const fa = Boolean(firstBeatAccentByLaneRef.current[lane]);
-          let action: 'toggle_suppression_on' | 'toggle_suppression_off' | 'explicit_add' | 'explicit_remove' = 'explicit_add';
 
           if (fa) {
             // Default first-beat Ta is ON: tap on col0 toggles only suppression.
@@ -9014,13 +9013,8 @@ export default function App() {
             setFirstBeatDingSuppressedRows(nextSuppressed);
           } else {
             // Default first-beat Ta is OFF: col0 behaves like a regular explicit Ta cell.
-            if (hadKey) {
-              action = 'explicit_remove';
-              laneSet.delete(key);
-            } else {
-              action = 'explicit_add';
-              laneSet.add(key);
-            }
+            if (hadKey) laneSet.delete(key);
+            else laneSet.add(key);
           }
           const flat = flattenLaneSetMap(next, barsRef.current, polyVoicesRef.current);
           taDingKeysRef.current = flat;
@@ -11292,6 +11286,7 @@ export default function App() {
                     </span>
                     <span className="text-[10px] font-medium normal-case tracking-normal text-slate-500">
                       {APP_COMMIT_VERSION}
+                      {preferShippedCalibrationOnly() ? ' · cal shipped' : ''}
                     </span>
                   </div>
 
@@ -12476,6 +12471,7 @@ export default function App() {
         />
       ) : null}
       */}
+
 
       {snapshotClipMenu ? (
         <>

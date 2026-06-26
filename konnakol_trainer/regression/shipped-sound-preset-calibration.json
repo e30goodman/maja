@@ -1,0 +1,588 @@
+{
+  "schemaVersion": 1,
+  "exportedAt": "2026-06-26T10:24:58.647Z",
+  "store": {
+    "classic": {
+      "alt": {
+        "parallel": {
+          "gain": 1,
+          "volume": 0.6,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 0,
+        "envelopeGain": 1,
+        "attackMs": 8.4,
+        "attackShape": "snap",
+        "decayMs": 61.58181818181818,
+        "decayShape": "snap"
+      },
+      "ta": {
+        "parallel": {
+          "gain": 1,
+          "volume": 1,
+          "preset": "punch",
+          "lookAheadMs": 4.9,
+          "phaseAlignMs": -2.4
+        },
+        "envelopeMix": 0,
+        "envelopeGain": 1,
+        "attackMs": 0,
+        "attackShape": "snap",
+        "decayMs": 23,
+        "decayShape": "snap"
+      }
+    },
+    "oldschool": {
+      "ta": {
+        "parallel": {
+          "gain": 1,
+          "volume": 0.6,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 1,
+        "envelopeGain": 1.0000000000000002,
+        "attackMs": 0,
+        "attackShape": "snap",
+        "decayMs": 29.12727272727272,
+        "decayShape": "snap"
+      }
+    },
+    "standard": {
+      "ta": {
+        "parallel": {
+          "gain": 0,
+          "volume": 0,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 0.20714285714285713,
+        "envelopeGain": 1,
+        "attackMs": 10.2,
+        "attackShape": "snap",
+        "decayMs": 5.50909090909091,
+        "decayShape": "linear"
+      }
+    },
+    "modern_daw": {
+      "ta": {
+        "parallel": {
+          "gain": 0,
+          "volume": 0.014285714285714285,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 1,
+        "envelopeGain": 1,
+        "attackMs": 0,
+        "attackShape": "snap",
+        "decayMs": 14.163636363636364,
+        "decayShape": "snap"
+      }
+    },
+    "woodblock": {
+      "ta": {
+        "parallel": {
+          "gain": 0,
+          "volume": 0,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 0.55,
+        "envelopeGain": 1,
+        "attackMs": 5.399999999999999,
+        "attackShape": "snap",
+        "decayMs": 16.327272727272728,
+        "decayShape": "snap"
+      }
+    },
+    "punchy": {
+      "ta": {
+        "parallel": {
+          "gain": 0,
+          "volume": 0,
+          "preset": "punch",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 1,
+        "envelopeGain": 1,
+        "attackMs": 0,
+        "attackShape": "snap",
+        "decayMs": 37.96363636363636,
+        "decayShape": "snap"
+      }
+    },
+    "sharp_digital": {
+      "passive": {
+        "parallel": {
+          "gain": 1,
+          "volume": 0.6,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 0,
+        "envelopeGain": 0,
+        "attackMs": 0,
+        "attackShape": "snap",
+        "decayMs": 12,
+        "decayShape": "snap"
+      },
+      "ta": {
+        "parallel": {
+          "gain": 1,
+          "volume": 0.6,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 1,
+        "envelopeGain": 0.28571428571428575,
+        "attackMs": 4.8,
+        "attackShape": "snap",
+        "decayMs": 12,
+        "decayShape": "snap"
+      }
+    },
+    "deep_sub": {
+      "ta": {
+        "parallel": {
+          "gain": 1,
+          "volume": 0.6,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 1,
+        "envelopeGain": 1,
+        "attackMs": 0,
+        "attackShape": "snap",
+        "decayMs": 48.78181818181818,
+        "decayShape": "snap"
+      }
+    },
+    "laser_snap": {
+      "passive": {
+        "parallel": {
+          "gain": 0,
+          "volume": 0,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 0,
+        "envelopeGain": 1,
+        "attackMs": 0,
+        "attackShape": "snap",
+        "decayMs": 12,
+        "decayShape": "snap"
+      },
+      "alt": {
+        "parallel": {
+          "gain": 0,
+          "volume": 0,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 0,
+        "envelopeGain": 1,
+        "attackMs": 0,
+        "attackShape": "snap",
+        "decayMs": 12,
+        "decayShape": "snap"
+      },
+      "ta": {
+        "parallel": {
+          "gain": 0,
+          "volume": 0,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 0.25714285714285723,
+        "envelopeGain": 1,
+        "attackMs": 6,
+        "attackShape": "snap",
+        "decayMs": 5.509090909090917,
+        "decayShape": "snap"
+      }
+    },
+    "drum_machine": {
+      "passive": {
+        "parallel": {
+          "gain": 1,
+          "volume": 0.6,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 0,
+        "envelopeGain": 1,
+        "attackMs": 0,
+        "attackShape": "snap",
+        "decayMs": 12,
+        "decayShape": "snap"
+      },
+      "ta": {
+        "parallel": {
+          "gain": 0,
+          "volume": 0.6,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 0.7857142857142857,
+        "envelopeGain": 1.0571428571428574,
+        "attackMs": 8,
+        "attackShape": "snap",
+        "decayMs": 42.10909090909092,
+        "decayShape": "snap"
+      }
+    },
+    "glass_drop": {
+      "ta": {
+        "parallel": {
+          "gain": 0,
+          "volume": 0,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 1,
+        "envelopeGain": 0.07142857142857142,
+        "attackMs": 6.6,
+        "attackShape": "snap",
+        "decayMs": 61.581818181818186,
+        "decayShape": "snap"
+      }
+    },
+    "plastic_knock": {
+      "alt": {
+        "parallel": {
+          "gain": 1,
+          "volume": 0.6357142857142857,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 0,
+        "envelopeGain": 1,
+        "attackMs": 0,
+        "attackShape": "snap",
+        "decayMs": 12,
+        "decayShape": "snap"
+      },
+      "ta": {
+        "parallel": {
+          "gain": 0,
+          "volume": 0,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 0,
+        "envelopeGain": 1,
+        "attackMs": 0,
+        "attackShape": "snap",
+        "decayMs": 52.927272727272744,
+        "decayShape": "exp_soft"
+      }
+    },
+    "metallic": {
+      "ta": {
+        "parallel": {
+          "gain": 0,
+          "volume": 0.06428571428571428,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 0,
+        "envelopeGain": 1,
+        "attackMs": 0,
+        "attackShape": "snap",
+        "decayMs": 12,
+        "decayShape": "snap"
+      }
+    },
+    "clock_tick": {
+      "passive": {
+        "parallel": {
+          "gain": 0,
+          "volume": 0,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 0,
+        "envelopeGain": 1,
+        "attackMs": 0,
+        "attackShape": "snap",
+        "decayMs": 12,
+        "decayShape": "snap"
+      },
+      "alt": {
+        "parallel": {
+          "gain": 0,
+          "volume": 0,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 0,
+        "envelopeGain": 1,
+        "attackMs": 0,
+        "attackShape": "snap",
+        "decayMs": 12,
+        "decayShape": "snap"
+      },
+      "ta": {
+        "parallel": {
+          "gain": 0,
+          "volume": 0,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 0.6214285714285716,
+        "envelopeGain": 1,
+        "attackMs": 0,
+        "attackShape": "plateau",
+        "decayMs": 11.818181818181818,
+        "decayShape": "snap"
+      }
+    },
+    "cowbell": {
+      "passive": {
+        "parallel": {
+          "gain": 1,
+          "volume": 0.6,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 1,
+        "envelopeGain": 0.05714285714285714,
+        "attackMs": 0,
+        "attackShape": "snap",
+        "decayMs": 76.9090909090909,
+        "decayShape": "snap"
+      },
+      "alt": {
+        "parallel": {
+          "gain": 1,
+          "volume": 1,
+          "preset": "punch",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 1,
+        "envelopeGain": 1.5142857142857145,
+        "attackMs": 0,
+        "attackShape": "snap",
+        "decayMs": 59.418181818181814,
+        "decayShape": "snap"
+      },
+      "ta": {
+        "parallel": {
+          "gain": 0,
+          "volume": 0,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 1,
+        "envelopeGain": 1,
+        "attackMs": 0,
+        "attackShape": "snap",
+        "decayMs": 104.85454545454546,
+        "decayShape": "snap"
+      }
+    },
+    "analog_synth": {
+      "ta": {
+        "parallel": {
+          "gain": 0,
+          "volume": 0,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 0,
+        "envelopeGain": 1,
+        "attackMs": 0,
+        "attackShape": "snap",
+        "decayMs": 12,
+        "decayShape": "snap"
+      }
+    },
+    "cajon": {
+      "passive": {
+        "parallel": {
+          "gain": 1,
+          "volume": 0.6,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 0,
+        "envelopeGain": 0.9714285714285714,
+        "attackMs": 14,
+        "attackShape": "snap",
+        "decayMs": 26.963636363636354,
+        "decayShape": "linear"
+      },
+      "alt": {
+        "parallel": {
+          "gain": 1,
+          "volume": 0.6,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 1,
+        "envelopeGain": 1,
+        "attackMs": 8.799999999999997,
+        "attackShape": "punch",
+        "decayMs": 13.981818181818205,
+        "decayShape": "linear"
+      },
+      "ta": {
+        "parallel": {
+          "gain": 0.8,
+          "volume": 1,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 1,
+        "envelopeGain": 1.157142857142857,
+        "attackMs": 7.599999999999999,
+        "attackShape": "linear",
+        "decayMs": 57.25454545454545,
+        "decayShape": "linear"
+      }
+    },
+    "dry_click": {
+      "ta": {
+        "parallel": {
+          "gain": 1,
+          "volume": 0.6,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 1,
+        "envelopeGain": 0.14285714285714288,
+        "attackMs": 0,
+        "attackShape": "snap",
+        "decayMs": 33.63636363636363,
+        "decayShape": "snap"
+      }
+    },
+    "soft_ping": {
+      "ta": {
+        "parallel": {
+          "gain": 1,
+          "volume": 0.6,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 1,
+        "envelopeGain": 1,
+        "attackMs": 2.8,
+        "attackShape": "linear",
+        "decayMs": 79.07272727272726,
+        "decayShape": "snap"
+      }
+    },
+    "noise_burst": {
+      "passive": {
+        "parallel": {
+          "gain": 1,
+          "volume": 0.6,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 1,
+        "envelopeGain": 0.6714285714285715,
+        "attackMs": 0,
+        "attackShape": "snap",
+        "decayMs": 1,
+        "decayShape": "snap"
+      },
+      "ta": {
+        "parallel": {
+          "gain": 1,
+          "volume": 0.6,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 1,
+        "envelopeGain": 1,
+        "attackMs": 0,
+        "attackShape": "snap",
+        "decayMs": 50.94545454545454,
+        "decayShape": "snap"
+      }
+    },
+    "eight_bit": {
+      "passive": {
+        "parallel": {
+          "gain": 1,
+          "volume": 0.5642857142857143,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 1,
+        "envelopeGain": 0.02857142857142857,
+        "attackMs": 0,
+        "attackShape": "snap",
+        "decayMs": 31.472727272727273,
+        "decayShape": "snap"
+      },
+      "alt": {
+        "parallel": {
+          "gain": 0,
+          "volume": 0,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 0,
+        "envelopeGain": 1,
+        "attackMs": 0,
+        "attackShape": "snap",
+        "decayMs": 12,
+        "decayShape": "snap"
+      },
+      "ta": {
+        "parallel": {
+          "gain": 0,
+          "volume": 0,
+          "preset": "tight",
+          "lookAheadMs": 4,
+          "phaseAlignMs": 0
+        },
+        "envelopeMix": 0,
+        "envelopeGain": 1,
+        "attackMs": 0,
+        "attackShape": "snap",
+        "decayMs": 12,
+        "decayShape": "snap"
+      }
+    }
+  }
+}

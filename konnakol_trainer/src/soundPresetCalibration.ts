@@ -24,6 +24,7 @@ import {
 	BAKED_CLASSIC_TA_ACCENT_PARALLEL,
 	BAKED_DRUM_MACHINE_TA_ACCENT_PARALLEL,
 } from './taAccentParallel';
+import shippedCalibrationFile from '../regression/shipped-sound-preset-calibration.json';
 
 export const SOUND_PRESET_CALIBRATION_ORDER = [
 	'classic',
@@ -196,14 +197,20 @@ function normalizeSlice(raw: unknown, preset: string, voice: CalibrationVoiceKey
 			? Math.max(-12, Math.min(12, Number(p!.phaseAlignMs)))
 			: baked.parallel.phaseAlignMs,
 	};
+	const envelopeMix = Number.isFinite(Number(row.envelopeMix))
+		? Math.max(0, Math.min(1, Number(row.envelopeMix)))
+		: 1;
+	let envelopeGain = Number.isFinite(Number(row.envelopeGain))
+		? Math.max(0, Math.min(CALIBRATION_ENVELOPE_GAIN_MAX, Number(row.envelopeGain)))
+		: baked.envelopeGain;
+	// Full wet + zero gain = silent accent (bad export); keep decay shape, restore audible level.
+	if (envelopeMix > ENVELOPE_MIX_EPS && envelopeGain <= ENVELOPE_MIX_EPS) {
+		envelopeGain = 1;
+	}
 	return {
 		parallel,
-		envelopeMix: Number.isFinite(Number(row.envelopeMix))
-			? Math.max(0, Math.min(1, Number(row.envelopeMix)))
-			: 1,
-		envelopeGain: Number.isFinite(Number(row.envelopeGain))
-			? Math.max(0, Math.min(CALIBRATION_ENVELOPE_GAIN_MAX, Number(row.envelopeGain)))
-			: baked.envelopeGain,
+		envelopeMix,
+		envelopeGain,
 		attackMs: Number.isFinite(Number(row.attackMs))
 			? Math.max(0, Math.min(CALIBRATION_ENVELOPE_ATTACK_MS_MAX, Number(row.attackMs)))
 			: baked.attackMs,
@@ -215,39 +222,93 @@ function normalizeSlice(raw: unknown, preset: string, voice: CalibrationVoiceKey
 	};
 }
 
-export function loadSoundPresetCalibrationStore(): SoundPresetCalibrationStore {
+function migrateLegacyPresetKeys(
+	parsed: SoundPresetCalibrationStore & {
+		hi_hat?: SoundPresetCalibrationStore[string];
+		vinyl_crackle?: SoundPresetCalibrationStore[string];
+	},
+): void {
+	if (parsed.hi_hat && typeof parsed.hi_hat === 'object') {
+		parsed.drum_machine = { ...(parsed.drum_machine ?? {}), ...parsed.hi_hat };
+		delete parsed.hi_hat;
+	}
+	if (parsed.vinyl_crackle && typeof parsed.vinyl_crackle === 'object') {
+		parsed.cajon = { ...(parsed.cajon ?? {}), ...parsed.vinyl_crackle };
+		delete parsed.vinyl_crackle;
+	}
+}
+
+function parseCalibrationStorePayload(parsed: unknown): SoundPresetCalibrationStore {
 	const out: SoundPresetCalibrationStore = {};
-	try {
-		const raw = localStorage.getItem(STORAGE_KEY);
-		if (!raw) return out;
-		const parsed = JSON.parse(raw) as SoundPresetCalibrationStore & {
-			hi_hat?: SoundPresetCalibrationStore[string];
-			vinyl_crackle?: SoundPresetCalibrationStore[string];
-		};
-		if (!parsed || typeof parsed !== 'object') return out;
-		if (parsed.hi_hat && typeof parsed.hi_hat === 'object') {
-			parsed.drum_machine = { ...(parsed.drum_machine ?? {}), ...parsed.hi_hat };
-			delete parsed.hi_hat;
+	if (!parsed || typeof parsed !== 'object') return out;
+	const bag = parsed as SoundPresetCalibrationStore & {
+		hi_hat?: SoundPresetCalibrationStore[string];
+		vinyl_crackle?: SoundPresetCalibrationStore[string];
+	};
+	migrateLegacyPresetKeys(bag);
+	for (const preset of SOUND_PRESET_CALIBRATION_ORDER) {
+		const presetBag = bag[preset];
+		if (!presetBag || typeof presetBag !== 'object') continue;
+		out[preset] = {};
+		for (const voice of CALIBRATION_VOICE_ORDER) {
+			const slice = presetBag[voice];
+			if (slice) out[preset]![voice] = normalizeSlice(slice, preset, voice);
 		}
-		if (parsed.vinyl_crackle && typeof parsed.vinyl_crackle === 'object') {
-			parsed.cajon = { ...(parsed.cajon ?? {}), ...parsed.vinyl_crackle };
-			delete parsed.vinyl_crackle;
-		}
-		for (const preset of SOUND_PRESET_CALIBRATION_ORDER) {
-			const presetBag = parsed[preset];
-			if (!presetBag || typeof presetBag !== 'object') continue;
-			out[preset] = {};
-			for (const voice of CALIBRATION_VOICE_ORDER) {
-				const slice = presetBag[voice];
-				if (slice) out[preset]![voice] = normalizeSlice(slice, preset, voice);
-			}
-			// Legacy: `accent` was a mistaken fourth UI layer (internal bus, not a sound role).
-			delete (out[preset] as Partial<Record<string, VoiceCalibrationSlice>>).accent;
-		}
-	} catch {
-		/* keep empty — baked defaults apply per lookup */
+		delete (out[preset] as Partial<Record<string, VoiceCalibrationSlice>>).accent;
 	}
 	return out;
+}
+
+function getShippedCalibrationStore(): SoundPresetCalibrationStore {
+	const file = shippedCalibrationFile as { store?: unknown };
+	return parseCalibrationStorePayload(file.store ?? {});
+}
+
+function parseLocalCalibrationStore(): SoundPresetCalibrationStore {
+	try {
+		const raw = localStorage.getItem(STORAGE_KEY);
+		if (!raw) return {};
+		return parseCalibrationStorePayload(JSON.parse(raw));
+	} catch {
+		return {};
+	}
+}
+
+function mergeCalibrationStores(
+	shipped: SoundPresetCalibrationStore,
+	local: SoundPresetCalibrationStore,
+): SoundPresetCalibrationStore {
+	const out: SoundPresetCalibrationStore = {};
+	for (const preset of SOUND_PRESET_CALIBRATION_ORDER) {
+		const mergedBag: Partial<Record<CalibrationVoiceKey, VoiceCalibrationSlice>> = {};
+		let hasAny = false;
+		for (const voice of CALIBRATION_VOICE_ORDER) {
+			const slice = local[preset]?.[voice] ?? shipped[preset]?.[voice];
+			if (!slice) continue;
+			mergedBag[voice] = cloneSlice(slice);
+			hasAny = true;
+		}
+		if (hasAny) out[preset] = mergedBag;
+	}
+	return out;
+}
+
+/** Dev: `?calibration=shipped` — только JSON из репо, без localStorage (проверка перед деплоем). */
+export function preferShippedCalibrationOnly(): boolean {
+	if (typeof window === 'undefined') return false;
+	return new URLSearchParams(window.location.search).get('calibration') === 'shipped';
+}
+
+export function loadSoundPresetCalibrationStore(): SoundPresetCalibrationStore {
+	const shipped = getShippedCalibrationStore();
+	if (preferShippedCalibrationOnly()) {
+		if (import.meta.env.DEV) {
+			console.info('[konnakol] calibration: shipped JSON only (?calibration=shipped)');
+		}
+		return shipped;
+	}
+	const local = parseLocalCalibrationStore();
+	return mergeCalibrationStores(shipped, local);
 }
 
 export function persistSoundPresetCalibrationStore(store: SoundPresetCalibrationStore): void {
