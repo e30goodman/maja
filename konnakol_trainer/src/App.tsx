@@ -862,6 +862,8 @@ type ClickPresetBusGainsStorageV2 = {
 };
 
 const DEFAULT_CLICK_PRESET_BUS_GAINS: ClickPresetBusGains = { accent: 1, alt: 1, passive: 1 };
+/** Drum machine: accent + passive buses at 90% (production trim). */
+const DRUM_MACHINE_ACCENT_PASSIVE_BUS_TRIM = 0.9;
 const HARDCODED_DEFAULT_CLICK_PRESET_BUS_GAINS_BY_PRESET: ClickPresetBusGainsMap = {
 	classic: { accent: 1, alt: 1, passive: 1 },
 	oldschool: { accent: 0, alt: 0.98, passive: 1.12 },
@@ -979,9 +981,18 @@ function getClickPresetBusGainsForVoicePreset(
 ): ClickPresetBusGains {
 	const normVoice = normalizeClickBusVoiceIndex(voice);
 	const voiceMap = byVoice[normVoice];
-	if (voiceMap && voiceMap[preset]) return getClickPresetBusGainsForPreset(voiceMap, preset);
-	if (byPreset[preset]) return getClickPresetBusGainsForPreset(byPreset, preset);
-	return DEFAULT_CLICK_PRESET_BUS_GAINS;
+	let gains: ClickPresetBusGains;
+	if (voiceMap && voiceMap[preset]) gains = getClickPresetBusGainsForPreset(voiceMap, preset);
+	else if (byPreset[preset]) gains = getClickPresetBusGainsForPreset(byPreset, preset);
+	else gains = DEFAULT_CLICK_PRESET_BUS_GAINS;
+	if (preset === 'drum_machine') {
+		gains = {
+			...gains,
+			accent: clampClickPresetBusGain(gains.accent * DRUM_MACHINE_ACCENT_PASSIVE_BUS_TRIM),
+			passive: clampClickPresetBusGain(gains.passive * DRUM_MACHINE_ACCENT_PASSIVE_BUS_TRIM),
+		};
+	}
+	return gains;
 }
 
 const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
