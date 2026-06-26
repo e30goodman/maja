@@ -93,7 +93,7 @@ const CLICK_SOUND_PRESET_ORDER = [
   'sharp_digital',
   'deep_sub',
   'laser_snap',
-  'hi_hat',
+  'drum_machine',
   'glass_drop',
   'plastic_knock',
   'metallic',

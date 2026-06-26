@@ -134,10 +134,9 @@ Recovery-поведение scheduler:
 
 ## 8) Ветка сильной доли (`playBarFirstHighClick`)
 
-- Для `classic` и `oldschool` строится локальный граф вручную:
-  - `osc -> gain -> hp -> lp -> masterIn`.
-- `masterIn` = `getMetronomeSummingInput(ctx)`, то есть сигнал все равно проходит общий limiter.
-- Для остальных пресетов: делегирование в `playSharpClick(..., voiceRole='accent')`.
+- **Classic / Oldschool**: осциллятор → gain (envelope) → hp → lp → `getTaAccentParallelInput`.
+- **Drum machine** (`drum_machine`): предзаписанный accent-буфер → blend envelope → Ta parallel → accent bus.
+- Для остальных пресетов без отдельной Ta-ветки: делегирование в `playSharpClick(..., voiceRole='accent')` через Ta parallel input.
 
 ## 9) Anti-artifact механики (текущее)
 
@@ -172,4 +171,60 @@ Recovery-поведение scheduler:
 ## 10) Что считать source-of-truth
 
 - Актуальный runtime-код: `src/App.tsx`, `src/metraAudioBus.ts`, `src/metroSoundBus.ts`, `src/metroLayerGraph.ts`.
+- Калибровка пресетов: `src/soundPresetCalibration.ts`, `src/SoundPresetCalibrationPanel.tsx` — см. [SOUND_PRESET_CALIBRATION.md](./SOUND_PRESET_CALIBRATION.md).
 - Файлы `src/App_saved.tsx` и `src/app_reserv.txt` не являются runtime source-of-truth.
+
+## 11) Parallel limiter (voice buses + Accent Ta)
+
+Реализовано в `src/parallelBusChain.ts`, `src/metroSoundBus.ts`, `src/taAccentParallel.ts`.
+
+### 11.1 Voice buses (passive / alt)
+
+Цепь на сумматоре каждого голоса:
+
+`layerSum -> [parallel dry/wet limiter] -> groupHp -> groupLp -> ...`
+
+- Общий baked default: `BAKED_VOICE_PARALLEL_LIMITER` (`parallelBusChain.ts`).
+- Per-preset override только если слой сохранён в calibration store или baked (classic passive).
+- Wet масштабируется fader-ом пресета: `wetMix = settings.volume * busFaderLinear`.
+
+Синхронизация при смене пресета / калибровки: `syncVoiceBusParallelWet()` в `App.tsx`.
+
+### 11.2 Accent Ta (отдельная цепь)
+
+`playBarFirstHighClick` → `getTaAccentParallelInput(ctx, preset)` → parallel chain → accent voice bus.
+
+- **Classic / Oldschool**: осциллятор + envelope.
+- **Drum machine** (`drum_machine`): предрендеренный буфер accent-слоёв (`renderTaDrumMachineBuffer`), онсет в буфере 6 ms (`DRUM_MACHINE_TA_SAMPLE_ONSET_SEC`).
+
+Baked Ta parallel: classic — Punch; drum machine — Tight / wet 60%.
+
+## 12) Envelope gate (calibration)
+
+Реализовано в `clickTailEnvelope.ts`, подключается из `playSharpClick` / `playBarFirstHighClick` через `getActiveCalibrationEnvelope()`.
+
+Принципы:
+
+- **Mix 0** — нативный decay слоя (без gate).
+- **Mix 1** — полный gate; между 0 и 1 — dry/wet blend (два параллельных пути).
+- **Fade in** — длительность подъёма gain до пика (не EQ).
+- **Decay** — спад после пика (осцилляторы); для **sample Drum machine Ta** — спад после пика с выравниванием fade-in по онсету сэмпла.
+- **Out** — makeup gain на wet-ветке.
+
+Baked без user store:
+
+- classic **passive** — envelope + parallel зашиты;
+- classic **ta** — tail envelope + parallel;
+- остальные пресеты — нативный звук, пока пользователь не поднимет Mix в calibration.
+
+Подробности UI и включение панели: [SOUND_PRESET_CALIBRATION.md](./SOUND_PRESET_CALIBRATION.md).
+
+## 13) Dev calibration panel (скрыта по умолчанию)
+
+Панель **не удалена**, скрыта флагом в `App.tsx`:
+
+```ts
+const SHOW_SOUND_PRESET_CALIBRATION_PANEL = false;
+```
+
+Инструкция включения: [SOUND_PRESET_CALIBRATION.md](./SOUND_PRESET_CALIBRATION.md).

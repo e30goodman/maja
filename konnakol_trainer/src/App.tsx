@@ -28,7 +28,25 @@ import {
 	BAKED_VOICE_PARALLEL_LIMITER,
 	getTaAccentParallelInput,
 } from './taAccentParallel';
-import { getClassicTaAccentTailMs, scheduleClassicAccentTaTailEnvelope } from './taAccentEnvelope';
+import {
+	getActiveCalibrationEnvelope,
+	getActiveCalibrationParallel,
+	getCalibrationEditBase,
+	getBakedDefaultCalibrationSlice,
+	loadSoundPresetCalibrationStore,
+	NATIVE_ENVELOPE_UI,
+	persistSoundPresetCalibrationStore,
+	setSoundPresetCalibrationRuntime,
+	type CalibrationVoiceKey,
+	type SoundPresetCalibrationId,
+	type SoundPresetCalibrationStore,
+	type VoiceCalibrationSlice,
+} from './soundPresetCalibration';
+import { SoundPresetCalibrationPanel } from './SoundPresetCalibrationPanel';
+import { scheduleBufferedClickWithBlendEnvelope, scheduleOscClickWithBlendEnvelope, DRUM_MACHINE_TA_SAMPLE_ONSET_SEC } from './clickTailEnvelope';
+import { scheduleClassicAccentTaTailEnvelope } from './taAccentEnvelope';
+import type { ParallelLimiterSettings } from './parallelBusChain';
+import { PARALLEL_LIMITER_PRESET_ORDER } from './parallelBusChain';
 import { metroEnvelopeEndFromPeak, scheduleLayerToBus } from './metroLayerGraph';
 import {
 	createPolySubLegacyScheduler,
@@ -184,6 +202,9 @@ const DEFAULT_SQUARE_PLAYBACK_MODE: SquarePlaybackMode = 'full_mix';
 const DEFAULT_MIXER_LAYER_MODE: MixerLayerMode = 'full_mix';
 const DEFAULT_TRAINER_MODE: TrainerMode = 'normal';
 
+/** Dev UI: per-preset calibration panel (hidden in production UI). See `docs/SOUND_PRESET_CALIBRATION.md`. */
+const SHOW_SOUND_PRESET_CALIBRATION_PANEL = false;
+
 function nextMixerLayerMode(mode: MixerLayerMode): MixerLayerMode {
 	if (mode === 'full_mix') return 'alt_only';
 	if (mode === 'alt_only') return 'no_alt';
@@ -338,7 +359,7 @@ function normalizeClickSoundByPolyVoice(raw: unknown): ClickSoundByPolyVoice {
 	for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
 		const voice = parseInt(k, 10);
 		if (!Number.isFinite(voice) || voice < 0 || voice > 3) continue;
-		if (isClickSoundPreset(v)) out[voice as PolyVoiceTarget] = v;
+		if (isClickSoundPreset(v)) out[voice as PolyVoiceTarget] = normalizeClickSoundPreset(v);
 	}
 	return out;
 }
@@ -363,9 +384,9 @@ function resolveClickSoundForPolyVoice(
 	perVoice: ClickSoundByPolyVoice,
 	master: ClickSoundPreset,
 ): ClickSoundPreset {
-	if (!isPoly) return master;
+	if (!isPoly) return normalizeClickSoundPreset(master);
 	const mapped = perVoice[voice as PolyVoiceTarget];
-	return mapped ?? master;
+	return normalizeClickSoundPreset(mapped ?? master);
 }
 
 /** Lanes without an override inherit master; pin them to old master before master changes. */
@@ -696,7 +717,7 @@ type ClickSoundPreset =
 	| 'sharp_digital'
 	| 'deep_sub'
 	| 'laser_snap'
-	| 'hi_hat'
+	| 'drum_machine'
 	| 'glass_drop'
 	| 'plastic_knock'
 	| 'metallic'
@@ -810,7 +831,7 @@ const CLICK_SOUND_PRESET_ORDER: ClickSoundPreset[] = [
 	'sharp_digital',
 	'deep_sub',
 	'laser_snap',
-	'hi_hat',
+	'drum_machine',
 	'glass_drop',
 	'plastic_knock',
 	'metallic',
@@ -840,7 +861,7 @@ const HARDCODED_DEFAULT_CLICK_PRESET_BUS_GAINS_BY_PRESET: ClickPresetBusGainsMap
 	oldschool: { accent: 0, alt: 0.98, passive: 1.12 },
 	standard: { accent: 0.99, alt: 0.78, passive: 0.81 },
 	sharp_digital: { accent: 1, alt: 1, passive: 1 },
-	hi_hat: { accent: 0.87, alt: 0.23, passive: 0.32 },
+	drum_machine: { accent: 0.87, alt: 0.23, passive: 0.32 },
 	plastic_knock: { accent: 1, alt: 1, passive: 1 },
 	metallic: { accent: 1, alt: 1, passive: 1 },
 	clock_tick: { accent: 1, alt: 1, passive: 1 },
@@ -852,7 +873,7 @@ const HARDCODED_DEFAULT_CLICK_PRESET_BUS_GAINS_BY_VOICE: ClickPresetBusGainsByVo
 		vinyl_crackle: { accent: 1.24, alt: 0.84, passive: 0.54 },
 		dry_click: { accent: 1, alt: 0.44, passive: 0.28 },
 		noise_burst: { accent: 0.7, alt: 0.36, passive: 0.76 },
-		hi_hat: { accent: 0.87, alt: 0.4, passive: 0.56 },
+		drum_machine: { accent: 0.87, alt: 0.4, passive: 0.56 },
 		woodblock: { accent: 1.24, alt: 0.7, passive: 0.28 },
 		oldschool: { accent: 1.1, alt: 0.52, passive: 0.32 },
 		eight_bit: { accent: 0.4, alt: 0.22, passive: 0.74 },
@@ -871,13 +892,13 @@ const HARDCODED_DEFAULT_CLICK_PRESET_BUS_GAINS_BY_VOICE: ClickPresetBusGainsByVo
 	1: {
 		classic: { accent: 1, alt: 1, passive: 1 },
 		oldschool: { accent: 0.58, alt: 0.98, passive: 1.12 },
-		hi_hat: { accent: 0.63, alt: 0.52, passive: 0.59 },
+		drum_machine: { accent: 0.63, alt: 0.52, passive: 0.59 },
 		clock_tick: { accent: 0, alt: 0, passive: 0.67 },
 		vinyl_crackle: { accent: 1, alt: 1, passive: 1 },
 	},
 	2: {
 		classic: { accent: 1, alt: 1, passive: 1 },
-		hi_hat: { accent: 0.87, alt: 0.23, passive: 0.32 },
+		drum_machine: { accent: 0.87, alt: 0.23, passive: 0.32 },
 	},
 };
 
@@ -1358,7 +1379,7 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 		volumeAccent: 0.5,
 		volumeAlt: 0.5,
 	},
-	hi_hat: {
+	drum_machine: {
 		baseFreq: 0,
 		accentFreq: 0,
 		altFreq: 0,
@@ -1818,8 +1839,16 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 	},
 };
 
+function normalizeClickSoundPreset(value: unknown): ClickSoundPreset {
+	if (typeof value !== 'string') return 'classic';
+	const migrated = value === 'hi_hat' ? 'drum_machine' : value;
+	return CLICK_SOUND_PRESET_ORDER.includes(migrated as ClickSoundPreset)
+		? (migrated as ClickSoundPreset)
+		: 'classic';
+}
+
 function isClickSoundPreset(value: unknown): value is ClickSoundPreset {
-	return typeof value === 'string' && CLICK_SOUND_PRESET_ORDER.includes(value as ClickSoundPreset);
+	return typeof value === 'string' && (value === 'hi_hat' || CLICK_SOUND_PRESET_ORDER.includes(value as ClickSoundPreset));
 }
 
 type ClickSoundUiPreset = {
@@ -1836,7 +1865,7 @@ const CLICK_SOUND_PRESET_META: ClickSoundUiPreset[] = [
 	{ id: 'preset-06', label: 'Punchy', mappedSound: 'punchy' },
 	{ id: 'preset-07', label: 'Sharp Digital', mappedSound: 'sharp_digital' },
 	{ id: 'preset-08', label: 'Deep Sub', mappedSound: 'deep_sub' },
-	{ id: 'preset-10', label: 'Drum machine', mappedSound: 'hi_hat' },
+	{ id: 'preset-10', label: 'Drum machine', mappedSound: 'drum_machine' },
 	{ id: 'preset-11', label: 'Glass Drop', mappedSound: 'glass_drop' },
 	{ id: 'preset-12', label: 'Plastic Knock', mappedSound: 'plastic_knock' },
 	{ id: 'preset-13', label: 'Metallic', mappedSound: 'metallic' },
@@ -2886,7 +2915,7 @@ function parseSnapshotRow(raw: unknown) {
 			d.chaosLevel = legacy <= 0 ? 18 : Math.min(100, 12 + legacy * 9);
 		}
 	}
-	if (isClickSoundPreset(o.clickSound)) d.clickSound = o.clickSound;
+	if (isClickSoundPreset(o.clickSound)) d.clickSound = normalizeClickSoundPreset(o.clickSound);
 	else if (o.clickSound === 'old-school') d.clickSound = 'oldschool';
 	else d.clickSound = 'classic';
 	d.clickSoundByPolyVoice = normalizeClickSoundByPolyVoice(o.clickSoundByPolyVoice);
@@ -3600,8 +3629,8 @@ const IS_CHROME_DESKTOP =
   !/(Android|iPhone|iPad|iPod)/i.test(navigator.userAgent);
 
 const clickMixerGroupRef: { current: Record<MetroVoiceKey, ClickMixerGroup> | null } = { current: null };
-const taHiHatBufferByContext = new WeakMap<AudioContext, AudioBuffer>();
-const taHiHatRenderPromiseByContext = new WeakMap<AudioContext, Promise<AudioBuffer | null>>();
+const taDrumMachineBufferByContext = new WeakMap<AudioContext, AudioBuffer>();
+const taDrumMachineRenderPromiseByContext = new WeakMap<AudioContext, Promise<AudioBuffer | null>>();
 
 function getClassicOldschoolLoudnessBoost(soundType: ClickSoundPreset): number {
   if (soundType === 'classic') return 1.42;
@@ -3609,9 +3638,9 @@ function getClassicOldschoolLoudnessBoost(soundType: ClickSoundPreset): number {
   return 1;
 }
 
-/** Accent Ta sample trim per preset (pre-baked buffer path in `playBarFirstHighClick`). */
+/** Accent Ta sample trim per preset (pre-rendered buffer path in `playBarFirstHighClick`). */
 const ACCENT_TA_SAMPLE_GAIN_TRIM_BY_PRESET: Partial<Record<ClickSoundPreset, number>> = {
-  hi_hat: 0.5,
+  drum_machine: 0.5,
 };
 
 function getAccentTaSampleGainTrim(soundType: ClickSoundPreset): number {
@@ -3619,18 +3648,18 @@ function getAccentTaSampleGainTrim(soundType: ClickSoundPreset): number {
   return typeof trim === 'number' && Number.isFinite(trim) ? Math.max(0, trim) : 1;
 }
 
-async function renderTaHiHatBuffer(ctx: AudioContext): Promise<AudioBuffer | null> {
+async function renderTaDrumMachineBuffer(ctx: AudioContext): Promise<AudioBuffer | null> {
   const OfflineCtor = (window as unknown as { OfflineAudioContext?: typeof OfflineAudioContext }).OfflineAudioContext;
   if (!OfflineCtor) return null;
   const sampleRate = Math.max(22050, Math.floor(ctx.sampleRate || 44100));
   const durationSec = 0.2;
   const frameCount = Math.max(1, Math.floor(sampleRate * durationSec));
   const off = new OfflineCtor(1, frameCount, sampleRate);
-  const t0 = 0.006;
+  const t0 = DRUM_MACHINE_TA_SAMPLE_ONSET_SEC;
   const sumIn = off.createGain();
   sumIn.gain.value = 1;
   sumIn.connect(off.destination);
-  const cfg = CLICK_SOUND_LIBRARY.hi_hat ?? CLICK_SOUND_LIBRARY.classic;
+  const cfg = CLICK_SOUND_LIBRARY.drum_machine ?? CLICK_SOUND_LIBRARY.classic;
   const accentLayers = (cfg.layers ?? buildLegacyVoiceLayers(cfg)).accent;
   const activeLayers = accentLayers.filter(
     (layer) => layer.mute !== true && layer.params.volume > CLICK_LAYER_VOLUME_GATE && layer.type !== 'none',
@@ -3644,21 +3673,21 @@ async function renderTaHiHatBuffer(ctx: AudioContext): Promise<AudioBuffer | nul
   return off.startRendering();
 }
 
-function ensureTaHiHatBuffer(ctx: AudioContext): Promise<AudioBuffer | null> {
-  const ready = taHiHatBufferByContext.get(ctx);
+function ensureTaDrumMachineBuffer(ctx: AudioContext): Promise<AudioBuffer | null> {
+  const ready = taDrumMachineBufferByContext.get(ctx);
   if (ready) return Promise.resolve(ready);
-  const inFlight = taHiHatRenderPromiseByContext.get(ctx);
+  const inFlight = taDrumMachineRenderPromiseByContext.get(ctx);
   if (inFlight) return inFlight;
-  const job = renderTaHiHatBuffer(ctx)
+  const job = renderTaDrumMachineBuffer(ctx)
     .then((buf) => {
-      if (buf) taHiHatBufferByContext.set(ctx, buf);
+      if (buf) taDrumMachineBufferByContext.set(ctx, buf);
       return buf;
     })
     .catch(() => null)
     .finally(() => {
-      taHiHatRenderPromiseByContext.delete(ctx);
+      taDrumMachineRenderPromiseByContext.delete(ctx);
     });
-  taHiHatRenderPromiseByContext.set(ctx, job);
+  taDrumMachineRenderPromiseByContext.set(ctx, job);
   return job;
 }
 
@@ -3733,12 +3762,28 @@ const playSharpClick = (
   );
   const soloLayers = activeLayers.filter((layer) => layer.solo === true);
   const runLayers = soloLayers.length > 0 ? soloLayers : activeLayers;
+  const envelopeVoice: CalibrationVoiceKey | null =
+    sumInputOverride ? 'ta' : voiceKey === 'passive' ? 'passive' : voiceKey === 'alt' ? 'alt' : null;
   for (const layer of runLayers) {
     const layerDecay = Math.min(CLICK_DECAY_MAX_SEC, Math.max(CLICK_DECAY_MIN_SEC, layer.params.decay));
     const baseLayerVol =
       accentOnlyPlayback && voiceRole === 'accent' ? layer.params.volume * 0.72 : layer.params.volume;
     const layerVol = baseLayerVol * voiceGainMul * presetBoost;
-    scheduleLayerToBus(ctx, t0, layer, layerVol, layerDecay, busIn);
+    const env = envelopeVoice ? getActiveCalibrationEnvelope(soundType, envelopeVoice) : null;
+    scheduleLayerToBus(
+      ctx,
+      t0,
+      layer,
+      layerVol,
+      layerDecay,
+      busIn,
+      env?.decayMs,
+      env?.decayShape,
+      env?.attackMs,
+      env?.attackShape,
+      env?.envelopeMix ?? 1,
+      env?.envelopeGain ?? 1,
+    );
   }
 };
 
@@ -3752,79 +3797,79 @@ const playBarFirstHighClick = (
   const now = ctx.currentTime;
   const t0 = Math.max(time, ctx.currentTime + AUDIO_START_GUARD_SEC);
   const presetBoost = getClassicOldschoolLoudnessBoost(soundType);
-  if (soundType === 'hi_hat') {
-    const cached = taHiHatBufferByContext.get(ctx);
+  if (soundType === 'drum_machine') {
+    const cached = taDrumMachineBufferByContext.get(ctx);
     if (!cached) {
-      void ensureTaHiHatBuffer(ctx);
+      void ensureTaDrumMachineBuffer(ctx);
       return;
     }
     const taIn = getTaAccentParallelInput(ctx, soundType);
-    const src = ctx.createBufferSource();
-    const gain = ctx.createGain();
-    src.buffer = cached;
-    gain.gain.cancelScheduledValues(now);
-    gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(
-      voiceGainMul * presetBoost * getAccentTaSampleGainTrim(soundType),
-      t0 + CLICK_ENV_ATTACK_SEC,
-    );
-    src.connect(gain);
-    gain.connect(taIn);
-    src.start(t0);
-    src.onended = () => {
-      src.disconnect();
-      gain.disconnect();
-    };
+    const peak = voiceGainMul * presetBoost * getAccentTaSampleGainTrim(soundType);
+    const taEnv = getActiveCalibrationEnvelope(soundType, 'ta');
+    scheduleBufferedClickWithBlendEnvelope(ctx, t0, cached, taIn, peak, CLICK_ENV_ATTACK_SEC, taEnv);
     return;
   }
   const taIn = getTaAccentParallelInput(ctx, soundType);
   if (soundType === 'classic') {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const hpFilter = ctx.createBiquadFilter();
-    hpFilter.type = 'highpass';
-    hpFilter.frequency.setValueAtTime(1600, t0);
-    const lpFilter = ctx.createBiquadFilter();
-    lpFilter.type = 'lowpass';
-    lpFilter.frequency.setValueAtTime(20000, t0);
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(1550, t0);
-    osc.frequency.exponentialRampToValueAtTime(520, t0 + 0.028);
     const classicPeak = 0.36 * voiceGainMul * presetBoost;
-    const oscStopAt = scheduleClassicAccentTaTailEnvelope(gain, ctx, t0, classicPeak, getClassicTaAccentTailMs());
-    osc.connect(gain);
-    gain.connect(hpFilter);
-    hpFilter.connect(lpFilter);
-    lpFilter.connect(taIn);
-    osc.start(t0);
-    osc.stop(oscStopAt);
+    const taEnv = getActiveCalibrationEnvelope(soundType, 'ta');
+    scheduleOscClickWithBlendEnvelope(
+      ctx,
+      t0,
+      classicPeak,
+      taEnv,
+      (osc, gain) => {
+        const hpFilter = ctx.createBiquadFilter();
+        hpFilter.type = 'highpass';
+        hpFilter.frequency.setValueAtTime(1600, t0);
+        const lpFilter = ctx.createBiquadFilter();
+        lpFilter.type = 'lowpass';
+        lpFilter.frequency.setValueAtTime(20000, t0);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(1550, t0);
+        osc.frequency.exponentialRampToValueAtTime(520, t0 + 0.028);
+        osc.connect(gain);
+        gain.connect(hpFilter);
+        hpFilter.connect(lpFilter);
+        lpFilter.connect(taIn);
+      },
+      (gain, srcPeak) => scheduleClassicAccentTaTailEnvelope(gain, ctx, t0, srcPeak),
+    );
     return;
   }
   if (soundType === 'oldschool') {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const hpFilter = ctx.createBiquadFilter();
-    const lpFilter = ctx.createBiquadFilter();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(920, t0);
-    osc.frequency.exponentialRampToValueAtTime(210, t0 + 0.03);
-    hpFilter.type = 'highpass';
-    hpFilter.frequency.setValueAtTime(1200, t0);
-    lpFilter.type = 'lowpass';
-    lpFilter.frequency.setValueAtTime(20000, t0);
     const oldschoolPeak = 0.78 * voiceGainMul * presetBoost;
-    gain.gain.cancelScheduledValues(now);
-    gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(0, t0);
-    gain.gain.setValueAtTime(0, t0);
-    gain.gain.linearRampToValueAtTime(oldschoolPeak, t0 + CLICK_ENV_ATTACK_SEC);
-    gain.gain.exponentialRampToValueAtTime(metroEnvelopeEndFromPeak(oldschoolPeak), t0 + 0.035);
-    osc.connect(gain);
-    gain.connect(hpFilter);
-    hpFilter.connect(lpFilter);
-    lpFilter.connect(taIn);
-    osc.start(t0);
-    osc.stop(t0 + 0.06);
+    const taEnv = getActiveCalibrationEnvelope(soundType, 'ta');
+    scheduleOscClickWithBlendEnvelope(
+      ctx,
+      t0,
+      oldschoolPeak,
+      taEnv,
+      (osc, gain) => {
+        const hpFilter = ctx.createBiquadFilter();
+        const lpFilter = ctx.createBiquadFilter();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(920, t0);
+        osc.frequency.exponentialRampToValueAtTime(210, t0 + 0.03);
+        hpFilter.type = 'highpass';
+        hpFilter.frequency.setValueAtTime(1200, t0);
+        lpFilter.type = 'lowpass';
+        lpFilter.frequency.setValueAtTime(20000, t0);
+        osc.connect(gain);
+        gain.connect(hpFilter);
+        hpFilter.connect(lpFilter);
+        lpFilter.connect(taIn);
+      },
+      (gain, srcPeak) => {
+        gain.gain.cancelScheduledValues(now);
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(0, t0);
+        gain.gain.setValueAtTime(0, t0);
+        gain.gain.linearRampToValueAtTime(srcPeak, t0 + CLICK_ENV_ATTACK_SEC);
+        gain.gain.exponentialRampToValueAtTime(metroEnvelopeEndFromPeak(srcPeak), t0 + 0.035);
+        return t0 + 0.06;
+      },
+    );
     return;
   }
   playSharpClick(ctx, time, true, soundType, false, 'accent', voiceGainMul, taIn);
@@ -4565,6 +4610,13 @@ export default function App() {
     if (fromSnapshot) return { ...seeded, ...fromSnapshot };
     return seeded;
   });
+  const [calibrationStore, setCalibrationStore] = useState<SoundPresetCalibrationStore>(() => {
+    const loaded = loadSoundPresetCalibrationStore();
+    setSoundPresetCalibrationRuntime(loaded);
+    return loaded;
+  });
+  const [calEditPreset, setCalEditPreset] = useState<SoundPresetCalibrationId>('classic');
+  const [calEditVoice, setCalEditVoice] = useState<CalibrationVoiceKey>('passive');
   // Visual-only fader positions: keep neutral default (1.0) on load.
   // Real audio gains continue to use polyVoiceGains / clickPresetBusGainsByVoice.
   const [busFaderVisualByKey, setBusFaderVisualByKey] = useState<Record<string, number>>({});
@@ -5481,9 +5533,180 @@ export default function App() {
       busVoice,
       soundPreset,
     );
-    applyVoiceBusParallelWetLevels(ctx, busG, BAKED_VOICE_PARALLEL_LIMITER);
+    const perVoiceParallel: Partial<Record<'passive' | 'alt', ParallelLimiterSettings>> = {};
+    const passivePar = getActiveCalibrationParallel(soundPreset, 'passive');
+    const altPar = getActiveCalibrationParallel(soundPreset, 'alt');
+    if (passivePar) perVoiceParallel.passive = passivePar;
+    if (altPar) perVoiceParallel.alt = altPar;
+    applyVoiceBusParallelWetLevels(
+      ctx,
+      busG,
+      BAKED_VOICE_PARALLEL_LIMITER,
+      Object.keys(perVoiceParallel).length > 0 ? perVoiceParallel : undefined,
+    );
     syncTaAccentParallel();
   }, [syncTaAccentParallel]);
+
+  const calibrationEditSlice = useMemo(
+    (): VoiceCalibrationSlice => getCalibrationEditBase(calEditPreset, calEditVoice, calibrationStore),
+    [calibrationStore, calEditPreset, calEditVoice],
+  );
+
+  const patchCalibrationSlice = useCallback(
+    (patch: Partial<VoiceCalibrationSlice>) => {
+      setCalibrationStore((prev) => {
+        const base = getCalibrationEditBase(calEditPreset, calEditVoice, prev);
+        const next: SoundPresetCalibrationStore = { ...prev };
+        const presetBag = { ...(next[calEditPreset] ?? {}) };
+        presetBag[calEditVoice] = {
+          ...base,
+          ...patch,
+          parallel: { ...base.parallel, ...(patch.parallel ?? {}) },
+        };
+        next[calEditPreset] = presetBag;
+        return next;
+      });
+    },
+    [calEditPreset, calEditVoice],
+  );
+
+  const patchCalibrationParallel = useCallback(
+    (patch: Partial<ParallelLimiterSettings>) => {
+      setCalibrationStore((prev) => {
+        const base = getCalibrationEditBase(calEditPreset, calEditVoice, prev);
+        const next: SoundPresetCalibrationStore = { ...prev };
+        const presetBag = { ...(next[calEditPreset] ?? {}) };
+        presetBag[calEditVoice] = {
+          ...base,
+          parallel: { ...base.parallel, ...patch },
+        };
+        next[calEditPreset] = presetBag;
+        return next;
+      });
+    },
+    [calEditPreset, calEditVoice],
+  );
+
+  const cycleCalibrationParallelPreset = useCallback(() => {
+    setCalibrationStore((prev) => {
+      const base = getCalibrationEditBase(calEditPreset, calEditVoice, prev);
+      const idx = PARALLEL_LIMITER_PRESET_ORDER.indexOf(base.parallel.preset);
+      const nextPreset = PARALLEL_LIMITER_PRESET_ORDER[(idx + 1) % PARALLEL_LIMITER_PRESET_ORDER.length]!;
+      const next: SoundPresetCalibrationStore = { ...prev };
+      const presetBag = { ...(next[calEditPreset] ?? {}) };
+      presetBag[calEditVoice] = {
+        ...base,
+        parallel: { ...base.parallel, preset: nextPreset },
+      };
+      next[calEditPreset] = presetBag;
+      return next;
+    });
+  }, [calEditPreset, calEditVoice]);
+
+  const cycleCalibrationAttackShape = useCallback(() => {
+    setCalibrationStore((prev) => {
+      const base = getCalibrationEditBase(calEditPreset, calEditVoice, prev);
+      const shapes = ['snap', 'linear', 'exp_tight', 'exp_soft', 'plateau', 'punch'] as const;
+      const idx = shapes.indexOf(base.attackShape);
+      const nextShape = shapes[(idx + 1) % shapes.length]!;
+      const next: SoundPresetCalibrationStore = { ...prev };
+      const presetBag = { ...(next[calEditPreset] ?? {}) };
+      presetBag[calEditVoice] = { ...base, attackShape: nextShape };
+      next[calEditPreset] = presetBag;
+      return next;
+    });
+  }, [calEditPreset, calEditVoice]);
+
+  const cycleCalibrationDecayShape = useCallback(() => {
+    setCalibrationStore((prev) => {
+      const base = getCalibrationEditBase(calEditPreset, calEditVoice, prev);
+      const shapes = ['snap', 'linear', 'exp_tight', 'exp_soft', 'plateau', 'punch'] as const;
+      const idx = shapes.indexOf(base.decayShape);
+      const nextShape = shapes[(idx + 1) % shapes.length]!;
+      const next: SoundPresetCalibrationStore = { ...prev };
+      const presetBag = { ...(next[calEditPreset] ?? {}) };
+      presetBag[calEditVoice] = { ...base, decayShape: nextShape };
+      next[calEditPreset] = presetBag;
+      return next;
+    });
+  }, [calEditPreset, calEditVoice]);
+
+  const resetCalibrationSlice = useCallback(() => {
+    setCalibrationStore((prev) => {
+      const next: SoundPresetCalibrationStore = { ...prev };
+      const presetBag = { ...(next[calEditPreset] ?? {}) };
+      presetBag[calEditVoice] = getBakedDefaultCalibrationSlice(calEditPreset, calEditVoice);
+      next[calEditPreset] = presetBag;
+      return next;
+    });
+  }, [calEditPreset, calEditVoice]);
+
+  const resetCalibrationEnvelopeNative = useCallback(() => {
+    setCalibrationStore((prev) => {
+      const base = getCalibrationEditBase(calEditPreset, calEditVoice, prev);
+      const next: SoundPresetCalibrationStore = { ...prev };
+      const presetBag = { ...(next[calEditPreset] ?? {}) };
+      presetBag[calEditVoice] = {
+        ...base,
+        ...NATIVE_ENVELOPE_UI,
+      };
+      next[calEditPreset] = presetBag;
+      return next;
+    });
+  }, [calEditPreset, calEditVoice]);
+
+  const applyActiveClickSoundPreset = useCallback(
+    (preset: ClickSoundPreset) => {
+      const targetVoice = polyModeRef.current
+        ? (activeClickVoiceTargetRef.current as 0 | 1 | 2)
+        : 0;
+      if (polyModeRef.current) {
+        if (targetVoice === 0) {
+          const newMaster = preset;
+          const oldMaster = clickSoundRef.current;
+          const pinned = pinInheritedPolyClickVoicesBeforeMasterChangeForTest(
+            clickSoundByPolyVoiceRef.current,
+            oldMaster,
+            newMaster,
+            polyVoicesRef.current,
+          );
+          clickSoundRef.current = newMaster;
+          setClickSound(newMaster);
+          const next = { ...pinned };
+          delete next[0];
+          clickSoundByPolyVoiceRef.current = { ...next };
+          setClickSoundByPolyVoice(next);
+        } else {
+          const next = { ...clickSoundByPolyVoiceRef.current };
+          if (preset === clickSoundRef.current) delete next[targetVoice];
+          else next[targetVoice] = preset;
+          clickSoundByPolyVoiceRef.current = { ...next };
+          setClickSoundByPolyVoice(next);
+        }
+      } else {
+        clickSoundRef.current = preset;
+        setClickSound(preset);
+      }
+      clickSoundMixerClonedKeyRef.current = preset;
+      cloneClickMixerFromLibrary(preset);
+      syncVoiceBusParallelWet();
+    },
+    [syncVoiceBusParallelWet],
+  );
+
+  const handleCalibrationPresetChange = useCallback(
+    (preset: SoundPresetCalibrationId) => {
+      setCalEditPreset(preset);
+      applyActiveClickSoundPreset(preset);
+    },
+    [applyActiveClickSoundPreset],
+  );
+
+  useEffect(() => {
+    setSoundPresetCalibrationRuntime(calibrationStore);
+    persistSoundPresetCalibrationStore(calibrationStore);
+    syncVoiceBusParallelWet();
+  }, [calibrationStore, syncVoiceBusParallelWet]);
 
   useEffect(() => {
     syncVoiceBusParallelWet();
@@ -9468,8 +9691,8 @@ export default function App() {
     {
       const ctxBoot = audioCtxRef.current;
       const gBoot = clickMixerGroupRef.current;
-      if (soundPreset === 'hi_hat') {
-        void ensureTaHiHatBuffer(ctxBoot);
+      if (soundPreset === 'drum_machine') {
+        void ensureTaDrumMachineBuffer(ctxBoot);
       }
         if (gBoot) {
         for (const v of ['accent', 'alt', 'passive'] as const) {
@@ -9918,8 +10141,8 @@ export default function App() {
             clickSoundByPolyVoiceRef.current,
             clickSoundRef.current,
           );
-          if (activeSound === 'hi_hat') {
-            void ensureTaHiHatBuffer(ctxBoot);
+          if (activeSound === 'drum_machine') {
+            void ensureTaDrumMachineBuffer(ctxBoot);
           }
         }
         if (ctxBoot && gBoot) {
@@ -10345,7 +10568,7 @@ export default function App() {
     ? `bg-violet-500/12 border-violet-500/45 ${lowPerfMode ? '' : 'shadow-[inset_0_0_10px_rgba(167,139,250,0.16)]'}`
     : 'bg-[#161f33] border-[#23314f]';
   return (
-    <div className="h-[100dvh] bg-[#0b101e] sm:bg-black/95 text-slate-200 p-0 sm:p-6 font-sans flex flex-col items-center justify-center">
+    <div className="h-[100dvh] bg-[#0b101e] sm:bg-black/95 text-slate-200 p-0 sm:p-6 font-sans flex flex-col sm:flex-row items-center justify-center gap-4">
       {/* Phone emulator container */}
       <div className="relative flex h-[100dvh] min-h-0 w-full max-w-[390px] shrink-0 flex-col gap-2 overflow-hidden bg-[#0b101e] px-3 pb-3 pt-1.5 shadow-2xl sm:h-[844px] sm:rounded-[2.5rem] sm:border-[6px] border-[#1e2a45]">
         
@@ -12107,6 +12330,23 @@ export default function App() {
         </div>
 
       </div>
+
+      {SHOW_SOUND_PRESET_CALIBRATION_PANEL ? (
+        <SoundPresetCalibrationPanel
+          editPreset={calEditPreset}
+          editVoice={calEditVoice}
+          slice={calibrationEditSlice}
+          onPresetChange={handleCalibrationPresetChange}
+          onVoiceChange={setCalEditVoice}
+          onPatch={(patch) => patchCalibrationSlice(patch)}
+          onPatchParallel={patchCalibrationParallel}
+          onCycleParallelPreset={cycleCalibrationParallelPreset}
+          onCycleAttackShape={cycleCalibrationAttackShape}
+          onCycleDecayShape={cycleCalibrationDecayShape}
+          onResetSlice={resetCalibrationSlice}
+          onResetEnvelopeNative={resetCalibrationEnvelopeNative}
+        />
+      ) : null}
 
       {snapshotClipMenu ? (
         <>

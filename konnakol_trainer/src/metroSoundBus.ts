@@ -108,6 +108,7 @@ export function applyVoiceBusParallelWetLevels(
 	ctx: AudioContext | null | undefined,
 	busFaders: VoiceBusFaderLevels,
 	chainSettings: ParallelLimiterSettings = BAKED_VOICE_PARALLEL_LIMITER,
+	perVoiceChainSettings?: Partial<Record<MetroVoiceKey, ParallelLimiterSettings>>,
 ): void {
 	if (!ctx) return;
 	const buses = voiceBusesByContext.get(ctx);
@@ -115,6 +116,7 @@ export function applyVoiceBusParallelWetLevels(
 	const voices: MetroVoiceKey[] = ['accent', 'alt', 'passive'];
 	for (const voice of voices) {
 		const fader = busFaders[voice];
-		applyBakedParallelChain(ctx, buses[voice].parallel, chainSettings, fader);
+		const settings = perVoiceChainSettings?.[voice] ?? chainSettings;
+		applyBakedParallelChain(ctx, buses[voice].parallel, settings, fader);
 	}
 }

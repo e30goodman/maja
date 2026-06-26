@@ -12,8 +12,10 @@ import {
 	type ParallelLimiterSettings,
 } from './parallelBusChain';
 
-/** User-calibrated accent Ta parallel for Drum machine (hi_hat sample path). */
-export const BAKED_HI_HAT_TA_ACCENT_PARALLEL: ParallelLimiterSettings = {
+import { getActiveCalibrationParallel } from './soundPresetCalibration';
+
+/** User-calibrated Accent Ta parallel for Drum machine (pre-rendered sample path). */
+export const BAKED_DRUM_MACHINE_TA_ACCENT_PARALLEL: ParallelLimiterSettings = {
 	gain: 0,
 	volume: 0.6,
 	preset: 'tight',
@@ -38,18 +40,21 @@ type TaAccentParallelEntry = {
 const taParallelByContext = new WeakMap<AudioContext, Map<string, TaAccentParallelEntry>>();
 
 export function getTaAccentParallelSettings(soundPreset: string): ParallelLimiterSettings {
-	if (soundPreset === 'hi_hat') return BAKED_HI_HAT_TA_ACCENT_PARALLEL;
+	const active = getActiveCalibrationParallel(soundPreset, 'ta');
+	if (active) return active;
+	if (soundPreset === 'drum_machine' || soundPreset === 'hi_hat') return BAKED_DRUM_MACHINE_TA_ACCENT_PARALLEL;
 	if (soundPreset === 'classic') return BAKED_CLASSIC_TA_ACCENT_PARALLEL;
 	return BAKED_VOICE_PARALLEL_LIMITER;
 }
 
 function ensureTaAccentParallelEntry(ctx: AudioContext, soundPreset: string): TaAccentParallelEntry {
+	const presetKey = soundPreset === 'hi_hat' ? 'drum_machine' : soundPreset;
 	let byPreset = taParallelByContext.get(ctx);
 	if (!byPreset) {
 		byPreset = new Map();
 		taParallelByContext.set(ctx, byPreset);
 	}
-	const cached = byPreset.get(soundPreset);
+	const cached = byPreset.get(presetKey);
 	if (cached) return cached;
 
 	const taIn = ctx.createGain();
@@ -57,8 +62,8 @@ function ensureTaAccentParallelEntry(ctx: AudioContext, soundPreset: string): Ta
 	const accentIn = getVoiceLayerSumInput(ctx, 'accent');
 	const parallel = createParallelBusChain(ctx, taIn, accentIn);
 	const entry: TaAccentParallelEntry = { taIn, parallel };
-	byPreset.set(soundPreset, entry);
-	applyBakedParallelChain(ctx, parallel, getTaAccentParallelSettings(soundPreset), 1);
+	byPreset.set(presetKey, entry);
+	applyBakedParallelChain(ctx, parallel, getTaAccentParallelSettings(presetKey), 1);
 	return entry;
 }
 
@@ -73,9 +78,10 @@ export function applyTaAccentParallelChain(
 	accentFaderLinear = 1,
 ): void {
 	if (!ctx) return;
-	const settings = getTaAccentParallelSettings(soundPreset);
+	const presetKey = soundPreset === 'hi_hat' ? 'drum_machine' : soundPreset;
+	const settings = getTaAccentParallelSettings(presetKey);
 	const byPreset = taParallelByContext.get(ctx);
-	const entry = byPreset?.get(soundPreset) ?? ensureTaAccentParallelEntry(ctx, soundPreset);
+	const entry = byPreset?.get(presetKey) ?? ensureTaAccentParallelEntry(ctx, presetKey);
 	applyBakedParallelChain(ctx, entry.parallel, settings, accentFaderLinear);
 }
 
