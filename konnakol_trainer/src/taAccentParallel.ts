@@ -21,6 +21,15 @@ export const BAKED_HI_HAT_TA_ACCENT_PARALLEL: ParallelLimiterSettings = {
 	phaseAlignMs: 0,
 };
 
+/** User-calibrated accent Ta parallel for Classic (osc path). */
+export const BAKED_CLASSIC_TA_ACCENT_PARALLEL: ParallelLimiterSettings = {
+	gain: 1,
+	volume: 1,
+	preset: 'punch',
+	lookAheadMs: 4.9,
+	phaseAlignMs: -2.4,
+};
+
 type TaAccentParallelEntry = {
 	taIn: GainNode;
 	parallel: ParallelBusChainNodes;
@@ -30,6 +39,7 @@ const taParallelByContext = new WeakMap<AudioContext, Map<string, TaAccentParall
 
 export function getTaAccentParallelSettings(soundPreset: string): ParallelLimiterSettings {
 	if (soundPreset === 'hi_hat') return BAKED_HI_HAT_TA_ACCENT_PARALLEL;
+	if (soundPreset === 'classic') return BAKED_CLASSIC_TA_ACCENT_PARALLEL;
 	return BAKED_VOICE_PARALLEL_LIMITER;
 }
 

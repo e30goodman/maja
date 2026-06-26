@@ -28,6 +28,7 @@ import {
 	BAKED_VOICE_PARALLEL_LIMITER,
 	getTaAccentParallelInput,
 } from './taAccentParallel';
+import { getClassicTaAccentTailMs, scheduleClassicAccentTaTailEnvelope } from './taAccentEnvelope';
 import { metroEnvelopeEndFromPeak, scheduleLayerToBus } from './metroLayerGraph';
 import {
 	createPolySubLegacyScheduler,
@@ -3790,18 +3791,13 @@ const playBarFirstHighClick = (
     osc.frequency.setValueAtTime(1550, t0);
     osc.frequency.exponentialRampToValueAtTime(520, t0 + 0.028);
     const classicPeak = 0.36 * voiceGainMul * presetBoost;
-    gain.gain.cancelScheduledValues(now);
-    gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(0, t0);
-    gain.gain.setValueAtTime(0, t0);
-    gain.gain.linearRampToValueAtTime(classicPeak, t0 + CLICK_ENV_ATTACK_SEC);
-    gain.gain.exponentialRampToValueAtTime(metroEnvelopeEndFromPeak(classicPeak), t0 + 0.0336);
+    const oscStopAt = scheduleClassicAccentTaTailEnvelope(gain, ctx, t0, classicPeak, getClassicTaAccentTailMs());
     osc.connect(gain);
     gain.connect(hpFilter);
     hpFilter.connect(lpFilter);
     lpFilter.connect(taIn);
     osc.start(t0);
-    osc.stop(t0 + 0.06);
+    osc.stop(oscStopAt);
     return;
   }
   if (soundType === 'oldschool') {
