@@ -2184,7 +2184,7 @@ function packGridTokenPacked(
 	const out: number[] = [];
 	const bars = Math.max(1, Math.min(255, snapshot.bars));
 	const syllables = Math.max(1, Math.min(9, snapshot.syllables));
-	const gridVersion: number = 0x09; // v9: sparse (row,count) reprise overrides (2=R2, 4=R4; default single pass).
+	const gridVersion: number = 0x0a; // v10: v9 reprise tail + sparse firstBeatDingSuppressedRows rows.
 	out.push(0x50, gridVersion, bars, syllables);
 
 	const rowEntries = Object.entries(snapshot.customSyllables)
@@ -2314,6 +2314,14 @@ function packGridTokenPacked(
 		for (let i = 0; i < Math.min(255, repriseOffRows.length); i++) out.push(repriseOffRows[i]! & 0xff);
 	}
 
+	if (gridVersion >= 0x0a) {
+		const supRows = [...(snapshot.firstBeatDingSuppressedRows ?? [])]
+			.filter((r) => Number.isFinite(r) && r >= 0 && r < bars)
+			.sort((a, b) => a - b);
+		out.push(Math.min(255, supRows.length));
+		for (let i = 0; i < Math.min(255, supRows.length); i++) out.push(supRows[i]! & 0xff);
+	}
+
 	return `p6${toBase64Url(new Uint8Array(out))}`;
 }
 
@@ -2335,7 +2343,7 @@ function unpackGridTokenPacked(
 	let off = 0;
 	const magic = bytes[off++]!;
 	const version = bytes[off++]!;
-	if (magic !== 0x50 || ![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09].includes(version)) return false;
+	if (magic !== 0x50 || ![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a].includes(version)) return false;
 	const bars = bytes[off++]!;
 	const syllables = bytes[off++]!;
 	if (bars < 1 || bars > 100 || syllables < 1 || syllables > 9) return false;
@@ -2479,6 +2487,17 @@ function unpackGridTokenPacked(
 			off++;
 		}
 		d.barRepriseCounts = {};
+	}
+	if (version >= 0x0a) {
+		if (off >= bytes.length) return false;
+		const supCount = bytes[off++]!;
+		const nextSup = new Set<number>();
+		for (let i = 0; i < supCount; i++) {
+			if (off >= bytes.length) return false;
+			const r = bytes[off++]!;
+			if (r < bars) nextSup.add(r);
+		}
+		d.firstBeatDingSuppressedRows = nextSup;
 	}
 	return true;
 }
@@ -5154,6 +5173,7 @@ export default function App() {
     setIsTaEditorMode(false);
     setIsDeadCellsEditorMode(false);
     setFirstBeatDingSuppressedRows(new Set());
+    firstBeatDingSuppressedRowsRef.current = new Set();
     setTempo(defaults.tempo);
     tempoRef.current = defaults.tempo;
     const defaultBars = snapBarsToPolyGrid(defaults.bars, polyModeRef.current, polyVoicesRef.current);
@@ -6043,10 +6063,14 @@ export default function App() {
       }
       if (next.size === prev.size) {
         for (const r of prev) {
-          if (!next.has(r)) return next;
+          if (!next.has(r)) {
+            firstBeatDingSuppressedRowsRef.current = next;
+            return next;
+          }
         }
         return prev;
       }
+      firstBeatDingSuppressedRowsRef.current = next;
       return next;
     });
   }, [bars]);
@@ -7498,10 +7522,13 @@ export default function App() {
   }, []);
 
   flushLiveSnapshotToActiveSlotRef.current = () => {
+    const live = buildLiveSnapshotFromRefs();
+    const slot = activeSnapshotRef.current;
+    snapshotsRef.current = { ...snapshotsRef.current, [slot]: live };
     startTransition(() => {
       setSnapshots((prev) => ({
         ...prev,
-        [activeSnapshotRef.current]: buildLiveSnapshotFromRefs(),
+        [slot]: live,
       }));
     });
   };
@@ -8203,7 +8230,7 @@ export default function App() {
     flushChaosToActiveSnapshot();
     activeSnapshotRef.current = id;
     setActiveSnapshot(id);
-    const snap = snapshots[id] ?? createEmptySnapshot();
+    const snap = snapshotsRef.current[id] ?? createEmptySnapshot();
     applySnapshotDataToUi(snap, { preservePanel: true });
   };
 
@@ -8214,6 +8241,10 @@ export default function App() {
     accents: s.accents instanceof Set ? new Set(s.accents) : new Set(Array.isArray(s.accents) ? s.accents : []),
     taDingKeys:
       s.taDingKeys instanceof Set ? new Set(s.taDingKeys) : new Set(Array.isArray(s.taDingKeys) ? s.taDingKeys : []),
+    firstBeatDingSuppressedRows: normalizeSuppressedRows(
+      (s as { firstBeatDingSuppressedRows?: unknown }).firstBeatDingSuppressedRows,
+      s.bars,
+    ),
     customSyllables: { ...s.customSyllables },
     deadCells: { ...((s as { deadCells?: DeadCellsMap }).deadCells || {}) },
     customMultipliers: normalizeCustomMultipliers(s.customMultipliers),
@@ -8976,17 +9007,11 @@ export default function App() {
             // Default first-beat Ta is ON: tap on col0 toggles only suppression.
             // Explicit col0 key must stay cleared to avoid mixed semantics.
             laneSet.delete(key);
-            if (suppressed) {
-              action = 'toggle_suppression_off';
-              setFirstBeatDingSuppressedRows((prevRows) => {
-                const n = new Set(prevRows);
-                n.delete(r);
-                return n;
-              });
-            } else {
-              action = 'toggle_suppression_on';
-              setFirstBeatDingSuppressedRows((prevRows) => new Set(prevRows).add(r));
-            }
+            const nextSuppressed = new Set(firstBeatDingSuppressedRowsRef.current);
+            if (suppressed) nextSuppressed.delete(r);
+            else nextSuppressed.add(r);
+            firstBeatDingSuppressedRowsRef.current = nextSuppressed;
+            setFirstBeatDingSuppressedRows(nextSuppressed);
           } else {
             // Default first-beat Ta is OFF: col0 behaves like a regular explicit Ta cell.
             if (hadKey) {
@@ -9040,17 +9065,14 @@ export default function App() {
       setTaDingKeys((prev) => {
         const next = new Set(prev);
         next.delete(key);
+        taDingKeysRef.current = next;
         return next;
       });
-      if (suppressed) {
-        setFirstBeatDingSuppressedRows((prev) => {
-          const n = new Set(prev);
-          n.delete(r);
-          return n;
-        });
-      } else {
-        setFirstBeatDingSuppressedRows((prev) => new Set(prev).add(r));
-      }
+      const nextSuppressed = new Set(firstBeatDingSuppressedRowsRef.current);
+      if (suppressed) nextSuppressed.delete(r);
+      else nextSuppressed.add(r);
+      firstBeatDingSuppressedRowsRef.current = nextSuppressed;
+      setFirstBeatDingSuppressedRows(nextSuppressed);
       return;
     }
     // Default first-beat Ta is OFF: col0 behaves like regular explicit Ta cell.
