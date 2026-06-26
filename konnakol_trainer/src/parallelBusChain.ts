@@ -230,3 +230,13 @@ export function applyBakedParallelChain(
 	setDelayMs(chain.dryDelay, ctx, dryMs);
 	setDelayMs(chain.wetDelay, ctx, wetMs);
 }
+
+/** When gate sits after parallel bus: align to dry/wet path + limiter attack. */
+export function getParallelBusAlignLatencySec(settings: ParallelLimiterSettings): number {
+	const presetId = isParallelLimiterPresetId(settings.preset)
+		? settings.preset
+		: BAKED_VOICE_PARALLEL_LIMITER.preset;
+	const preset = PARALLEL_LIMITER_PRESETS[presetId];
+	const { dryMs, wetMs } = computePathDelays({ ...settings, preset: presetId });
+	return Math.max(dryMs, wetMs) / 1000 + preset.attack;
+}

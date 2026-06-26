@@ -263,8 +263,8 @@ export function schedulePassiveClickGateEnvelope(
 
 	let peakTime: number;
 	if (frontSec <= 0.0001) {
-		peakTime = t0 + INSTANT_ATTACK_SEC;
-		gain.gain.linearRampToValueAtTime(peak, peakTime);
+		peakTime = t0;
+		gain.gain.setValueAtTime(peak, t0);
 	} else {
 		peakTime = scheduleFrontAttack(gain, t0, peak, frontSec, frontShape);
 	}

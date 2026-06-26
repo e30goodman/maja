@@ -1,6 +1,6 @@
 /**
  * Per click-sound-preset parallel limiter for accent Ta only (`playBarFirstHighClick`).
- * Each sound preset has its own Ta parallel chain → accent voice bus input.
+ * Cajon: shared parallel → per-hit gate tap (`parallelSum`).
  */
 
 import { getVoiceLayerSumInput } from './metroSoundBus';
@@ -35,20 +35,33 @@ export const BAKED_CLASSIC_TA_ACCENT_PARALLEL: ParallelLimiterSettings = {
 type TaAccentParallelEntry = {
 	taIn: GainNode;
 	parallel: ParallelBusChainNodes;
+	/** Cajon only: parallel voiceOut sum — per-hit envelope taps connect here. */
+	parallelSum?: GainNode;
 };
 
 const taParallelByContext = new WeakMap<AudioContext, Map<string, TaAccentParallelEntry>>();
 
+function normalizePresetKey(soundPreset: string): string {
+	if (soundPreset === 'hi_hat') return 'drum_machine';
+	if (soundPreset === 'vinyl_crackle') return 'cajon';
+	return soundPreset;
+}
+
+export function isCajonAccentTaPostParallelPreset(soundPreset: string): boolean {
+	return normalizePresetKey(soundPreset) === 'cajon';
+}
+
 export function getTaAccentParallelSettings(soundPreset: string): ParallelLimiterSettings {
 	const active = getActiveCalibrationParallel(soundPreset, 'ta');
 	if (active) return active;
-	if (soundPreset === 'drum_machine' || soundPreset === 'hi_hat') return BAKED_DRUM_MACHINE_TA_ACCENT_PARALLEL;
-	if (soundPreset === 'classic') return BAKED_CLASSIC_TA_ACCENT_PARALLEL;
+	const key = normalizePresetKey(soundPreset);
+	if (key === 'drum_machine') return BAKED_DRUM_MACHINE_TA_ACCENT_PARALLEL;
+	if (key === 'classic') return BAKED_CLASSIC_TA_ACCENT_PARALLEL;
 	return BAKED_VOICE_PARALLEL_LIMITER;
 }
 
 function ensureTaAccentParallelEntry(ctx: AudioContext, soundPreset: string): TaAccentParallelEntry {
-	const presetKey = soundPreset === 'hi_hat' ? 'drum_machine' : soundPreset;
+	const presetKey = normalizePresetKey(soundPreset);
 	let byPreset = taParallelByContext.get(ctx);
 	if (!byPreset) {
 		byPreset = new Map();
@@ -60,6 +73,17 @@ function ensureTaAccentParallelEntry(ctx: AudioContext, soundPreset: string): Ta
 	const taIn = ctx.createGain();
 	taIn.gain.value = 1;
 	const accentIn = getVoiceLayerSumInput(ctx, 'accent');
+
+	if (presetKey === 'cajon') {
+		const parallelSum = ctx.createGain();
+		parallelSum.gain.value = 1;
+		const parallel = createParallelBusChain(ctx, taIn, parallelSum);
+		const entry: TaAccentParallelEntry = { taIn, parallel, parallelSum };
+		byPreset.set(presetKey, entry);
+		applyBakedParallelChain(ctx, parallel, getTaAccentParallelSettings(presetKey), 1);
+		return entry;
+	}
+
 	const parallel = createParallelBusChain(ctx, taIn, accentIn);
 	const entry: TaAccentParallelEntry = { taIn, parallel };
 	byPreset.set(presetKey, entry);
@@ -72,13 +96,18 @@ export function getTaAccentParallelInput(ctx: AudioContext, soundPreset: string)
 	return ensureTaAccentParallelEntry(ctx, soundPreset).taIn;
 }
 
+/** Cajon accent Ta: fan-out point after parallel dry+wet sum. */
+export function getCajonTaAccentParallelSum(ctx: AudioContext): GainNode {
+	return ensureTaAccentParallelEntry(ctx, 'cajon').parallelSum!;
+}
+
 export function applyTaAccentParallelChain(
 	ctx: AudioContext | null | undefined,
 	soundPreset: string,
 	accentFaderLinear = 1,
 ): void {
 	if (!ctx) return;
-	const presetKey = soundPreset === 'hi_hat' ? 'drum_machine' : soundPreset;
+	const presetKey = normalizePresetKey(soundPreset);
 	const settings = getTaAccentParallelSettings(presetKey);
 	const byPreset = taParallelByContext.get(ctx);
 	const entry = byPreset?.get(presetKey) ?? ensureTaAccentParallelEntry(ctx, presetKey);

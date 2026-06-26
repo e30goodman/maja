@@ -78,6 +78,7 @@ export function scheduleLayerToBus(
 	const mix = Math.max(0, Math.min(1, envelopeMix));
 	const wetGain = Math.max(0, Math.min(2, envelopeGain));
 	const hasGate = typeof tailGateMs === 'number' && Number.isFinite(tailGateMs);
+
 	if (!hasGate || mix <= 0) {
 		scheduleLayerToBusOnce(ctx, scheduleTime, layer, peakLinear, decaySec, summingInput);
 		return;

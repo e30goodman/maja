@@ -42,7 +42,7 @@ export const SOUND_PRESET_CALIBRATION_ORDER = [
 	'clock_tick',
 	'cowbell',
 	'analog_synth',
-	'vinyl_crackle',
+	'cajon',
 	'dry_click',
 	'soft_ping',
 	'noise_burst',
@@ -106,7 +106,9 @@ const ENVELOPE_MIX_EPS = 0.0005;
 let runtimeStore: SoundPresetCalibrationStore = {};
 
 function normalizeCalibrationPresetId(preset: string): string {
-	return preset === 'hi_hat' ? 'drum_machine' : preset;
+	if (preset === 'hi_hat') return 'drum_machine';
+	if (preset === 'vinyl_crackle') return 'cajon';
+	return preset;
 }
 
 function cloneSlice(slice: VoiceCalibrationSlice): VoiceCalibrationSlice {
@@ -218,11 +220,18 @@ export function loadSoundPresetCalibrationStore(): SoundPresetCalibrationStore {
 	try {
 		const raw = localStorage.getItem(STORAGE_KEY);
 		if (!raw) return out;
-		const parsed = JSON.parse(raw) as SoundPresetCalibrationStore & { hi_hat?: SoundPresetCalibrationStore[string] };
+		const parsed = JSON.parse(raw) as SoundPresetCalibrationStore & {
+			hi_hat?: SoundPresetCalibrationStore[string];
+			vinyl_crackle?: SoundPresetCalibrationStore[string];
+		};
 		if (!parsed || typeof parsed !== 'object') return out;
 		if (parsed.hi_hat && typeof parsed.hi_hat === 'object') {
 			parsed.drum_machine = { ...(parsed.drum_machine ?? {}), ...parsed.hi_hat };
 			delete parsed.hi_hat;
+		}
+		if (parsed.vinyl_crackle && typeof parsed.vinyl_crackle === 'object') {
+			parsed.cajon = { ...(parsed.cajon ?? {}), ...parsed.vinyl_crackle };
+			delete parsed.vinyl_crackle;
 		}
 		for (const preset of SOUND_PRESET_CALIBRATION_ORDER) {
 			const presetBag = parsed[preset];

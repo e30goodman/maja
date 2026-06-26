@@ -100,7 +100,7 @@ const CLICK_SOUND_PRESET_ORDER = [
   'clock_tick',
   'cowbell',
   'analog_synth',
-  'vinyl_crackle',
+  'cajon',
   'dry_click',
   'soft_ping',
   'noise_burst',

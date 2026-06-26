@@ -23,15 +23,19 @@ import {
 } from './metraAudioBus';
 import { applyVoiceBusParallelWetLevels } from './metroSoundBus';
 import { applyVoiceGroupChain, getVoiceLayerSumInput, type MetroVoiceKey } from './metroSoundBus';
+import { scheduleCajonTaAccentLayerToBus } from './cajonTaAccentEnvelope';
 import {
 	applyTaAccentParallelChain,
 	BAKED_VOICE_PARALLEL_LIMITER,
+	getCajonTaAccentParallelSum,
 	getTaAccentParallelInput,
+	isCajonAccentTaPostParallelPreset,
 } from './taAccentParallel';
 import {
 	getActiveCalibrationEnvelope,
 	getActiveCalibrationParallel,
 	getCalibrationEditBase,
+	getCalibrationSlice,
 	getBakedDefaultCalibrationSlice,
 	loadSoundPresetCalibrationStore,
 	NATIVE_ENVELOPE_UI,
@@ -42,7 +46,7 @@ import {
 	type SoundPresetCalibrationStore,
 	type VoiceCalibrationSlice,
 } from './soundPresetCalibration';
-import { SoundPresetCalibrationPanel } from './SoundPresetCalibrationPanel';
+// import { SoundPresetCalibrationPanel } from './SoundPresetCalibrationPanel';
 import { scheduleBufferedClickWithBlendEnvelope, scheduleOscClickWithBlendEnvelope, DRUM_MACHINE_TA_SAMPLE_ONSET_SEC } from './clickTailEnvelope';
 import { scheduleClassicAccentTaTailEnvelope } from './taAccentEnvelope';
 import type { ParallelLimiterSettings } from './parallelBusChain';
@@ -203,6 +207,8 @@ const DEFAULT_MIXER_LAYER_MODE: MixerLayerMode = 'full_mix';
 const DEFAULT_TRAINER_MODE: TrainerMode = 'normal';
 
 /** Dev UI: per-preset calibration panel (hidden in production UI). See `docs/SOUND_PRESET_CALIBRATION.md`. */
+// Вернуть панель: раскомментировать блок ниже и выставить true.
+// const SHOW_SOUND_PRESET_CALIBRATION_PANEL = true;
 const SHOW_SOUND_PRESET_CALIBRATION_PANEL = false;
 
 function nextMixerLayerMode(mode: MixerLayerMode): MixerLayerMode {
@@ -724,7 +730,7 @@ type ClickSoundPreset =
 	| 'clock_tick'
 	| 'cowbell'
 	| 'analog_synth'
-	| 'vinyl_crackle'
+	| 'cajon'
 	| 'dry_click'
 	| 'soft_ping'
 	| 'noise_burst'
@@ -838,7 +844,7 @@ const CLICK_SOUND_PRESET_ORDER: ClickSoundPreset[] = [
 	'clock_tick',
 	'cowbell',
 	'analog_synth',
-	'vinyl_crackle',
+	'cajon',
 	'dry_click',
 	'soft_ping',
 	'noise_burst',
@@ -865,12 +871,12 @@ const HARDCODED_DEFAULT_CLICK_PRESET_BUS_GAINS_BY_PRESET: ClickPresetBusGainsMap
 	plastic_knock: { accent: 1, alt: 1, passive: 1 },
 	metallic: { accent: 1, alt: 1, passive: 1 },
 	clock_tick: { accent: 1, alt: 1, passive: 1 },
-	vinyl_crackle: { accent: 1, alt: 1, passive: 0.68 },
+	cajon: { accent: 1, alt: 1, passive: 0.68 },
 };
 const HARDCODED_DEFAULT_CLICK_PRESET_BUS_GAINS_BY_VOICE: ClickPresetBusGainsByVoiceMap = {
 	0: {
 		plastic_knock: { accent: 1, alt: 1, passive: 1 },
-		vinyl_crackle: { accent: 1.24, alt: 0.84, passive: 0.54 },
+		cajon: { accent: 1.24, alt: 0.84, passive: 0.54 },
 		dry_click: { accent: 1, alt: 0.44, passive: 0.28 },
 		noise_burst: { accent: 0.7, alt: 0.36, passive: 0.76 },
 		drum_machine: { accent: 0.87, alt: 0.4, passive: 0.56 },
@@ -894,7 +900,7 @@ const HARDCODED_DEFAULT_CLICK_PRESET_BUS_GAINS_BY_VOICE: ClickPresetBusGainsByVo
 		oldschool: { accent: 0.58, alt: 0.98, passive: 1.12 },
 		drum_machine: { accent: 0.63, alt: 0.52, passive: 0.59 },
 		clock_tick: { accent: 0, alt: 0, passive: 0.67 },
-		vinyl_crackle: { accent: 1, alt: 1, passive: 1 },
+		cajon: { accent: 1, alt: 1, passive: 1 },
 	},
 	2: {
 		classic: { accent: 1, alt: 1, passive: 1 },
@@ -1768,7 +1774,7 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 		volumeAccent: 0.5,
 		volumeAlt: 0.5,
 	},
-	vinyl_crackle: {
+	cajon: {
 		baseFreq: 0,
 		accentFreq: 0,
 		altFreq: 0,
@@ -1841,14 +1847,19 @@ const CLICK_SOUND_LIBRARY: Record<ClickSoundPreset, ClickSoundConfig> = {
 
 function normalizeClickSoundPreset(value: unknown): ClickSoundPreset {
 	if (typeof value !== 'string') return 'classic';
-	const migrated = value === 'hi_hat' ? 'drum_machine' : value;
+	let migrated = value;
+	if (migrated === 'hi_hat') migrated = 'drum_machine';
+	if (migrated === 'vinyl_crackle') migrated = 'cajon';
 	return CLICK_SOUND_PRESET_ORDER.includes(migrated as ClickSoundPreset)
 		? (migrated as ClickSoundPreset)
 		: 'classic';
 }
 
 function isClickSoundPreset(value: unknown): value is ClickSoundPreset {
-	return typeof value === 'string' && (value === 'hi_hat' || CLICK_SOUND_PRESET_ORDER.includes(value as ClickSoundPreset));
+	return (
+		typeof value === 'string' &&
+		(value === 'hi_hat' || value === 'vinyl_crackle' || CLICK_SOUND_PRESET_ORDER.includes(value as ClickSoundPreset))
+	);
 }
 
 type ClickSoundUiPreset = {
@@ -1872,7 +1883,7 @@ const CLICK_SOUND_PRESET_META: ClickSoundUiPreset[] = [
 	{ id: 'preset-14', label: 'Clock Tick', mappedSound: 'clock_tick' },
 	{ id: 'preset-15', label: '808 Cowbell', mappedSound: 'cowbell' },
 	{ id: 'preset-16', label: 'Analog Synth', mappedSound: 'analog_synth' },
-	{ id: 'preset-17', label: 'Cajon', mappedSound: 'vinyl_crackle' },
+	{ id: 'preset-17', label: 'Cajon', mappedSound: 'cajon' },
 	{ id: 'preset-18', label: 'Dry Click', mappedSound: 'dry_click' },
 	{ id: 'preset-19', label: 'Soft Ping', mappedSound: 'soft_ping' },
 	{ id: 'preset-20', label: 'Noise Burst', mappedSound: 'noise_burst' },
@@ -3754,6 +3765,10 @@ const playSharpClick = (
   const t0 = Math.max(baseT0, lastByVoice[voiceKey] + minSpacingSec);
   lastByVoice[voiceKey] = t0;
   const busIn = sumInputOverride ?? getVoiceLayerSumInput(ctx, voiceKey);
+  const cajonTaParallel =
+    sumInputOverride != null && isCajonAccentTaPostParallelPreset(soundType)
+      ? { in: busIn, sum: getCajonTaAccentParallelSum(ctx) }
+      : undefined;
   const libLayers = (cfg.layers ?? buildLegacyVoiceLayers(cfg))[voiceKey];
   const cachedForPreset = clickMixerLayerClonesByPresetRef.current[soundType];
   const layers = cachedForPreset?.[voiceKey] ?? libLayers;
@@ -3770,6 +3785,27 @@ const playSharpClick = (
       accentOnlyPlayback && voiceRole === 'accent' ? layer.params.volume * 0.72 : layer.params.volume;
     const layerVol = baseLayerVol * voiceGainMul * presetBoost;
     const env = envelopeVoice ? getActiveCalibrationEnvelope(soundType, envelopeVoice) : null;
+    const calSlice = envelopeVoice ? getCalibrationSlice(soundType, envelopeVoice) : null;
+    const envelopeMix = env?.envelopeMix ?? calSlice?.envelopeMix ?? 0;
+    const envelopeGain = env?.envelopeGain ?? calSlice?.envelopeGain ?? 1;
+    if (cajonTaParallel) {
+      scheduleCajonTaAccentLayerToBus(
+        ctx,
+        t0,
+        layer,
+        layerVol,
+        layerDecay,
+        cajonTaParallel.in,
+        cajonTaParallel.sum,
+        env?.decayMs ?? calSlice?.decayMs,
+        env?.decayShape ?? calSlice?.decayShape ?? 'snap',
+        env?.attackMs ?? calSlice?.attackMs ?? 0,
+        env?.attackShape ?? calSlice?.attackShape ?? 'snap',
+        envelopeMix,
+        envelopeGain,
+      );
+      continue;
+    }
     scheduleLayerToBus(
       ctx,
       t0,
@@ -3781,8 +3817,8 @@ const playSharpClick = (
       env?.decayShape,
       env?.attackMs,
       env?.attackShape,
-      env?.envelopeMix ?? 1,
-      env?.envelopeGain ?? 1,
+      envelopeMix,
+      envelopeGain,
     );
   }
 };
@@ -12331,6 +12367,7 @@ export default function App() {
 
       </div>
 
+      {/* Calibration panel — dev only; restore: SHOW_SOUND_PRESET_CALIBRATION_PANEL = true
       {SHOW_SOUND_PRESET_CALIBRATION_PANEL ? (
         <SoundPresetCalibrationPanel
           editPreset={calEditPreset}
@@ -12347,6 +12384,7 @@ export default function App() {
           onResetEnvelopeNative={resetCalibrationEnvelopeNative}
         />
       ) : null}
+      */}
 
       {snapshotClipMenu ? (
         <>
