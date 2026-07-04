@@ -897,10 +897,13 @@
                             '<strong class="text-white">Notes longues</strong> au début des groupements',
                             '<strong class="text-white">Densité maximale</strong> (chaque note jouée)',
                             '<strong class="text-white">Uniquement les notes d\'appui</strong> (points d\'ancrage)',
-                            '<strong class="text-white">Changement de groupement</strong> (4+3 → 3+4)',
-                            'Note : A* = première permutation. A** = deuxième permutation, différente de la première.'
+                            '<strong class="text-white">Changement de groupement</strong> (4+3 → 3+4)'
                         ],
                         tasks: [
+                            {
+                                id: 't2-15-prac-note',
+                                text: 'Note : A* = première permutation. A** = deuxième permutation, différente de la première.'
+                            },
                             {
                                 id: 't2-15-prac-1',
                                 text: 'Groove 1 : (A - A* - A - B) — (A - A** - A - B)'
@@ -1122,6 +1125,23 @@
         // ==========================================
         // 3. RENDER LOGIC
         // ==========================================
+        // Ordre d'affichage : la leçon la plus récente en premier (Leçon 15 en haut,
+        // Leçon 1 tout en bas). Les pratiques restent groupées juste après leur leçon parente.
+        function orderLessonsForDisplay(lessons) {
+            const groups = [];
+            let currentGroup = null;
+            lessons.forEach(lesson => {
+                if (lesson.parentLessonId) {
+                    if (currentGroup) currentGroup.push(lesson);
+                    else groups.push([lesson]);
+                } else {
+                    currentGroup = [lesson];
+                    groups.push(currentGroup);
+                }
+            });
+            return groups.reverse().flat();
+        }
+
         function renderApp() {
             const app = document.getElementById('app');
             const allTasks = COURSE_DATA.flatMap(m => m.lessons.flatMap(l => l.tasks));
@@ -1146,7 +1166,7 @@
                 <div class="space-y-12">
             `;
 
-            COURSE_DATA.forEach(module => {
+            [...COURSE_DATA].reverse().forEach(module => {
                 if (module.hidden) return;
                 const isModuleLocked = module.id !== 'mod-1' && module.id !== 'mod-2';
                 html += `
@@ -1159,7 +1179,7 @@
                         <div class="space-y-4">
                 `;
 
-                module.lessons.forEach(lesson => {
+                orderLessonsForDisplay(module.lessons).forEach(lesson => {
                     // Skip hidden lessons
                     if (lesson.hidden) {
                         return;
