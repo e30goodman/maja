@@ -869,6 +869,47 @@
                                 text: 'Étape 2 : Fais tourner ce riff en appliquant l\'algorithme d\'improvisation qu\'on a vu ensemble.'
                             }
                         ]
+                    },
+                    {
+                        id: 'm2-l15',
+                        title: 'Leçon 15 — Architecture, Permutations et Arrangement des Blocs',
+                        description: 'Construction d\'un groove sur 4, 8 et 16 mesures à partir de blocs et arrangement des transitions entre eux.',
+                        details: [
+                            'Règle de la permutation (« Flocon de neige * ») : La première apparition d\'un bloc est toujours jouée dans sa forme de base. La permutation (* — changement de densité, de registre ou de rythme) s\'applique uniquement lors de sa répétition.',
+                            'Interaction des parties : Il est essentiel de ressentir comment les blocs fonctionnent ensemble et de construire une dramaturgie entre eux. Analysez la forme globale, et non des mesures isolées dans le vide.',
+                            'Emprunt de caractéristiques (Arrangement des jonctions) : Pour assurer une transition fluide et sans rupture, analysez les caractéristiques du bloc suivant (registre, pulsation, densité) et empruntez-en une partie à l\'avance dans la phrase actuelle. N\'hésitez pas à déplacer des phrases entières dans une autre octave, à modifier leur rythme ou leurs notes cibles (Target Notes) afin d\'amener les parties adjacentes à un dénominateur musical commun.'
+                        ],
+                        tasks: []
+                    },
+                    {
+                        id: 'm2-l15-prac',
+                        title: 'DEVOIR DE LA LEÇON 15',
+                        description: 'Créez votre propre groove et jouez les structures proposées.',
+                        isPractice: true,
+                        parentLessonId: 'm2-l15',
+                        details: [
+                            'Créez votre propre groove et jouez les trois structures ci-dessous.',
+                            'Les permutations sont des outils pour modifier une mesure. Choisissez selon vos goûts, mais essayez de toutes les appliquer — éventuellement dans des grooves différents : Octave, Ghost notes, Question-réponse (inversion de direction), Notes longues au début des groupements, Densité maximale (chaque note jouée), Uniquement les notes d\'appui (points d\'ancrage), Changement de groupement (4+3 → 3+4).',
+                            'Note : A* = première permutation. A** = deuxième permutation, différente de la première.'
+                        ],
+                        tasks: [
+                            {
+                                id: 't2-15-prac-1',
+                                text: 'Groove 1 : (A - A - A - B) — (A - A* - A** - B)'
+                            },
+                            {
+                                id: 't2-15-prac-2',
+                                text: 'Groove 2 : (A - B - A - B) — (A* - B - A** - B*)'
+                            },
+                            {
+                                id: 't2-15-prac-3',
+                                text: 'Groove 3 : (A - A - B - B) — (A* - A** - B - B*)'
+                            },
+                            {
+                                id: 't2-15-prac-4',
+                                text: 'Pulsation du 7 : jouez l\'un des grooves ci-dessus en mesure 7/4 en vocalisant le konnakol à voix haute.'
+                            }
+                        ]
                     }
                 ]
             },
@@ -1003,7 +1044,7 @@
         // 2. STATE MANAGEMENT (Variable Storage)
         // ==========================================
         let completedTasks = new Set(JSON.parse(localStorage.getItem('maja_bass_progress_v2') || '[]'));
-        let expandedLessons = new Set(['m2-l14', 'm2-l14-prac']);
+        let expandedLessons = new Set(['m2-l15', 'm2-l15-prac']);
         let expandedTaskDetails = new Set();
         // Default photos for task t1-1-2
         const DEFAULT_PHOTOS = [
@@ -1121,7 +1162,7 @@
                     }
                     
                     const isPractice = lesson.isPractice;
-                    const isCurrent = lesson.id === 'm2-l14-prac';
+                    const isCurrent = lesson.id === 'm2-l15-prac';
                     const isLessonLocked = !!lesson.locked;
                     const isExpanded = expandedLessons.has(lesson.id);
                     
