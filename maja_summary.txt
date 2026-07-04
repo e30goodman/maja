@@ -1,7 +1,7 @@
 ====================================================================
 MAJA / BassMastery — RÉSUMÉ (notes internes)
 Programme : Blocs Harmoniques, Groove, Soloing, Rythme & Konnakol
-Dernière synchro avec le site : juin 2026
+Dernière synchro avec le site : 4 juillet 2026
 ====================================================================
 
 ----------------------------------------------------------------------
@@ -10,7 +10,8 @@ SITE & DÉPLOIEMENT
 Produit UI        : BassMastery — Espace Maja (cours complet, FR)
 Promo / vitrine   : BassMastery — Espace Demo (page funnel)
 Repo              : https://github.com/e30goodman/maja.git
-Déploiement       : GitHub Pages, branche main (.github/workflows/deploy.yml)
+Déploiement       : GitHub Pages, branches main et test (.github/workflows/deploy.yml)
+                    Node 24, build konnakol_trainer (ui:guard + vite build)
 
 URLs publiques :
   - Cours complet : https://e30goodman.github.io/maja/
@@ -18,18 +19,27 @@ URLs publiques :
   - Konnakol app  : https://e30goodman.github.io/maja/konnakol/trainer/
 
 Fichiers sources déployés :
-  - maja/index.html          → index (COURSE_DATA + rendu)
-  - maja/public/promo.html   → promo.html
-  - maja/public/images/      → images/
-  - konnakol_trainer/dist/   → konnakol/trainer/
+  - maja/index.html              → index.html (COURSE_DATA + rendu)
+  - maja/public/promo.html       → promo.html
+  - maja/public/promo/           → promo/ (sous-pages par catégorie)
+  - maja/public/images/          → images/
+  - maja/public/js/              → js/ (analytics)
+  - maja/public/instagram-icon.png, youtube-icon.png → racine
+  - konnakol_trainer/dist/       → konnakol/trainer/
 
 Promo (état actuel) :
-  - Contenu : 1 vidéo YouTube Shorts intégrée + bouton WhatsApp
-  - Vidéo   : https://youtube.com/shorts/w5RbbqGoh0Q
-  - WhatsApp: +41 78 220 52 62 (Artem)
-  - Message preset :
+  - Vidéo principale : YouTube Short w5RbbqGoh0Q (embed)
+  - Langues : FR / EN (boutons en haut de page)
+  - Catégories (liens vers promo/*.html) :
+    Jazz/Funk, Fusion, Metal, Rock, Exercices, Jam/Improvisation, Bass seul
+    (chaque page = plusieurs démos YouTube + retour vers promo.html)
+  - WhatsApp : +41 78 220 52 62 (Artem)
+    Message preset FR :
     « Bonjour Artem, vos cours m'intéressent. Pourrions-nous en discuter ? »
-  - Lien    : https://api.whatsapp.com/send?phone=41782205262&text=...
+    Lien : https://api.whatsapp.com/send?phone=41782205262&text=...
+  - E-mail : formulaire repliable (FormSubmit → e30goodman@gmail.com)
+  - Bio Artem : section texte sous les CTA
+  - Analytics : js/analytics-config.js + js/analytics.js
 
 Cours complet (pied de page) :
   - Texte : « Pour toute question, n'hésitez pas à écrire à Artem sur WhatsApp. »
@@ -40,6 +50,13 @@ Stockage local (navigateur) :
   - maja_bass_user_images   — photos uploadées par l'élève
 
 Modules visibles sur le site : MODULE 1 et MODULE 2
+  (MODULE 3–6 existent dans COURSE_DATA mais hidden:true — brouillon, non rendus)
+
+État UI cours (maja/index.html) :
+  - expandedLessons par défaut : m2-l15, m2-l15-prac (Leçon 15 ouverte)
+  - Leçon courante surlignée (vert) : m2-l15-prac (isCurrent)
+  - Photos par défaut t1-1-2 : images/photo1–4.jpeg (localStorage maja_bass_user_images)
+  - Module 2 visible : Leçons 10–15 (+ pratiques / devoir associés)
 
 
 ====================================================================
@@ -415,7 +432,6 @@ Points clés :
 
 Schéma : /maja/images/konnakol-basic-patterns.jpg
 Métronome pratique : https://e30goodman.github.io/maja/konnakol/trainer/
-(Leçon 12 ouverte par défaut dans l'UI — expandedLessons)
 
 Pratique (PRATIQUE DE LA LEÇON 12) :
   - Cycle 3 + 3 + 2 : chanter les syllabes konnakol + varier sur basse
@@ -439,7 +455,6 @@ Points clés :
     pentatoniques majeures pour colorer l'harmonie.
 
 Schéma : /maja/images/Screenshot_42.png
-(Leçon 13 ouverte par défaut dans l'UI — expandedLessons)
 
 Pratique (PRATIQUE DE LA LEÇON 13) :
   Thème : Jeu en pulsation 4 avec changement des accents internes.
@@ -450,3 +465,127 @@ Pratique (PRATIQUE DE LA LEÇON 13) :
     3) Reproduire chaque variation à la basse
   Vidéo :
     https://www.youtube.com/watch?v=luaHpx3GNWs
+
+
+----------------------------------------------------------------------
+LEÇON 14 — Création du Groove : Pulsation du 7 en Konnakol
+----------------------------------------------------------------------
+Thème : Groove en pulsation 7 — voix + basse, groupe 4+3, note pivot Mi,
+        construction sur 4 mesures.
+
+Points clés :
+  - Voix + Basse : chanter la pulsation du 7 en jouant
+  - Groupe 4 + 3 : deux blocs Konnakol pour repères clairs
+  - Note Pivot : Mi (E) grave au début du riff
+  - 4 mesures (héritage et permutations) :
+    M1 La Base — Mi grave, note longue
+    M2 Le Squelette — premiers accents des blocs 4+3
+    M3 L'Octave — octave supérieure, relance dynamique
+    M4 Le Final — chaque syllabe Konnakol, bouclage du cycle
+
+(Pas de bouton Voir / schéma sur le site.)
+
+Pratique (PRATIQUE DE LA LEÇON 14 — Le Groove en 7, 3 + 4) :
+  Objectif : rythme 7 à l'envers (3 + 4 : TA-KI-TA + TA-KA-DI-MI)
+             vs cours (4 + 3).
+  Étape 1 : riff basse sur 3 + 4 (TA-KI-TA + TA-KA-DI-MI)
+  Étape 2 : faire tourner le riff avec l'algorithme d'impro du cours
+  (Pas de bouton vidéo pour l'instant.)
+
+
+----------------------------------------------------------------------
+LEÇON 15 — Architecture, Permutations et Arrangement des Blocs
+----------------------------------------------------------------------
+Thème : Groove sur 4, 8 et 16 mesures à partir de blocs ;
+        arrangement des transitions entre eux.
+
+Points clés :
+  - Règle permutation « Flocon de neige * » : 1re apparition = forme
+    de base ; * (densité / registre / rythme) uniquement à la répétition
+  - Interaction des parties : dramaturgie entre blocs, forme globale
+  - Emprunt de caractéristiques (jonctions) : repérer registre,
+    pulsation, densité du bloc suivant ; emprunter à l'avance ;
+    octave, rythme, Target Notes pour lier les parties
+
+Pratique (PRATIQUE DE LA LEÇON 15) :
+  Créer son groove + jouer 3 structures :
+    1. (A - A - A - B) — (A - A* - A** - B)
+    2. (A - B - A - B) — (A* - B - A** - B*)
+    3. (A - A - B - B) — (A* - A** - B - B*)
+  Outils de permutation (à essayer tous) :
+    Octave, Ghost notes, Question-réponse, Notes longues en tête
+    de groupement, Densité max, Notes d'appui seules,
+    Changement groupement (4+3 → 3+4)
+  Note : A* = 1re permutation ; A** = 2e, différente de la 1re
+  Pulsation du 7 : un groove ci-dessus en 7/4 + konnakol vocalisé
+
+
+====================================================================
+MODULES 3–6 (BROUILLON — hidden:true, non affichés sur le site)
+====================================================================
+
+MODULE 3 — DE LA MÉLODIE AU SON VIVANT
+  Leçon 7 : L'Art de l'Articulation (Mélismes)
+
+MODULE 4 — ARCHITECTURE HARMONIQUE PRO
+  Leçon 8 : Triades et Renversements
+  Leçon 9 : Septièmes, Sus et Tétrades
+
+MODULE 5 — CONCEPTS DE SOLO AVANCÉS
+  Leçon 10 : Intervalles et Harmonie Quartale
+  Leçon 11 : Substitutions de Pentatoniques
+  Leçon 12 : Contrainte Créative — Solo sur 2 cordes
+
+MODULE 6 — FINALE — STORYTELLING ET PERFORMANCE
+  Leçon 13 : Architecture du Solo (Dramaturgie)
+  Leçon 14 : Préparation de la Performance Finale
+  EXAMEN FINAL : PERFORMANCE SOLO
+
+
+====================================================================
+KONNAKOL TRAINER (konnakol_trainer/)
+====================================================================
+
+Produit UI        : Konnakol Machine (PWA, manifest.json)
+Stack             : React 19 + Vite 6 + TypeScript + Tailwind 4
+Base prod         : /maja/konnakol/trainer/ (vite.config.ts)
+Version affichée  : APP_COMMIT_VERSION (7 chars git SHA, injecté CI via VITE_APP_COMMIT)
+
+Fonctionnalités principales :
+  - Séquenceur rythmique multi-lignes, syllabes konnakol (1–9 subdivisions)
+  - Tala / jati / gati, polyrythmie (poly mode, voix multiples)
+  - 7 slots snapshot (clipboard compact + JSON, round-trip)
+  - Randomizer : pulse, pattern, speed, bar speed + Parent mode (mutations)
+  - Press Matrix, step masks, reprise/fused bars, tihai
+  - 21 presets sonores (classic … eight_bit, dont cajon, drum_machine)
+  - Calibration son par preset (localStorage, shipped defaults)
+  - Export MIDI (midiExport.ts)
+  - Mode lite UI, low-perf, service worker (public/sw.js)
+
+Audio (voir docs/SOUND_ENGINE_FLOW.md) :
+  - App.tsx → playSharpClick / playBarFirstHighClick
+  - metroLayerGraph.ts (DSP couches tone/noise)
+  - metroSoundBus.ts (bus accent / alt / passive)
+  - metraAudioBus.ts (master + scheduler profiles)
+  - parallelBusChain + taAccentParallel (limiter/gate par preset)
+
+Scripts npm utiles :
+  dev, build, lint (tsc --noEmit)
+  ui:guard — anti-cycle géométrie UI (CI deploy)
+  roundtrip — snapshot round-trip loop
+  regression:odd-jati, macro:progressive-logs, decode:snapshot-timing
+
+Tests (fichiers racine / src/) :
+  snapshot-roundtrip-loop.test.ts, snapshot-reprise.test.ts
+  snapshot-click-sound-token.test.ts, parentMode.test.ts
+  fusedBarGroups.test.ts, pressMatrix.test.ts, midiExport.test.ts, …
+
+Docs internes (konnakol_trainer/docs/) :
+  SOUND_ENGINE_FLOW.md, SOUND_PRESET_CALIBRATION.md
+  PARENT_MODE_INVESTIGATION, GATI_DEFINITION, JATI_DEFINITION
+  MACRO_MANUAL, DEBUG_CHECKLIST, reserve-hub/ (snapshot cipher, …)
+
+Intégration cours :
+  - Lien footer cours complet → konnakol/trainer/
+  - PRATIQUE Leçon 12 → metronomeUrl vers l'app
+  - Leçon 15 pratique = leçon courante mise en avant dans l'UI cours
