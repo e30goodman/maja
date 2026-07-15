@@ -662,15 +662,25 @@ class BassTrainer {
     
     // UI state management helpers
     updatePracticeButtonState(isActive) {
-        const startBtn = this.elements[ELEMENT_IDS.START_PRACTICE_BTN];
-        const stopBtn = this.elements[ELEMENT_IDS.STOP_PRACTICE_BTN];
+        const startBtn = this.elements[ELEMENT_IDS.START_PRACTICE_BTN]
+            || document.getElementById(ELEMENT_IDS.START_PRACTICE_BTN);
+        const stopBtn = this.elements[ELEMENT_IDS.STOP_PRACTICE_BTN]
+            || document.getElementById(ELEMENT_IDS.STOP_PRACTICE_BTN);
+
+        // Keep cached reference fresh (button is permanent, but stay defensive)
+        if (startBtn) {
+            this.elements[ELEMENT_IDS.START_PRACTICE_BTN] = startBtn;
+        }
+        if (stopBtn) {
+            this.elements[ELEMENT_IDS.STOP_PRACTICE_BTN] = stopBtn;
+        }
 
         if (startBtn) {
             if (isActive) {
-                startBtn.classList.add('active');
+                startBtn.classList.add('active', 'hidden');
                 startBtn.title = 'Practice is running';
             } else {
-                startBtn.classList.remove('active');
+                startBtn.classList.remove('active', 'hidden');
                 startBtn.title = 'Start Practice & Listen';
             }
         }

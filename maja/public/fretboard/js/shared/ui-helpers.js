@@ -104,14 +104,12 @@ export function updatePracticeButton(hasNotes, practiceMode = false) {
  */
 export function updateNoteQueue(noteQueue, currentIndex = PRACTICE_CONFIG.CURRENT_NOTE_INDEX, displayOptions = null, bassConfig = null) {
     const queueEl = getElement(ELEMENT_IDS.NOTE_QUEUE);
+    // Keep Start Practice outside #noteQueue — never destroy/recreate that button here.
     if (!queueEl || !noteQueue || noteQueue.length === 0) {
         if (queueEl) {
             queueEl.innerHTML = `
-                <div class="queue-placeholder text-center m-auto">
-                    <button id="startPracticeBtn" class="btn-base btn-primary btn-md practice-btn hover-shadow-medium px-4 py-3 inline-flex items-center gap-2" disabled title="Start/Stop Practice">
-                        <i class="fas fa-play"></i>
-                        <span>Start Practice</span>
-                    </button>
+                <div class="queue-placeholder text-center m-auto text-sm text-slate-400">
+                    Select notes, then Start Practice
                 </div>
             `;
         }

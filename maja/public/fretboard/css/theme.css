@@ -442,6 +442,7 @@ body {
     padding-top: 8px !important;
     padding-bottom: 8px !important;
 }
+#startPracticeBtn,
 #stopPracticeBtn {
     position: static !important;
     bottom: auto !important;
