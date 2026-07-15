@@ -397,7 +397,9 @@ button:disabled {
 }
 
 #fretboard {
-    min-width: 1000px;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
 }
 
 /* Instructions */

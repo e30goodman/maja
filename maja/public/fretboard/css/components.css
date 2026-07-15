@@ -522,7 +522,8 @@ h5, h6 {
     margin: 0 auto;
     border-radius: 10px;
     filter: drop-shadow(0 5px 15px rgba(0, 0, 0, 0.3));
-    min-width: 900px;
+    min-width: 0;
+    max-width: 100%;
 }
 
 /* SVG Fretboard elements */

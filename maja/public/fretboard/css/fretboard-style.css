@@ -86,7 +86,9 @@ h3 {
 }
 
 #fretboard {
-    min-width: 900px;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
 }
 
 .bass-fretboard {

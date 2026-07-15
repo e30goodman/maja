@@ -46,15 +46,21 @@ class BassFretboard {
 
         if (this.orientation === 'vertical') {
             // Frets go top -> bottom; strings go left -> right (G..E)
-            this.sidePad = 24;
-            this.topLabelSpace = 22;
-            this.nutY = this.topLabelSpace + 10;
-            this.fretSpacing = 36;
-            this.fretboardWidth = Math.min(Math.max(containerWidth - 8, 280), 440);
+            this.sidePad = 16;
+            this.topLabelSpace = 18;
+            this.nutY = this.topLabelSpace + 8;
+            this.fretSpacing = 32;
+            // Fit exactly in the phone viewport (~1 screen wide, not 2.5x from old min-width)
+            const screenW = Math.min(
+                window.innerWidth || 360,
+                document.documentElement.clientWidth || 360,
+                containerWidth || 360
+            );
+            this.fretboardWidth = Math.max(260, screenW - 28);
             this.stringAreaWidth = this.fretboardWidth - this.sidePad * 2;
             this.stringSpacing = this.stringAreaWidth / (this.strings.length + 1);
-            this.fretboardHeight = this.nutY + (this.numFrets + 0.8) * this.fretSpacing + 16;
-            this.noteCircleRadius = 11;
+            this.fretboardHeight = this.nutY + (this.numFrets + 0.8) * this.fretSpacing + 12;
+            this.noteCircleRadius = 10;
             // legacy aliases used by some highlight math
             this.leftSpaceWidth = this.sidePad;
             this.dotSpaceHeight = this.topLabelSpace;
