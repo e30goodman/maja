@@ -421,7 +421,17 @@ body {
     overflow: visible;
 }
 .note-queue-toolbar {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
     min-height: 40px;
+}
+.note-queue-stats {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+    width: 100%;
 }
 .note-queue-container {
     position: relative;
@@ -434,16 +444,20 @@ body {
     position: static !important;
     bottom: auto !important;
     right: auto !important;
+    left: auto !important;
     z-index: 2;
+    width: 100% !important;
+    max-width: 100% !important;
+    justify-content: center !important;
+    box-sizing: border-box !important;
 }
 
 @media (max-width: 768px) {
-    /* Show inline horizontal fretboard; scroll the page vertically */
     .fretboard-section,
     .fretboard-section.fretboard-inline-open {
         display: block !important;
         margin-top: 12px;
-        margin-bottom: 24px;
+        margin-bottom: 28px;
     }
     .fretboard-controls,
     .fretboard-controls.fretboard-inline-open {
@@ -451,25 +465,33 @@ body {
         justify-content: center;
         margin: 8px 0;
     }
-    /* Keep modal button as quick jump, but never cover note queue */
     .fretboard-modal-section {
         display: block !important;
         margin-bottom: 8px;
     }
-    /* Hide modal overlay entirely on mobile */
     .fretboard-modal,
     .fretboard-modal.active {
         display: none !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
     }
     .fretboard-container {
-        overflow-x: auto !important;
-        -webkit-overflow-scrolling: touch;
+        overflow: visible !important;
         max-width: 100%;
-        padding: 12px !important;
-        margin: 8px 0 24px !important;
+        width: 100%;
+        padding: 8px !important;
+        margin: 8px 0 28px !important;
     }
     #fretboard {
-        min-width: 720px;
+        min-width: 0 !important;
+        width: 100% !important;
+    }
+    #fretboard svg.bass-fretboard {
+        width: 100% !important;
+        height: auto !important;
+        max-width: 100%;
+        display: block;
+        margin: 0 auto;
     }
     .note-queue-section {
         margin-bottom: 12px !important;
@@ -477,9 +499,6 @@ body {
     .note-queue-container {
         min-height: 88px !important;
         padding: 12px 8px !important;
-    }
-    .note-item.distance-0 {
-        z-index: 3;
     }
     .preset-controls {
         flex-direction: column !important;

@@ -42,26 +42,35 @@ class BassFretboard {
     
     calculateDimensions() {
         const containerWidth = this.container.offsetWidth || window.innerWidth - 32;
-        
-        if (this.isMobile) {
-            // Mobile dimensions - more compact
-            this.fretboardWidth = Math.min(containerWidth - 16, 600);
-            this.fretboardHeight = 120;
-            this.dotSpaceHeight = 20;
-            this.leftSpaceWidth = 40;
-            this.noteCircleRadius = 12;
+        this.orientation = this.isMobile ? 'vertical' : 'horizontal';
+
+        if (this.orientation === 'vertical') {
+            // Frets go top -> bottom; strings go left -> right (G..E)
+            this.sidePad = 24;
+            this.topLabelSpace = 22;
+            this.nutY = this.topLabelSpace + 10;
+            this.fretSpacing = 36;
+            this.fretboardWidth = Math.min(Math.max(containerWidth - 8, 280), 440);
+            this.stringAreaWidth = this.fretboardWidth - this.sidePad * 2;
+            this.stringSpacing = this.stringAreaWidth / (this.strings.length + 1);
+            this.fretboardHeight = this.nutY + (this.numFrets + 0.8) * this.fretSpacing + 16;
+            this.noteCircleRadius = 11;
+            // legacy aliases used by some highlight math
+            this.leftSpaceWidth = this.sidePad;
+            this.dotSpaceHeight = this.topLabelSpace;
+            this.fretboardAreaWidth = this.stringAreaWidth;
+            this.stringAreaHeight = this.fretboardHeight - this.nutY;
         } else {
-            // Desktop dimensions
+            // Desktop: classic horizontal neck
             this.fretboardWidth = Math.min(containerWidth - 32, 1000);
             this.fretboardHeight = 150;
             this.dotSpaceHeight = 25;
             this.leftSpaceWidth = 50;
             this.noteCircleRadius = 15;
+            this.fretboardAreaWidth = this.fretboardWidth - this.leftSpaceWidth;
+            this.stringAreaHeight = this.fretboardHeight - this.dotSpaceHeight;
+            this.stringSpacing = this.stringAreaHeight / (this.strings.length + 1);
         }
-        
-        this.fretboardAreaWidth = this.fretboardWidth - this.leftSpaceWidth;
-        this.stringAreaHeight = this.fretboardHeight - this.dotSpaceHeight;
-        this.stringSpacing = this.stringAreaHeight / (this.strings.length + 1);
     }
     
     setupResponsiveListeners() {
@@ -80,15 +89,19 @@ class BassFretboard {
     
     handleResize() {
         const wasMobile = this.isMobile;
+        const prevWidth = this.fretboardWidth;
+        const prevHeight = this.fretboardHeight;
         this.isMobile = window.innerWidth <= 768;
-        
-        // Only rebuild if mobile state changed
-        if (wasMobile !== this.isMobile) {
-            this.calculateDimensions();
+        this.calculateDimensions();
+
+        const geometryChanged =
+            wasMobile !== this.isMobile ||
+            Math.abs(prevWidth - this.fretboardWidth) > 8 ||
+            Math.abs(prevHeight - this.fretboardHeight) > 8;
+
+        if (geometryChanged) {
             this.rebuild();
         } else {
-            // Just update dimensions
-            this.calculateDimensions();
             this.updateSVGDimensions();
         }
     }
@@ -107,6 +120,7 @@ class BassFretboard {
         
         // Rebuild fretboard
         this.initializeFretboard();
+        this.bindEvents();
         
         // Restore selection
         this.selectedNotes = currentSelection;
@@ -133,33 +147,60 @@ class BassFretboard {
     }
     
     drawFretboard() {
-        // Fretboard background
         const fretboardBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        fretboardBg.setAttribute('x', this.leftSpaceWidth);
-        fretboardBg.setAttribute('y', this.dotSpaceHeight);
-        fretboardBg.setAttribute('width', this.fretboardAreaWidth);
-        fretboardBg.setAttribute('height', this.stringAreaHeight);
+        if (this.orientation === 'vertical') {
+            fretboardBg.setAttribute('x', this.sidePad);
+            fretboardBg.setAttribute('y', this.nutY);
+            fretboardBg.setAttribute('width', this.stringAreaWidth);
+            fretboardBg.setAttribute('height', this.numFrets * this.fretSpacing + this.fretSpacing * 0.35);
+        } else {
+            fretboardBg.setAttribute('x', this.leftSpaceWidth);
+            fretboardBg.setAttribute('y', this.dotSpaceHeight);
+            fretboardBg.setAttribute('width', this.fretboardAreaWidth);
+            fretboardBg.setAttribute('height', this.stringAreaHeight);
+        }
         fretboardBg.classList.add('fretboard-bg');
         this.svg.appendChild(fretboardBg);
     }
     
     drawStrings() {
         this.strings.forEach((string, index) => {
-            const y = this.dotSpaceHeight + (this.stringSpacing * (index + 1));
             const stringLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-            stringLine.setAttribute('x1', this.leftSpaceWidth);
-            stringLine.setAttribute('y1', y);
-            stringLine.setAttribute('x2', this.fretboardWidth);
-            stringLine.setAttribute('y2', y);
+            if (this.orientation === 'vertical') {
+                const x = this.sidePad + (this.stringSpacing * (index + 1));
+                stringLine.setAttribute('x1', x);
+                stringLine.setAttribute('y1', this.nutY);
+                stringLine.setAttribute('x2', x);
+                stringLine.setAttribute('y2', this.fretboardHeight - 8);
+            } else {
+                const y = this.dotSpaceHeight + (this.stringSpacing * (index + 1));
+                stringLine.setAttribute('x1', this.leftSpaceWidth);
+                stringLine.setAttribute('y1', y);
+                stringLine.setAttribute('x2', this.fretboardWidth);
+                stringLine.setAttribute('y2', y);
+            }
             stringLine.classList.add('string-line');
             this.svg.appendChild(stringLine);
-            
         });
     }
     
     drawFrets() {
+        if (this.orientation === 'vertical') {
+            for (let fret = 0; fret <= this.numFrets; fret++) {
+                const y = this.nutY + (this.fretSpacing * fret);
+                const fretLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                fretLine.setAttribute('x1', this.sidePad);
+                fretLine.setAttribute('y1', y);
+                fretLine.setAttribute('x2', this.sidePad + this.stringAreaWidth);
+                fretLine.setAttribute('y2', y);
+                fretLine.classList.add('fret-line');
+                if (fret === 0) fretLine.classList.add('nut');
+                this.svg.appendChild(fretLine);
+            }
+            return;
+        }
+
         const fretWidth = this.fretboardAreaWidth / this.numFrets;
-        
         for (let fret = 0; fret <= this.numFrets; fret++) {
             const x = this.leftSpaceWidth + (fretWidth * fret);
             const fretLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
@@ -168,38 +209,53 @@ class BassFretboard {
             fretLine.setAttribute('x2', x);
             fretLine.setAttribute('y2', this.fretboardHeight);
             fretLine.classList.add('fret-line');
-            if (fret === 0) {
-                fretLine.classList.add('nut');
-            }
+            if (fret === 0) fretLine.classList.add('nut');
             this.svg.appendChild(fretLine);
         }
     }
     
     drawFretMarkers() {
-        const fretWidth = this.fretboardAreaWidth / this.numFrets;
         const markerFrets = [3, 5, 7, 9, 12];
+        if (this.orientation === 'vertical') {
+            markerFrets.forEach(fret => {
+                if (fret > this.numFrets) return;
+                const y = this.nutY + (this.fretSpacing * fret) - (this.fretSpacing / 2);
+                const x = this.fretboardWidth / 2;
+                if (fret === 12) {
+                    [-10, 10].forEach(dx => {
+                        const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        dot.setAttribute('cx', x + dx);
+                        dot.setAttribute('cy', y);
+                        dot.setAttribute('r', '3');
+                        dot.classList.add('fret-marker');
+                        this.svg.appendChild(dot);
+                    });
+                } else {
+                    const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    dot.setAttribute('cx', x);
+                    dot.setAttribute('cy', y);
+                    dot.setAttribute('r', '4');
+                    dot.classList.add('fret-marker');
+                    this.svg.appendChild(dot);
+                }
+            });
+            return;
+        }
+
+        const fretWidth = this.fretboardAreaWidth / this.numFrets;
         const dotCenterY = this.dotSpaceHeight / 2;
-        
         markerFrets.forEach(fret => {
             const x = this.leftSpaceWidth + (fretWidth * fret) - (fretWidth / 2);
-            
             if (fret === 12) {
-                // Double dots for 12th fret
-                const dot1 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-                dot1.setAttribute('cx', x-6);
-                dot1.setAttribute('cy', dotCenterY);
-                dot1.setAttribute('r', '3');
-                dot1.classList.add('fret-marker');
-                this.svg.appendChild(dot1);
-                
-                const dot2 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-                dot2.setAttribute('cx', x+6);
-                dot2.setAttribute('cy', dotCenterY);
-                dot2.setAttribute('r', '3');
-                dot2.classList.add('fret-marker');
-                this.svg.appendChild(dot2);
+                [-6, 6].forEach(dx => {
+                    const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    dot.setAttribute('cx', x + dx);
+                    dot.setAttribute('cy', dotCenterY);
+                    dot.setAttribute('r', '3');
+                    dot.classList.add('fret-marker');
+                    this.svg.appendChild(dot);
+                });
             } else {
-                // Single dot
                 const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
                 dot.setAttribute('cx', x);
                 dot.setAttribute('cy', dotCenterY);
@@ -211,22 +267,27 @@ class BassFretboard {
     }
     
     drawNotePositions() {
-        const fretWidth = this.fretboardAreaWidth / this.numFrets;
-        
-        // Responsive touch target size
-        const touchTargetSize = this.isMobile ? 32 : 24;
-        const touchTargetHeight = this.isMobile ? 24 : 20;
-        
+        const touchTargetSize = this.isMobile ? 30 : 24;
+        const touchTargetHeight = this.isMobile ? 26 : 20;
+
         this.strings.forEach((string, stringIndex) => {
-            const y = this.dotSpaceHeight + (this.stringSpacing * (stringIndex + 1));
-            
             for (let fret = 0; fret <= this.numFrets; fret++) {
-                const x = fret === 0 
-                    ? this.leftSpaceWidth / 2 
-                    : this.leftSpaceWidth + (fretWidth * fret) - (fretWidth / 2);
+                let x;
+                let y;
+                if (this.orientation === 'vertical') {
+                    x = this.sidePad + (this.stringSpacing * (stringIndex + 1));
+                    y = fret === 0
+                        ? this.nutY - 14
+                        : this.nutY + (this.fretSpacing * fret) - (this.fretSpacing / 2);
+                } else {
+                    const fretWidth = this.fretboardAreaWidth / this.numFrets;
+                    y = this.dotSpaceHeight + (this.stringSpacing * (stringIndex + 1));
+                    x = fret === 0
+                        ? this.leftSpaceWidth / 2
+                        : this.leftSpaceWidth + (fretWidth * fret) - (fretWidth / 2);
+                }
+
                 const noteInfo = this.getNoteAtPosition(stringIndex, fret);
-                
-                // Create clickable note rectangle with responsive sizing
                 const noteRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
                 noteRect.setAttribute('x', x - (touchTargetSize / 2));
                 noteRect.setAttribute('y', y - (touchTargetHeight / 2));
@@ -234,26 +295,19 @@ class BassFretboard {
                 noteRect.setAttribute('height', touchTargetHeight.toString());
                 noteRect.setAttribute('rx', this.isMobile ? '6' : '4');
                 noteRect.classList.add('note-position');
-                if (this.isTouch) {
-                    noteRect.classList.add('touch-target');
-                }
+                if (this.isTouch) noteRect.classList.add('touch-target');
                 noteRect.dataset.string = stringIndex;
                 noteRect.dataset.fret = fret;
                 noteRect.dataset.note = noteInfo.name;
                 noteRect.dataset.octave = noteInfo.octave;
                 noteRect.dataset.noteKey = noteInfo.fullName;
                 this.svg.appendChild(noteRect);
-                
-                // Note name text with responsive sizing
+
                 const noteText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
                 noteText.setAttribute('x', x);
                 noteText.setAttribute('y', y + (this.isMobile ? 3 : 4));
                 noteText.classList.add('note-name');
-                if (this.isMobile) {
-                    noteText.style.fontSize = '10px';
-                } else {
-                    noteText.style.fontSize = '12px';
-                }
+                noteText.style.fontSize = this.isMobile ? '10px' : '12px';
                 noteText.textContent = noteInfo.fullName;
                 this.svg.appendChild(noteText);
             }

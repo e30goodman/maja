@@ -63,11 +63,17 @@ export class ModalManager {
     }
     
     openFretboardModal() {
-        // Mobile UX: open the inline fretboard in page flow (vertical scroll),
-        // instead of a fullscreen modal that covers the note queue.
+        // Always keep the main fretboard in the same page (no popup/modal).
         const section = document.querySelector('.fretboard-section');
         const controls = document.querySelector('.fretboard-controls');
         const toggle = document.getElementById('fretboardVisibleToggle');
+
+        // Defensively hide any leftover modal markup
+        document.querySelectorAll('.fretboard-modal').forEach((el) => {
+            el.classList.remove('active');
+            el.style.display = 'none';
+        });
+        document.body.style.overflow = '';
 
         if (section) {
             section.classList.add('fretboard-inline-open');
@@ -77,19 +83,19 @@ export class ModalManager {
             controls.classList.add('fretboard-inline-open');
             controls.style.display = 'flex';
         }
-        if (toggle && !toggle.checked) {
+        if (toggle) {
             toggle.checked = true;
             toggle.dispatchEvent(new Event('change', { bubbles: true }));
         }
 
-        // Keep existing main board visible for selection/practice
         const target = section || document.getElementById('fretboard');
-        if (target) {
-            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
+        // After becoming visible, force a resize/rebuild so vertical geometry uses real width
+        requestAnimationFrame(() => {
+            window.dispatchEvent(new Event('resize'));
+            if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
 
         if (this.onFretboardModalOpen) {
-            // Legacy hook kept for sync callers; no modal instance needed here
             this.onFretboardModalOpen();
         }
     }
