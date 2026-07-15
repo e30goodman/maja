@@ -1,0 +1,546 @@
+/* Note: Theme variables, fonts, and reset styles are handled in theme.css */
+
+.container {
+    background: var(--glass-white);
+    backdrop-filter: blur(20px);
+    border-radius: 32px;
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 20px 60px var(--shadow-deep), 
+                0 0 0 1px rgba(212, 175, 55, 0.1),
+                inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    position: relative;
+    overflow: hidden;
+}
+
+.container::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent-gold), transparent);
+    opacity: 0.6;
+}
+
+h1 {
+    font-family: 'Playfair Display', serif;
+    color: var(--accent-gold-light);
+    font-size: 3.2em;
+    font-weight: 700;
+    text-shadow: 0 4px 12px var(--shadow-warm),
+                 0 2px 4px var(--shadow-deep);
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    position: relative;
+}
+
+
+h3 {
+    font-family: 'Playfair Display', serif;
+    color: var(--accent-gold);
+    font-size: 1.5em;
+    font-weight: 600;
+    text-shadow: 0 2px 8px var(--shadow-warm);
+    position: relative;
+}
+
+
+
+
+
+.fretboard-container {
+    margin: 40px 0;
+    padding: 32px;
+    background: var(--fretboard-container-bg);
+    border-radius: 24px;
+    border: 2px solid var(--fretboard-container-border);
+    box-shadow: var(--fretboard-container-shadow);
+    overflow-x: auto;
+    position: relative;
+}
+
+.fretboard-container::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: 
+        radial-gradient(circle at 20% 50%, rgba(74, 143, 184, 0.05) 0%, transparent 50%),
+        radial-gradient(circle at 80% 50%, rgba(109, 185, 211, 0.03) 0%, transparent 50%);
+    border-radius: 22px;
+    pointer-events: none;
+}
+
+.fretboard-bg {
+    fill: var(--fretboard-bg);
+}
+
+.string-line {
+    stroke-width: 2;
+    stroke: var(--fretboard-string);
+    opacity: 1;
+    filter: none;
+}
+
+#fretboard {
+    min-width: 900px;
+}
+
+.bass-fretboard {
+    display: block;
+    margin: 0 auto;
+    border-radius: 10px;
+    filter: drop-shadow(0 5px 15px rgba(0, 0, 0, 0.3));
+}
+
+.note-position {
+    cursor: pointer;
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    fill: transparent;
+    stroke: none;
+    filter: none;
+    pointer-events: all;
+}
+
+.note-position:hover {
+    fill: var(--fret-note-hover);
+    filter: drop-shadow(0 0 6px var(--fret-note-hover));
+}
+
+.note-position.selected {
+    fill: var(--fret-note-selected);
+    stroke: var(--fret-note-selected-border);
+    stroke-width: 2;
+    filter: drop-shadow(0 0 4px var(--fret-note-selected));
+}
+
+.note-position.selected:hover {
+    fill: var(--fret-note-hover);
+    stroke: var(--fret-note-selected-border);
+    stroke-width: 3;
+    filter: drop-shadow(0 0 8px var(--fret-note-hover));
+}
+
+.note-name {
+    fill: #0f172a;
+    font-family: 'Inter', Arial, sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    text-anchor: middle;
+    pointer-events: none;
+    paint-order: stroke fill;
+    stroke: none;
+    filter: none;
+}
+
+.info-panel {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+}
+
+.selected-notes,
+.practice-info {
+    background: var(--glass-white);
+    backdrop-filter: blur(16px);
+    padding: 32px;
+    border-radius: 24px;
+    border: 1px solid var(--glass-border);
+    box-shadow: 
+        0 8px 24px var(--shadow-deep),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    position: relative;
+    overflow: hidden;
+}
+
+.selected-notes::before,
+.practice-info::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent-copper), transparent);
+    opacity: 0.6;
+}
+
+#selectedNotesList {
+    font-family: 'Inter', monospace;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--accent-gold);
+    min-height: 64px;
+    padding: 20px;
+    background: linear-gradient(145deg, rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.2));
+    border-radius: 12px;
+    border: 2px solid var(--accent-gold);
+    box-shadow: 
+        inset 0 2px 8px rgba(0, 0, 0, 0.2),
+        0 4px 12px var(--shadow-warm);
+    transition: all 0.3s ease;
+}
+
+#selectedNotesList.empty {
+    color: var(--text-muted);
+    font-style: italic;
+    font-weight: 400;
+    border-color: rgba(108, 117, 125, 0.3);
+    box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+#selectedNotesList.has-notes {
+    color: var(--accent-gold);
+    border-color: var(--accent-gold);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    box-shadow: 
+        inset 0 2px 8px rgba(0, 0, 0, 0.2),
+        0 4px 12px var(--shadow-warm),
+        0 0 16px rgba(212, 175, 55, 0.2);
+}
+
+
+
+
+
+
+
+
+.target-note {
+    font-size: 20px;
+    font-weight: 600;
+    font-family: 'Inter', sans-serif;
+    text-align: center;
+    padding: 24px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 16px;
+    border: 2px solid rgba(108, 117, 125, 0.3);
+    color: var(--text-muted);
+    transition: all 0.4s ease;
+}
+
+.target-note.active {
+    color: var(--accent-amber);
+    border-color: var(--accent-gold);
+    background: linear-gradient(145deg, rgba(255, 191, 0, 0.15), rgba(212, 175, 55, 0.1));
+    text-shadow: 0 0 16px rgba(255, 191, 0, 0.6);
+    font-size: 24px;
+    font-weight: 700;
+    box-shadow: 
+        0 0 24px var(--shadow-warm),
+        inset 0 2px 0 rgba(255, 255, 255, 0.1);
+    animation: targetGlow 2s ease-in-out infinite alternate;
+}
+
+@keyframes targetGlow {
+    from {
+        box-shadow: 
+            0 0 24px var(--shadow-warm),
+            inset 0 2px 0 rgba(255, 255, 255, 0.1);
+    }
+    to {
+        box-shadow: 
+            0 0 36px rgba(255, 191, 0, 0.4),
+            0 8px 24px var(--shadow-warm),
+            inset 0 2px 0 rgba(255, 255, 255, 0.2);
+    }
+}
+
+.instructions {
+    background: var(--glass-white);
+    backdrop-filter: blur(16px);
+    padding: 32px;
+    border-radius: 24px;
+    border: 1px solid var(--glass-border);
+    box-shadow: 
+        0 8px 24px var(--shadow-deep),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    position: relative;
+}
+
+.instructions::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent-copper), transparent);
+    opacity: 0.6;
+}
+
+
+.instructions li {
+    position: relative;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    font-weight: 400;
+}
+
+.instructions li:before {
+    content: '♫';
+    position: absolute;
+    left: 0;
+    top: 2px;
+    color: var(--accent-gold);
+    font-weight: bold;
+    font-size: 1.1em;
+    text-shadow: 0 1px 3px var(--shadow-warm);
+}
+
+/* Enhanced hover effects and micro-interactions */
+.container:hover::before {
+    opacity: 0.8;
+    background: linear-gradient(90deg, transparent, var(--accent-gold), var(--accent-copper), transparent);
+}
+
+/* Smooth scaling animations for interactive elements */
+.note-position,
+.preset-btn,
+
+.note-position:active {
+    opacity: 0.8;
+}
+
+.preset-btn:active {
+    transform: translateY(-2px) scale(0.98);
+}
+
+
+/* Elegant focus states */
+.preset-btn:focus,
+
+/* Enhanced text selection */
+::selection {
+    background: var(--accent-gold);
+    color: #1a1b3a;
+    text-shadow: none;
+}
+
+::-moz-selection {
+    background: var(--accent-gold);
+    color: #1a1b3a;
+    text-shadow: none;
+}
+
+/* Smooth scrollbar styling */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: linear-gradient(45deg, var(--accent-copper), var(--accent-gold));
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(45deg, var(--accent-gold), var(--accent-amber));
+    box-shadow: 0 0 8px var(--shadow-warm);
+}
+
+/* Musical note decorations with subtle animation */
+
+/* Performance optimizations */
+.container,
+.fretboard-container,
+.info-panel > *,
+.instructions {
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    perspective: 1000px;
+}
+
+/* Subtle entrance animations */
+.selected-notes {
+    animation: slideInFromLeft 0.6s ease-out 0.1s both;
+}
+
+.practice-info {
+    animation: slideInFromRight 0.6s ease-out 0.2s both;
+}
+
+.instructions {
+    animation: fadeInUp 0.6s ease-out 0.3s both;
+}
+
+@keyframes slideInFromLeft {
+    0% {
+        opacity: 0;
+        transform: translateX(-30px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes slideInFromRight {
+    0% {
+        opacity: 0;
+        transform: translateX(30px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes fadeInUp {
+    0% {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Responsive design with enhanced spacing */
+@media (max-width: 768px) {
+    body {
+        padding: 16px 16px 0 16px;
+    }
+    
+    .container {
+        padding: 24px;
+        border-radius: 24px;
+    }
+    
+    h1 {
+        font-size: 2.5rem;
+    }
+    
+    h3 {
+        font-size: 1.3rem;
+    }
+    
+    .info-panel {
+        grid-template-columns: 1fr;
+        gap: 24px;
+    }
+    
+    .preset-buttons {
+        justify-content: center;
+        gap: 16px;
+    }
+    
+    .preset-btn {
+        flex: 1;
+        min-width: 140px;
+        padding: 14px 24px;
+    }
+    
+    .fretboard-container {
+        margin: 24px -8px;
+        border-radius: 16px;
+        padding: 20px 12px;
+    }
+}
+
+@media (max-width: 480px) {
+    .container {
+        padding: 20px;
+    }
+    
+    h1 {
+        font-size: 2.2rem;
+    }
+    
+    .preset-buttons {
+        flex-direction: column;
+        gap: 12px;
+    }
+    
+    .preset-btn {
+        width: 100%;
+        padding: 16px;
+        font-size: 14px;
+    }
+    
+    .fretboard-container {
+        margin: 20px -10px;
+        padding: 16px 8px;
+    }
+    
+    .selected-notes,
+    .practice-info,
+    .instructions {
+        padding: 24px;
+    }
+}
+
+/* Animation for target highlights - Jazz-inspired rhythm */
+@keyframes jazzPulse {
+    0% {
+        opacity: 0.7;
+        stroke-width: 4;
+    }
+    25% {
+        opacity: 1;
+        stroke-width: 6;
+    }
+    50% {
+        opacity: 0.8;
+        stroke-width: 5;
+    }
+    75% {
+        opacity: 1;
+        stroke-width: 6;
+    }
+    100% {
+        opacity: 0.7;
+        stroke-width: 4;
+    }
+}
+
+.target-highlight {
+    animation: jazzPulse 1.8s ease-in-out infinite;
+    fill: none;
+    stroke: var(--accent-amber);
+    stroke-width: 4;
+    opacity: 0.8;
+    filter: drop-shadow(0 0 12px var(--accent-amber));
+    transform-origin: center;
+}
+
+
+/* Fret lines */
+.fret-line {
+    stroke: var(--fretboard-fret);
+    stroke-width: 3;
+    filter: drop-shadow(0 1px 2px var(--fretboard-shadow));
+}
+
+.fret-line.nut {
+    stroke: var(--fretboard-nut);
+    stroke-width: 6;
+    filter: drop-shadow(0 2px 6px var(--fretboard-shadow));
+}
+
+/* Fret markers */
+.fret-marker {
+    fill: var(--fretboard-marker);
+    filter: drop-shadow(0 2px 4px var(--fretboard-shadow));
+    opacity: 0.9;
+}
+
+/* String labels */
+.string-label {
+    fill: var(--fret-note-text);
+    font-family: 'Inter', Arial, sans-serif;
+    font-size: 16px;
+    font-weight: 600;
+    text-anchor: middle;
+    text-shadow: 0 2px 4px var(--fretboard-shadow);
+}

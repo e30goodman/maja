@@ -1,0 +1,98 @@
+<!doctype html><html lang=en><head><meta charset=UTF-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Fretboard Trainer — BassMastery</title><meta name=description content="Free interactive bass fretboard trainer to learn bass guitar notes quickly. Master bass fretboard with real-time audio detection, adaptive difficulty, and detailed progress tracking. Perfect for bass practice."><meta name=author content="LYAFB"><meta name=generator content="Hugo 0.150.0"><link rel=canonical href=https://lyafb.com/trainer/><link rel=icon type=image/x-icon href=https://lyafb.com/favicon.ico><link rel=apple-touch-icon sizes=180x180 href=https://lyafb.com/apple-touch-icon.png><link rel=icon type=image/png sizes=32x32 href=https://lyafb.com/favicon-32x32.png><link rel=icon type=image/png sizes=16x16 href=https://lyafb.com/favicon-16x16.png><link rel=manifest href=https://lyafb.com/site.webmanifest><meta property="og:title" content="Bass Fretboard Trainer - Learn Bass Guitar Notes Fast - Learn You A FretBoard (for great groove)"><meta property="og:description" content="Free interactive bass fretboard trainer to learn bass guitar notes quickly. Master bass fretboard with real-time audio detection, adaptive difficulty, and detailed progress tracking. Perfect for bass practice."><meta property="og:type" content="article"><meta property="og:url" content="https://lyafb.com/trainer/"><meta property="og:site_name" content="Learn You A FretBoard (for great groove)"><meta property="og:locale" content="en_US"><meta property="og:image" content="https://lyafb.com/images/lyafb-og-image.png"><meta property="og:image:alt" content="Learn You A FretBoard (for great groove) - Bass Guitar Fretboard Training"><meta name=twitter:card content="summary_large_image"><meta name=twitter:title content="Bass Fretboard Trainer - Learn Bass Guitar Notes Fast - Learn You A FretBoard (for great groove)"><meta name=twitter:description content="Free interactive bass fretboard trainer to learn bass guitar notes quickly. Master bass fretboard with real-time audio detection, adaptive difficulty, and detailed progress tracking. Perfect for bass practice."><meta name=twitter:image content="https://lyafb.com/images/lyafb-og-image.png"><meta name=twitter:image:alt content="Learn You A FretBoard (for great groove) - Bass Guitar Fretboard Training"><meta name=keywords content="bass fretboard trainer,learn bass guitar notes,bass notes practice,fretboard training,bass guitar trainer,bass fretboard notes,fretboard practice,bass note recognition"><script type=application/ld+json>{"@context":"https://schema.org","@graph":[{"@type":"Organization","@id":"https:\/\/lyafb.com\/#organization","name":"Learn You A FretBoard (for great groove)","url":"https:\/\/lyafb.com\/","description":"Master your bass guitar fretboard with interactive training tools, real-time audio detection, and detailed progress tracking","sameAs":["https:\/\/discord.gg\/rPywuxRh4M"]},{"@type":"WebSite","@id":"https:\/\/lyafb.com\/#website","url":"https:\/\/lyafb.com\/","name":"Learn You A FretBoard (for great groove)","description":"Master your bass guitar fretboard with interactive training tools, real-time audio detection, and detailed progress tracking","publisher":{"@id":"https:\/\/lyafb.com\/#organization"},"inLanguage":"en-US"},{"@type":"SoftwareApplication","@id":"https:\/\/lyafb.com\/trainer\/#trainer","name":"Bass Fretboard Trainer","description":"Free interactive bass fretboard trainer to learn bass guitar notes quickly. Master bass fretboard with real-time audio detection, adaptive difficulty, and detailed progress tracking. Perfect for bass practice.","applicationCategory":"EducationApplication","operatingSystem":"Web Browser","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"featureList":["Interactive fretboard training","Real-time note recognition","Adaptive difficulty","Progress tracking"]}]}</script><script src=https://cdn.tailwindcss.com></script><link rel=stylesheet href=https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css><link rel=stylesheet href=./css/theme.css><link rel=stylesheet href=./css/components.css><link rel=stylesheet href=./css/trainer-style.css><link rel=stylesheet href=./css/fretboard-style.css><script src=./js/lib/tonal.min.js></script><script src=./js/lib/tone.js></script><style>
+            .header-top {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 1rem;
+}
+
+        </style><script>window.appConfig={apiBaseURL:"https://be.lyafb.com"}</script></head><body class="app-body p-1.5 m-0"><div class=main-content-wrapper><header class="app-header text-center relative"><div class="maja-local-header px-4 py-3 mb-3 rounded-md"><h1 class="maja-title">Fretboard Trainer</h1></div><div id="auth-status-container" hidden></div></header><div class="practice-controls-row flex items-center gap-3 flex-wrap rounded-md p-3 mb-6"><div class=preset-selection-section><div class="preset-controls flex gap-3 p-3 rounded-sm"><button id=bassConfigBtn class="btn-base btn-primary flex items-center p-3 gap-3"><div class="flex flex-col items-start"><span class=text-sm>Bass Configuration</span>
+<span id=selectedBassConfig class="font-semibold text-amber-200">4-String Standard (EADG) - 20 frets</span></div></button>
+<button id=exercisePresetBtn class="btn-base btn-primary flex items-center gap-3 p-3"><div class="flex flex-col items-start"><span class="text-sm text-gray-300">Exercise Preset</span>
+<span id=selectedExercisePreset class="font-semibold text-green-200">Open Strings</span></div></button>
+<button id=displayOptionsBtn class="btn-base btn-primary flex items-center gap-3 p-3"><div class="flex flex-col items-start"><span class="text-sm text-gray-300">Display Options</span>
+<span id=selectedDisplayOptions class="font-semibold text-blue-200">Note Names</span></div></button></div></div></div><div class="note-queue-section relative"><div class="flex gap-3 text-sm font-semibold absolute top-3 right-6"><span class="stat-compact whitespace-nowrap">✓ <span id=correctCount>0</span></span>
+<span class="stat-compact whitespace-nowrap">✗ <span id=incorrectCount>0</span></span>
+<span class="stat-compact whitespace-nowrap"><span id=accuracy>--%</span></span></div><div id=noteQueue class="note-queue-container flex flex-row justify-center items-end gap-1 p-2"><div class="queue-placeholder text-center m-auto"><button id=startPracticeBtn class="btn-base btn-primary btn-md practice-btn hover-shadow-medium px-4 py-3 inline-flex items-center gap-2" disabled title="Start/Stop Practice">
+<i class="fas fa-play"></i>
+<span>Start Practice</span></button></div></div><button id=stopPracticeBtn class="btn-base btn-danger btn-sm absolute bottom-3 right-3 px-3 py-2 inline-flex items-center gap-2 hidden" title="Stop Practice">
+<i class="fas fa-stop"></i>
+<span>Stop</span></button></div><div class=fretboard-modal-section><button id=openFretboardBtn class="btn-base btn-primary w-full flex items-center justify-center gap-2 px-4 py-3">
+<i class="fas fa-guitar"></i>
+<span>Open Fretboard</span></button></div><div class="fretboard-controls mb-2 flex justify-center"><label class=fretboard-toggle><input type=checkbox id=fretboardVisibleToggle checked>
+<span class=toggle-label>Show Fretboard</span></label></div><div class=fretboard-section><div id=fretboard class=fretboard-container></div></div><div id=fretboardModal class=fretboard-modal><div class=modal-content><button id=closeFretboardModal class=close-btn>&#215;</button><div class=modal-body><div id=modalFretboard class=modal-fretboard-container></div></div></div></div><div id=bassConfigModal class="preset-modal fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden"><div class=modal-content><div class=modal-header><h3><i class="fas fa-guitar" style="margin-right: var(--spacing-xs);"></i>
+Choose Bass Configuration</h3><button id=closeBassConfigModal class=close-btn>&#215;</button></div><div class=modal-body><div id=bassConfigList style="display: flex; flex-direction: column; gap: var(--spacing-sm); width: 100%;"></div></div><div class=modal-footer><button id=cancelBassConfig class="btn-base btn-secondary btn-md">Cancel</button></div></div></div><div id=exercisePresetModal class="preset-modal fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden"><div class=modal-content><div class=modal-header><h3><i class="fas fa-dumbbell" style="margin-right: var(--spacing-xs);"></i>
+Choose Exercise Preset</h3><button id=closeExercisePresetModal class=close-btn>&#215;</button></div><div class=modal-body><div style="margin-bottom: var(--spacing-md); width: 100%;"><div style="display: flex; gap: var(--spacing-sm); flex-wrap: wrap;"><button class="difficulty-filter-btn active" data-difficulty=all>All</button>
+<button class=difficulty-filter-btn data-difficulty=beginner>Beginner</button>
+<button class=difficulty-filter-btn data-difficulty=intermediate>Intermediate</button>
+<button class=difficulty-filter-btn data-difficulty=advanced>Advanced</button></div></div><div id=exercisePresetList style="display: flex; flex-direction: column; gap: var(--spacing-sm); width: 100%;"></div></div><div class=modal-footer><button id=createCustomExercise class="btn-base btn-primary btn-md">Create Custom Exercise</button>
+<button id=cancelExercisePreset class="btn-base btn-secondary btn-md">Cancel</button></div></div></div><div id=customExerciseModal class="preset-modal fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden"><div class=modal-content><div class=modal-header><h3><i class="fas fa-user-edit" style="margin-right: var(--spacing-xs);"></i>
+Create Custom Exercise</h3><button id=closeCustomExerciseModal class=close-btn>&#215;</button></div><div class=modal-body><div class=custom-exercise-section><h4>Exercise Details</h4><div class=form-group><label for=customExerciseName>Name</label>
+<input type=text id=customExerciseName placeholder="My Custom Exercise" maxlength=50></div></div><div class=custom-exercise-section><h4>Fret Range</h4><div class=fret-range-controls><div class=range-group><label for=fretMinSlider>Min Fret: <span id=fretMinDisplay>0</span></label>
+<input type=range id=fretMinSlider min=0 max=24 value=0></div><div class=range-group><label for=fretMaxSlider>Max Fret: <span id=fretMaxDisplay>12</span></label>
+<input type=range id=fretMaxSlider min=0 max=24 value=12></div><div class=range-preview><span class=range-summary>Frets 0-12</span></div></div></div><div class=custom-exercise-section><h4>Note Pool Selection</h4><div class=method-tabs><button class="method-tab active" data-method=chromatic>
+<i class="fas fa-circle"></i>
+<span>All Chromatic</span>
+</button>
+<button class=method-tab data-method=scale>
+<i class="fas fa-music"></i>
+<span>Scale-Based</span>
+</button>
+<button class=method-tab data-method=custom>
+<i class="fas fa-hand-pointer"></i>
+<span>Custom Selection</span></button></div><div class="method-content active" data-method=chromatic><div class=method-description><i class="fas fa-info-circle"></i>
+<span>Uses all 12 chromatic notes (C, C#, D, D#, E, F, F#, G, G#, A, A#, B)</span></div></div><div class=method-content data-method=scale><div class=scale-inputs><div class=form-group><label for=scaleRoot>Root Note</label>
+<select id=scaleRoot><option value=C>C</option><option value=C#>C#/Db</option><option value=D>D</option><option value=D#>D#/Eb</option><option value=E>E</option><option value=F>F</option><option value=F#>F#/Gb</option><option value=G>G</option><option value=G#>G#/Ab</option><option value=A>A</option><option value=A#>A#/Bb</option><option value=B>B</option></select></div><div class=form-group><label for=scaleType>Scale Type</label>
+<select id=scaleType><optgroup label="Basic Scales"><option value=major>Major</option><option value=minor>Natural Minor</option><option value="harmonic minor">Harmonic Minor</option><option value="melodic minor">Melodic Minor</option></optgroup><optgroup label=Pentatonic><option value="major pentatonic">Major Pentatonic</option><option value="minor pentatonic">Minor Pentatonic</option></optgroup><optgroup label=Modes><option value=ionian>Ionian</option><option value=dorian>Dorian</option><option value=phrygian>Phrygian</option><option value=lydian>Lydian</option><option value=mixolydian>Mixolydian</option><option value=aeolian>Aeolian</option><option value=locrian>Locrian</option></optgroup><optgroup label=Blues><option value="major blues">Major Blues</option><option value="minor blues">Minor Blues</option></optgroup></select></div></div><div class=scale-preview><h5>Scale Notes:</h5><div id=scaleNotesPreview class=note-preview-grid></div></div></div><div class=method-content data-method=custom><div class=method-description><i class="fas fa-info-circle"></i>
+<span>Select individual notes to include in your exercise</span></div><div class=note-selection-grid><label class=note-checkbox><input type=checkbox value=C data-note=C>
+<span class=note-label>C</span>
+</label><label class=note-checkbox><input type=checkbox value=C# data-note=C#>
+<span class=note-label>C#</span>
+</label><label class=note-checkbox><input type=checkbox value=D data-note=D>
+<span class=note-label>D</span>
+</label><label class=note-checkbox><input type=checkbox value=D# data-note=D#>
+<span class=note-label>D#</span>
+</label><label class=note-checkbox><input type=checkbox value=E data-note=E>
+<span class=note-label>E</span>
+</label><label class=note-checkbox><input type=checkbox value=F data-note=F>
+<span class=note-label>F</span>
+</label><label class=note-checkbox><input type=checkbox value=F# data-note=F#>
+<span class=note-label>F#</span>
+</label><label class=note-checkbox><input type=checkbox value=G data-note=G>
+<span class=note-label>G</span>
+</label><label class=note-checkbox><input type=checkbox value=G# data-note=G#>
+<span class=note-label>G#</span>
+</label><label class=note-checkbox><input type=checkbox value=A data-note=A>
+<span class=note-label>A</span>
+</label><label class=note-checkbox><input type=checkbox value=A# data-note=A#>
+<span class=note-label>A#</span>
+</label><label class=note-checkbox><input type=checkbox value=B data-note=B>
+<span class=note-label>B</span></label></div><div class=note-selection-controls><button type=button id=selectAllNotes class="btn-base btn-secondary btn-sm">Select All</button>
+<button type=button id=clearAllNotes class="btn-base btn-secondary btn-sm">Clear All</button></div></div></div><div class=custom-exercise-section><h4>Notation Style</h4><div class=notation-style-options><label class=notation-option><input type=radio name=customNotationStyle value=simple checked><div class=option-content><span class=option-title>Simple</span>
+<span class=option-description>Consistent sharp notation (C#, F#)</span></div></label><label class=notation-option><input type=radio name=customNotationStyle value=enharmonic><div class=option-content><span class=option-title>Mixed</span>
+<span class=option-description>Random enharmonic equivalents (C#/Db)</span></div></label><label class=notation-option><input type=radio name=customNotationStyle value=scale><div class=option-content><span class=option-title>Scale Context</span>
+<span class=option-description>Notes displayed as they appear in scales</span></div></label></div></div></div><div class=modal-footer><div class=validation-message id=customExerciseValidation></div><button id=saveCustomExercise class="btn-base btn-primary btn-md">Save Exercise</button>
+<button id=cancelCustomExercise class="btn-base btn-secondary btn-md">Cancel</button></div></div></div><div id=displayOptionsModal class="preset-modal fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden"><div class=modal-content><div class=modal-header><h3><i class="fas fa-eye" style="margin-right: var(--spacing-xs);"></i>
+Display Options</h3><button id=closeDisplayOptionsModal class=close-btn>&#215;</button></div><div class=modal-body><div class=display-options-section><p class="text-sm text-gray-300 mb-4">Choose how notes are shown to you during practice. At least one option must be selected.</p><div class=display-options-list><label class=display-option-item><input type=checkbox id=showNoteName class=display-option-checkbox checked><div class=display-option-content><div class=display-option-header><i class="fas fa-font display-option-icon"></i>
+<span class=display-option-name>Show Note Name</span></div><span class=display-option-description>Display note names (A, B♭, C#, etc.)</span></div></label><label class=display-option-item><input type=checkbox id=playNoteSound class=display-option-checkbox><div class=display-option-content><div class=display-option-header><i class="fas fa-volume-up display-option-icon"></i>
+<span class=display-option-name>Play Note Sound</span></div><span class=display-option-description>Auto-play each note when it appears</span></div></label><label class=display-option-item><input type=checkbox id=showTab class=display-option-checkbox><div class=display-option-content><div class=display-option-header><i class="fas fa-guitar display-option-icon"></i>
+<span class=display-option-name>Show Tab</span></div><span class=display-option-description>Display tablature notation (fret numbers)</span></div></label></div><div id=displayOptionsValidation class=validation-message></div></div></div><div class=modal-footer><button id=applyDisplayOptions class="btn-base btn-primary btn-md">Apply</button>
+<button id=cancelDisplayOptions class="btn-base btn-secondary btn-md">Cancel</button></div></div></div></div><div id=fretboardModal class=fretboard-modal><div class=modal-content><button id=closeFretboardModal class=close-btn>&#215;</button><div class=modal-body><div id=modalFretboard class=modal-fretboard-container></div></div></div></div><script>function toggleDropdown(e){const t=e.closest(".nav-dropdown"),n=t.querySelector(".dropdown-menu");document.querySelectorAll(".nav-dropdown").forEach(e=>{e!==t&&(e.classList.remove("show"),e.querySelector(".dropdown-menu").classList.remove("show"))}),t.classList.toggle("show"),n.classList.toggle("show")}function toggleUserDropdown(e){const t=e.closest(".user-dropdown"),n=t.querySelector(".user-dropdown-menu");document.querySelectorAll(".nav-dropdown, .user-dropdown").forEach(e=>{if(e!==t){e.classList.remove("show");const t=e.querySelector(".dropdown-menu, .user-dropdown-menu");t&&t.classList.remove("show")}}),t.classList.toggle("show"),n.classList.toggle("show")}document.addEventListener("click",function(e){!e.target.closest(".nav-dropdown")&&!e.target.closest(".user-dropdown")&&document.querySelectorAll(".nav-dropdown, .user-dropdown").forEach(e=>{e.classList.remove("show");const t=e.querySelector(".dropdown-menu, .user-dropdown-menu");t&&t.classList.remove("show")})})</script><script type=module>
+        import { AuthStatus } from './js/shared/auth-status.js';
+        import { StatisticsManager } from './js/shared/statistics-manager.js';
+        import { setupTrainerAuthentication } from './js/shared/auth-setup.js';
+
+        
+        const authStatus = new AuthStatus('auth-status-container');
+        authStatus.pbClient = authStatus.pbClient || (await import('./js/shared/pocketbase-client.js')).pocketBaseClient;
+
+        
+        const statisticsManager = new StatisticsManager();
+        
+        
+        const authSetup = setupTrainerAuthentication(authStatus, statisticsManager);
+
+        
+        window.globalAuthStatus = authStatus;
+        window.globalStatisticsManager = statisticsManager;
+        window.globalAuthSetup = authSetup;
+    </script><script type=module src=./js/bass-trainer.js></script></body></html>

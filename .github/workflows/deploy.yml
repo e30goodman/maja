@@ -68,6 +68,8 @@ jobs:
           cp -R maja/public/js pages-artifact/js
           mkdir -p pages-artifact/promo
           cp -R maja/public/promo/. pages-artifact/promo/
+          mkdir -p pages-artifact/fretboard
+          cp -R maja/public/fretboard/. pages-artifact/fretboard/
       
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v4
