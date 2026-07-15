@@ -37,9 +37,15 @@ export function loadScript(src, options = {}) {
  * @returns {Promise} - Resolves when fretboard script loads
  */
 export function loadFretboardScript() {
+    // Always re-fetch: stale BassFretboard globals caused mirror fixes to never apply.
+    try {
+        delete window.BassFretboard;
+    } catch (e) { /* ignore */ }
+    document.querySelectorAll('script[src*="bass-fretboard.js"]').forEach((el) => el.remove());
+
     const url = new URL('../bass-fretboard.js', import.meta.url);
-    url.searchParams.set('v', '20260715h');
-    return loadScript(url.href, { checkGlobal: 'BassFretboard' });
+    url.searchParams.set('v', 'eadg-left-2');
+    return loadScript(url.href);
 }
 
 /**

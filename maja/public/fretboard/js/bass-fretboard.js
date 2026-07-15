@@ -22,14 +22,18 @@ class BassFretboard {
             this.numFrets = options.numFrets || 12;
         }
         
-        // Prefer narrow/phone layouts even if browser reports a wider layout viewport
+        // Keep original high→low config; vertical drawing uses a separate left→right order.
+        this.sourceStrings = this.strings.map((s) => ({ ...s }));
+
+        // Prefer phone vertical neck whenever the viewport is phone-sized OR touch.
         this.isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+        const mqPhone = window.matchMedia('(max-width: 900px)').matches;
         const vw = Math.min(
             window.innerWidth || 9999,
             document.documentElement.clientWidth || 9999,
             (window.visualViewport && window.visualViewport.width) || 9999
         );
-        this.isMobile = vw <= 768 || (this.isTouch && vw <= 920);
+        this.isMobile = mqPhone || vw <= 900;
 
         // Responsive fretboard dimensions
         this.calculateDimensions();
@@ -102,13 +106,14 @@ class BassFretboard {
         const wasMobile = this.isMobile;
         const prevWidth = this.fretboardWidth;
         const prevHeight = this.fretboardHeight;
+        const mqPhone = window.matchMedia('(max-width: 900px)').matches;
         const vw = Math.min(
             window.innerWidth || 9999,
             document.documentElement.clientWidth || 9999,
             (window.visualViewport && window.visualViewport.width) || 9999
         );
         this.isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-        this.isMobile = vw <= 768 || (this.isTouch && vw <= 920);
+        this.isMobile = mqPhone || vw <= 900;
         this.calculateDimensions();
 
         const geometryChanged =
@@ -181,11 +186,19 @@ class BassFretboard {
     }
     
     /**
-     * Vertical neck: mirror string X so low E is on the left, high G on the right.
+     * Vertical neck draw order: left → right = lowest → highest pitch (E … G).
+     * Bass configs store strings highest → lowest (G … E), so reverse indices.
      */
-    getVerticalStringX(stringIndex) {
-        const mirroredSlot = this.strings.length - stringIndex;
-        return this.sidePad + (this.stringSpacing * mirroredSlot);
+    getVerticalDrawOrder() {
+        const n = this.strings.length;
+        const order = [];
+        for (let i = n - 1; i >= 0; i--) order.push(i);
+        return order;
+    }
+
+    /** visualSlot 0 = leftmost string column */
+    getVerticalStringXBySlot(visualSlot) {
+        return this.sidePad + this.stringSpacing * (visualSlot + 1);
     }
 
     drawFretboard() {
@@ -206,21 +219,28 @@ class BassFretboard {
     }
     
     drawStrings() {
-        this.strings.forEach((string, index) => {
-            const stringLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-            if (this.orientation === 'vertical') {
-                const x = this.getVerticalStringX(index);
+        if (this.orientation === 'vertical') {
+            this.getVerticalDrawOrder().forEach((stringIndex, visualSlot) => {
+                const x = this.getVerticalStringXBySlot(visualSlot);
+                const stringLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
                 stringLine.setAttribute('x1', x);
                 stringLine.setAttribute('y1', this.nutY);
                 stringLine.setAttribute('x2', x);
                 stringLine.setAttribute('y2', this.fretboardHeight - 8);
-            } else {
-                const y = this.dotSpaceHeight + (this.stringSpacing * (index + 1));
-                stringLine.setAttribute('x1', this.leftSpaceWidth);
-                stringLine.setAttribute('y1', y);
-                stringLine.setAttribute('x2', this.fretboardWidth);
-                stringLine.setAttribute('y2', y);
-            }
+                stringLine.classList.add('string-line');
+                stringLine.dataset.string = String(stringIndex);
+                this.svg.appendChild(stringLine);
+            });
+            return;
+        }
+
+        this.strings.forEach((string, index) => {
+            const stringLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            const y = this.dotSpaceHeight + (this.stringSpacing * (index + 1));
+            stringLine.setAttribute('x1', this.leftSpaceWidth);
+            stringLine.setAttribute('y1', y);
+            stringLine.setAttribute('x2', this.fretboardWidth);
+            stringLine.setAttribute('y2', y);
             stringLine.classList.add('string-line');
             this.svg.appendChild(stringLine);
         });
@@ -312,18 +332,18 @@ class BassFretboard {
         const touchTargetSize = this.isMobile ? 30 : 24;
         const touchTargetHeight = this.isMobile ? 26 : 20;
 
-        this.strings.forEach((string, stringIndex) => {
+        const placeNote = (stringIndex, visualSlotOrY, isVertical) => {
             for (let fret = 0; fret <= this.numFrets; fret++) {
                 let x;
                 let y;
-                if (this.orientation === 'vertical') {
-                    x = this.getVerticalStringX(stringIndex);
+                if (isVertical) {
+                    x = this.getVerticalStringXBySlot(visualSlotOrY);
                     y = fret === 0
                         ? this.nutY - 14
                         : this.nutY + (this.fretSpacing * fret) - (this.fretSpacing / 2);
                 } else {
                     const fretWidth = this.fretboardAreaWidth / this.numFrets;
-                    y = this.dotSpaceHeight + (this.stringSpacing * (stringIndex + 1));
+                    y = visualSlotOrY;
                     x = fret === 0
                         ? this.leftSpaceWidth / 2
                         : this.leftSpaceWidth + (fretWidth * fret) - (fretWidth / 2);
@@ -348,11 +368,25 @@ class BassFretboard {
                 const noteText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
                 noteText.setAttribute('x', x);
                 noteText.setAttribute('y', y + (this.isMobile ? 3 : 4));
+                noteText.setAttribute('text-anchor', 'middle');
                 noteText.classList.add('note-name');
                 noteText.style.fontSize = this.isMobile ? '10px' : '12px';
                 noteText.textContent = noteInfo.fullName;
                 this.svg.appendChild(noteText);
             }
+        };
+
+        if (this.orientation === 'vertical') {
+            // Explicit: visualSlot 0 (LEFT) = lowest string index from reverse order = E
+            this.getVerticalDrawOrder().forEach((stringIndex, visualSlot) => {
+                placeNote(stringIndex, visualSlot, true);
+            });
+            return;
+        }
+
+        this.strings.forEach((string, stringIndex) => {
+            const y = this.dotSpaceHeight + (this.stringSpacing * (stringIndex + 1));
+            placeNote(stringIndex, y, false);
         });
     }
     
