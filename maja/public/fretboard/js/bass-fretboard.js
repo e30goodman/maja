@@ -50,7 +50,7 @@ class BassFretboard {
         this.orientation = this.isMobile ? 'vertical' : 'horizontal';
 
         if (this.orientation === 'vertical') {
-            // Frets go top -> bottom; strings go left -> right (G..E)
+            // Frets go top -> bottom; strings left -> right = E..G (mirrored player view)
             this.sidePad = 16;
             this.topLabelSpace = 18;
             this.nutY = this.topLabelSpace + 8;
@@ -180,6 +180,14 @@ class BassFretboard {
         this.drawNotePositions();
     }
     
+    /**
+     * Vertical neck: mirror string X so low E is on the left, high G on the right.
+     */
+    getVerticalStringX(stringIndex) {
+        const mirroredSlot = this.strings.length - stringIndex;
+        return this.sidePad + (this.stringSpacing * mirroredSlot);
+    }
+
     drawFretboard() {
         const fretboardBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
         if (this.orientation === 'vertical') {
@@ -201,7 +209,7 @@ class BassFretboard {
         this.strings.forEach((string, index) => {
             const stringLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
             if (this.orientation === 'vertical') {
-                const x = this.sidePad + (this.stringSpacing * (index + 1));
+                const x = this.getVerticalStringX(index);
                 stringLine.setAttribute('x1', x);
                 stringLine.setAttribute('y1', this.nutY);
                 stringLine.setAttribute('x2', x);
