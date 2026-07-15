@@ -924,6 +924,40 @@
                                 text: 'Pulsation du 7 : jouez une Super-Phrase ci-dessus en 7/4 en vocalisant le konnakol à voix haute.'
                             }
                         ]
+                    },
+                    {
+                        id: 'm2-l16',
+                        title: 'Leçon 16 — Super-Phrases et Permutations, partie 2',
+                        description: 'Phrygien dominant, groove en pulsation 7 et construction de Super-Phrases avec permutations de groupements.',
+                        details: [
+                            'Phrygien dominant : c\'est le mode phrygien avec le troisième degré haussé (tierce majeure). Structure essentielle à retenir.',
+                            'Groove en pulsation 7 : jouer le groove en vocalisant le Konnakol.',
+                            'Super-Phrases : construire différentes Super-Phrases dans ce contexte rythmique et harmonique.',
+                            'Permutations de base (Konnakol) : décomposer le 7 en groupements plus petits (ex. 2-2-3) et les utiliser comme squelette des motifs rythmiques.',
+                            'Permutation de groupement : inverser 4 + 3 en 3 + 4 pour varier l\'arrangement.'
+                        ],
+                        tasks: []
+                    },
+                    {
+                        id: 'm2-l16-prac',
+                        title: 'PRATIQUE DE LA LEÇON 16',
+                        description: 'Mémoriser le Phrygien dominant et pratiquer le groove inventé en cours.',
+                        isPractice: true,
+                        parentLessonId: 'm2-l16',
+                        details: [
+                            'Étudier et mémoriser les positions du Phrygien dominant par rapport aux grands blocs et aux petits blocs. Parcourir le manche et ancrer ces repères.',
+                            'Pratiquer le jeu créé ensemble pendant le cours / la pratique.'
+                        ],
+                        tasks: [
+                            {
+                                id: 't2-16-prac-1',
+                                text: 'Mémoriser les positions du Phrygien dominant (grands blocs et petits blocs) sur tout le manche.'
+                            },
+                            {
+                                id: 't2-16-prac-2',
+                                text: 'Rejouer et stabiliser le groove inventé en cours (pulsation 7, Konnakol, Super-Phrases / permutations).'
+                            }
+                        ]
                     }
                 ]
             },
@@ -1058,7 +1092,7 @@
         // 2. STATE MANAGEMENT (Variable Storage)
         // ==========================================
         let completedTasks = new Set(JSON.parse(localStorage.getItem('maja_bass_progress_v2') || '[]'));
-        let expandedLessons = new Set(['m2-l15', 'm2-l15-prac']);
+        let expandedLessons = new Set(['m2-l16', 'm2-l16-prac']);
         let expandedTaskDetails = new Set();
         // Default photos for task t1-1-2
         const DEFAULT_PHOTOS = [
@@ -1128,7 +1162,7 @@
         // ==========================================
         // 3. RENDER LOGIC
         // ==========================================
-        // Ordre d'affichage : la leçon la plus récente en premier (Leçon 15 en haut,
+        // Ordre d'affichage : la leçon la plus récente en premier (Leçon 16 en haut,
         // Leçon 1 tout en bas). Les pratiques restent groupées juste après leur leçon parente.
         function orderLessonsForDisplay(lessons) {
             const groups = [];
@@ -1193,7 +1227,7 @@
                     }
                     
                     const isPractice = lesson.isPractice;
-                    const isCurrent = lesson.id === 'm2-l15-prac';
+                    const isCurrent = lesson.id === 'm2-l16-prac';
                     const isLessonLocked = !!lesson.locked;
                     const isExpanded = expandedLessons.has(lesson.id);
                     
