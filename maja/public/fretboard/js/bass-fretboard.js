@@ -317,7 +317,7 @@ class BassFretboard {
                 let x;
                 let y;
                 if (this.orientation === 'vertical') {
-                    x = this.sidePad + (this.stringSpacing * (stringIndex + 1));
+                    x = this.getVerticalStringX(stringIndex);
                     y = fret === 0
                         ? this.nutY - 14
                         : this.nutY + (this.fretSpacing * fret) - (this.fretSpacing / 2);
