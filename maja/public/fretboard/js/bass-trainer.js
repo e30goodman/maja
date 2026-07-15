@@ -11,7 +11,7 @@ import {
 } from './shared/ui-helpers.js';
 import { loadFretboardScript } from './shared/script-loader.js';
 import { ModalManager } from './shared/modal-manager.js';
-import { TrainerModalController } from './shared/trainer-modal-controller.js';
+import { TrainerModalController } from './shared/trainer-modal-controller.js?v=default-preset-1';
 import {
     initializeFretboard,
     clearFretboardSelection
