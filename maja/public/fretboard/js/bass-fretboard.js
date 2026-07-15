@@ -22,9 +22,14 @@ class BassFretboard {
             this.numFrets = options.numFrets || 12;
         }
         
-        // Mobile detection
-        this.isMobile = window.innerWidth <= 768;
+        // Prefer narrow/phone layouts even if browser reports a wider layout viewport
         this.isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+        const vw = Math.min(
+            window.innerWidth || 9999,
+            document.documentElement.clientWidth || 9999,
+            (window.visualViewport && window.visualViewport.width) || 9999
+        );
+        this.isMobile = vw <= 768 || (this.isTouch && vw <= 920);
 
         // Responsive fretboard dimensions
         this.calculateDimensions();
@@ -97,7 +102,13 @@ class BassFretboard {
         const wasMobile = this.isMobile;
         const prevWidth = this.fretboardWidth;
         const prevHeight = this.fretboardHeight;
-        this.isMobile = window.innerWidth <= 768;
+        const vw = Math.min(
+            window.innerWidth || 9999,
+            document.documentElement.clientWidth || 9999,
+            (window.visualViewport && window.visualViewport.width) || 9999
+        );
+        this.isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+        this.isMobile = vw <= 768 || (this.isTouch && vw <= 920);
         this.calculateDimensions();
 
         const geometryChanged =
@@ -112,12 +123,31 @@ class BassFretboard {
         }
     }
     
-    updateSVGDimensions() {
-        if (this.svg) {
+    applySVGSizeAttributes() {
+        if (!this.svg) return;
+        this.svg.setAttribute('viewBox', `0 0 ${this.fretboardWidth} ${this.fretboardHeight}`);
+        this.svg.setAttribute('preserveAspectRatio', 'xMidYMin meet');
+        // Avoid fixed pixel width attributes on mobile: they inflate parent min-content
+        // so "width: 100%" becomes 100% of an already-too-wide container.
+        if (this.orientation === 'vertical') {
+            this.svg.setAttribute('width', '100%');
+            this.svg.removeAttribute('height');
+            this.svg.style.width = '100%';
+            this.svg.style.maxWidth = '100%';
+            this.svg.style.minWidth = '0';
+            this.svg.style.height = 'auto';
+        } else {
             this.svg.setAttribute('width', this.fretboardWidth);
             this.svg.setAttribute('height', this.fretboardHeight);
-            this.svg.setAttribute('viewBox', `0 0 ${this.fretboardWidth} ${this.fretboardHeight}`);
+            this.svg.style.width = '';
+            this.svg.style.maxWidth = '100%';
+            this.svg.style.minWidth = '0';
+            this.svg.style.height = '';
         }
+    }
+
+    updateSVGDimensions() {
+        this.applySVGSizeAttributes();
     }
     
     rebuild() {
@@ -136,10 +166,8 @@ class BassFretboard {
     initializeFretboard() {
         // Create SVG container
         this.svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        this.svg.setAttribute('width', this.fretboardWidth);
-        this.svg.setAttribute('height', this.fretboardHeight);
-        this.svg.setAttribute('viewBox', `0 0 ${this.fretboardWidth} ${this.fretboardHeight}`);
         this.svg.classList.add('bass-fretboard');
+        this.applySVGSizeAttributes();
         
         // Clear container and add SVG
         this.container.innerHTML = '';

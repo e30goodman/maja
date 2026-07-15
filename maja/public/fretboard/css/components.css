@@ -1233,13 +1233,15 @@ h5, h6 {
     color: var(--text-primary);
 }
 
-/* Preset selection modals should be compact and size to content */
+/* Preset selection modals: fit viewport (never spill off-screen) */
 .preset-modal .modal-content {
-    width: auto;
+    width: min(560px, calc(100vw - 24px));
     height: auto;
-    max-width: none;
+    max-width: calc(100vw - 24px);
     max-height: 85vh;
-    margin: 1rem;
+    margin: 1rem auto;
+    box-sizing: border-box;
+    overflow-x: hidden;
 }
 
 @keyframes modalSlideIn {

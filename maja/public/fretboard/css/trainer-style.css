@@ -593,11 +593,13 @@ button:disabled {
     border: 1px solid #2f4066;
     box-shadow: 0 8px 32px var(--shadow-deep), 0 0 0 1px rgba(139, 92, 246, 0.15);
     animation: modalSlideIn 0.3s ease-out;
-    width: auto;
+    width: min(560px, calc(100vw - 24px));
     height: auto;
-    max-width: none;
+    max-width: calc(100vw - 24px);
     max-height: 85vh;
-    margin: 1rem;
+    margin: 1rem auto;
+    box-sizing: border-box;
+    overflow-x: hidden;
     color: var(--text-primary);
 }
 

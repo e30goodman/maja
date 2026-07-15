@@ -1,0 +1,105 @@
+/* Last-loaded mobile overflow guards — beats cached older CSS via cascade + !important */
+
+html {
+    overflow-x: hidden !important;
+    max-width: 100% !important;
+}
+
+body {
+    overflow-x: hidden !important;
+    max-width: 100vw !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+.main-content-wrapper,
+.app-body,
+.fretboard-section,
+.fretboard-container,
+#fretboard,
+.practice-controls-row,
+.preset-controls,
+.note-queue-section {
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+}
+
+#fretboard,
+#fretboard svg,
+#fretboard svg.bass-fretboard,
+svg.bass-fretboard,
+.bass-fretboard {
+    min-width: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    display: block !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+}
+
+.fretboard-container {
+    overflow-x: hidden !important;
+    width: 100% !important;
+}
+
+/* Presets / Display Options / Bass Config — never wider than viewport */
+.preset-modal {
+    align-items: flex-start !important;
+    justify-content: center !important;
+    padding: 12px !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+}
+
+.preset-modal .modal-content,
+.modal-content {
+    width: calc(100vw - 24px) !important;
+    max-width: calc(100vw - 24px) !important;
+    min-width: 0 !important;
+    margin: 0 auto !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    max-height: calc(100dvh - 24px) !important;
+}
+
+.preset-modal .modal-body,
+.modal-body {
+    max-width: 100% !important;
+    overflow-x: hidden !important;
+    box-sizing: border-box !important;
+}
+
+.display-options-list,
+.exercise-presets-list,
+.bass-config-list,
+.preset-list {
+    max-width: 100% !important;
+    min-width: 0 !important;
+}
+
+.display-option-item,
+.exercise-preset-item,
+.bass-config-item {
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+}
+
+@media (min-width: 769px) {
+    .preset-modal .modal-content {
+        width: min(560px, calc(100vw - 48px)) !important;
+        max-width: min(560px, calc(100vw - 48px)) !important;
+    }
+
+    #fretboard svg.bass-fretboard,
+    svg.bass-fretboard {
+        /* desktop may keep intrinsic SVG size when JS sets pixel width */
+        width: auto !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+    }
+}

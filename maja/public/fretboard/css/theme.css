@@ -358,6 +358,8 @@ body {
     background: #161f33 !important;
     border-color: #2f4066 !important;
     color: #e2e8f0 !important;
+    max-width: calc(100vw - 24px) !important;
+    box-sizing: border-box !important;
 }
 .modal-header,
 .modal-footer {
