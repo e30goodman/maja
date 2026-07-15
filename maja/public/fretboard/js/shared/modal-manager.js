@@ -63,19 +63,33 @@ export class ModalManager {
     }
     
     openFretboardModal() {
-        if (!this.fretboardModal) return;
-        
-        // Create modal fretboard if it doesn't exist
-        if (!this.modalFretboardInstance && this.onCreateModalFretboard) {
-            this.modalFretboardInstance = this.onCreateModalFretboard();
+        // Mobile UX: open the inline fretboard in page flow (vertical scroll),
+        // instead of a fullscreen modal that covers the note queue.
+        const section = document.querySelector('.fretboard-section');
+        const controls = document.querySelector('.fretboard-controls');
+        const toggle = document.getElementById('fretboardVisibleToggle');
+
+        if (section) {
+            section.classList.add('fretboard-inline-open');
+            section.style.display = 'block';
         }
-        
-        // Show modal
-        this.fretboardModal.classList.add('active');
-        document.body.style.overflow = 'hidden';
-        
-        // Trigger callback if provided
+        if (controls) {
+            controls.classList.add('fretboard-inline-open');
+            controls.style.display = 'flex';
+        }
+        if (toggle && !toggle.checked) {
+            toggle.checked = true;
+            toggle.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        // Keep existing main board visible for selection/practice
+        const target = section || document.getElementById('fretboard');
+        if (target) {
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
         if (this.onFretboardModalOpen) {
+            // Legacy hook kept for sync callers; no modal instance needed here
             this.onFretboardModalOpen();
         }
     }

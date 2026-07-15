@@ -519,8 +519,11 @@ class BassTrainer {
                 this.applyModalSelectionFromModal();
             },
             onFretboardModalOpen: () => {
-                // Sync modal fretboard with current selection
-                this.syncModalFretboard();
+                // Inline open: ensure the main (non-modal) fretboard is visible
+                if (this.fretboardToggle) {
+                    this.fretboardToggle.checked = true;
+                }
+                this.setFretboardVisibility(true);
             }
         });
     }

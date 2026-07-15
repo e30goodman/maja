@@ -413,3 +413,82 @@ body {
     stroke-width: 2.5px !important;
     fill: #0f172a !important;
 }
+
+
+/* Mobile UX: note queue + inline fretboard */
+.note-queue-section {
+    position: relative;
+    overflow: visible;
+}
+.note-queue-toolbar {
+    min-height: 40px;
+}
+.note-queue-container {
+    position: relative;
+    z-index: 1;
+    min-height: 72px;
+    padding-top: 8px !important;
+    padding-bottom: 8px !important;
+}
+#stopPracticeBtn {
+    position: static !important;
+    bottom: auto !important;
+    right: auto !important;
+    z-index: 2;
+}
+
+@media (max-width: 768px) {
+    /* Show inline horizontal fretboard; scroll the page vertically */
+    .fretboard-section,
+    .fretboard-section.fretboard-inline-open {
+        display: block !important;
+        margin-top: 12px;
+        margin-bottom: 24px;
+    }
+    .fretboard-controls,
+    .fretboard-controls.fretboard-inline-open {
+        display: flex !important;
+        justify-content: center;
+        margin: 8px 0;
+    }
+    /* Keep modal button as quick jump, but never cover note queue */
+    .fretboard-modal-section {
+        display: block !important;
+        margin-bottom: 8px;
+    }
+    /* Hide modal overlay entirely on mobile */
+    .fretboard-modal,
+    .fretboard-modal.active {
+        display: none !important;
+    }
+    .fretboard-container {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+        max-width: 100%;
+        padding: 12px !important;
+        margin: 8px 0 24px !important;
+    }
+    #fretboard {
+        min-width: 720px;
+    }
+    .note-queue-section {
+        margin-bottom: 12px !important;
+    }
+    .note-queue-container {
+        min-height: 88px !important;
+        padding: 12px 8px !important;
+    }
+    .note-item.distance-0 {
+        z-index: 3;
+    }
+    .preset-controls {
+        flex-direction: column !important;
+        align-items: stretch !important;
+    }
+    .preset-controls .btn-base {
+        width: 100%;
+    }
+    .practice-controls-row {
+        margin-bottom: 12px !important;
+    }
+}
