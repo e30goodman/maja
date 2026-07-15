@@ -100,30 +100,39 @@ h3 {
 
 .note-position {
     cursor: pointer;
-    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    transition: fill 0.15s ease;
     fill: transparent;
     stroke: none;
     filter: none;
     pointer-events: all;
 }
 
-.note-position:hover {
-    fill: var(--fret-note-hover);
-    filter: drop-shadow(0 0 6px var(--fret-note-hover));
-}
-
 .note-position.selected {
     fill: var(--fret-note-selected);
     stroke: var(--fret-note-selected-border);
     stroke-width: 2;
-    filter: drop-shadow(0 0 4px var(--fret-note-selected));
+    filter: none;
 }
 
 .note-position.selected:hover {
-    fill: var(--fret-note-hover);
+    fill: var(--fret-note-selected);
     stroke: var(--fret-note-selected-border);
-    stroke-width: 3;
-    filter: drop-shadow(0 0 8px var(--fret-note-hover));
+    stroke-width: 2;
+    filter: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .note-position:hover {
+        fill: var(--fret-note-hover);
+        filter: none;
+    }
+
+    .note-position.selected:hover {
+        fill: var(--fret-note-hover);
+        stroke: var(--fret-note-selected-border);
+        stroke-width: 2;
+        filter: none;
+    }
 }
 
 .note-name {

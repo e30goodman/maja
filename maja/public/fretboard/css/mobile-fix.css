@@ -103,3 +103,23 @@ svg.bass-fretboard,
         min-width: 0 !important;
     }
 }
+
+/* No sticky purple hover ghost on touch after deselect */
+.note-position,
+.note-position:hover,
+.note-position:active,
+.note-position:focus {
+    filter: none !important;
+}
+.note-position:not(.selected),
+.note-position:not(.selected):hover,
+.note-position:not(.selected):active,
+.note-position:not(.selected):focus {
+    fill: transparent !important;
+    stroke: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+}
+.note-position.selected {
+    filter: none !important;
+}

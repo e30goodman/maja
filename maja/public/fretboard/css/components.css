@@ -558,34 +558,44 @@ h5, h6 {
 
 .note-position {
     cursor: pointer;
-    transition: fill 0.2s ease;
+    transition: fill 0.15s ease;
     fill: transparent;
     stroke: none;
     filter: none;
     pointer-events: all;
 }
 
-.note-position:hover {
-    fill: var(--fret-note-hover);
-    filter: drop-shadow(0 0 4px var(--fret-note-hover));
-}
-
 .note-position:active {
-    opacity: 0.8;
+    opacity: 0.9;
 }
 
 .note-position.selected {
     fill: var(--fret-note-selected);
     stroke: var(--fret-note-selected-border);
     stroke-width: 2;
-    filter: drop-shadow(0 0 4px var(--fret-note-selected));
+    filter: none;
 }
 
 .note-position.selected:hover {
-    fill: var(--fret-note-hover);
+    fill: var(--fret-note-selected);
     stroke: var(--fret-note-selected-border);
     stroke-width: 2;
-    filter: drop-shadow(0 0 6px var(--fret-note-hover));
+    filter: none;
+}
+
+/* Real mouse hover only — touch sticky :hover causes purple ghost squares */
+@media (hover: hover) and (pointer: fine) {
+    .note-position:hover {
+        fill: var(--fret-note-hover);
+        filter: none;
+    }
+
+    .note-position.selected:hover {
+        fill: var(--fret-note-hover);
+        stroke: var(--fret-note-selected-border);
+        stroke-width: 2;
+        filter: none;
+    }
 }
 
 .note-name {
@@ -1403,11 +1413,11 @@ h5, h6 {
 }
 
 .note-position.touch-target:hover {
-    transform: scale(1.05);
+    transform: none;
 }
 
 .note-position.touch-target:active {
-    transform: scale(0.95);
+    transform: scale(0.97);
 }
 
 /* Enhanced SVG styling for mobile */

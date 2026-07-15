@@ -389,10 +389,21 @@ body {
 .note-position {
     pointer-events: all !important;
 }
-.note-position:not(.selected):not(:hover) {
+/* Kill sticky touch :hover purple ghost after deselect */
+.note-position:not(.selected) {
     fill: transparent !important;
     stroke: none !important;
     filter: none !important;
+    opacity: 1 !important;
+}
+@media (hover: hover) and (pointer: fine) {
+    .note-position:not(.selected):hover {
+        fill: var(--fret-note-hover) !important;
+        filter: drop-shadow(0 0 4px var(--fret-note-hover)) !important;
+    }
+}
+.note-position.selected {
+    filter: none !important; /* no purple glow/fleur around selection */
 }
 .note-name {
     fill: #0f172a !important;
