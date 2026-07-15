@@ -68,7 +68,7 @@ export function getLiveResponseTimeStats(sessionRecords) {
  * @returns {string}
  */
 export function formatResponseTime(ms) {
-    if (ms == null || !Number.isFinite(ms) || ms <= 0) return '—';
+    if (ms == null || !Number.isFinite(ms) || ms <= 0) return '--';
     if (ms < 1000) return `${Math.round(ms)}ms`;
     return `${(ms / 1000).toFixed(2)}s`;
 }
