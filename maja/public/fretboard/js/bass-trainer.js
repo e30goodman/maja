@@ -96,10 +96,13 @@ class BassTrainer {
         // Initialize preset system UI
         this.updatePresetSystemUI();
 
-        // Auto-apply default exercise preset
+        // Backup apply if fretboard finishes initializing slightly later
         setTimeout(() => {
-            this.applyExercisePreset();
-        }, 100);
+            if (this.fretboard) {
+                this.applyExercisePreset();
+                this.updatePresetSystemUI();
+            }
+        }, 400);
     }
     
     initializeUI() {
@@ -145,6 +148,11 @@ class BassTrainer {
                 height: 150,
                 numFrets: bassConfig ? bassConfig.frets : 12
             }, bassConfig);
+            // Apply default preset AFTER fretboard exists (fixes desktop empty selection race)
+            this.applyExercisePreset();
+            this.updatePresetSystemUI();
+        }).catch((err) => {
+            console.error('Failed to load fretboard script:', err);
         });
     }
     

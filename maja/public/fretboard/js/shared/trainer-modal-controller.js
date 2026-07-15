@@ -10,6 +10,21 @@ import {
 import { SelectionModalManager } from './selection-modal-manager.js';
 
 /**
+ * Default exercise by device:
+ * - phone/narrow: Open Strings
+ * - desktop: First Position (natural notes within first 5 frets)
+ */
+export function getDefaultExercisePresetId() {
+    const vw = Math.min(
+        window.innerWidth || 9999,
+        document.documentElement.clientWidth || 9999,
+        (window.visualViewport && window.visualViewport.width) || 9999
+    );
+    const isPhone = window.matchMedia('(max-width: 900px)').matches || vw <= 900;
+    return isPhone ? 'open-strings' : 'first-position';
+}
+
+/**
  * Manages all modal dialogs for the bass trainer
  * Handles bass config, exercise presets, custom exercises, and display options
  */
@@ -23,7 +38,8 @@ export class TrainerModalController {
         };
 
         this.currentBassConfig = 'bass-4-standard-20';
-        this.currentExercisePreset = 'open-strings';
+        // Mobile: open strings. Desktop: First Position (natural notes, frets 0–5).
+        this.currentExercisePreset = getDefaultExercisePresetId();
         this.displayOptions = {
             showNoteName: true,
             playNoteSound: false,
