@@ -34,6 +34,46 @@ export function calculateAverageResponseTime(sessionRecords) {
 }
 
 /**
+ * Live response-time stats for the practice HUD
+ * - last: previous attempt (any)
+ * - best: fastest correct response in this session (record)
+ * - avg: running average of correct responses
+ * @param {Array<Object>} sessionRecords
+ * @returns {{ last: number|null, best: number|null, avg: number|null }}
+ */
+export function getLiveResponseTimeStats(sessionRecords) {
+    if (!sessionRecords || !sessionRecords.length) {
+        return { last: null, best: null, avg: null };
+    }
+
+    const lastRaw = sessionRecords[sessionRecords.length - 1]?.responseTime;
+    const last = Number.isFinite(lastRaw) && lastRaw > 0 ? lastRaw : null;
+
+    const correctTimes = sessionRecords
+        .map((r) => r.responseTime)
+        .filter((t, i) => sessionRecords[i].isCorrect && Number.isFinite(t) && t > 0);
+
+    if (!correctTimes.length) {
+        return { last, best: null, avg: null };
+    }
+
+    const best = Math.min(...correctTimes);
+    const avg = Math.round(correctTimes.reduce((sum, t) => sum + t, 0) / correctTimes.length);
+    return { last, best, avg };
+}
+
+/**
+ * Format response time for compact HUD display
+ * @param {number|null|undefined} ms
+ * @returns {string}
+ */
+export function formatResponseTime(ms) {
+    if (ms == null || !Number.isFinite(ms) || ms <= 0) return '—';
+    if (ms < 1000) return `${Math.round(ms)}ms`;
+    return `${(ms / 1000).toFixed(2)}s`;
+}
+
+/**
  * Create a session record entry
  * @param {string} targetNote - The target note
  * @param {string} playedNote - The played note  

@@ -38,7 +38,7 @@ export function loadScript(src, options = {}) {
  */
 export function loadFretboardScript() {
     const url = new URL('../bass-fretboard.js', import.meta.url);
-    url.searchParams.set('v', '20260715c');
+    url.searchParams.set('v', '20260715d');
     return loadScript(url.href, { checkGlobal: 'BassFretboard' });
 }
 

@@ -217,7 +217,7 @@ export class BasePracticeSession {
         
         // Update displays if there's a helper function for it
         if (typeof updateStatsDisplay === 'function') {
-            updateStatsDisplay(this.stats.correct, this.stats.incorrect);
+            updateStatsDisplay(this.stats.correct, this.stats.incorrect, this.stats.sessionRecords);
         }
     }
     

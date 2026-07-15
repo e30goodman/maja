@@ -119,6 +119,9 @@ export const ELEMENT_IDS = {
     CORRECT_COUNT: 'correctCount',
     INCORRECT_COUNT: 'incorrectCount',
     ACCURACY: 'accuracy',
+    LAST_RESPONSE_TIME: 'lastResponseTime',
+    BEST_RESPONSE_TIME: 'bestResponseTime',
+    AVG_RESPONSE_TIME: 'avgResponseTime',
     
     
     // Fretboard

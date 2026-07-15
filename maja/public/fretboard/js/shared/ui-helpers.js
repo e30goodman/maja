@@ -1,5 +1,6 @@
 import { ELEMENT_IDS, CSS_CLASSES, PRACTICE_CONFIG } from './constants.js';
 import { BassTabRenderer } from './bass-tablature-renderer.js';
+import { formatResponseTime, getLiveResponseTimeStats } from './practice-utils.js';
 
 /**
  * UI helper functions for DOM manipulation and state management
@@ -36,8 +37,9 @@ export function getElements(elementIds) {
  * Update practice statistics display
  * @param {number} correct - Number of correct answers
  * @param {number} incorrect - Number of incorrect answers
+ * @param {Array<Object>|null} sessionRecords - Session attempt records (for response times)
  */
-export function updateStatsDisplay(correct, incorrect) {
+export function updateStatsDisplay(correct, incorrect, sessionRecords = null) {
     const correctEl = getElement(ELEMENT_IDS.CORRECT_COUNT);
     const incorrectEl = getElement(ELEMENT_IDS.INCORRECT_COUNT);
     const accuracyEl = getElement(ELEMENT_IDS.ACCURACY);
@@ -57,6 +59,14 @@ export function updateStatsDisplay(correct, incorrect) {
             `value ${CSS_CLASSES.CLARITY_GOOD}` : 
             'value';
     }
+
+    const times = getLiveResponseTimeStats(sessionRecords || []);
+    const lastEl = getElement(ELEMENT_IDS.LAST_RESPONSE_TIME);
+    const bestEl = getElement(ELEMENT_IDS.BEST_RESPONSE_TIME);
+    const avgEl = getElement(ELEMENT_IDS.AVG_RESPONSE_TIME);
+    if (lastEl) lastEl.textContent = formatResponseTime(times.last);
+    if (bestEl) bestEl.textContent = formatResponseTime(times.best);
+    if (avgEl) avgEl.textContent = formatResponseTime(times.avg);
 }
 
 

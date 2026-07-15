@@ -60,7 +60,7 @@ export class ChordPracticeSession extends BasePracticeSession {
         }
         
         // Update displays 
-        updateStatsDisplay(this.stats.correct, this.stats.incorrect);
+        updateStatsDisplay(this.stats.correct, this.stats.incorrect, this.stats.sessionRecords);
         
         // Trigger session start
         const firstChord = this.chordTraining.currentChord;
@@ -190,7 +190,7 @@ export class ChordPracticeSession extends BasePracticeSession {
         }
         
         // Update displays
-        updateStatsDisplay(this.stats.correct, this.stats.incorrect);
+        updateStatsDisplay(this.stats.correct, this.stats.incorrect, this.stats.sessionRecords);
     }
     
     /**
@@ -348,6 +348,6 @@ export class ChordPracticeSession extends BasePracticeSession {
         }
         
         this.advanceToNextChord();
-        updateStatsDisplay(this.stats.correct, this.stats.incorrect);
+        updateStatsDisplay(this.stats.correct, this.stats.incorrect, this.stats.sessionRecords);
     }
 }

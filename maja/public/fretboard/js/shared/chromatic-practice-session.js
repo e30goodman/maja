@@ -77,7 +77,7 @@ export class ChromaticPracticeSession extends BasePracticeSession {
         
         // Update displays
         this.updateDisplay();
-        updateStatsDisplay(this.stats.correct, this.stats.incorrect);
+        updateStatsDisplay(this.stats.correct, this.stats.incorrect, this.stats.sessionRecords);
 
         // Trigger session start
         const firstTarget = this.getCurrentTarget();
@@ -148,7 +148,7 @@ export class ChromaticPracticeSession extends BasePracticeSession {
         this.advanceToNextNote(isCorrect);
         
         // Update displays
-        updateStatsDisplay(this.stats.correct, this.stats.incorrect);
+        updateStatsDisplay(this.stats.correct, this.stats.incorrect, this.stats.sessionRecords);
     }
     
     /**
@@ -358,6 +358,6 @@ export class ChromaticPracticeSession extends BasePracticeSession {
             this.stats.incorrect++;
         }
         
-        updateStatsDisplay(this.stats.correct, this.stats.incorrect);
+        updateStatsDisplay(this.stats.correct, this.stats.incorrect, this.stats.sessionRecords);
     }
 }
