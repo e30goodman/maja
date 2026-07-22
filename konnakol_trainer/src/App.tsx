@@ -548,7 +548,7 @@ const DEFAULT_POLY_VOICE_GAINS: PolyVoiceGainMap = { 0: 1, 1: 1, 2: 1 };
 const CLICK_PRESET_BUS_TWO_BARS_PREVIEW_DEBOUNCE_MS = 120;
 const APP_COMMIT_VERSION = (() => {
 	if (typeof __APP_BUILD_COMMIT__ === 'string' && __APP_BUILD_COMMIT__.length >= 7) return __APP_BUILD_COMMIT__.slice(0, 7);
-	return 'e84f8c6';
+	return '3af0039';
 })();
 const GLOBAL_TEMPO_RUNTIME_MULTIPLIER = 2;
 function getRuntimeTempo(uiTempo: number): number {
