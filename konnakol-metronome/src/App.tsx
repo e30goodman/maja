@@ -253,6 +253,17 @@ function buildSequencerCellsForSnapshot(s: ReturnType<typeof createEmptySnapshot
 			out[k] = { accent: acc.has(k), pulsation: pul };
 		}
 	}
+	for (const [k, v] of Object.entries(s.customSubdivisions)) {
+		if (out[k] !== undefined) continue;
+		const pul = typeof v === 'number' && v >= 1 && v <= 9 ? v : 1;
+		out[k] = { accent: acc.has(k), pulsation: pul };
+	}
+	for (const k of acc) {
+		if (out[k] !== undefined) continue;
+		const p = s.customSubdivisions[k];
+		const pul = typeof p === 'number' && p >= 1 && p <= 9 ? p : 1;
+		out[k] = { accent: true, pulsation: pul };
+	}
 	return out;
 }
 
@@ -262,18 +273,13 @@ function hydrateSequencerFromCells(cellsRaw: unknown, d: ReturnType<typeof creat
 	const cells = cellsRaw as Record<string, unknown>;
 	const nextAcc = new Set<string>();
 	const nextSub: Record<string, number> = {};
-	for (let r = 0; r < d.bars; r++) {
-		const syl = d.customSyllables[r] !== undefined ? d.customSyllables[r] : d.syllables;
-		for (let c = 0; c < syl; c++) {
-			const k = `${r}-${c}`;
-			const row = cells[k];
-			if (!row || typeof row !== 'object') continue;
-			const o = row as Record<string, unknown>;
-			if (o.accent === true) nextAcc.add(k);
-			const p = parseInt(String(o.pulsation), 10);
-			const pul = Number.isFinite(p) && p >= 1 && p <= 9 ? p : 1;
-			if (pul !== 1) nextSub[k] = pul;
-		}
+	for (const [k, cell] of Object.entries(cells)) {
+		if (!cell || typeof cell !== 'object') continue;
+		const o = cell as Record<string, unknown>;
+		if (o.accent === true) nextAcc.add(k);
+		const p = parseInt(String(o.pulsation), 10);
+		const pul = Number.isFinite(p) && p >= 1 && p <= 9 ? p : 1;
+		if (pul !== 1) nextSub[k] = pul;
 	}
 	d.accents = nextAcc;
 	d.customSubdivisions = nextSub;
