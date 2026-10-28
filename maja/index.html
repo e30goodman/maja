@@ -118,7 +118,14 @@
                 <i data-lucide="x"></i>
             </button>
             <h3 id="video-modal-title" class="text-xl font-bold text-white mb-4 sm:mb-6 pr-12">Vidéo</h3>
-            <video id="video-modal-player" controls playsinline preload="metadata" class="w-full rounded-xl bg-black border border-slate-800 max-h-[70vh]"></video>
+            <video id="video-modal-player" playsinline preload="metadata" class="w-full rounded-xl bg-black border border-slate-800 max-h-[65vh] cursor-pointer"></video>
+            <!-- [claude] panneau de contrôle propre : rien ne recouvre l'image quand la vidéo est en pause -->
+            <div class="flex items-center gap-3 mt-3">
+                <button id="vp-play" type="button" class="w-10 h-10 shrink-0 flex items-center justify-center rounded-full bg-violet-600 hover:bg-violet-500 text-white text-sm font-bold" aria-label="Lecture / pause">&#9654;</button>
+                <input id="vp-seek" type="range" min="0" max="1000" value="0" class="flex-1 accent-violet-500 cursor-pointer" aria-label="Position">
+                <span id="vp-time" class="text-xs text-slate-400 font-mono shrink-0 w-[84px] text-right">0:00 / 0:00</span>
+                <button id="vp-fs" type="button" class="w-10 h-10 shrink-0 flex items-center justify-center rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-base" aria-label="Plein écran">&#x26F6;</button>
+            </div>
             <p class="text-center text-sm text-slate-400 mt-4 border-t border-slate-800 pt-4">
                 Backing track sans basse — jouez la ligne de basse par-dessus.
             </p>
@@ -1676,6 +1683,30 @@
         document.getElementById('video-modal').addEventListener('click', (e) => {
             if (e.target.id === 'video-modal') window.closeVideoModal();
         });
+
+        (() => {
+            const v = document.getElementById('video-modal-player');
+            const btn = document.getElementById('vp-play');
+            const seek = document.getElementById('vp-seek');
+            const time = document.getElementById('vp-time');
+            const fmt = (t) => { t = Math.max(0, Math.floor(t || 0)); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
+            const toggle = () => { if (v.paused) { const p = v.play(); if (p && p.catch) p.catch(() => {}); } else { v.pause(); } };
+            let dragging = false;
+            const update = () => {
+                btn.innerHTML = v.paused ? '&#9654;' : '&#10074;&#10074;';
+                if (!dragging && v.duration) seek.value = Math.round(v.currentTime / v.duration * 1000);
+                time.textContent = fmt(v.currentTime) + ' / ' + fmt(v.duration);
+            };
+            btn.addEventListener('click', toggle);
+            v.addEventListener('click', toggle);
+            ['play', 'pause', 'timeupdate', 'loadedmetadata', 'emptied'].forEach(ev => v.addEventListener(ev, update));
+            seek.addEventListener('input', () => { dragging = true; if (v.duration) time.textContent = fmt(seek.value / 1000 * v.duration) + ' / ' + fmt(v.duration); });
+            seek.addEventListener('change', () => { if (v.duration) v.currentTime = seek.value / 1000 * v.duration; dragging = false; });
+            document.getElementById('vp-fs').addEventListener('click', () => {
+                if (v.requestFullscreen) v.requestFullscreen().catch(() => {});
+                else if (v.webkitEnterFullscreen) v.webkitEnterFullscreen();
+            });
+        })();
 
         // --- MODES ---
         window.openModeModal = (e, lessonId, modeId) => {
