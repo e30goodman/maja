@@ -38,6 +38,13 @@
       .fade-in { animation: fadeIn 0.3s ease-in-out; }
       @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
       .disabled-module { opacity: 0.6; pointer-events: none; filter: grayscale(0.8); }
+        /* [claude] lecteur vidéo en plein écran */
+        #vp-box:fullscreen { background:#000; width:100vw; height:100vh; display:flex; align-items:center; justify-content:center; }
+        #vp-box:-webkit-full-screen { background:#000; width:100vw; height:100vh; display:flex; align-items:center; justify-content:center; }
+        #vp-box:fullscreen video, #vp-box:-webkit-full-screen video { width:100%; height:100%; max-height:none; object-fit:contain; border:0; border-radius:0; }
+        #vp-box:fullscreen .vp-bar, #vp-box:-webkit-full-screen .vp-bar { position:absolute; left:0; right:0; bottom:0; margin:0; padding:14px 18px; background:linear-gradient(transparent, rgba(0,0,0,.75)); transition:opacity .3s; }
+        #vp-box.vp-idle .vp-bar { opacity:0; pointer-events:none; }
+        #vp-box.vp-idle { cursor:none; }
     </style>
 </head>
 <body class="pb-20 relative overflow-x-hidden min-h-screen">
@@ -118,13 +125,15 @@
                 <i data-lucide="x"></i>
             </button>
             <h3 id="video-modal-title" class="text-xl font-bold text-white mb-4 sm:mb-6 pr-12">Vidéo</h3>
+            <div id="vp-box" class="relative">
             <video id="video-modal-player" playsinline preload="metadata" class="w-full rounded-xl bg-black border border-slate-800 max-h-[65vh] cursor-pointer"></video>
-            <!-- [claude] panneau de contrôle propre : rien ne recouvre l'image quand la vidéo est en pause -->
-            <div class="flex items-center gap-3 mt-3">
+            <!-- [claude] panneau de contrôle propre : rien ne recouvre l'image ; en plein écran c'est tout le lecteur qui passe en plein écran (pas le lecteur natif) -->
+            <div class="vp-bar flex items-center gap-3 mt-3">
                 <button id="vp-play" type="button" class="w-10 h-10 shrink-0 flex items-center justify-center rounded-full bg-violet-600 hover:bg-violet-500 text-white text-sm font-bold" aria-label="Lecture / pause">&#9654;</button>
                 <input id="vp-seek" type="range" min="0" max="1000" value="0" class="flex-1 accent-violet-500 cursor-pointer" aria-label="Position">
-                <span id="vp-time" class="text-xs text-slate-400 font-mono shrink-0 w-[84px] text-right">0:00 / 0:00</span>
+                <span id="vp-time" class="text-xs text-slate-300 font-mono shrink-0 w-[84px] text-right">0:00 / 0:00</span>
                 <button id="vp-fs" type="button" class="w-10 h-10 shrink-0 flex items-center justify-center rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-base" aria-label="Plein écran">&#x26F6;</button>
+            </div>
             </div>
             <p class="text-center text-sm text-slate-400 mt-4 border-t border-slate-800 pt-4">
                 Backing track sans basse — jouez la ligne de basse par-dessus.
@@ -1677,6 +1686,7 @@
         window.closeVideoModal = () => {
             const player = document.getElementById('video-modal-player');
             player.pause();
+            if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
             document.getElementById('video-modal').classList.add('hidden');
         };
 
@@ -1702,8 +1712,25 @@
             ['play', 'pause', 'timeupdate', 'loadedmetadata', 'emptied'].forEach(ev => v.addEventListener(ev, update));
             seek.addEventListener('input', () => { dragging = true; if (v.duration) time.textContent = fmt(seek.value / 1000 * v.duration) + ' / ' + fmt(v.duration); });
             seek.addEventListener('change', () => { if (v.duration) v.currentTime = seek.value / 1000 * v.duration; dragging = false; });
+            const box = document.getElementById('vp-box');
+            const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
+            let idleTimer = null;
+            const wake = () => {
+                box.classList.remove('vp-idle');
+                clearTimeout(idleTimer);
+                if (fsEl() === box) idleTimer = setTimeout(() => box.classList.add('vp-idle'), 2500);
+            };
+            ['pointermove', 'pointerdown', 'touchstart'].forEach(ev => box.addEventListener(ev, wake, { passive: true }));
+            const onFs = () => {
+                if (fsEl() === box) { wake(); try { screen.orientation.lock('landscape').catch(() => {}); } catch (e) {} }
+                else { clearTimeout(idleTimer); box.classList.remove('vp-idle'); try { screen.orientation.unlock(); } catch (e) {} }
+            };
+            document.addEventListener('fullscreenchange', onFs);
+            document.addEventListener('webkitfullscreenchange', onFs);
             document.getElementById('vp-fs').addEventListener('click', () => {
-                if (v.requestFullscreen) v.requestFullscreen().catch(() => {});
+                if (fsEl()) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
+                if (box.requestFullscreen) box.requestFullscreen().catch(() => {});
+                else if (box.webkitRequestFullscreen) box.webkitRequestFullscreen();
                 else if (v.webkitEnterFullscreen) v.webkitEnterFullscreen();
             });
         })();
