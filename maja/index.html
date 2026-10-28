@@ -45,6 +45,9 @@
         #vp-box:fullscreen .vp-bar, #vp-box:-webkit-full-screen .vp-bar { position:absolute; left:0; right:0; bottom:0; margin:0; padding:14px 18px; background:linear-gradient(transparent, rgba(0,0,0,.75)); transition:opacity .3s; }
         #vp-box.vp-idle .vp-bar { opacity:0; pointer-events:none; }
         #vp-box.vp-idle { cursor:none; }
+        /* [claude] si le téléphone ouvre quand même son lecteur natif (rotation) : pas de gros bouton play au centre */
+        #video-modal-player::-webkit-media-controls-overlay-play-button { display:none !important; }
+        #video-modal-player::-webkit-media-controls-start-playback-button { display:none !important; -webkit-appearance:none; }
     </style>
 </head>
 <body class="pb-20 relative overflow-x-hidden min-h-screen">
