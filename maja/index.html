@@ -48,6 +48,9 @@
         /* [claude] si le téléphone ouvre quand même son lecteur natif (rotation) : pas de gros bouton play au centre */
         #video-modal-player::-webkit-media-controls-overlay-play-button { display:none !important; }
         #video-modal-player::-webkit-media-controls-start-playback-button { display:none !important; -webkit-appearance:none; }
+        /* [claude] desktop : agrandir par défaut (comme le zoom 150 % du navigateur) ; mobile inchangé */
+        @media (min-width: 1200px) { html { zoom: 1.5; } }
+        @media (min-width: 1024px) and (max-width: 1199px) { html { zoom: 1.25; } }
     </style>
 </head>
 <body class="pb-20 relative overflow-x-hidden min-h-screen">
