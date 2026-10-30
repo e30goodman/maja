@@ -43,6 +43,7 @@
         #vp-box:-webkit-full-screen { background:#000; width:100vw; height:100vh; display:flex; align-items:center; justify-content:center; }
         #vp-box:fullscreen video, #vp-box:-webkit-full-screen video { width:100%; height:100%; max-height:none; object-fit:contain; border:0; border-radius:0; }
         #vp-box:fullscreen .vp-bar, #vp-box:-webkit-full-screen .vp-bar { position:absolute; left:0; right:0; bottom:0; margin:0; padding:14px 18px; background:linear-gradient(transparent, rgba(0,0,0,.75)); transition:opacity .3s; }
+        .vp-sp.on { background:#7c3aed; border-color:#8b5cf6; color:#fff; }
         #vp-box.vp-idle .vp-bar { opacity:0; pointer-events:none; }
         #vp-box.vp-idle { cursor:none; }
         /* [claude] si le téléphone ouvre quand même son lecteur natif (rotation) : pas de gros bouton play au centre */
@@ -145,11 +146,24 @@
             <div id="vp-box" class="relative">
             <video id="video-modal-player" playsinline preload="metadata" class="w-full rounded-xl bg-black border border-slate-800 max-h-[65vh] cursor-pointer"></video>
             <!-- [claude] panneau de contrôle propre : rien ne recouvre l'image ; en plein écran c'est tout le lecteur qui passe en plein écran (pas le lecteur natif) -->
-            <div class="vp-bar flex items-center gap-3 mt-3">
+            <div class="vp-bar flex flex-wrap items-center gap-x-3 gap-y-2 mt-3">
                 <button id="vp-play" type="button" class="w-10 h-10 shrink-0 flex items-center justify-center rounded-full bg-violet-600 hover:bg-violet-500 text-white text-sm font-bold" aria-label="Lecture / pause">&#9654;</button>
-                <input id="vp-seek" type="range" min="0" max="1000" value="0" class="flex-1 accent-violet-500 cursor-pointer" aria-label="Position">
-                <span id="vp-time" class="text-xs text-slate-300 font-mono shrink-0 w-[84px] text-right">0:00 / 0:00</span>
+                <input id="vp-seek" type="range" min="0" max="1000" value="0" class="flex-1 min-w-0 w-0 accent-violet-500 cursor-pointer" aria-label="Position">
+                <span id="vp-time" class="text-[11px] text-slate-300 font-mono shrink-0 w-[76px] text-right">0:00 / 0:00</span>
                 <button id="vp-fs" type="button" class="w-10 h-10 shrink-0 flex items-center justify-center rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-base" aria-label="Plein écran">&#x26F6;</button>
+                <!-- [claude] vitesse + volume -->
+                <div class="basis-full flex items-center justify-between gap-3 flex-wrap">
+                    <div id="vp-speeds" class="flex items-center gap-1 shrink-0" role="group" aria-label="Vitesse">
+                        <button type="button" data-r="0.5" class="vp-sp px-2 py-1 rounded-full text-xs font-bold border border-slate-700 bg-slate-800 text-slate-300">0.5×</button>
+                        <button type="button" data-r="0.75" class="vp-sp px-2 py-1 rounded-full text-xs font-bold border border-slate-700 bg-slate-800 text-slate-300">0.75×</button>
+                        <button type="button" data-r="1" class="vp-sp px-2 py-1 rounded-full text-xs font-bold border border-slate-700 bg-slate-800 text-slate-300">1×</button>
+                        <button type="button" data-r="1.25" class="vp-sp px-2 py-1 rounded-full text-xs font-bold border border-slate-700 bg-slate-800 text-slate-300">1.25×</button>
+                    </div>
+                    <div id="vp-volbox" class="flex items-center gap-2 flex-1 min-w-[110px] max-w-[220px]">
+                        <button id="vp-mute" type="button" class="w-8 h-8 shrink-0 flex items-center justify-center rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-sm" aria-label="Muet">&#128266;</button>
+                        <input id="vp-vol" type="range" min="0" max="100" value="100" class="flex-1 accent-violet-500 cursor-pointer" aria-label="Volume">
+                    </div>
+                </div>
             </div>
             </div>
             <p class="text-center text-sm text-slate-400 mt-4 border-t border-slate-800 pt-4">
@@ -1739,6 +1753,23 @@
             ['play', 'pause', 'timeupdate', 'loadedmetadata', 'emptied'].forEach(ev => v.addEventListener(ev, update));
             seek.addEventListener('input', () => { dragging = true; if (v.duration) time.textContent = fmt(seek.value / 1000 * v.duration) + ' / ' + fmt(v.duration); });
             seek.addEventListener('change', () => { if (v.duration) v.currentTime = seek.value / 1000 * v.duration; dragging = false; });
+            // [claude] vitesse + volume
+            const spBtns = [...document.querySelectorAll('#vp-speeds .vp-sp')];
+            const setRate = (r) => {
+                v.defaultPlaybackRate = r; v.playbackRate = r;
+                try { v.preservesPitch = true; v.webkitPreservesPitch = true; } catch (e) {}
+                spBtns.forEach(b => b.classList.toggle('on', parseFloat(b.dataset.r) === r));
+            };
+            spBtns.forEach(b => b.addEventListener('click', () => setRate(parseFloat(b.dataset.r))));
+            setRate(1);
+            const vol = document.getElementById('vp-vol');
+            const mute = document.getElementById('vp-mute');
+            v.volume = 0.5;
+            if (Math.abs(v.volume - 0.5) > 0.01) { document.getElementById('vp-volbox').style.display = 'none'; }
+            v.volume = 1;
+            const upVol = () => { mute.innerHTML = (v.muted || v.volume === 0) ? '&#128263;' : '&#128266;'; };
+            vol.addEventListener('input', () => { v.muted = false; v.volume = vol.value / 100; upVol(); });
+            mute.addEventListener('click', () => { v.muted = !v.muted; upVol(); });
             const box = document.getElementById('vp-box');
             const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
             let idleTimer = null;
